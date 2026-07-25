@@ -78,7 +78,12 @@ class FailureStatusTests(unittest.TestCase):
         os.environ.update(self._env)
         self.temp.cleanup()
 
-    def _failed_run(self, *, head_sha: str = "a" * 40) -> int:
+    def _failed_run(
+        self,
+        *,
+        head_sha: str = "a" * 40,
+        failure_code: str = "review_failed",
+    ) -> int:
         with closing(memory_db.connect_existing(self.db)) as conn:
             run = memory_db.start_run(
                 conn, "eneo-ai/eneo", 12, base_sha="b" * 40, head_sha=head_sha
@@ -90,7 +95,7 @@ class FailureStatusTests(unittest.TestCase):
                 repository="eneo-ai/eneo",
                 pr_number=12,
                 status="failed",
-                failure_code="review_failed",
+                failure_code=failure_code,
             )
         return run_id
 
@@ -108,7 +113,6 @@ class FailureStatusTests(unittest.TestCase):
             result = review_publisher.publish_run_failure_status(
                 conn,
                 run_id=run_id,
-                reason="PR too large for GitHub to render a diff",
                 failure_code="github_diff_406",
                 github=fake,
             )
@@ -116,7 +120,7 @@ class FailureStatusTests(unittest.TestCase):
         self.assertEqual(len(fake.created), 1)
         body = fake.created[0][1]
         self.assertIn(f"eneo-review:failure-status run={run_id}", body)
-        self.assertIn("PR too large for GitHub to render a diff", body)
+        self.assertIn("GitHub could not render this pull request's diff", body)
         self.assertIn("post `/review` again as a new top-level PR comment", body)
         self.assertIn("share the status code with the reviewer operator", body)
         with closing(memory_db.connect_existing(self.db)) as conn:
@@ -130,7 +134,7 @@ class FailureStatusTests(unittest.TestCase):
         fake = FakeGateway()
         with closing(memory_db.connect_existing(self.db)) as conn:
             review_publisher.publish_run_failure_status(
-                conn, run_id=run_id, reason="x", failure_code="c", github=fake
+                conn, run_id=run_id, failure_code="c", github=fake
             )
         first_id = fake.created[0][0]
         # Second call with an EMPTY comment listing: stored-id-first must PATCH the same
@@ -138,7 +142,7 @@ class FailureStatusTests(unittest.TestCase):
         fake2 = FakeGateway(comments=[])
         with closing(memory_db.connect_existing(self.db)) as conn:
             review_publisher.publish_run_failure_status(
-                conn, run_id=run_id, reason="y", failure_code="c", github=fake2
+                conn, run_id=run_id, failure_code="c", github=fake2
             )
         self.assertEqual(fake2.created, [])
         self.assertEqual([cid for cid, _ in fake2.updated], [first_id])
@@ -162,10 +166,92 @@ class FailureStatusTests(unittest.TestCase):
         fake = FakeGateway(comments=fillers + [marker_comment])
         with closing(memory_db.connect_existing(self.db)) as conn:
             review_publisher.publish_run_failure_status(
-                conn, run_id=run_id, reason="x", failure_code="c", github=fake
+                conn, run_id=run_id, failure_code="c", github=fake
             )
         self.assertEqual(fake.created, [])
         self.assertEqual([cid for cid, _ in fake.updated], [9999])
+
+    def test_snapshot_status_explains_base_or_head_change_without_delivery_error(self):
+        run_id = self._failed_run(failure_code="snapshot_superseded")
+        fake = FakeGateway()
+
+        with closing(memory_db.connect_existing(self.db)) as conn:
+            review_publisher.publish_run_failure_status(
+                conn,
+                run_id=run_id,
+                failure_code="snapshot_superseded",
+                github=fake,
+            )
+
+        body = fake.created[0][1]
+        self.assertIn("review snapshot was superseded", body.lower())
+        self.assertIn("base or head changed", body.lower())
+        self.assertIn("If a newer review is not already running", body)
+        self.assertNotIn("failed during delivery", body)
+
+    def test_reaper_uses_publisher_owned_snapshot_status_copy(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+        import eneo_review_memory as cli
+
+        self._failed_run(failure_code="snapshot_superseded")
+        fake = FakeGateway()
+
+        with closing(memory_db.connect_existing(self.db)) as conn:
+            summary = cli.reap_and_publish(
+                conn,
+                memory_db,
+                review_publisher,
+                repository="eneo-ai/eneo",
+                github=fake,
+            )
+
+        self.assertEqual(summary["status_posted"], 1)
+        body = fake.created[0][1]
+        self.assertIn("review snapshot was superseded", body.lower())
+        self.assertIn("base or head changed", body.lower())
+        self.assertNotIn("see operator logs", body)
+
+    def test_reaper_skips_superseded_run_when_a_newer_review_exists(self):
+        with closing(memory_db.connect_existing(self.db)) as conn:
+            first = memory_db.start_run(
+                conn,
+                "eneo-ai/eneo",
+                12,
+                base_sha="b" * 40,
+                head_sha="a" * 40,
+            )
+            second = memory_db.start_run(
+                conn,
+                "eneo-ai/eneo",
+                12,
+                base_sha="b" * 40,
+                head_sha="c" * 40,
+            )
+            memory_db.complete_run(
+                conn,
+                int(second["id"]),
+                status="generated",
+                posted_comment_id=9001,
+            )
+            first_row = memory_db.get_run(conn, int(first["id"]))
+        assert first_row is not None
+        self.assertEqual(first_row["failure_code"], "snapshot_superseded")
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+        import eneo_review_memory as cli
+
+        fake = FakeGateway()
+        with closing(memory_db.connect_existing(self.db)) as conn:
+            summary = cli.reap_and_publish(
+                conn,
+                memory_db,
+                review_publisher,
+                repository="eneo-ai/eneo",
+                github=fake,
+            )
+
+        self.assertEqual(summary["status_posted"], 0)
+        self.assertEqual(fake.created, [])
 
     def test_cleanup_removes_marker_only_failure_status_without_stored_id(self):
         # A failure-status comment posted in degraded mode has the marker but no stored

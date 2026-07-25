@@ -88,13 +88,18 @@ class FeedbackIngestionTests(unittest.TestCase):
             head_sha=head_sha,
         )
         if run["status"] == "duplicate":
+            memory_db.complete_run(
+                self.connection,
+                int(run["existing_run_id"]),
+                status="failed",
+                failure_code="snapshot_superseded",
+            )
             run = memory_db.start_run(
                 self.connection,
                 "eneo/platform",
                 pr_number,
                 base_sha=base_sha,
                 head_sha=head_sha,
-                force=True,
             )
         run_id = int(run["id"])
         self._runs[key] = run_id

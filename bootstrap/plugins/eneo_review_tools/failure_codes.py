@@ -13,8 +13,8 @@ from typing import Final
 REVIEW_FAILED: Final = "review_failed"
 # The reaper failed a run whose heartbeat stopped past the stale cutoff.
 STALE_TIMEOUT: Final = "stale_timeout"
-# A forced re-review superseded an in-flight run for the same PR.
-SUPERSEDED_BY_FORCE: Final = "superseded_by_force"
+# The pull request base/head snapshot changed, so a newer explicit review may proceed.
+SNAPSHOT_SUPERSEDED: Final = "snapshot_superseded"
 # A duplicate active run was retired during a schema/lifecycle migration.
 SUPERSEDED_DUPLICATE_MIGRATION: Final = "superseded_duplicate_migration"
 # review_deliver raised a known ToolInputError/ReviewMemoryError before publishing.
@@ -27,7 +27,7 @@ ALL: Final = frozenset(
     {
         REVIEW_FAILED,
         STALE_TIMEOUT,
-        SUPERSEDED_BY_FORCE,
+        SNAPSHOT_SUPERSEDED,
         SUPERSEDED_DUPLICATE_MIGRATION,
         REVIEW_DELIVER_ERROR,
         UNEXPECTED_REVIEW_DELIVER_FAILURE,

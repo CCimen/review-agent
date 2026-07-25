@@ -273,7 +273,6 @@ class ReviewPublisherModule(Protocol):
         connection: sqlite3.Connection,
         *,
         run_id: int,
-        reason: str,
         failure_code: str,
         github: object | None = None,
     ) -> dict[str, object]: ...
@@ -284,21 +283,6 @@ def load_review_publisher() -> ReviewPublisherModule:
         return cast(ReviewPublisherModule, _import_module("review_publisher"))
     except ModuleNotFoundError as exc:
         raise SystemExit("Could not locate the Eneo review publisher module") from exc
-
-
-_FAILURE_REASONS = {
-    "stale_timeout": "the review run stopped responding and was marked stale",
-    "github_diff_406": (
-        "GitHub could not render this pull request's diff (it is very large)"
-    ),
-    "review_deliver_error": "the review failed during delivery",
-}
-
-
-def _failure_reason(failure_code: str) -> str:
-    return _FAILURE_REASONS.get(
-        failure_code, "the review did not complete; see operator logs"
-    )
 
 
 def reap_and_publish(
@@ -331,7 +315,6 @@ def reap_and_publish(
             publisher.publish_run_failure_status(
                 connection,
                 run_id=run_id,
-                reason=_failure_reason(code),
                 failure_code=code,
                 github=github,
             )

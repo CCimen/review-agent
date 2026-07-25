@@ -14,7 +14,7 @@ import urllib.request
 from typing import Any, Literal, Protocol, cast
 
 try:
-    from . import memory_publications, memory_runs, memory_suggestions
+    from . import failure_codes, memory_publications, memory_runs, memory_suggestions
     from .memory_validation import ReviewMemoryError, isoformat, utc_now
     from .review_renderer import (
         ReviewBlock,
@@ -24,6 +24,7 @@ try:
     )
     from .review_identity import CONTINUATION_LEAD, REVIEW_COMMENT_TITLE
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
+    import failure_codes  # type: ignore[no-redef]
     import memory_publications  # type: ignore[no-redef]
     import memory_runs  # type: ignore[no-redef]
     import memory_suggestions  # type: ignore[no-redef]
@@ -1643,6 +1644,16 @@ _FAILURE_STATUS_TOKEN = "eneo-review:failure-status"
 # failure-status comment can sit far beyond the default 300-comment window; scan deeper
 # (bounded) on this rare fallback path so we never duplicate or orphan one.
 _FAILURE_STATUS_SCAN_PAGES = 50
+_FAILURE_REASONS = {
+    failure_codes.STALE_TIMEOUT: (
+        "the review run stopped responding and was marked stale"
+    ),
+    "github_diff_406": "GitHub could not render this pull request's diff (it is very large)",
+    failure_codes.REVIEW_DELIVER_ERROR: "the review failed during delivery",
+    failure_codes.UNEXPECTED_REVIEW_DELIVER_FAILURE: (
+        "the review failed unexpectedly during delivery"
+    ),
+}
 
 
 def _failure_status_marker(run_id: int, head_sha: str) -> str:
@@ -1662,9 +1673,21 @@ def _my_failure_status_comments(
     return [comment for comment in mine if _FAILURE_STATUS_TOKEN in comment.body]
 
 
-def _failure_status_body(
-    run_id: int, head_sha: str, reason: str, failure_code: str
-) -> str:
+def _failure_status_body(run_id: int, head_sha: str, failure_code: str) -> str:
+    if failure_code == failure_codes.SNAPSHOT_SUPERSEDED:
+        return (
+            f"## {REVIEW_COMMENT_TITLE} — review snapshot was superseded\n\n"
+            "The pull request base or head changed while this review was running, "
+            "so no findings from the older snapshot were published.\n\n"
+            "If a newer review is not already running, post `/review` as a new "
+            "top-level PR comment after the latest changes are ready. Deterministic "
+            "CI remains the merge gate.\n\n"
+            f"- Status code: `{failure_code}`\n\n"
+            f"{_failure_status_marker(run_id, head_sha)}\n"
+        )
+    reason = _FAILURE_REASONS.get(
+        failure_code, "the review did not complete; see operator logs"
+    )
     return (
         f"## {REVIEW_COMMENT_TITLE} — could not be completed\n\n"
         "This automated review did not finish, so no findings were published.\n\n"
@@ -1697,7 +1720,6 @@ def publish_run_failure_status(
     connection: sqlite3.Connection,
     *,
     run_id: int,
-    reason: str,
     failure_code: str,
     github: GitHubPublicationGateway | None = None,
 ) -> dict[str, object]:
@@ -1717,7 +1739,7 @@ def publish_run_failure_status(
     head_sha = str(run.get("head_sha") or "")
     stored_id = run.get("failure_status_comment_id")
     gateway = github or _default_gateway()
-    body = _failure_status_body(int(run_id), head_sha, reason, failure_code)
+    body = _failure_status_body(int(run_id), head_sha, failure_code)
 
     if isinstance(stored_id, int) and not isinstance(stored_id, bool) and stored_id > 0:
         comment = gateway.update_issue_comment(repository, stored_id, body)

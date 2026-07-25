@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, cast
 
 try:
+    from . import failure_codes
     from .memory_validation import (
         ReviewMemoryError,
         clean_text,
@@ -16,6 +17,7 @@ try:
         utc_now,
     )
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
+    import failure_codes  # type: ignore[no-redef]
     from memory_validation import (
         ReviewMemoryError,
         clean_text,
@@ -48,6 +50,34 @@ RUNNING_PHASES = frozenset(
     }
 )
 TERMINAL_PHASE_BY_STATUS = {"generated": "posted", "failed": "failed"}
+
+
+class ReviewSnapshotChangedError(ReviewMemoryError):
+    """The persisted run no longer matches the current pull-request snapshot."""
+
+    changed_fields: tuple[str, ...]
+
+    def __init__(self, changed_fields: tuple[str, ...]) -> None:
+        super().__init__("pull request base or head snapshot changed during review")
+        self.changed_fields = changed_fields
+
+
+def snapshot_changed_fields(
+    run: dict[str, Any], *, base_sha: str, head_sha: str
+) -> tuple[str, ...]:
+    """Return differing dimensions; an empty legacy SHA is unknown, not a mismatch.
+
+    Production review_begin always records both exact SHAs. The empty-value behavior
+    only preserves pre-snapshot rows and direct storage callers.
+    """
+    recorded_base = str(run.get("base_sha") or "").lower()
+    recorded_head = str(run.get("head_sha") or "").lower()
+    changed: list[str] = []
+    if recorded_base and base_sha and recorded_base != base_sha:
+        changed.append("base")
+    if recorded_head and head_sha and recorded_head != head_sha:
+        changed.append("head")
+    return tuple(changed)
 
 
 def _running_phase(value: str) -> RunPhase:
@@ -100,7 +130,6 @@ def start_run(
     trigger_user: str = "",
     base_sha: str = "",
     head_sha: str = "",
-    force: bool = False,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Record the start of one run-owned review lifecycle for a PR snapshot."""
@@ -119,7 +148,10 @@ def start_run(
     started = isoformat(moment)
     connection.execute("BEGIN IMMEDIATE")
     try:
-        if force:
+        existing = _active_run(connection, repository, pr_number)
+        if existing is not None and snapshot_changed_fields(
+            existing, base_sha=base_sha, head_sha=head_sha
+        ):
             connection.execute(
                 """
                 UPDATE review_runs
@@ -127,18 +159,20 @@ def start_run(
                     phase = 'failed',
                     completed_at = ?,
                     last_heartbeat_at = ?,
-                    failure_code = 'superseded_by_force'
-                WHERE repository = ?
-                  AND pr_number = ?
+                    failure_code = ?
+                WHERE id = ?
                   AND status = 'running'
                 """,
-                (started, started, repository, int(pr_number)),
+                (
+                    started,
+                    started,
+                    failure_codes.SNAPSHOT_SUPERSEDED,
+                    int(existing["id"]),
+                ),
             )
-        else:
-            existing = _active_run(connection, repository, pr_number)
-            if existing is not None:
-                connection.commit()
-                return _duplicate_response(existing)
+        elif existing is not None:
+            connection.commit()
+            return _duplicate_response(existing)
         cursor = connection.execute(
             """
             INSERT INTO review_runs (
@@ -373,22 +407,41 @@ def failed_runs_needing_status(
     """Failed runs that have not yet had a failure-status comment posted.
 
     The reaper posts a deterministic status for these so an aborted review is never
-    silent on the PR. Pure read; the CLI orchestrates the publishing.
+    silent on the PR. A snapshot-superseded run with a newer run for the same PR is
+    intentionally omitted: the newer run owns the developer-visible outcome, and a
+    late status for the older run would appear after that outcome. Pure read; the CLI
+    orchestrates the publishing.
     """
-    conditions = ["status = 'failed'", "failure_status_comment_id IS NULL"]
-    params: list[Any] = []
+    conditions = [
+        "failed.status = 'failed'",
+        "failed.failure_status_comment_id IS NULL",
+        """
+        NOT (
+            failed.failure_code = ?
+            AND EXISTS (
+                SELECT 1
+                FROM review_runs AS newer
+                WHERE newer.repository = failed.repository
+                  AND newer.pr_number = failed.pr_number
+                  AND newer.id > failed.id
+            )
+        )
+        """,
+    ]
+    params: list[Any] = [failure_codes.SNAPSHOT_SUPERSEDED]
     if repository is not None:
-        conditions.append("repository = ?")
+        conditions.append("failed.repository = ?")
         params.append(normalize_repository(repository))
     if pr_number is not None:
         if isinstance(pr_number, bool) or int(pr_number) < 1:
             raise ReviewMemoryError("pr_number must be positive")
-        conditions.append("pr_number = ?")
+        conditions.append("failed.pr_number = ?")
         params.append(int(pr_number))
     rows = connection.execute(
         f"""
-        SELECT id, repository, pr_number, head_sha, failure_code
-        FROM review_runs
+        SELECT failed.id, failed.repository, failed.pr_number,
+               failed.head_sha, failed.failure_code
+        FROM review_runs AS failed
         WHERE {" AND ".join(conditions)}
         ORDER BY id ASC
         """,
@@ -470,13 +523,13 @@ def validate_run_snapshot(
         raise ReviewMemoryError("run_id does not match this pull request")
     if str(row["status"]) != "running":
         raise ReviewMemoryError("run_id is not an active review run")
-    recorded_base = str(row["base_sha"] or "").lower()
-    recorded_head = str(row["head_sha"] or "").lower()
-    if recorded_base and base_sha and recorded_base != base_sha:
-        raise ReviewMemoryError("pull request base SHA changed during review")
-    if recorded_head and recorded_head != head_sha:
-        raise ReviewMemoryError("pull request head SHA changed during review")
-    return dict(row)
+    run = dict(row)
+    changed_fields = snapshot_changed_fields(
+        run, base_sha=base_sha, head_sha=head_sha
+    )
+    if changed_fields:
+        raise ReviewSnapshotChangedError(changed_fields)
+    return run
 
 
 def complete_run(

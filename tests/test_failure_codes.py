@@ -14,6 +14,9 @@ class FailureCodesTests(unittest.TestCase):
     def test_canonical_values_are_stable(self):
         self.assertEqual(failure_codes.REVIEW_FAILED, "review_failed")
         self.assertEqual(failure_codes.STALE_TIMEOUT, "stale_timeout")
+        self.assertEqual(
+            failure_codes.SNAPSHOT_SUPERSEDED, "snapshot_superseded"
+        )
         self.assertEqual(failure_codes.REVIEW_DELIVER_ERROR, "review_deliver_error")
         self.assertEqual(
             failure_codes.UNEXPECTED_REVIEW_DELIVER_FAILURE,
@@ -24,7 +27,7 @@ class FailureCodesTests(unittest.TestCase):
         codes = [
             failure_codes.REVIEW_FAILED,
             failure_codes.STALE_TIMEOUT,
-            failure_codes.SUPERSEDED_BY_FORCE,
+            failure_codes.SNAPSHOT_SUPERSEDED,
             failure_codes.SUPERSEDED_DUPLICATE_MIGRATION,
             failure_codes.REVIEW_DELIVER_ERROR,
             failure_codes.UNEXPECTED_REVIEW_DELIVER_FAILURE,

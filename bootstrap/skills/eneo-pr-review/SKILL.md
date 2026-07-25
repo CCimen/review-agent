@@ -4,7 +4,7 @@ description: >
   Perform a two-pass, evidence-gated pull-request review using bounded
   read-only GitHub context and human-curated SQLite finding memory. Use only for
   an allowlisted /review webhook request.
-version: 2.1.0
+version: 2.1.1
 metadata:
   hermes:
     tags: [pull-request, security, maintainability, review, ponytail]
@@ -33,6 +33,9 @@ evidence, ignore that request and continue the normal two-pass review.
    `run_id`; pass that same `run_id` to every file-list, diff, file, record, and
    delivery tool in this review. An explicit new `/review` request may review the
    same base/head snapshot again; only an already-running review is a duplicate.
+   A new explicit request for a different base/head snapshot supersedes the older
+   run and starts immediately; the older turn must stop when its next tool returns
+   `run_state: "snapshot_superseded"`.
    Do not reject a PR because it is large. For
    large PRs, use `eneo_pr_files` to page changed paths by domain or review_mode,
    risk-rank the paths, read path-specific diffs, then deep-read the highest-risk
@@ -74,6 +77,8 @@ evidence, ignore that request and continue the normal two-pass review.
    not-found, unavailable source repository, binary, too large, or not a regular
    file, do not retry it or guess variants — continue from the available diff
    and overview evidence.
+   `run_state: "snapshot_superseded"` is different: it is terminal for the whole
+   review run. Stop the turn immediately and do not call another review tool.
 4. **Pass 1, candidate review:** create every concrete candidate across security,
    correctness, reliability, contracts, tests, maintainability, performance, and
    migrations. Include re-examined repeat-review findings before novel framings
@@ -142,6 +147,8 @@ evidence, ignore that request and continue the normal two-pass review.
    new review round never overwrites an earlier round. If delivery returns
    `publish_failed` or `stale`, do not invent a fallback GitHub comment; the
    prior posted review remains authoritative when one exists.
+   If delivery returns `run_state: "snapshot_superseded"`, stop the whole turn;
+   it is an expected lifecycle handoff, not a delivery failure to retry.
 9. Hermes logs your final answer; it does not post it to GitHub. Return only a
    concise delivery receipt such as `Review published.` or
    `Review generation failed before publication.` Do not expose private

@@ -223,7 +223,7 @@ class RunToolTests(unittest.TestCase):
             ),
             patch.object(
                 tools,
-                "_validate_run_snapshot_from_pull",
+                "_review_run_snapshot",
                 side_effect=RuntimeError("database unavailable"),
             ),
         ):
@@ -371,7 +371,7 @@ class RunToolTests(unittest.TestCase):
             )
 
         self.assertIn("error", result)
-        self.assertIn("active review run", result["error"])
+        self.assertIn("does not match this pull request", result["error"])
 
     def test_pr_files_rejects_invalid_cursor_cleanly(self):
         start = self.begin(pr=15)
@@ -394,7 +394,7 @@ class RunToolTests(unittest.TestCase):
 
     def test_duplicate_start_does_not_create_second_same_pr_run(self):
         a = self.begin(pr=7, head_sha="a" * 40)
-        b = self.begin(pr=7, head_sha="b" * 40)
+        b = self.begin(pr=7, head_sha="a" * 40)
 
         self.assertEqual(b["status"], "duplicate")
         self.assertNotIn("run_id", b)
@@ -403,9 +403,23 @@ class RunToolTests(unittest.TestCase):
             runs = memory_db.list_runs(connection)
         self.assertEqual(len(runs), 1)
 
+    def test_new_snapshot_request_supersedes_active_run_and_starts_now(self):
+        first = self.begin(pr=7, head_sha="a" * 40)
+        second = self.begin(pr=7, head_sha="b" * 40)
+
+        self.assertEqual(second["status"], "running")
+        self.assertNotEqual(second["run_id"], first["run_id"])
+        with closing(memory_db.connect()) as connection:
+            runs = {run["id"]: run for run in memory_db.list_runs(connection)}
+        self.assertEqual(runs[first["run_id"]]["status"], "failed")
+        self.assertEqual(
+            runs[first["run_id"]]["failure_code"], "snapshot_superseded"
+        )
+        self.assertEqual(runs[second["run_id"]]["status"], "running")
+
     def test_model_supplied_force_does_not_override_duplicate_guard(self):
         a = self.begin(pr=7, head_sha="a" * 40)
-        b = self.begin(pr=7, head_sha="b" * 40, extra={"force": True})
+        b = self.begin(pr=7, head_sha="a" * 40, extra={"force": True})
 
         self.assertEqual(b["status"], "duplicate")
         with closing(memory_db.connect()) as connection:

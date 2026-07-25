@@ -301,7 +301,7 @@ class ToolValidationTests(unittest.TestCase):
             )
         self.assertIn("traversal", result["error"])
 
-    def test_record_rejects_stale_head_sha(self):
+    def test_record_returns_terminal_handoff_for_stale_snapshot(self):
         pull = {
             "state": "open",
             "draft": False,
@@ -325,7 +325,9 @@ class ToolValidationTests(unittest.TestCase):
                     }
                 )
             )
-        self.assertIn("does not match", result["error"])
+        self.assertEqual(result["run_state"], "snapshot_superseded")
+        self.assertTrue(result["terminal"])
+        self.assertFalse(result["retryable"])
 
     def test_record_rejects_finding_outside_changed_files(self):
         pull = {
@@ -971,7 +973,7 @@ class ToolValidationTests(unittest.TestCase):
         self.assertEqual(read.call_count, memory_db.MAX_ATOMIC_SUGGESTIONS_PER_REVIEW)
         self.assertEqual(statuses[12], "suggestion_review_limit")
 
-    def test_deliver_rejects_stale_head_sha(self):
+    def test_deliver_returns_terminal_handoff_when_snapshot_changed(self):
         pull = {
             "state": "open",
             "draft": False,
@@ -994,9 +996,40 @@ class ToolValidationTests(unittest.TestCase):
                     }
                 )
             )
-        self.assertIn("does not match", result["error"])
+        self.assertEqual(result["run_state"], "snapshot_superseded")
+        self.assertTrue(result["terminal"])
+        self.assertFalse(result["retryable"])
+        self.assertEqual(result["failure_code"], "snapshot_superseded")
 
-    def test_pr_diff_rejects_changed_base_snapshot_before_network(self):
+    def test_deliver_keeps_wrong_model_head_as_hard_error(self):
+        pull = {
+            "state": "open",
+            "draft": False,
+            "head": {"sha": "a" * 40},
+            "base": {"sha": "b" * 40},
+            "changed_files": 1,
+        }
+        with (
+            patch.dict(os.environ, self.env, clear=False),
+            patch.object(tools, "_pr", return_value=pull) as reader,
+        ):
+            run_id = self.start_run(head_sha="a" * 40)
+            result = json.loads(
+                tools.review_deliver(
+                    {
+                        "repository": "eneo/platform",
+                        "pr_number": 1,
+                        "head_sha": "c" * 40,
+                        "run_id": run_id,
+                    }
+                )
+            )
+
+        self.assertIn("error", result)
+        self.assertIn("active review run", result["error"])
+        reader.assert_not_called()
+
+    def test_pr_diff_returns_terminal_handoff_for_changed_base_snapshot(self):
         initial = {
             "state": "open",
             "draft": False,
@@ -1027,10 +1060,12 @@ class ToolValidationTests(unittest.TestCase):
                         }
                     )
                 )
-        self.assertIn("base SHA changed", result["error"])
+        self.assertEqual(result["run_state"], "snapshot_superseded")
+        self.assertTrue(result["terminal"])
+        self.assertFalse(result["retryable"])
         requester.assert_not_called()
 
-    def test_pr_file_rejects_changed_head_snapshot_before_reading_file(self):
+    def test_snapshot_terminal_handoff_is_reused_without_more_github_reads(self):
         initial = {
             "state": "open",
             "draft": False,
@@ -1051,8 +1086,9 @@ class ToolValidationTests(unittest.TestCase):
             with (
                 patch.object(tools, "_pr", return_value=moved_head),
                 patch.object(tools, "_file_at_revision") as reader,
+                patch.object(tools, "_publish_failure_status_safe") as publish_status,
             ):
-                result = json.loads(
+                first = json.loads(
                     tools.pr_file(
                         {
                             "repository": "eneo/platform",
@@ -1062,8 +1098,100 @@ class ToolValidationTests(unittest.TestCase):
                         }
                     )
                 )
-        self.assertIn("head SHA changed", result["error"])
+            with patch.object(
+                tools, "_pr", side_effect=AssertionError("unexpected GitHub read")
+            ) as github_reader:
+                second = json.loads(
+                    tools.review_deliver(
+                        {
+                            "repository": "eneo/platform",
+                            "pr_number": 1,
+                            "head_sha": "a" * 40,
+                            "run_id": run_id,
+                        }
+                    )
+                )
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["run_state"], "snapshot_superseded")
+        self.assertTrue(first["terminal"])
+        self.assertFalse(first["retryable"])
         reader.assert_not_called()
+        github_reader.assert_not_called()
+        publish_status.assert_called_once_with(
+            run_id=run_id,
+            failure_code="snapshot_superseded",
+        )
+        with closing(memory_db.connect_existing(self.db)) as connection:
+            run = memory_db.get_run(connection, run_id)
+        assert run is not None
+        self.assertEqual(run["failure_code"], "snapshot_superseded")
+
+    def test_delivery_race_reuses_terminal_contract_without_failure_status(self):
+        pull = {
+            "state": "open",
+            "draft": False,
+            "head": {"sha": "a" * 40},
+            "base": {"sha": "b" * 40},
+            "changed_files": 1,
+        }
+        original_update = memory_db.update_run_phase
+
+        def supersede_before_publish(connection, candidate_run_id, phase, **kwargs):
+            if phase == "publishing":
+                memory_db.complete_run(
+                    connection,
+                    candidate_run_id,
+                    repository="eneo/platform",
+                    pr_number=1,
+                    status="failed",
+                    failure_code="snapshot_superseded",
+                )
+                return None
+            return original_update(
+                connection, candidate_run_id, phase, **kwargs
+            )
+
+        with (
+            patch.dict(os.environ, self.env, clear=False),
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(
+                memory_db,
+                "finalize_review",
+                return_value={
+                    "publication_id": 99,
+                    "findings_count": 0,
+                    "resolved_count": 0,
+                },
+            ),
+            patch.object(
+                memory_db,
+                "update_run_phase",
+                side_effect=supersede_before_publish,
+            ),
+            patch.object(tools, "_publish_failure_status_safe") as publish_status,
+            patch.object(review_publisher, "publish_review") as publish_review,
+        ):
+            run_id = self.start_run()
+            result = json.loads(
+                tools.review_deliver(
+                    {
+                        "repository": "eneo/platform",
+                        "pr_number": 1,
+                        "head_sha": "a" * 40,
+                        "run_id": run_id,
+                    }
+                )
+            )
+
+        self.assertEqual(result["run_state"], "snapshot_superseded")
+        self.assertTrue(result["terminal"])
+        publish_status.assert_not_called()
+        publish_review.assert_not_called()
+        with closing(memory_db.connect_existing(self.db)) as connection:
+            run = memory_db.get_run(connection, run_id)
+        assert run is not None
+        self.assertEqual(run["failure_code"], "snapshot_superseded")
 
     def test_deliver_finalizes_and_publishes_recorded_findings(self):
         pull = {

@@ -57,14 +57,74 @@ class ReviewRunsTests(unittest.TestCase):
         self.assertEqual(memory_db.list_runs(self.connection)[0]["status"], "generated")
 
     def test_same_pr_duplicate_start_returns_existing_run(self):
-        a = memory_db.start_run(self.connection, "eneo-ai/eneo", 7, head_sha="a" * 40)
-        b = memory_db.start_run(self.connection, "eneo-ai/eneo", 7, head_sha="b" * 40)
+        a = memory_db.start_run(
+            self.connection,
+            "eneo-ai/eneo",
+            7,
+            base_sha="b" * 40,
+            head_sha="a" * 40,
+        )
+        b = memory_db.start_run(
+            self.connection,
+            "eneo-ai/eneo",
+            7,
+            base_sha="b" * 40,
+            head_sha="a" * 40,
+        )
 
         self.assertEqual(b["status"], "duplicate")
         self.assertEqual(b["existing_run_id"], a["id"])
         runs = memory_db.list_runs(self.connection)
         self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0]["status"], "running")
+
+    def test_new_snapshot_start_supersedes_active_run(self):
+        first = memory_db.start_run(
+            self.connection,
+            "eneo-ai/eneo",
+            7,
+            base_sha="b" * 40,
+            head_sha="a" * 40,
+        )
+
+        second = memory_db.start_run(
+            self.connection,
+            "eneo-ai/eneo",
+            7,
+            base_sha="b" * 40,
+            head_sha="c" * 40,
+        )
+
+        self.assertEqual(second["status"], "running")
+        runs = {run["id"]: run for run in memory_db.list_runs(self.connection)}
+        self.assertEqual(runs[first["id"]]["status"], "failed")
+        self.assertEqual(
+            runs[first["id"]]["failure_code"], "snapshot_superseded"
+        )
+        self.assertEqual(runs[second["id"]]["status"], "running")
+
+    def test_base_only_snapshot_change_uses_same_supersede_rule(self):
+        first = memory_db.start_run(
+            self.connection,
+            "eneo-ai/eneo",
+            7,
+            base_sha="b" * 40,
+            head_sha="a" * 40,
+        )
+
+        second = memory_db.start_run(
+            self.connection,
+            "eneo-ai/eneo",
+            7,
+            base_sha="c" * 40,
+            head_sha="a" * 40,
+        )
+
+        self.assertEqual(second["status"], "running")
+        runs = {run["id"]: run for run in memory_db.list_runs(self.connection)}
+        self.assertEqual(
+            runs[first["id"]]["failure_code"], "snapshot_superseded"
+        )
 
     def test_database_blocks_two_active_runs_for_same_pr(self):
         memory_db.start_run(self.connection, "eneo-ai/eneo", 7, head_sha="a" * 40)
@@ -79,19 +139,6 @@ class ReviewRunsTests(unittest.TestCase):
                 """,
                 ("eneo-ai/eneo", 7, "b" * 40, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
             )
-
-    def test_force_start_supersedes_same_pr_run(self):
-        a = memory_db.start_run(self.connection, "eneo-ai/eneo", 7, head_sha="a" * 40)
-        b = memory_db.start_run(
-            self.connection, "eneo-ai/eneo", 7, head_sha="b" * 40, force=True
-        )
-
-        self.assertEqual(b["status"], "running")
-        runs = {r["id"]: r for r in memory_db.list_runs(self.connection)}
-        self.assertEqual(runs[a["id"]]["status"], "failed")
-        self.assertEqual(runs[a["id"]]["phase"], "failed")
-        self.assertEqual(runs[a["id"]]["failure_code"], "superseded_by_force")
-        self.assertEqual(runs[b["id"]]["status"], "running")
 
     def test_repository_pr_guard_blocks_mismatch(self):
         run = memory_db.start_run(self.connection, "eneo-ai/eneo", 5, head_sha="a" * 40)

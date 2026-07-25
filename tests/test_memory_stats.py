@@ -59,13 +59,18 @@ class ReviewStatsTests(unittest.TestCase):
             head_sha=head_sha,
         )
         if run["status"] == "duplicate":
+            memory_db.complete_run(
+                self.connection,
+                int(run["existing_run_id"]),
+                status="failed",
+                failure_code="snapshot_superseded",
+            )
             run = memory_db.start_run(
                 self.connection,
                 repo,
                 1,
                 base_sha="b" * 40,
                 head_sha=head_sha,
-                force=True,
             )
         return memory_db.record_findings(
             self.connection,

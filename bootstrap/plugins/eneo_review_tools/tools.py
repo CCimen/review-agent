@@ -537,8 +537,6 @@ def review_begin(args: dict[str, Any], **_: Any) -> str:
         pull = _pr(repository, number)
         if pull.get("state") != "open":
             raise ToolInputError("the pull request is no longer open")
-        if bool(pull.get("draft")):
-            raise ToolInputError("draft pull requests are not reviewed")
         base_sha = _pull_base_sha(pull)
         head_sha = _pull_head_sha(pull)
         raw_trigger_comment_id = args.get("trigger_comment_id")
@@ -1531,8 +1529,6 @@ def review_memory_record(args: dict[str, Any], **_: Any) -> str:
         )
         if pull.get("state") != "open":
             raise ToolInputError("the pull request is no longer open")
-        if bool(pull.get("draft")):
-            raise ToolInputError("draft pull requests are not recorded")
         base_sha = _pull_base_sha(pull)
 
         files = _changed_files(repository, number)
@@ -1678,8 +1674,6 @@ def review_deliver(args: dict[str, Any], **_: Any) -> str:
         )
         if pull.get("state") != "open":
             raise ToolInputError("the pull request is no longer open")
-        if bool(pull.get("draft")):
-            raise ToolInputError("draft pull requests are not recorded")
         with closing(memory_db.connect_existing()) as connection:
             finalized = memory_db.finalize_review(
                 connection,

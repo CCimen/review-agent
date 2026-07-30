@@ -21,9 +21,11 @@ class FakeGitHub:
         *,
         base_sha="b" * 40,
         head_sha="a" * 40,
+        draft=False,
     ):
         self.base_sha = base_sha
         self.head_sha = head_sha
+        self.draft = draft
         self.created = []
         self.next_comment_id = 1000
 
@@ -34,7 +36,7 @@ class FakeGitHub:
         del repository, pr_number
         return review_publisher.PullRequestState(
             state="open",
-            draft=False,
+            draft=self.draft,
             base_sha=self.base_sha,
             head_sha=self.head_sha,
         )
@@ -87,6 +89,7 @@ class RunToolTests(unittest.TestCase):
         pr: int = 498,
         base_sha: str = "b" * 40,
         head_sha: str = "a" * 40,
+        draft: bool = False,
         changed_files: list[dict] | None = None,
         extra: dict | None = None,
     ):
@@ -100,6 +103,7 @@ class RunToolTests(unittest.TestCase):
                 return_value=self.pull_with_repositories(
                     base_sha=base_sha,
                     head_sha=head_sha,
+                    draft=draft,
                 ),
             ),
             patch.object(
@@ -462,16 +466,11 @@ class RunToolTests(unittest.TestCase):
         self.assertIn("error", result)
         self.assertIn("allowlisted", result["error"])
 
-    def test_draft_pr_rejected(self):
-        pull = self.pull_with_repositories()
-        pull["draft"] = True
-        with patch.object(tools, "_pr", return_value=pull):
-            result = self.call(
-                tools.review_begin,
-                {"repository": "eneo-ai/eneo", "pr_number": 1},
-            )
-        self.assertIn("error", result)
-        self.assertIn("draft", result["error"])
+    def test_draft_pr_starts_review(self):
+        result = self.begin(pr=1, draft=True)
+
+        self.assertEqual(result["status"], "running")
+        self.assertEqual(result["phase"], "collecting_diff")
 
     def finding(self):
         return {
@@ -492,18 +491,20 @@ class RunToolTests(unittest.TestCase):
             "introduced_by_diff": True,
         }
 
-    def pull(self, *, base_sha="b" * 40, head_sha="a" * 40):
+    def pull(self, *, base_sha="b" * 40, head_sha="a" * 40, draft=False):
         return {
             "state": "open",
-            "draft": False,
+            "draft": draft,
             "head": {"sha": head_sha},
             "base": {"sha": base_sha},
         }
 
-    def pull_with_repositories(self, *, base_sha="b" * 40, head_sha="a" * 40):
+    def pull_with_repositories(
+        self, *, base_sha="b" * 40, head_sha="a" * 40, draft=False
+    ):
         return {
             "state": "open",
-            "draft": False,
+            "draft": draft,
             "title": "Test PR",
             "html_url": "https://github.com/eneo-ai/eneo/pull/12",
             "user": {"login": "alice"},
@@ -591,6 +592,50 @@ class RunToolTests(unittest.TestCase):
         self.assertEqual(run["posted_comment_id"], result["comment_id"])
         self.assertEqual(publication["delivery_status"], "posted")
         self.assertEqual(publication["comment_id"], result["comment_id"])
+
+    def test_draft_review_records_and_publishes(self):
+        start = self.begin(pr=20, draft=True)
+        run_id = int(start["run_id"])
+        pull = self.pull_with_repositories(draft=True)
+        github = FakeGitHub(draft=True)
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(
+                tools,
+                "_changed_files",
+                return_value=[
+                    {
+                        "path": "backend/api.py",
+                        "context_hash": "d" * 40,
+                        "context_hash_source": "blob",
+                    }
+                ],
+            ),
+            patch.object(review_publisher, "_default_gateway", return_value=github),
+        ):
+            recorded = self.call(
+                tools.review_memory_record,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 20,
+                    "head_sha": "a" * 40,
+                    "run_id": run_id,
+                    "findings": [self.finding()],
+                },
+            )
+            delivered = self.call(
+                tools.review_deliver,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 20,
+                    "head_sha": "a" * 40,
+                    "run_id": run_id,
+                },
+            )
+
+        self.assertEqual(len(recorded["recorded"]), 1)
+        self.assertTrue(delivered["published"])
+        self.assertEqual(delivered["stage"], "delivered")
 
     def test_deliver_allows_retry_after_correctable_prior_verdict_conflict(self):
         first_run_id = self.prepare_recorded_review(pr=17)

@@ -607,8 +607,6 @@ def _verify_pr_target(
 ) -> str | None:
     if pull.state != "open":
         return "pr_not_open"
-    if pull.draft:
-        return "pr_is_draft"
     if not publication["base_sha"]:
         return "missing_base_sha"
     if pull.base_sha != publication["base_sha"]:

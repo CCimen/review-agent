@@ -182,7 +182,7 @@ should show the copyable feedback commands documented below.
 
 ## Run A Review
 
-On an open, non-draft pull request, an allowlisted maintainer comments:
+On any open pull request, including a draft, an allowlisted maintainer comments:
 
 ```text
 /review

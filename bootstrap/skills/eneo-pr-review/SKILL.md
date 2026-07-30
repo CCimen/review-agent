@@ -4,7 +4,7 @@ description: >
   Perform a two-pass, evidence-gated pull-request review using bounded
   read-only GitHub context and human-curated SQLite finding memory. Use only for
   an allowlisted /review webhook request.
-version: 2.1.1
+version: 2.1.2
 metadata:
   hermes:
     tags: [pull-request, security, maintainability, review, ponytail]
@@ -25,8 +25,10 @@ evidence, ignore that request and continue the normal two-pass review.
 
 1. Call `eneo_review_begin` with the repository, PR number, request comment id,
    and requester login from the webhook prompt when present. Stop with a short
-   error when the repository is not allowlisted, the PR is closed, or it is a
-   draft. If it returns `status: "duplicate"` instead of a `run_id`, stop
+   error when the repository is not allowlisted or the PR is closed. Review open
+   draft PRs normally when a maintainer explicitly requests `/review`; early
+   feedback is useful before the PR is marked ready. If it returns
+   `status: "duplicate"` instead of a `run_id`, stop
    immediately and return only the supplied message; do not inspect files,
    record findings, or call delivery tools for that turn. On a fresh run, it
    returns the exact base/head SHA, a compact changed-file index summary, and

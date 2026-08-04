@@ -727,8 +727,7 @@ def main() -> int:
     )
     coach_run_parser.add_argument(
         "--export",
-        required=True,
-        help="Path created by `eneo-review-memory export --output`.",
+        help="Optional historical export; defaults to the live review-memory database.",
     )
     coach_run_parser.add_argument(
         "--output-dir",
@@ -810,8 +809,17 @@ def main() -> int:
 
     if args.command == "coach-run":
         memory_db = load_memory_module()
+        if args.export:
+            learning = load_learning_module()
+            state = learning.load_export(Path(args.export))
+        else:
+            try:
+                with closing(memory_db.connect_existing(args.db)) as connection:
+                    state = memory_db.export_state(connection)
+            except memory_db.ReviewMemoryError as exc:
+                raise SystemExit(str(exc)) from exc
         artifacts = build_coach_run_artifacts(
-            export_path=Path(args.export),
+            state=state,
             output_dir=Path(args.output_dir),
             repository=args.repo,
             after_decision_id=args.after_decision_id,
@@ -820,7 +828,6 @@ def main() -> int:
             max_candidates=args.max_candidates,
             min_independent_episodes=args.min_independent_episodes,
         )
-
         candidates = tuple(
             memory_db.CoachCandidateInput(
                 candidate_key=candidate.candidate_key,
@@ -843,8 +850,11 @@ def main() -> int:
             artifact_dir=str(artifacts.paths.output_dir),
             candidates=candidates,
         )
-        with closing(memory_db.connect_existing(args.db)) as connection:
-            run = memory_db.record_coach_run(connection, run_input)
+        try:
+            with closing(memory_db.connect_existing(args.db)) as connection:
+                run = memory_db.record_coach_run(connection, run_input)
+        except memory_db.ReviewMemoryError as exc:
+            raise SystemExit(str(exc)) from exc
         print(
             memory_db.json_dumps(
                 {

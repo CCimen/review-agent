@@ -21,6 +21,8 @@ class DecisionProvenance:
     fingerprint: str
     title: str
     path: str
+    evidence: str
+    disproof_checks: str
     local_reference: str
 
 
@@ -90,6 +92,8 @@ def decision_provenances(
             fingerprint=fingerprint,
             title=optional_string(row, "title"),
             path=optional_string(row, "path"),
+            evidence=optional_string(row, "evidence"),
+            disproof_checks=optional_string(row, "disproof_checks"),
             local_reference=local_reference,
         )
     return provenances

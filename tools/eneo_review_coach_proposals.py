@@ -14,7 +14,7 @@ from eneo_review_coach import COACH_EVENT_GROUPS, COACH_SCHEMA_VERSION
 from eneo_review_learning import EMITTED_SIGNAL_STRENGTHS
 
 
-PROPOSAL_SCHEMA_VERSION: Final = 1
+PROPOSAL_SCHEMA_VERSION: Final = 2
 ProposalDecision = Literal["propose", "no_change"]
 DEFAULT_MAX_CANDIDATES: Final = 3
 DEFAULT_MIN_INDEPENDENT_EPISODES: Final = 2
@@ -95,6 +95,8 @@ _COACH_EVENT_KEYS: Final[frozenset[str]] = frozenset(
         "missing_evidence",
         "human_reason_untrusted",
         "reviewer_title_untrusted",
+        "reviewer_evidence_untrusted",
+        "reviewer_disproof_checks_untrusted",
         "next_step_untrusted",
         "related_event_ids",
         "related_event_ids_total",
@@ -170,6 +172,8 @@ _PROPOSAL_EVIDENCE_KEYS: Final[frozenset[str]] = frozenset(
         "fingerprint",
         "local_reference",
         "reviewer_title_untrusted",
+        "reviewer_evidence_untrusted",
+        "reviewer_disproof_checks_untrusted",
         "human_reason_untrusted",
         "next_step_untrusted",
         "related_event_ids",
@@ -197,6 +201,8 @@ class CoachEvent:
     promotion_eligible: bool
     missing_evidence: tuple[str, ...]
     title_untrusted: str
+    reviewer_evidence_untrusted: str
+    reviewer_disproof_checks_untrusted: str
     human_reason_untrusted: str
     next_step_untrusted: str
     repository_untrusted: str
@@ -231,6 +237,8 @@ class EvidenceSummary:
     fingerprint: str
     local_reference: str
     reviewer_title_untrusted: str
+    reviewer_evidence_untrusted: str
+    reviewer_disproof_checks_untrusted: str
     human_reason_untrusted: str
     next_step_untrusted: str
     related_event_ids: tuple[str, ...]
@@ -248,6 +256,8 @@ class EvidenceSummary:
             "fingerprint": self.fingerprint,
             "local_reference": self.local_reference,
             "reviewer_title_untrusted": self.reviewer_title_untrusted,
+            "reviewer_evidence_untrusted": self.reviewer_evidence_untrusted,
+            "reviewer_disproof_checks_untrusted": self.reviewer_disproof_checks_untrusted,
             "human_reason_untrusted": self.human_reason_untrusted,
             "next_step_untrusted": self.next_step_untrusted,
             "related_event_ids": list(self.related_event_ids),
@@ -668,6 +678,12 @@ def _proposal_evidence(
         reviewer_title_untrusted=_optional_string(
             item, "reviewer_title_untrusted", context
         ),
+        reviewer_evidence_untrusted=_optional_string(
+            item, "reviewer_evidence_untrusted", context
+        ),
+        reviewer_disproof_checks_untrusted=_optional_string(
+            item, "reviewer_disproof_checks_untrusted", context
+        ),
         human_reason_untrusted=_optional_string(
             item, "human_reason_untrusted", context
         ),
@@ -698,15 +714,6 @@ def _validate_loaded_bundle(bundle: ProposalBundle) -> None:
         raise ValueError(
             "proposal bundle decision does not match candidate presence"
         )
-    # The proposal id protects candidate/evidence identity and governance membership;
-    # field-level consistency checks below guard the non-hashed presentation details.
-    expected_id = _proposal_set_id(
-        source_event_set_id=bundle.source_event_set_id,
-        candidates=bundle.candidates,
-        governance_observations=bundle.governance_observations,
-    )
-    if bundle.proposal_set_id != expected_id:
-        raise ValueError("proposal bundle proposal_set_id does not match its content")
     if bundle.events_considered < 0:
         raise ValueError("proposal bundle events_considered must be zero or greater")
     for index, candidate in enumerate(bundle.candidates):
@@ -731,6 +738,13 @@ def _validate_loaded_bundle(bundle: ProposalBundle) -> None:
             raise ValueError(
                 f"rejected_groups[{index}].events_total is smaller than event ids"
             )
+    expected_id = _proposal_set_id(
+        source_event_set_id=bundle.source_event_set_id,
+        candidates=bundle.candidates,
+        governance_observations=bundle.governance_observations,
+    )
+    if bundle.proposal_set_id != expected_id:
+        raise ValueError("proposal bundle proposal_set_id does not match its content")
 
 
 def _required_top_level_string(row: Mapping[str, object], key: str) -> str:
@@ -787,6 +801,12 @@ def _event(item: Mapping[str, object], index: int) -> CoachEvent:
         missing_evidence=tuple(_string_list(item, "missing_evidence", index)),
         title_untrusted=_optional_string(
             item, "reviewer_title_untrusted", context
+        ),
+        reviewer_evidence_untrusted=_optional_string(
+            item, "reviewer_evidence_untrusted", context
+        ),
+        reviewer_disproof_checks_untrusted=_optional_string(
+            item, "reviewer_disproof_checks_untrusted", context
         ),
         human_reason_untrusted=_optional_string(
             item, "human_reason_untrusted", context
@@ -899,6 +919,10 @@ def _event_summary(event: CoachEvent) -> EvidenceSummary:
         fingerprint=event.fingerprint,
         local_reference=event.local_reference,
         reviewer_title_untrusted=_bounded(event.title_untrusted),
+        reviewer_evidence_untrusted=_bounded(event.reviewer_evidence_untrusted),
+        reviewer_disproof_checks_untrusted=_bounded(
+            event.reviewer_disproof_checks_untrusted
+        ),
         human_reason_untrusted=_bounded(event.human_reason_untrusted),
         next_step_untrusted=_bounded(event.next_step_untrusted),
         related_event_ids=event.related_event_ids,
@@ -979,14 +1003,10 @@ def _proposal_set_id(
     stable = {
         "schema_version": PROPOSAL_SCHEMA_VERSION,
         "source_event_set_id": source_event_set_id,
-        "candidates": [
-            {
-                "candidate_key": item.candidate_key,
-                "evidence_event_ids": list(item.evidence_event_ids),
-            }
-            for item in candidates
+        "candidates": [item.to_json_obj() for item in candidates],
+        "governance_observations": [
+            item.to_json_obj() for item in governance_observations
         ],
-        "governance_observations": [item.event_id for item in governance_observations],
     }
     digest = hashlib.sha256(
         json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -1008,6 +1028,17 @@ def _render_candidate(index: int, candidate: CandidateProposal) -> list[str]:
         f"- Risk: {candidate.risk}",
         "",
     ]
+    for evidence in candidate.evidence:
+        lines.extend(
+            [
+                f"#### {evidence.event_id}",
+                "",
+                f"- Reviewer claim: {evidence.reviewer_evidence_untrusted or evidence.reviewer_title_untrusted}",
+                f"- Reviewer checks: {evidence.reviewer_disproof_checks_untrusted or '(not recorded)'}",
+                f"- Human counter-evidence: {evidence.human_reason_untrusted}",
+                "",
+            ]
+        )
     return lines
 
 

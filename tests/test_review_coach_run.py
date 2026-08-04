@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import stat
 import sys
@@ -62,12 +61,10 @@ class CoachRunArtifactTests(unittest.TestCase):
     def test_builds_private_artifacts_and_typed_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            export_path = root / "memory-export.json"
             output_dir = root / "coach-run"
-            export_path.write_text(json.dumps(memory_export()), encoding="utf-8")
 
             artifacts = build_coach_run_artifacts(
-                export_path=export_path,
+                state=memory_export(),
                 output_dir=output_dir,
                 repository="eneo-ai/eneo",
             )

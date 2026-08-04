@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from eneo_review_coach import build_coach_export, dumps_coach_export
+from eneo_review_coach import COACH_SCHEMA_VERSION, build_coach_export, dumps_coach_export
 from eneo_review_private_io import write_private_file
 
 
@@ -28,6 +28,8 @@ def state_with_signals(reason: str = "Human confirmed this was wrong.") -> dict[
                 "fingerprint": "abcdef1234567890",
                 "title": "All-tenant migration can choose the wrong model row",
                 "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+                "evidence": "The reviewer assumed the default selector ignores tenant scope.",
+                "disproof_checks": "Checked the selector, but not its caller arguments.",
             }
         ],
         "pr_finding_references": [
@@ -82,7 +84,7 @@ class CoachExportTests(unittest.TestCase):
         rendered = dumps_coach_export(payload)
         decoded = json.loads(rendered)
 
-        self.assertEqual(decoded["schema_version"], 1)
+        self.assertEqual(decoded["schema_version"], COACH_SCHEMA_VERSION)
         self.assertEqual(decoded["cursor"]["max_decision_id"], 2)
         self.assertEqual(decoded["cursor"]["max_feedback_id"], 7)
         self.assertEqual(
@@ -97,6 +99,14 @@ class CoachExportTests(unittest.TestCase):
             ["reopen", "false_positive"],
         )
         self.assertEqual(decision_event["source"]["observation_id"], 11)
+        self.assertEqual(
+            decision_event["reviewer_evidence_untrusted"],
+            "The reviewer assumed the default selector ignores tenant scope.",
+        )
+        self.assertEqual(
+            decision_event["reviewer_disproof_checks_untrusted"],
+            "Checked the selector, but not its caller arguments.",
+        )
         self.assertIn("human_reason_untrusted", decision_event)
         self.assertNotIn("github:bob", rendered)
         self.assertNotIn("carol", rendered)

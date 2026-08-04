@@ -12,6 +12,26 @@ changes for humans to review.
 
 ## First slice
 
+The preferred operator path reads the live SQLite database directly and writes
+only bounded private coach artifacts:
+
+```bash
+eneo-review-memory --db /opt/data/review-memory/review_memory.sqlite3 \
+  coach-run \
+  --repo eneo-ai/eneo \
+  --output-dir /opt/data/review-memory/coach-run
+```
+
+`coach-run` records a receipt in SQLite and emits `coach-export.json`,
+`proposal.json`, and `SUMMARY.md` with mode `0600`. The evidence pairs the
+reviewer's original claim and disproof checks with the maintainer's
+counter-evidence. If fewer than two independent episodes support the same stable
+finding identity, the correct result is `no_change`.
+Coach/proposal schema v1 artifacts are not migrated; regenerate them from SQLite.
+
+Use the lower-level export commands below only for historical snapshots or
+diagnosis; the normal coach path does not need a raw database export on disk.
+
 Generate an export from the operator CLI:
 
 ```bash
@@ -95,6 +115,12 @@ eneo-review-memory validate-replay review-learning/replay
 
 Replay fixtures are strict JSON files. This keeps validation on the standard
 library path and fails loudly instead of silently accepting a partial YAML parse.
+Fixture validation checks structure only. Before marking a lesson
+`replay-tested`, run the current reviewer policy blind against the exact
+historical base/head and retain a scrubbed, bounded execution receipt under
+`review-learning/reports/`. The PR 638 receipt demonstrates this distinction:
+the reviewer omitted the disproved lock claim while still returning unrelated
+findings from that historical snapshot.
 
 The report reads explicit human decisions and any populated
 `review_quality_feedback` rows. Empty review-quality sections mean no allowlisted
@@ -162,8 +188,11 @@ lessons into the narrowest canonical owner:
 - mechanical enforcement belongs in plugin code and tests;
 - replay behavior belongs in `review-learning/replay/`.
 
-Hermes `/learn` can help a private coach draft a skill from curated source
-material, but do not run it on arbitrary PR comments, contributor branches, raw
-session transcripts, or unsanitized exports. UpSkill-style retrospectives are
-useful as a process model: proposed learnings stay advisory until a human
-approves them and a replay or focused test protects the behavior.
+Hermes `/learn` can turn a scrubbed `SUMMARY.md` into a staged draft, but run it
+only in a separate operator profile or workstation that does not share the live
+reviewer's `HERMES_HOME`, skills, or gateway. Inspect the draft with
+`/skills pending` and `/skills diff <id>`, port only the validated lesson to the
+canonical owner in this repository, then reject the draft. Do not run `/learn`
+on arbitrary PR comments, contributor branches, raw session transcripts, or
+unsanitized exports. Proposed learnings stay advisory until a human approves
+them and a replay or focused test protects the behavior.

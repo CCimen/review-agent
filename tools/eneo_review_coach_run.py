@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import eneo_review_coach
 import eneo_review_coach_proposals
-import eneo_review_learning
 from eneo_review_private_io import write_private_file
 
 
@@ -34,7 +34,7 @@ class CoachRunArtifacts:
 
 def build_coach_run_artifacts(
     *,
-    export_path: Path,
+    state: Mapping[str, object],
     output_dir: Path,
     repository: str | None = None,
     after_decision_id: int = 0,
@@ -45,7 +45,6 @@ def build_coach_run_artifacts(
         eneo_review_coach_proposals.DEFAULT_MIN_INDEPENDENT_EPISODES
     ),
 ) -> CoachRunArtifacts:
-    state = eneo_review_learning.load_export(export_path)
     coach_payload = eneo_review_coach.build_coach_export(
         state,
         repository=repository,

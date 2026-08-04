@@ -14,7 +14,7 @@ from eneo_review_private_export import (
 )
 
 
-COACH_SCHEMA_VERSION: Final = 1
+COACH_SCHEMA_VERSION: Final = 2
 DECISION_CANDIDATE_GROUP: Final = "decision_candidate"
 REVIEW_QUALITY_SIGNAL_GROUP: Final = "review_quality_signal"
 POSITIVE_PATTERN_GROUP: Final = "positive_pattern"
@@ -99,6 +99,14 @@ def _signal_event(group: str, signal: LearningSignal) -> dict[str, object]:
         "missing_evidence": list(signal.missing_evidence),
         "human_reason_untrusted": bounded_text(signal.reason, MAX_UNTRUSTED_TEXT),
         "reviewer_title_untrusted": bounded_text(signal.title, MAX_SHORT_TEXT),
+        "reviewer_evidence_untrusted": bounded_text(
+            signal.provenance.evidence if signal.provenance is not None else "",
+            MAX_UNTRUSTED_TEXT,
+        ),
+        "reviewer_disproof_checks_untrusted": bounded_text(
+            signal.provenance.disproof_checks if signal.provenance is not None else "",
+            MAX_UNTRUSTED_TEXT,
+        ),
         "next_step_untrusted": bounded_text(signal.next_step, MAX_UNTRUSTED_TEXT),
         "related_event_ids": list(signal.related_event_ids),
         "related_event_ids_total": len(signal.related_event_ids),

@@ -76,12 +76,14 @@ happy path, or asserts mocks or implementation details instead of behavior.
 
 ### Pass 2: skeptical commit gate
 
-Try to reject every candidate. Name the cheapest falsifier first: if this is
-benign, which nearby guard, caller, callee, base-branch behavior, test, framework
-guarantee, transaction boundary, or data-flow fact would prove that? Check that
-disproof path first, then broaden only when the cheapest check does not settle
-the claim. Reject the candidate when evidence is incomplete or two plausible
-interpretations remain.
+Try to reject every candidate. First confirm the current head still contains the
+claimed behavior. Name the cheapest falsifier: if this is benign, which nearby
+guard, actual caller argument or callee, base-branch behavior, test, framework or
+component lifecycle, pinned dependency behavior, transaction boundary, or
+data-flow fact would prove that? Check that disproof path first, then broaden
+only when the cheapest check does not settle the claim. Before recommending a
+different architecture, read the accepted ADR or owner contract. Reject the
+candidate when evidence is incomplete or two plausible interpretations remain.
 
 Trace each surviving claim through the branch that actually executes to the
 failing consumer. Distinguish this primary demonstrated path from fallbacks,

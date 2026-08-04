@@ -49,6 +49,8 @@ reaction or a short deterministic explanation.
 Human feedback and coach exports may inform future reviewer changes, but they do
 not automatically rewrite prompts, skills, suppressions, or policy. In short:
 review evidence can propose changes, but it cannot change policy by itself.
+Run Hermes `/learn` only in a separate operator profile or workstation that does
+not share the live reviewer's `HERMES_HOME`, skills directory, or gateway.
 
 ## Private Claude Verification
 
@@ -131,8 +133,10 @@ scrub exports before sharing.
 
 Coach and verification exports are private analysis artifacts. They contain
 bounded untrusted text, stable ids, exact observation provenance, hashes, and
-event metadata for human-reviewed workflows. The public webhook reviewer does
-not read those exports.
+event metadata for human-reviewed workflows. Coach evidence includes the
+reviewer's original claim and disproof checks alongside the human reason so the
+mistake can be evaluated in context. The public webhook reviewer does not read
+those exports.
 
 ## Non-Goals
 

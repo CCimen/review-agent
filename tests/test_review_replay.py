@@ -50,7 +50,10 @@ class ReplayValidationTests(unittest.TestCase):
 
         self.assertEqual(
             {result.fixture_id for result in results},
-            {"pr-240-ambiguous-model-resolution"},
+            {
+                "pr-240-ambiguous-model-resolution",
+                "pr-638-lock-free-skill-preflight",
+            },
         )
 
     def test_unknown_key_is_rejected(self) -> None:

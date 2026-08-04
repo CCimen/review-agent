@@ -383,6 +383,37 @@ Do not paste raw SQLite exports into an LLM. Use `verification-export` for
 review-finding falsification and `coach-export` for reviewer-improvement
 signals.
 
+Run the private coach directly from the live database so a raw export is not
+left on disk:
+
+```bash
+eneo-review-memory --db /opt/data/review-memory/review_memory.sqlite3 \
+  coach-run \
+  --repo eneo-ai/eneo \
+  --output-dir /opt/data/review-memory/coach-run
+```
+
+The result is deliberately conservative. `no_change` means stop. A `propose`
+result requires repeated independent episodes for the same stable finding and
+includes the reviewer's original claim and checks beside the human
+counter-evidence.
+
+For a `propose` result, scrub `SUMMARY.md`, copy it to a separate operator
+workstation or Hermes profile, and run:
+
+```text
+/learn ~/coach-review/SUMMARY.md; draft the smallest reviewer lesson and preserve the human-governed replay gate
+/skills pending
+/skills diff <id>
+```
+
+Do not run `/learn` in the live reviewer profile. The separate profile must not
+share its `HERMES_HOME`, skills directory, or gateway. Keep
+`skills.write_approval` on and treat the staged diff as a draft: add a focused
+replay, port the validated lesson into the canonical repository owner, deploy
+normally, then use `/skills reject <id>`. Never feed `/learn` raw comments, raw
+SQLite exports, or unsanitized session transcripts.
+
 Validate replay fixtures:
 
 ```bash
@@ -395,12 +426,12 @@ or repository text, so scrub them before committing or sharing.
 
 ## Updating And Validation
 
-`HERMES_IMAGE` is pinned to the Hermes 0.19.0 release tag and its immutable
+`HERMES_IMAGE` is pinned to the Hermes 0.20.0 release tag and its immutable
 multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency
 bump. Never replace this with the moving `latest` or `main` tag.
 
-Hermes 0.19.0 supports GPT-5.6 throughout its model configuration and picker.
+Hermes 0.20.0 supports GPT-5.6 throughout its model configuration and picker.
 The managed profile still configures `gpt-5.6-sol` directly so deployment does
 not depend on an interactive picker. A controlled review after deployment is
 the final proof that the subscription is entitled to the model and the OAuth

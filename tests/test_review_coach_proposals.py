@@ -14,7 +14,7 @@ from typing import cast
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from eneo_review_coach import COACH_EVENT_GROUPS, build_coach_export
+from eneo_review_coach import COACH_EVENT_GROUPS, COACH_SCHEMA_VERSION, build_coach_export
 from eneo_review_coach_proposals import (
     POSITIVE_PATTERN_REASON,
     PROPOSAL_FORBIDDEN_ACTIONS,
@@ -40,7 +40,7 @@ def coach_export(events: list[dict[str, object]]) -> dict[str, object]:
     return {
         "snapshot_id": "sha256:snapshot",
         "event_set_id": "sha256:events",
-        "schema_version": 1,
+        "schema_version": COACH_SCHEMA_VERSION,
         "repository_untrusted": "eneo-ai/eneo",
         "cursor": {"after_decision_id": 0, "after_feedback_id": 0},
         "events": events,
@@ -59,6 +59,8 @@ def learning_state() -> dict[str, object]:
                 "fingerprint": "abcdef1234567890",
                 "title": "Tenant scope claim was wrong",
                 "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+                "evidence": "The reviewer assumed the selector ignores tenant scope.",
+                "disproof_checks": "Checked the selector, but not its caller arguments.",
             },
             {
                 "id": 22,
@@ -68,6 +70,8 @@ def learning_state() -> dict[str, object]:
                 "fingerprint": "abcdef1234567890",
                 "title": "Tenant scope claim was wrong",
                 "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+                "evidence": "The reviewer assumed the selector ignores tenant scope.",
+                "disproof_checks": "Checked the selector, but not its caller arguments.",
             },
             {
                 "id": 33,
@@ -188,6 +192,8 @@ def event(
         "missing_evidence": [],
         "human_reason_untrusted": "Reviewer marked this as a false positive.",
         "reviewer_title_untrusted": "Tenant scope claim was wrong",
+        "reviewer_evidence_untrusted": "The reviewer assumed the selector ignores tenant scope.",
+        "reviewer_disproof_checks_untrusted": "Checked the selector, but not its caller arguments.",
         "next_step_untrusted": "Add replay before changing policy.",
         "related_event_ids": [event_id],
         "source": {
@@ -273,6 +279,15 @@ class CoachProposalTests(unittest.TestCase):
         self.assertEqual(candidate["target_owner"], "replay_then_skill")
         self.assertEqual(candidate["independent_episode_count"], 2)
         self.assertEqual(candidate["evidence_event_ids"], ["decision:1", "decision:2"])
+        first_evidence = candidate["evidence"][0]
+        self.assertEqual(
+            first_evidence["reviewer_evidence_untrusted"],
+            "The reviewer assumed the selector ignores tenant scope.",
+        )
+        self.assertEqual(
+            first_evidence["reviewer_disproof_checks_untrusted"],
+            "Checked the selector, but not its caller arguments.",
+        )
         self.assertTrue(str(bundle["proposal_set_id"]).startswith("sha256:"))
         markdown = render_markdown(
             build_proposal(
@@ -286,6 +301,8 @@ class CoachProposalTests(unittest.TestCase):
         )
         self.assertIn("## Copyable next step", markdown)
         self.assertIn(candidate["candidate_key"], markdown)
+        self.assertIn("Reviewer claim", markdown)
+        self.assertIn("Human counter-evidence", markdown)
 
     def test_same_observation_chain_counts_once(self) -> None:
         bundle = proposal_json(
@@ -461,11 +478,15 @@ class CoachProposalTests(unittest.TestCase):
                 {"schema_version": True, "event_set_id": "sha256:x", "events": []}
             )
         with self.assertRaisesRegex(ValueError, "event_set_id"):
-            proposal_json({"schema_version": 1, "events": []})
+            proposal_json({"schema_version": COACH_SCHEMA_VERSION, "events": []})
         with self.assertRaisesRegex(ValueError, "event_set_id must be a string"):
-            proposal_json({"schema_version": 1, "event_set_id": 12, "events": []})
+            proposal_json(
+                {"schema_version": COACH_SCHEMA_VERSION, "event_set_id": 12, "events": []}
+            )
         with self.assertRaisesRegex(ValueError, "missing events"):
-            proposal_json({"schema_version": 1, "event_set_id": "sha256:x"})
+            proposal_json(
+                {"schema_version": COACH_SCHEMA_VERSION, "event_set_id": "sha256:x"}
+            )
         payload = coach_export([])
         payload["actor_login"] = "alice"
         with self.assertRaisesRegex(ValueError, "unknown keys: actor_login"):
@@ -647,7 +668,9 @@ class CoachProposalTests(unittest.TestCase):
 
     def test_proposal_parser_rejects_tampered_content_hash(self) -> None:
         payload = maximal_proposal_bundle().to_json_obj()
-        payload["candidates"][0]["evidence_event_ids"][0] = "decision:999"
+        payload["candidates"][0]["evidence"][0][
+            "reviewer_evidence_untrusted"
+        ] = "Tampered reviewer claim"
 
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "proposal.json"

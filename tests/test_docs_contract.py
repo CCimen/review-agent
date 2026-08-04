@@ -279,6 +279,8 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("allowlisted developers", words(readme))
         self.assertIn("feedback bridge", security)
         self.assertIn("deterministic", security)
+        self.assertIn("coach-run", operations)
+        self.assertIn("/skills diff", operations)
 
     def test_feedback_sidecar_uses_least_privilege_deployment(self):
         compose = read("compose.yaml")
@@ -434,14 +436,15 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn('ENEO_REVIEW_FEEDBACK_ENABLED: "${ENEO_REVIEW_FEEDBACK_ENABLED:-false}"', compose)
         self.assertIn("Set `ENEO_REVIEW_FEEDBACK_ENABLED=true`", operations)
 
-    def test_learning_pipeline_boundary_is_tool_surface_first(self):
+    def test_live_reviewer_keeps_unsafe_toolsets_disabled(self):
         config = read("bootstrap/config.yaml")
         skill = read("bootstrap/skills/eneo-pr-review/SKILL.md")
-        self.assertIn("    - file\n", config)
-        self.assertIn("    - skills\n", config)
-        self.assertIn("    - memory\n", config)
-        self.assertIn("    - terminal\n", config)
-        self.assertIn("    - code_execution\n", config)
+        disabled = config.split("  disabled_toolsets:", 1)[1].split("\nmemory:", 1)[0]
+        self.assertIn("- file", disabled)
+        self.assertIn("- skills", disabled)
+        self.assertIn("- memory", disabled)
+        self.assertIn("- terminal", disabled)
+        self.assertIn("- code_execution", disabled)
         self.assertNotIn("review-learning", skill)
 
     def test_large_prs_are_not_rejected_by_fixed_size_budget(self):
@@ -475,7 +478,7 @@ class DocsContractTests(unittest.TestCase):
         operations = read("docs/OPERATIONS.md")
         dockerfile = read("Dockerfile")
 
-        digest = "nousresearch/hermes-agent:v2026.7.20@sha256:f7b35053268f532f98955195c909f15a230470fbcbdacaa9fdecb95707dad04a"
+        digest = "nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e"
         self.assertIn(digest, compose)
         self.assertIn(digest, env_example)
         self.assertIn(digest, dockerfile)

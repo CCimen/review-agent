@@ -69,10 +69,12 @@ flowchart TD
 The model proposes and challenges findings. Plugin code owns the durable state,
 publication, feedback parsing, snapshot checks, and GitHub writes.
 
-Private verification and learning artifacts are outside this live path unless a
-future runner explicitly wires them in. Verifier output is advisory evidence: it
-does not publish comments, suppress findings, rewrite prompts, or gate pull
-requests unless Codex records a reconciliation decision for the current run.
+Private verification and learning remain outside this live path. An operator can
+run the coach against SQLite and use a separate, non-production Hermes profile
+to turn a scrubbed proposal into a staged `/learn` draft. The live reviewer
+profile keeps file and skill tools disabled. Approved lessons move through the
+canonical repository and focused replay validation. Neither private path can
+gate pull requests.
 
 ## Engine And Profile
 

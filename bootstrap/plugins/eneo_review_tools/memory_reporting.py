@@ -17,6 +17,7 @@ try:
     from .memory_validation import (
         CATEGORIES,
         DECISIONS,
+        REVIEW_FEEDBACK_CATEGORIES,
         SEVERITIES,
         isoformat,
         normalize_repository,
@@ -34,6 +35,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
     from memory_validation import (
         CATEGORIES,
         DECISIONS,
+        REVIEW_FEEDBACK_CATEGORIES,
         SEVERITIES,
         isoformat,
         normalize_repository,
@@ -166,7 +168,7 @@ def compute_stats(
     expiring_within_days: int = 30,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Read-only summary of findings and human decisions for operator triage.
+    """Summarize findings, human decisions, and review-quality feedback.
 
     Active-suppression counts always go through active_suppression(), so expired
     decisions, context-hash-invalid decisions, and non-suppressive states
@@ -178,11 +180,13 @@ def compute_stats(
     expiry_cutoff = moment + timedelta(days=expiring_within_days)
 
     params: list[Any] = []
-    where = ""
+    repository_filter = ""
     if repo:
-        where = "WHERE repository = ?"
+        repository_filter = "WHERE repository = ?"
         params.append(repo)
-    rows = connection.execute(f"SELECT * FROM findings {where}", params).fetchall()
+    rows = connection.execute(
+        f"SELECT * FROM findings {repository_filter}", params
+    ).fetchall()
     items = [dict(row) for row in rows]
     latest_decisions = latest_decisions_for_fingerprints(
         connection, (item["fingerprint"] for item in items)
@@ -190,6 +194,10 @@ def compute_stats(
 
     by_severity = {severity: 0 for severity in sorted(SEVERITIES)}
     by_category = {category: 0 for category in sorted(CATEGORIES)}
+    by_rule: dict[str, int] = {}
+    quality_feedback_by_category = {
+        category: 0 for category in sorted(REVIEW_FEEDBACK_CATEGORIES)
+    }
     latest_decision_by_type = {decision: 0 for decision in sorted(DECISIONS)}
     findings_without_decision = 0
     active_suppressions = 0
@@ -202,6 +210,9 @@ def compute_stats(
             by_severity[item["severity"]] += 1
         if item.get("category") in by_category:
             by_category[item["category"]] += 1
+        rule_id = str(item.get("rule_id", ""))
+        if rule_id:
+            by_rule[rule_id] = by_rule.get(rule_id, 0) + 1
 
         decision = latest_decisions.get(fingerprint)
         if decision is None:
@@ -232,6 +243,20 @@ def compute_stats(
             ):
                 repeats_after_decision += 1
 
+    quality_rows = connection.execute(
+        f"""
+        SELECT category, COUNT(*) AS total
+        FROM review_quality_feedback
+        {repository_filter}
+        GROUP BY category
+        """,
+        params,
+    ).fetchall()
+    for row in quality_rows:
+        category = str(row["category"])
+        if category in quality_feedback_by_category:
+            quality_feedback_by_category[category] = int(row["total"])
+
     return {
         "repository": repo,
         "generated_at": isoformat(moment),
@@ -239,6 +264,8 @@ def compute_stats(
         "findings_without_decision": findings_without_decision,
         "findings_by_severity": by_severity,
         "findings_by_category": by_category,
+        "findings_by_rule": dict(sorted(by_rule.items())),
+        "quality_feedback_by_category": quality_feedback_by_category,
         "latest_decision_by_type": latest_decision_by_type,
         "active_suppressions": active_suppressions,
         "active_suppressions_expiring_within_days": expiring_within_days,

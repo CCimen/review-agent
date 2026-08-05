@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import io
+import json
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import timedelta
 from pathlib import Path
 
-PLUGIN = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "eneo_review_tools"
+ROOT = Path(__file__).resolve().parents[1]
+PLUGIN = ROOT / "bootstrap" / "plugins" / "eneo_review_tools"
 sys.path.insert(0, str(PLUGIN))
+sys.path.insert(0, str(ROOT / "tools"))
 
+import eneo_review_memory  # noqa: E402
 import memory_db  # noqa: E402
 
 
@@ -106,6 +112,66 @@ class ReviewStatsTests(unittest.TestCase):
         )
         self.assertEqual(stats["findings_by_category"]["security"], 1)
         self.assertEqual(stats["findings_by_category"]["performance"], 1)
+
+    def test_counts_rules_and_quality_feedback_with_repository_scope(self):
+        self._record(path="backend/a.py", anchor="A", rule_id="tests.scope-drift")
+        self._record(path="backend/b.py", anchor="B", rule_id="tests.scope-drift")
+        self._record(
+            repo="other/repo",
+            path="backend/c.py",
+            anchor="C",
+            rule_id="tests.other",
+        )
+        now = memory_db.isoformat()
+        self.connection.executemany(
+            """
+            INSERT INTO review_quality_feedback (
+                repository, pr_number, head_sha, category, reason,
+                actor_user_id, created_at
+            ) VALUES (?, 1, ?, ?, 'reason', 'user:1', ?)
+            """,
+            (
+                ("eneo/platform", "a" * 40, "scope_confusion", now),
+                ("other/repo", "b" * 40, "missed_issue", now),
+            ),
+        )
+        self.connection.commit()
+
+        stats = memory_db.compute_stats(self.connection, repository="eneo/platform")
+
+        self.assertEqual(stats["findings_by_rule"], {"tests.scope-drift": 2})
+        self.assertEqual(stats["quality_feedback_by_category"]["scope_confusion"], 1)
+        self.assertEqual(stats["quality_feedback_by_category"]["missed_issue"], 0)
+
+    def test_human_stats_caps_rule_list_without_truncating_serialized_stats(self):
+        stats = {
+            "repository": "eneo/platform",
+            "generated_at": "2026-08-05T00:00:00Z",
+            "findings_total": 17,
+            "findings_without_decision": 17,
+            "findings_by_severity": {},
+            "findings_by_category": {},
+            "findings_by_rule": {
+                f"tests.rule-{index:02d}": index + 1 for index in range(17)
+            },
+            "quality_feedback_by_category": {},
+            "latest_decision_by_type": {},
+            "active_suppressions": 0,
+            "active_suppressions_expiring_within_days": 30,
+            "active_suppressions_nearing_expiry": 0,
+            "repeats_after_decision_approx": 0,
+        }
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            eneo_review_memory.print_stats(stats)
+
+        rendered = output.getvalue()
+        self.assertIn("tests.rule-16=17", rendered)
+        self.assertNotIn("tests.rule-00=1", rendered)
+        self.assertIn("(+2 more)", rendered)
+        serialized = json.loads(memory_db.json_dumps(stats))
+        self.assertEqual(len(serialized["findings_by_rule"]), 17)
 
     def test_active_suppression_and_decision_counts(self):
         result = self._record()

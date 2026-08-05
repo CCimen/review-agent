@@ -111,6 +111,30 @@ class ReviewRendererTests(unittest.TestCase):
         )
         self.assertNotIn("This review is not a clean result", line)
 
+    def test_scope_contract_is_visible_for_every_coverage_state(self) -> None:
+        scope_lead = "Scope: base-to-head diff"
+        coverage_states = (
+            None,
+            self.coverage(state="unknown"),
+            self.coverage(),
+            self.coverage(
+                state="incomplete",
+                changed_paths_with_diff=2,
+                unavailable=1,
+            ),
+        )
+
+        for coverage in coverage_states:
+            with self.subTest(state=None if coverage is None else coverage["state"]):
+                rendered = review_renderer.coverage_summary_line(coverage)
+
+                self.assertTrue(rendered.startswith(scope_lead))
+                self.assertIn("stacked and off-title changes", rendered)
+                self.assertIn(
+                    "unchanged files are supporting evidence only.",
+                    rendered,
+                )
+
     def test_complete_coverage_line_omits_empty_source_context_sentence(self) -> None:
         line = review_renderer.coverage_summary_line(
             self.coverage(
@@ -212,6 +236,30 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("...", rendered)
         self.assertNotIn("extra deta...", rendered)
         self.assertNotIn("Reviewer checks", rendered)
+
+    def test_fix_brief_forbids_unrelated_work_and_requires_scope_restore_approval(
+        self,
+    ) -> None:
+        rendered = review_renderer.render_fix_brief(
+            "eneo/platform",
+            17,
+            "a" * 40,
+            [self.finding()],
+        )
+        constraints = rendered.split("Constraints:\n", 1)[1].split(
+            "\n\nCompletion:", 1
+        )[0]
+        report = rendered.split("Return to the developer:\n", 1)[1].split(
+            "\n\nDo not claim", 1
+        )[0]
+
+        self.assertIn("Avoid unrelated refactoring.", constraints)
+        scope_rule = next(
+            line for line in constraints.splitlines() if "scope drift" in line
+        )
+        self.assertIn("restore to base", scope_rule)
+        self.assertIn("developer approval", scope_rule)
+        self.assertIn("Files changed and why.", report)
 
     def test_fix_brief_keeps_untrusted_fields_on_their_labeled_lines(self) -> None:
         rendered = review_renderer.render_fix_brief(

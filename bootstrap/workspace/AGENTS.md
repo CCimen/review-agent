@@ -5,9 +5,11 @@ This is the canonical, version-controlled contract for this PR reviewer.
 ## Review target
 
 Review only problems introduced or materially worsened by the current pull
-request. Start from the diff and read only the surrounding code needed to prove
-or disprove a claim. Deterministic CI remains the merge gate; this review adds
-contextual engineering judgment.
+request. Mechanical scope is the complete base-to-head diff, including stacked
+and off-title changes. Start from the diff; unchanged files are supporting
+evidence only. Read only the surrounding code needed to prove or disprove a
+claim. Deterministic CI remains the merge gate; this review adds contextual
+engineering judgment.
 
 The current project profile combines a FastAPI/SQLAlchemy backend, PostgreSQL with pgvector,
 Redis/ARQ background work, and a SvelteKit/TypeScript frontend. It supports
@@ -288,8 +290,11 @@ results, and explain anything skipped or blocked. State whether changed-file
 diff context was available for all registered paths; do not overstate that as
 proof every path was semantically deep-reviewed. If prior references were not
 rechecked, name them as status unknown and do not present them as actionable
-current findings. Keep the brief self-contained so the author can paste it into
-a coding agent. Do not attach a file or create a second artifact in phase one.
+current findings. Forbid unrelated refactoring, require the agent to report files
+changed and why, and tell it to flag scope drift. Restoring a file to base
+requires developer approval. Keep the brief self-contained so the author can
+paste it into a coding agent. Do not attach a file or create a second artifact
+in phase one.
 
 After the fix brief, add the deterministic `Give feedback on this review`
 section. It must be rendered by code, not invented by the model. Document `/review`

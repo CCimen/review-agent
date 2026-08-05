@@ -23,9 +23,9 @@ from eneo_review_tools import (  # noqa: E402
 )
 
 
-# Large enough for one atomic coding-agent brief, but small enough to force a
-# representative review into deterministic continuation comments.
-SPLIT_BUDGET = 2_500
+# Large enough for one atomic coding-agent brief plus modest wording growth, but
+# small enough to force a representative review into continuation comments.
+SPLIT_BUDGET = 2_600
 
 
 class FakeHTTPResponse:

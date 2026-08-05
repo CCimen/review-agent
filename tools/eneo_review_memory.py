@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     )
 
 JsonObject = Mapping[str, object]
+STATS_RULE_DISPLAY_LIMIT = 15
 
 
 class CoachRunRow(Protocol):
@@ -402,10 +403,31 @@ def print_stats(stats: JsonObject) -> None:
     print(f"  findings: {stats['findings_total']}  (no decision: {stats['findings_without_decision']})")
     by_severity = _nested(stats, "findings_by_severity")
     by_category = _nested(stats, "findings_by_category")
+    by_rule = _nested(stats, "findings_by_rule")
+    quality_feedback = _nested(stats, "quality_feedback_by_category")
     latest_decisions = _nested(stats, "latest_decision_by_type")
     print("  by severity:  " + ", ".join(f"{k}={v}" for k, v in by_severity.items()))
     cats = ", ".join(f"{k}={v}" for k, v in by_category.items() if v) or "(none)"
     print(f"  by category:  {cats}")
+    ranked_rules = sorted(
+        (
+            (rule_id, value)
+            for rule_id, value in by_rule.items()
+            if isinstance(value, int)
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )
+    displayed_rules = ranked_rules[:STATS_RULE_DISPLAY_LIMIT]
+    rules = ", ".join(f"{rule_id}={count}" for rule_id, count in displayed_rules)
+    hidden_rules = len(ranked_rules) - len(displayed_rules)
+    if hidden_rules:
+        rules += f", (+{hidden_rules} more)"
+    rules = rules or "(none)"
+    print(f"  by rule:  {rules}")
+    feedback = (
+        ", ".join(f"{k}={v}" for k, v in quality_feedback.items() if v) or "(none)"
+    )
+    print(f"  quality feedback:  {feedback}")
     decs = ", ".join(f"{k}={v}" for k, v in latest_decisions.items() if v) or "(none)"
     print(f"  latest decision:  {decs}")
     print(
@@ -587,7 +609,10 @@ def main() -> int:
     export_parser = sub.add_parser("export", help="Export findings and decisions as JSON.")
     export_parser.add_argument("--output", help="Write to a file instead of stdout.")
 
-    stats_parser = sub.add_parser("stats", help="Summarize findings and human decisions.")
+    stats_parser = sub.add_parser(
+        "stats",
+        help="Summarize findings, human decisions, and review-quality feedback.",
+    )
     stats_parser.add_argument("--repo", help="Limit to owner/repository.")
     stats_parser.add_argument("--expiring-within-days", type=int, default=30)
     stats_parser.add_argument("--json", action="store_true")

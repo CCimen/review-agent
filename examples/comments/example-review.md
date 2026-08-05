@@ -2,6 +2,8 @@
 
 There is 1 current finding: 1 Medium (P2).
 
+Scope: base-to-head diff, including stacked and off-title changes; unchanged files are supporting evidence only.
+
 <sub>Review context: textual diff content was available for all 2 registered
 changed paths. Additional source context was read from 1 changed path and 1
 supporting file.</sub>
@@ -69,6 +71,7 @@ Constraints:
 - Reuse the canonical owner or an existing project abstraction; do not create a
   parallel path.
 - Avoid unrelated refactoring.
+- Flag scope drift and restore to base only with developer approval.
 - Do not weaken validation, authorization, tenant isolation, or error handling.
 
 Completion:

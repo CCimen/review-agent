@@ -95,18 +95,28 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Applying a patch does not resolve its", body)
         self.assertIn("Fix path: Candidate for an optional atomic", body)
         self.assertIn("Fix every current finding on the latest PR head", body)
+        self.assertIn("Scope: base-to-head diff, including stacked and off-title changes", body)
         self.assertIn("Observed behavior:", body)
         self.assertIn("Impact:", body)
         self.assertIn("Smallest safe fix:", body)
         self.assertNotIn("Reviewer checks:", body)
         self.assertIn("Re-check every finding against the current PR head", body)
         self.assertIn("One line per F reference: fixed, skipped, or blocked", body)
+        self.assertIn("Flag scope drift and restore to base only with developer approval", body)
+        self.assertIn(
+            "Do not weaken validation, authorization, tenant isolation, or error handling",
+            body,
+        )
         self.assertIn("must post /review as a new top-level PR comment", body)
         self.assertIn("/review false-positive <F-reference> because", body)
         self.assertIn("/review feedback scope <F-reference> because", body)
         self.assertIn("/review feedback missed because", body)
         self.assertNotIn("@review false-positive", body)
         self.assertNotIn("/review intentional", body)
+
+        canonical = words(read("bootstrap/workspace/AGENTS.md"))
+        self.assertIn("Mechanical scope is the complete base-to-head diff", canonical)
+        self.assertIn("Restoring a file to base requires developer approval", canonical)
 
     def test_repeated_reviews_reexamine_prior_findings(self):
         canonical = read("bootstrap/workspace/AGENTS.md")

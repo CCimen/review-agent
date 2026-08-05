@@ -388,13 +388,19 @@ def lifecycle_summary(
 
 
 def coverage_summary_line(coverage: ReviewCoverageSummary | None) -> str:
+    scope_context = (
+        "Scope: base-to-head diff, including stacked and off-title changes; "
+        "unchanged files are supporting evidence only."
+    )
     if coverage is None:
         return (
+            f"{scope_context}\n\n"
             "**Review incomplete:** no run-scoped coverage ledger was available. "
             "Findings may be missing; a finding-free result is inconclusive."
         )
     if coverage["state"] == "unknown":
         return (
+            f"{scope_context}\n\n"
             "**Review incomplete:** no changed-path coverage ledger was registered "
             "for this run. Findings may be missing; a finding-free result is "
             "inconclusive."
@@ -431,7 +437,7 @@ def coverage_summary_line(coverage: ReviewCoverageSummary | None) -> str:
                 f" Additional source context was read from "
                 f"{joined_labels(source_reads)}."
             )
-        return f"{line}</sub>"
+        return f"{scope_context}\n\n{line}</sub>"
     representative = coverage["unavailable_paths"] or coverage["truncated_paths"]
     suffix = ""
     if representative:
@@ -457,6 +463,7 @@ def coverage_summary_line(coverage: ReviewCoverageSummary | None) -> str:
             f"{source_read_label}."
         )
     return (
+        f"{scope_context}\n\n"
         f"**Review incomplete:** textual diff content was inspected for "
         f"{coverage['changed_paths_with_diff']} of "
         f"{coverage['changed_paths']} registered changed paths; "
@@ -653,6 +660,10 @@ def render_fix_brief(
             "Constraints:",
             FIX_BRIEF_PROJECT_CONSTRAINT,
             "- Avoid unrelated refactoring.",
+            (
+                "- Flag scope drift and restore to "
+                "base only with developer approval."
+            ),
             "- Do not weaken validation, authorization, tenant isolation, or error handling.",
             "",
             "Completion:",

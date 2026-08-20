@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "0457068"
 
-active_task: T002
+active_task: T003
 
 tasks:
   - id: T000
@@ -110,7 +110,7 @@ tasks:
   - id: T002
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Challenge the Scout map and select one reviewable genericization task."
     inputs:
@@ -129,20 +129,72 @@ tasks:
       - "verify"
       - "stop_if"
       - "Deferred tasks"
-    receipt: null
+    receipt:
+      result: done
+      decision: "Approve the allowlist alias as one complete runtime-and-operator slice with a shared environment-selection owner; preserve consumer-specific parsing."
+      user_operator_value: "New deployments gain a generic setting, the current Eneo deployment remains compatible for one transition release, and conflicting configuration cannot silently widen repository access."
+      canonical_owner: "bootstrap/plugins/eneo_review_tools/repository_allowlist.py"
+      constraints:
+        - "Blank values are unset; equivalent normalized sets are accepted; differing nonblank sets fail closed without exposing values."
+        - "Do not change repository parsing grammar, review output, schema, routes, tools, or markers."
+        - "Do not add configuration permutation or internal wiring tests."
+      next_allowed_task: T003
+      blocked_tasks:
+        - T999
   - id: T003
     type: worker
     assignee: Worker
-    status: queued
+    status: active
     reasoning_hint: default
-    objective: "Execute the generic identity/configuration task selected by Judge."
-    allowed_files: []
-    verify: []
+    objective: "Introduce REVIEW_AGENT_ALLOWED_REPOSITORIES as the canonical allowlist setting for live review and feedback, retain ENEO_ALLOWED_REPOSITORIES as a compatibility alias, wire runtime/operator surfaces, and deny conflicts without exposing values."
+    allowed_files:
+      - bootstrap/plugins/eneo_review_tools/repository_allowlist.py
+      - bootstrap/plugins/eneo_review_tools/tools.py
+      - bootstrap/plugins/eneo_review_tools/feedback_bridge.py
+      - bootstrap/plugins/eneo_review_tools/plugin.yaml
+      - compose.yaml
+      - .env.example
+      - docs/OPERATIONS.md
+      - tools/eneo_review_feedback_bridge.py
+      - tests/test_repository_allowlist.py
+      - tests/test_tools_validation.py
+      - tests/test_feedback_bridge.py
+      - tests/test_feedback_bridge_entrypoint.py
+    verify:
+      - "PYTHONPATH=bootstrap/plugins python3 -m unittest -v tests.test_repository_allowlist tests.test_tools_validation.ToolValidationTests.test_generic_allowlist_is_accepted_before_other_input_validation tests.test_tools_validation.ToolValidationTests.test_conflicting_allowlist_settings_deny_before_network tests.test_feedback_bridge.FeedbackBridgeTests.test_config_uses_generic_repository_allowlist tests.test_feedback_bridge_entrypoint.FeedbackBridgeEntrypointTests.test_env_presence_summary_redacts_secret_values"
+      - "PYTHONPATH=bootstrap/plugins python3 -m unittest -v tests.test_tools_validation tests.test_feedback_bridge tests.test_feedback_bridge_entrypoint"
+      - "pyright -p ."
+      - "Validate Compose once with only the generic alias and once with only the legacy alias, using harmless placeholders for other required variables."
+      - "git diff --check"
+      - "./scripts/check_bundle.sh"
     stop_if:
       - "Need files outside allowed_files."
       - "A compatibility or visible-output behavior is ambiguous."
       - "A focused verification fails twice."
       - "The change requires schema, PostgreSQL, GitHub App, scanner, Slack, or deployment-topology work."
+      - "Either valid legacy-only or generic-only Compose configuration cannot start."
+      - "Conflict handling would expose configured repository values."
+      - "Repository parsing grammar or membership semantics must change."
+    receipt: null
+  - id: T010
+    type: scout
+    assignee: Scout
+    status: queued
+    reasoning_hint: high
+    objective: "Map reusable frontend review conventions from Sundsvalls kommun's maintained starter and shared-component repositories for a later policy/profile slice."
+    inputs:
+      - "https://github.com/Sundsvallskommun/web-app-starter"
+      - "https://github.com/Sundsvallskommun/web-shared-components"
+    constraints:
+      - "Read-only."
+      - "Treat the repositories as verified examples, not canonical truth or a blueprint."
+      - "Verify conventions against source before proposing policy."
+      - "Do not broaden the current allowlist tranche."
+      - "Do not name or copy from private inspiration sources in repository artifacts."
+    expected_output:
+      - "Verified reusable conventions"
+      - "Repository-specific details to exclude"
+      - "Candidate policy-bundle inputs"
     receipt: null
   - id: T999
     type: judge

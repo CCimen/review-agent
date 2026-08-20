@@ -33,12 +33,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 1
+  completed_write_tasks_in_thread: 2
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "a5ff3b4"
+  last_verified_revision: "b09bcc3"
 
-active_task: T004
+active_task: T005
 
 tasks:
   - id: T000
@@ -212,7 +212,7 @@ tasks:
   - id: T004
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Mechanically replace the Eneo runtime namespace: rename the Python plugin package, operator tool filenames/imports, Hermes plugin/toolset/tool contracts, and review skill to review-agent names without behavior changes or aliases."
     constraints:
@@ -250,6 +250,66 @@ tasks:
     stop_if:
       - "A rename requires behavior, schema, policy, webhook-route, marker, or deployment-topology changes."
       - "Dynamic plugin loading would require retaining the old package or command as an alias."
+      - "A focused verification fails twice for a non-mechanical reason."
+    receipt:
+      result: done
+      summary: "Moved the Python plugin, Hermes contracts, review skill, operator modules, installed commands, bootstrap paths, imports, documentation references, and existing tests to one review-agent namespace without aliases or duplicate owners."
+      revision: "b09bcc3"
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools"
+        - "bootstrap/skills/review-agent-pr"
+        - "tools/review_agent_*.py"
+        - "Hermes config, installer, Docker, Pyright, bundle, documentation, and affected tests"
+      commands:
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest -v focused plugin/install/docs/module/entrypoint contracts"
+          status: pass
+        - cmd: "pyright -p ."
+          status: pass
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          result: "457 tests, two replay fixtures, strict Pyright, and YAML before deleting one redundant docs-only test"
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest -v tests.test_docs_contract tests.test_tools_validation.ToolValidationTests.test_plugin_registers_all_declared_tools"
+          status: pass
+          result: "23 focused tests after the deletion"
+        - cmd: "docker compose --env-file /dev/null config -q"
+          status: pass
+        - cmd: "python3 tools/review_agent_memory.py --help and review_agent_feedback_bridge.py --help"
+          status: pass
+        - cmd: "runtime namespace rg scan"
+          status: pass
+          result: "no old package, toolset, tool, skill, command, module, or bootstrap-path names outside archival goal receipts"
+        - cmd: "codex-peer-loop commit gate"
+          status: pass
+          result: "green, 8/10, no blockers; obsolete duplicate test deleted"
+        - cmd: "git push origin main"
+          status: pass
+  - id: T005
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Replace every remaining ENEO_* runtime and deployment environment name with the corresponding REVIEW_AGENT_* name across code, Compose, examples, operator documentation, and existing tests, with no aliases."
+    constraints:
+      - "Resume only when the repository owner continues work after the requested overnight checkpoint."
+      - "The PM implements and verifies all production changes directly."
+      - "Subagents may provide read-only research or review only."
+      - "Rename configuration directly; do not add fallback reads, precedence rules, warnings, or compatibility modules."
+      - "Keep GitHub credential boundaries separate and preserve fail-closed startup behavior."
+      - "Do not change webhook routes, comment markers, policy behavior, persistence schema, or deployment topology in this task."
+      - "Update existing behavior/contract tests proportionally; add no configuration matrix."
+    expected_output:
+      - "Generic REVIEW_AGENT_* configuration in reviewer, publisher, feedback, memory, Compose, examples, and docs"
+      - "No ENEO_* references outside archival goal receipts"
+      - "Green focused and bundle validation"
+    verify:
+      - "rg confirms no ENEO_* reference remains outside archival goal receipts."
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "Docker Compose accepts a complete generic configuration and rejects missing required generic secrets."
+      - "git diff --check"
+    stop_if:
+      - "A configuration rename requires aliases or retained old deployment state."
+      - "Credential scopes or trust boundaries would change."
       - "A focused verification fails twice for a non-mechanical reason."
     receipt: null
   - id: T010

@@ -33,12 +33,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 2
+  completed_write_tasks_in_thread: 3
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "b09bcc3"
+  last_verified_revision: "66ee154"
 
-active_task: T005
+active_task: T006
 
 tasks:
   - id: T000
@@ -286,7 +286,7 @@ tasks:
   - id: T005
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Replace every remaining ENEO_* runtime and deployment environment name with the corresponding REVIEW_AGENT_* name across code, Compose, examples, operator documentation, and existing tests, with no aliases."
     constraints:
@@ -311,7 +311,62 @@ tasks:
       - "A configuration rename requires aliases or retained old deployment state."
       - "Credential scopes or trust boundaries would change."
       - "A focused verification fails twice for a non-mechanical reason."
-    receipt: null
+    receipt:
+      result: done
+      summary: "Replaced the remaining Eneo-prefixed environment interface with one generic review-agent contract, preserved separate credentials and fail-closed startup, and removed the last duplicated actor-allowlist key literal."
+      revision: "66ee154"
+      changed_files:
+        - "Reviewer, publisher, feedback, and memory configuration owners"
+        - "Compose, plugin manifest, environment example, and operations documentation"
+        - "Affected behavior and documentation contract tests"
+      commands:
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest -v affected environment-contract modules"
+          status: pass
+          result: "186 tests"
+        - cmd: "pyright -p ."
+          status: pass
+          result: "0 errors and 0 warnings"
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          result: "456 tests, two replay fixtures, strict Pyright, and YAML"
+        - cmd: "docker compose config --quiet with a complete generic configuration"
+          status: pass
+        - cmd: "docker compose config --quiet with each required publisher/feedback value empty"
+          status: pass
+          result: "publisher token, feedback secret, feedback token, and actor allowlist rejected independently"
+        - cmd: "tracked-file ENEO_* scan outside archival goal receipts"
+          status: pass
+          result: "no legacy environment identifiers"
+        - cmd: "codex-peer-loop commit gate"
+          status: pass
+          result: "green, 8/10, no blockers"
+  - id: T006
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Replace Eneo-branded webhook paths and their deployment/workflow/operator references with generic review-agent paths in one explicit public-contract slice."
+    constraints:
+      - "Resume implementation when the repository owner continues work."
+      - "The PM implements and verifies all production changes directly."
+      - "Subagents may provide read-only research or review only."
+      - "Use one review path and one feedback path; do not retain route aliases or redirects."
+      - "Change only route identity and exact affected contracts; do not change authentication, payloads, workflow trigger semantics, comment markers, policy behavior, persistence schema, or topology."
+      - "Update existing behavior and workflow tests proportionally; add no route matrix."
+    expected_output:
+      - "Generic webhook paths in runtime, Compose, workflow examples, scripts, docs, and affected tests"
+      - "No Eneo-branded route reference outside archival goal receipts"
+      - "Green focused and bundle validation"
+    verify:
+      - "Focused feedback bridge, workflow, documentation, and smoke/status script tests."
+      - "rg confirms no Eneo-branded webhook path remains outside archival goal receipts."
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "Docker Compose renders the generic routes."
+      - "git diff --check"
+    stop_if:
+      - "A route change requires retaining an alias, migrating a live deployment, or changing authentication/payload behavior."
+      - "A focused verification fails twice for a non-mechanical reason."
   - id: T010
     type: scout
     assignee: Scout
@@ -354,9 +409,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-board-files-uncommitted"
+  dirty_fingerprint: "T005-receipt-uncommitted"
   last_verification:
     result: pass
-    task: T000
+    task: T005
     commands:
       - "./scripts/check_bundle.sh"
+      - "pyright -p ."
+      - "Docker Compose positive and required-variable negative checks"
+      - "tracked-file ENEO_* scan outside archival goal receipts"

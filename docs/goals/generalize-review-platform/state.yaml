@@ -33,12 +33,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 0
+  completed_write_tasks_in_thread: 1
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "0457068"
+  last_verified_revision: "a5ff3b4"
 
-active_task: T003
+active_task: T004
 
 tasks:
   - id: T000
@@ -145,7 +145,7 @@ tasks:
   - id: T003
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Replace ENEO_ALLOWED_REPOSITORIES with REVIEW_AGENT_ALLOWED_REPOSITORIES across live review, feedback, deployment, operator documentation, and affected tests, with no compatibility alias."
     constraints:
@@ -182,6 +182,74 @@ tasks:
       - "The change requires schema, PostgreSQL, GitHub App, scanner, Slack, or deployment-topology work."
       - "Generic-only Compose configuration cannot start or missing configuration does not fail closed."
       - "Repository parsing grammar or membership semantics must change."
+    receipt:
+      result: done
+      summary: "Replaced the Eneo repository allowlist setting with one generic, fail-closed setting and removed compatibility-only code and branded repository fixtures from all touched tests."
+      revision: "a5ff3b4"
+      changed_files:
+        - "Reviewer and feedback configuration owners"
+        - "Compose, plugin manifest, environment example, and operations documentation"
+        - "Six affected test modules and the feedback entrypoint"
+      commands:
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest -v tests.test_tools_validation tests.test_feedback_bridge tests.test_feedback_bridge_entrypoint tests.test_failure_status tests.test_pr_diff_fallback tests.test_run_tools"
+          status: pass
+          result: "105 tests"
+        - cmd: "pyright -p ."
+          status: pass
+        - cmd: "docker compose --env-file /dev/null config -q with generic setting"
+          status: pass
+        - cmd: "docker compose --env-file /dev/null config -q without generic setting"
+          status: pass
+          result: "rejected as required"
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          result: "457 tests, two replay fixtures, strict Pyright, and YAML"
+        - cmd: "codex-peer-loop commit gate"
+          status: pass
+          result: "green, 9/10, no blockers"
+        - cmd: "git push origin main"
+          status: pass
+  - id: T004
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Mechanically replace the Eneo runtime namespace: rename the Python plugin package, operator tool filenames/imports, Hermes plugin/toolset/tool contracts, and review skill to review-agent names without behavior changes or aliases."
+    constraints:
+      - "The PM implements and verifies all production changes directly."
+      - "Subagents may provide read-only research or review only."
+      - "Use review_agent_tools, review-agent-tools, review_agent toolset, review_agent_* tool names, and review-agent-pr skill names consistently."
+      - "Move existing owners; do not duplicate packages, tools, schemas, or registrations."
+      - "Do not change policy behavior, environment names other than the completed allowlist, webhook routes, comment markers, persistence schema, or review output in this task."
+      - "Update existing behavior/contract tests mechanically; add no new test matrix."
+    allowed_files:
+      - bootstrap/plugins/eneo_review_tools
+      - bootstrap/plugins/review_agent_tools
+      - bootstrap/skills/eneo-pr-review
+      - bootstrap/skills/review-agent-pr
+      - tools/eneo_review_*.py
+      - tools/review_agent_*.py
+      - bootstrap/config.yaml
+      - bootstrap/install.py
+      - bootstrap/install.sh
+      - Dockerfile
+      - pyrightconfig.json
+      - scripts/check_bundle.sh
+      - tests
+      - README.md
+      - docs/OPERATIONS.md
+      - docs/SECURITY.md
+    verify:
+      - "rg confirms no eneo_review_tools, eneo-review-tools, eneo_review toolset/tool names, eneo-pr-review skill path, or tools/eneo_review_*.py references remain outside archival goal receipts."
+      - "pyright -p ."
+      - "PYTHONPATH=bootstrap/plugins python3 -m unittest discover -s tests -v"
+      - "./scripts/check_bundle.sh"
+      - "python3 tools/review_agent_memory.py --help"
+      - "git diff --check"
+    stop_if:
+      - "A rename requires behavior, schema, policy, webhook-route, marker, or deployment-topology changes."
+      - "Dynamic plugin loading would require retaining the old package or command as an alias."
+      - "A focused verification fails twice for a non-mechanical reason."
     receipt: null
   - id: T010
     type: scout

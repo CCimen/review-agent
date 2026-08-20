@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "0457068"
 
-active_task: T001
+active_task: T002
 
 tasks:
   - id: T000
@@ -70,7 +70,7 @@ tasks:
   - id: T001
     type: scout
     assignee: Scout
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Map Eneo-specific coupling and identify the smallest behavior-preserving generic identity/configuration slice."
     inputs:
@@ -95,11 +95,22 @@ tasks:
       - "Coupling inventory"
       - "Smallest safe first implementation slice"
       - "Explicit deferrals and stop conditions"
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T001-eneo-coupling-map.md"
+      summary: "Mapped 926 case-insensitive Eneo references across 75 files; the domain/schema are already generic, while names cluster around compatibility, deployment, workflow, profile policy, and tests."
+      evidence:
+        - "bootstrap/plugins/eneo_review_tools/tools.py::_allowlisted_repository"
+        - "bootstrap/plugins/eneo_review_tools/feedback_bridge.py::load_config"
+        - "bootstrap/plugins/eneo_review_tools/review_identity.py"
+        - "bootstrap/workspace/AGENTS.md"
+        - "compose.yaml"
+      spawned_tasks:
+        - T002
   - id: T002
     type: judge
     assignee: Judge
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Challenge the Scout map and select one reviewable genericization task."
     inputs:

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _load_install_module():
     spec = importlib.util.spec_from_file_location(
-        "eneo_bootstrap_install", ROOT / "bootstrap" / "install.py"
+        "review_agent_bootstrap_install", ROOT / "bootstrap" / "install.py"
     )
     if spec is None or spec.loader is None:
         raise AssertionError("could not load bootstrap installer")
@@ -82,7 +82,7 @@ class DockerfileToolsTests(unittest.TestCase):
             "feedback_authorization",
             "feedback_commands",
             "feedback_contract",
-            "eneo_review_memory",
+            "review_agent_memory",
         ):
             sys.modules.pop(name, None)
 
@@ -90,7 +90,7 @@ class DockerfileToolsTests(unittest.TestCase):
         sources = _docker_copy_sources()
         modules = [
             str(path.relative_to(ROOT))
-            for path in sorted((ROOT / "tools").glob("eneo_review_*.py"))
+            for path in sorted((ROOT / "tools").glob("review_agent_*.py"))
         ]
 
         missing = [
@@ -105,11 +105,11 @@ class DockerfileToolsTests(unittest.TestCase):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn(
-            "cp /usr/local/bin/eneo_review_memory.py /usr/local/bin/eneo-review-memory",
+            "cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory",
             dockerfile,
         )
         self.assertIn(
-            "cp /usr/local/bin/eneo_review_feedback_bridge.py /usr/local/bin/eneo-review-feedback-bridge",
+            "cp /usr/local/bin/review_agent_feedback_bridge.py /usr/local/bin/review-agent-feedback-bridge",
             dockerfile,
         )
 
@@ -167,19 +167,19 @@ class DockerfileToolsTests(unittest.TestCase):
     def test_installed_memory_cli_imports_support_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             install_dir = Path(temp)
-            for module in (ROOT / "tools").glob("eneo_review_*.py"):
+            for module in (ROOT / "tools").glob("review_agent_*.py"):
                 shutil.copy2(module, install_dir / module.name)
             shutil.copy2(
-                install_dir / "eneo_review_memory.py",
-                install_dir / "eneo-review-memory",
+                install_dir / "review_agent_memory.py",
+                install_dir / "review-agent-memory",
             )
             shutil.copy2(
-                install_dir / "eneo_review_feedback_bridge.py",
-                install_dir / "eneo-review-feedback-bridge",
+                install_dir / "review_agent_feedback_bridge.py",
+                install_dir / "review-agent-feedback-bridge",
             )
 
             completed = subprocess.run(
-                [sys.executable, str(install_dir / "eneo-review-memory"), "--help"],
+                [sys.executable, str(install_dir / "review-agent-memory"), "--help"],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -187,7 +187,7 @@ class DockerfileToolsTests(unittest.TestCase):
             bridge_completed = subprocess.run(
                 [
                     sys.executable,
-                    str(install_dir / "eneo-review-feedback-bridge"),
+                    str(install_dir / "review-agent-feedback-bridge"),
                     "--help",
                 ],
                 check=False,
@@ -202,15 +202,15 @@ class DockerfileToolsTests(unittest.TestCase):
     def test_memory_cli_can_discover_image_bootstrap_plugin(self) -> None:
         sys.path.insert(0, str(ROOT / "tools"))
         try:
-            import eneo_review_memory
+            import review_agent_memory
 
             with mock.patch.dict("os.environ", {}, clear=True):
-                candidates = eneo_review_memory.memory_module_candidates()
+                candidates = review_agent_memory.memory_module_candidates()
         finally:
             sys.path.remove(str(ROOT / "tools"))
 
         self.assertIn(
-            Path("/opt/eneo-bootstrap/plugins/eneo_review_tools"),
+            Path("/opt/review-agent-bootstrap/plugins/review_agent_tools"),
             candidates,
         )
 
@@ -239,16 +239,16 @@ class DockerfileToolsTests(unittest.TestCase):
 
             sys.path.insert(0, str(ROOT / "tools"))
             try:
-                import eneo_review_memory
+                import review_agent_memory
 
                 stderr = io.StringIO()
                 with mock.patch.object(
-                    eneo_review_memory,
+                    review_agent_memory,
                     "memory_module_candidates",
                     return_value=(fresh, stale),
                 ):
                     with redirect_stderr(stderr):
-                        loaded = eneo_review_memory.load_memory_module()
+                        loaded = review_agent_memory.load_memory_module()
             finally:
                 sys.path.remove(str(ROOT / "tools"))
 

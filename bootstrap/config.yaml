@@ -43,9 +43,9 @@ terminal:
 # the model's final text through generic github_comment delivery.
 platform_toolsets:
   cli:
-    - eneo_review
+    - review_agent
   webhook:
-    - eneo_review
+    - review_agent
 
 agent:
   max_turns: 90  # Hermes default; 24 was too low and truncated thorough two-pass reviews
@@ -144,5 +144,5 @@ platforms:
             answer is logged only. The deterministic publisher tool is the only
             path that may create or update the pull-request review comment.
           skills:
-            - eneo-pr-review
+            - review-agent-pr
           deliver: log

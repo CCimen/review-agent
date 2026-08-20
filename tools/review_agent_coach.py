@@ -1,13 +1,13 @@
-"""Bounded untrusted JSON exports for the private Eneo reviewer coach workflow."""
+"""Bounded untrusted JSON exports for the private review coach workflow."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Final, cast
 
-from eneo_review_export import optional_int, optional_string, rows, schema_version
-from eneo_review_learning import LearningSignal, build_learning_report
-from eneo_review_private_export import (
+from review_agent_export import optional_int, optional_string, rows, schema_version
+from review_agent_learning import LearningSignal, build_learning_report
+from review_agent_private_export import (
     bounded_text,
     dumps_private_json,
     stable_json_hash,

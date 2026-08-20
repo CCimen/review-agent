@@ -3,8 +3,8 @@
 from . import memory_validation as memory_contract
 from . import memory_suggestions as suggestion_contract
 
-ENEO_REVIEW_BEGIN = {
-    "name": "eneo_review_begin",
+REVIEW_AGENT_BEGIN = {
+    "name": "review_agent_begin",
     "description": (
         "Begin one run-owned PR review for an allowlisted GitHub pull request. "
         "Fetches PR metadata, starts a fresh run or deduplicates an active run, stores the exact "
@@ -31,8 +31,8 @@ ENEO_REVIEW_BEGIN = {
     },
 }
 
-ENEO_PR_DIFF = {
-    "name": "eneo_pr_diff",
+REVIEW_AGENT_PR_DIFF = {
+    "name": "review_agent_pr_diff",
     "description": (
         "Fetch the read-only unified diff for an allowlisted pull request, optionally restricted "
         "to one changed path. A terminal path_state returns terminal: true, retryable: false, and "
@@ -57,7 +57,7 @@ ENEO_PR_DIFF = {
             "run_id": {
                 "type": "integer",
                 "minimum": 1,
-                "description": "The run_id returned by eneo_review_begin.",
+                "description": "The run_id returned by review_agent_begin.",
             },
         },
         "required": ["repository", "pr_number", "run_id"],
@@ -65,11 +65,11 @@ ENEO_PR_DIFF = {
     },
 }
 
-ENEO_PR_FILES = {
-    "name": "eneo_pr_files",
+REVIEW_AGENT_PR_FILES = {
+    "name": "review_agent_pr_files",
     "description": (
         "Page the run-owned changed-file index for a pull request. Use after "
-        "eneo_review_begin to inspect changed paths by domain or review_mode "
+        "review_agent_begin to inspect changed paths by domain or review_mode "
         "without loading the entire PR file list into context."
     ),
     "parameters": {
@@ -80,7 +80,7 @@ ENEO_PR_FILES = {
             "run_id": {
                 "type": "integer",
                 "minimum": 1,
-                "description": "The run_id returned by eneo_review_begin.",
+                "description": "The run_id returned by review_agent_begin.",
             },
             "limit": {
                 "type": "integer",
@@ -111,8 +111,8 @@ ENEO_PR_FILES = {
     },
 }
 
-ENEO_PR_FILE = {
-    "name": "eneo_pr_file",
+REVIEW_AGENT_PR_FILE = {
+    "name": "review_agent_pr_file",
     "description": (
         "Read a bounded line range from one file at the pull request head or base revision. "
         "Use only to confirm or disprove a concrete diff finding. A terminal file_state returns "
@@ -137,7 +137,7 @@ ENEO_PR_FILE = {
             "run_id": {
                 "type": "integer",
                 "minimum": 1,
-                "description": "The run_id returned by eneo_review_begin.",
+                "description": "The run_id returned by review_agent_begin.",
             },
         },
         "required": ["repository", "pr_number", "path", "run_id"],
@@ -145,8 +145,8 @@ ENEO_PR_FILE = {
     },
 }
 
-ENEO_REVIEW_MEMORY_CONTEXT = {
-    "name": "eneo_review_memory_context",
+REVIEW_AGENT_MEMORY_CONTEXT = {
+    "name": "review_agent_memory_context",
     "description": (
         "Read prior finding history and historical human decisions for an allowlisted repository. "
         "The final record tool, not this context call, decides whether a suppression matches the "
@@ -175,8 +175,8 @@ ENEO_REVIEW_MEMORY_CONTEXT = {
     },
 }
 
-ENEO_REVIEW_MEMORY_RECORD = {
-    "name": "eneo_review_memory_record",
+REVIEW_AGENT_MEMORY_RECORD = {
+    "name": "review_agent_memory_record",
     "description": (
         "Record two-pass, evidence-gated findings. Returns stable fingerprints and "
         "whether a human suppression still matches the current trusted file hash. The schema is a "
@@ -191,12 +191,12 @@ ENEO_REVIEW_MEMORY_RECORD = {
             "head_sha": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{40,64}$",
-                "description": "Exact pull-request head commit SHA returned by eneo_review_begin.",
+                "description": "Exact pull-request head commit SHA returned by review_agent_begin.",
             },
             "run_id": {
                 "type": "integer",
                 "minimum": 1,
-                "description": "The run_id returned by eneo_review_begin for this review.",
+                "description": "The run_id returned by review_agent_begin for this review.",
             },
             "findings": {
                 "type": "array",
@@ -358,8 +358,8 @@ ENEO_REVIEW_MEMORY_RECORD = {
     },
 }
 
-ENEO_REVIEW_DELIVER = {
-    "name": "eneo_review_deliver",
+REVIEW_AGENT_DELIVER = {
+    "name": "review_agent_deliver",
     "description": (
         "Finalize the stored findings, publish the canonical GitHub PR comment, "
         "and complete the review run in one deterministic lifecycle step. Use this "
@@ -375,12 +375,12 @@ ENEO_REVIEW_DELIVER = {
             "head_sha": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{40,64}$",
-                "description": "Exact pull-request head commit SHA from eneo_review_begin.",
+                "description": "Exact pull-request head commit SHA from review_agent_begin.",
             },
             "run_id": {
                 "type": "integer",
                 "minimum": 1,
-                "description": "The run_id returned by eneo_review_begin for this review.",
+                "description": "The run_id returned by review_agent_begin for this review.",
             },
             "previous_verdicts": {
                 "type": "array",

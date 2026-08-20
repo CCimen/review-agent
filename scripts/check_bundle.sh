@@ -9,7 +9,7 @@ if ! command -v pyright >/dev/null 2>&1; then
 fi
 pyright -p "$ROOT"
 PYTHONPATH="$ROOT/bootstrap/plugins" python3 -m unittest discover -s "$ROOT/tests" -v
-python3 "$ROOT/tools/eneo_review_memory.py" validate-replay "$ROOT/review-learning/replay"
+python3 "$ROOT/tools/review_agent_memory.py" validate-replay "$ROOT/review-learning/replay"
 
 python3 - "$ROOT" <<'PY'
 from pathlib import Path
@@ -26,7 +26,7 @@ root = Path(sys.argv[1])
 for relative in [
     "compose.yaml",
     "bootstrap/config.yaml",
-    "bootstrap/plugins/eneo_review_tools/plugin.yaml",
+    "bootstrap/plugins/review_agent_tools/plugin.yaml",
     "examples/github/ai-review-request.yml",
 ]:
     path = root / relative

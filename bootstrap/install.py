@@ -88,34 +88,36 @@ def main() -> int:
     managed = load_yaml(SOURCE / "config.yaml")
     merged = deep_merge(existing, managed)
     if config_path.exists():
-        shutil.copy2(config_path, config_path.with_suffix(".yaml.before-eneo"))
+        shutil.copy2(config_path, config_path.with_suffix(".yaml.before-review-agent"))
     atomic_write(config_path, yaml.safe_dump(merged, sort_keys=False, allow_unicode=True))
 
     soul_target = HERMES_HOME / "SOUL.md"
     if not soul_target.exists() or not args.preserve_soul:
         if soul_target.exists():
-            shutil.copy2(soul_target, HERMES_HOME / "SOUL.md.before-eneo")
+            shutil.copy2(soul_target, HERMES_HOME / "SOUL.md.before-review-agent")
         shutil.copy2(SOURCE / "SOUL.md", soul_target)
 
     agents_target = HERMES_HOME / "workspace" / "AGENTS.md"
     if not agents_target.exists() or args.force_agents:
         if agents_target.exists():
-            shutil.copy2(agents_target, agents_target.with_suffix(".md.before-eneo"))
+            shutil.copy2(
+                agents_target, agents_target.with_suffix(".md.before-review-agent")
+            )
         shutil.copy2(SOURCE / "workspace" / "AGENTS.md", agents_target)
 
     copy_managed_tree(
-        SOURCE / "skills" / "eneo-pr-review", HERMES_HOME / "skills" / "eneo-pr-review"
+        SOURCE / "skills" / "review-agent-pr", HERMES_HOME / "skills" / "review-agent-pr"
     )
     copy_managed_tree(SOURCE / "skills" / "ponytail", HERMES_HOME / "skills" / "ponytail")
     copy_managed_tree(
-        SOURCE / "plugins" / "eneo_review_tools",
-        HERMES_HOME / "plugins" / "eneo_review_tools",
+        SOURCE / "plugins" / "review_agent_tools",
+        HERMES_HOME / "plugins" / "review_agent_tools",
     )
 
     # Prevent future bundled-skill seeding. Existing bundled skills are not deleted.
     (HERMES_HOME / ".no-bundled-skills").touch(exist_ok=True)
 
-    plugin_dir = HERMES_HOME / "plugins" / "eneo_review_tools"
+    plugin_dir = HERMES_HOME / "plugins" / "review_agent_tools"
     sys.path.insert(0, str(plugin_dir))
     import memory_db  # type: ignore
 
@@ -124,7 +126,7 @@ def main() -> int:
 
     if not args.skip_plugin_enable:
         result = subprocess.run(
-            ["hermes", "plugins", "enable", "eneo-review-tools"],
+            ["hermes", "plugins", "enable", "review-agent-tools"],
             check=False,
             text=True,
             capture_output=True,
@@ -135,7 +137,7 @@ def main() -> int:
             print(result.stderr, end="", file=sys.stderr)
             print(
                 "Plugin files were installed, but automatic enablement failed. "
-                "Run: hermes plugins enable eneo-review-tools",
+                "Run: hermes plugins enable review-agent-tools",
                 file=sys.stderr,
             )
             return result.returncode

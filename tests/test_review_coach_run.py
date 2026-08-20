@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from eneo_review_coach_run import build_coach_run_artifacts
+from review_agent_coach_run import build_coach_run_artifacts
 
 
 def memory_export() -> dict[str, object]:

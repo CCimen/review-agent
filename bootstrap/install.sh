@@ -10,6 +10,6 @@ if [ "$(id -u)" = "0" ] && [ -x /command/s6-setuidgid ]; then
   # not enough: a hermes-owned but mode-0444 file still rejects an overwrite.)
   chown -R hermes:hermes "$HERMES_HOME"
   chmod -R u+rwX "$HERMES_HOME"
-  exec /command/s6-setuidgid hermes /opt/hermes/.venv/bin/python /opt/eneo-bootstrap/install.py "$@"
+  exec /command/s6-setuidgid hermes /opt/hermes/.venv/bin/python /opt/review-agent-bootstrap/install.py "$@"
 fi
-exec /opt/hermes/.venv/bin/python /opt/eneo-bootstrap/install.py "$@"
+exec /opt/hermes/.venv/bin/python /opt/review-agent-bootstrap/install.py "$@"

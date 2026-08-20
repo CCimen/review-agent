@@ -7,7 +7,7 @@ import unittest
 from datetime import timedelta
 from pathlib import Path
 
-PLUGIN = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "eneo_review_tools"
+PLUGIN = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "review_agent_tools"
 sys.path.insert(0, str(PLUGIN))
 
 import memory_db  # noqa: E402

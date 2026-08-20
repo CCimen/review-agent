@@ -8,13 +8,13 @@ GitHub suggested changes.
 
 The reusable part is the review engine: webhook routing, bounded GitHub reads,
 SQLite finding memory, human feedback, deterministic publication, and operational
-tooling. This repository currently ships the Eneo review profile. The profile is
-where organization-specific policy lives: `bootstrap/SOUL.md`,
-`bootstrap/workspace/AGENTS.md`, and `bootstrap/skills/eneo-pr-review/SKILL.md`.
+tooling. Organization and repository policy belongs in the review profile:
+`bootstrap/SOUL.md`,
+`bootstrap/workspace/AGENTS.md`, and `bootstrap/skills/review-agent-pr/SKILL.md`.
 
-Some runtime names still use the historical `ENEO_*` and `eneo_*` prefixes. Treat
-those as compatibility names for this deployment, not as proof that the engine
-can only review Eneo repositories.
+Remaining source-baseline identifiers are being removed directly in bounded
+mechanical changes. They are not supported compatibility contracts for this new
+platform.
 
 ## What It Does
 
@@ -29,7 +29,7 @@ can only review Eneo repositories.
 - Stores findings, review runs, publication state, and human feedback in SQLite.
 - Can show deterministic `/review ...` feedback commands so allowlisted
   developers can report false positives, scope confusion, and missed issues.
-- Keeps comment delivery deterministic through `eneo_review_deliver`, not through
+- Keeps comment delivery deterministic through `review_agent_deliver`, not through
   free-form model output. Large reviews are split into deterministic comment
   parts instead of hiding findings.
 - Can export a private shadow-mode verification bundle and store provider-neutral
@@ -81,14 +81,14 @@ gate pull requests.
 | Area | Owner | Notes |
 | --- | --- | --- |
 | Webhook transport | `compose.yaml`, `examples/github/ai-review-request.yml` | Authenticates review and feedback requests before Hermes runs. |
-| GitHub reads | `bootstrap/plugins/eneo_review_tools/` | Bounded PR metadata, diff, and file reads. |
+| GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
 | Review memory | `review_memory_data` SQLite volume | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
-| Publication | `eneo_review_deliver` | Verifies snapshot and writes deterministic PR comments. |
+| Publication | `review_agent_deliver` | Verifies snapshot and writes deterministic PR comments. |
 | Reviewer identity | `bootstrap/SOUL.md` | Tone, evidence posture, and identity. |
 | Review contract | `bootstrap/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
-| Review procedure | `bootstrap/skills/eneo-pr-review/SKILL.md` | Two-pass PR review procedure. |
+| Review procedure | `bootstrap/skills/review-agent-pr/SKILL.md` | Two-pass PR review procedure. |
 | Example output | `examples/comments/example-review.md` | Single example of the rendered review shape. |
-| Visible review copy | `bootstrap/plugins/eneo_review_tools/review_identity.py` | Centralized profile-facing title, continuation, fix-brief, and feedback messages. |
+| Visible review copy | `bootstrap/plugins/review_agent_tools/review_identity.py` | Centralized profile-facing title, continuation, fix-brief, and feedback messages. |
 
 To adapt the reviewer for another team, start with the three profile files and
 the GitHub workflow allowlist. Visible profile copy lives in
@@ -99,8 +99,8 @@ the memory or publisher logic unless your runtime contract actually changes.
 The long-term split is engine plus profile: the engine owns GitHub transport,
 snapshot reads, memory, coverage, feedback, verifier reconciliation, and
 publication; a profile owns project policy, skills, tone, and enabled verifier
-providers. Today the shipped profile is Eneo, and the historical command/env
-names remain for compatibility with the current deployment.
+providers. The initial profile is being separated from source-specific policy so
+repository differences can be resolved through versioned configuration.
 
 ## Developer Workflow
 
@@ -140,10 +140,10 @@ updates, and private coach exports.
 Common status commands in the `hermes-review` container:
 
 ```bash
-eneo-review-memory runs --repo <org>/<repo> --limit 10
-eneo-review-memory publications --repo <org>/<repo> --pr <number>
-eneo-review-memory coverage --run-id <id> --json
-eneo-review-memory verification-export --run-id <id> \
+review-agent-memory runs --repo <org>/<repo> --limit 10
+review-agent-memory publications --repo <org>/<repo> --pr <number>
+review-agent-memory coverage --run-id <id> --json
+review-agent-memory verification-export --run-id <id> \
   --output /opt/data/review-memory/verification/run-<id>.json
 ```
 

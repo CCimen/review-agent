@@ -11,7 +11,7 @@ from contextlib import closing
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "bootstrap" / "plugins" / "eneo_review_tools"
+PLUGIN = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
 sys.path.insert(0, str(PLUGIN))
 
 import memory_db  # noqa: E402
@@ -77,7 +77,7 @@ class CoachRunCliTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "tools" / "eneo_review_memory.py"),
+                    str(ROOT / "tools" / "review_agent_memory.py"),
                     "--db",
                     str(db_path),
                     "coach-run",
@@ -120,7 +120,7 @@ class CoachRunCliTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "tools" / "eneo_review_memory.py"),
+                    str(ROOT / "tools" / "review_agent_memory.py"),
                     "--db",
                     str(root / "missing.sqlite3"),
                     "coach-run",

@@ -9,7 +9,7 @@ from unittest.mock import patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from eneo_review_tools import tools  # noqa: E402
+from review_agent_tools import tools  # noqa: E402
 
 
 class FileAtRevisionLargeFileTests(unittest.TestCase):
@@ -47,7 +47,7 @@ class FileAtRevisionLargeFileTests(unittest.TestCase):
              patch.object(tools, "_request") as raw_get:
             with self.assertRaises(tools.ToolInputError) as ctx:
                 tools._file_at_revision("eneo/platform", "data/huge.json", "a" * 40)
-        self.assertIn("eneo_pr_diff", str(ctx.exception))
+        self.assertIn("review_agent_pr_diff", str(ctx.exception))
         raw_get.assert_not_called()  # cap checked before any blob fetch
 
     def test_truncated_blob_punts_to_diff(self):
@@ -57,7 +57,7 @@ class FileAtRevisionLargeFileTests(unittest.TestCase):
              patch.object(tools, "_request", return_value=(b"x" * 4096, True, {})):
             with self.assertRaises(tools.ToolInputError) as ctx:
                 tools._file_at_revision("eneo/platform", "frontend/big.d.ts", "a" * 40)
-        self.assertIn("eneo_pr_diff", str(ctx.exception))
+        self.assertIn("review_agent_pr_diff", str(ctx.exception))
 
     def test_non_regular_file_is_rejected(self):
         contents = {"type": "dir", "encoding": "none", "content": "", "size": 0}

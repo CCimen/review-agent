@@ -11,7 +11,7 @@ from pathlib import Path
 PLUGINS = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGINS))
 
-from eneo_review_tools import memory_db, review_publisher  # noqa: E402
+from review_agent_tools import memory_db, review_publisher  # noqa: E402
 
 
 class FakeGateway:
@@ -191,7 +191,7 @@ class FailureStatusTests(unittest.TestCase):
 
     def test_reaper_uses_publisher_owned_snapshot_status_copy(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-        import eneo_review_memory as cli
+        import review_agent_memory as cli
 
         self._failed_run(failure_code="snapshot_superseded")
         fake = FakeGateway()
@@ -238,7 +238,7 @@ class FailureStatusTests(unittest.TestCase):
         self.assertEqual(first_row["failure_code"], "snapshot_superseded")
 
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-        import eneo_review_memory as cli
+        import review_agent_memory as cli
 
         fake = FakeGateway()
         with closing(memory_db.connect_existing(self.db)) as conn:
@@ -333,7 +333,7 @@ class FailureStatusTests(unittest.TestCase):
 
     def test_reaper_marks_stale_then_posts_failure_status(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-        import eneo_review_memory as cli
+        import review_agent_memory as cli
 
         with closing(memory_db.connect_existing(self.db)) as conn:
             run = memory_db.start_run(
@@ -369,7 +369,7 @@ class FailureStatusTests(unittest.TestCase):
     def test_memory_runs_does_not_import_review_publisher(self):
         source = (
             Path(__file__).resolve().parents[1]
-            / "bootstrap/plugins/eneo_review_tools/memory_runs.py"
+            / "bootstrap/plugins/review_agent_tools/memory_runs.py"
         ).read_text(encoding="utf-8")
         self.assertNotIn("review_publisher", source)
 

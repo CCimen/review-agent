@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
-PLUGIN = PACKAGE_ROOT / "eneo_review_tools"
+PLUGIN = PACKAGE_ROOT / "review_agent_tools"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 
@@ -30,11 +30,11 @@ OWNER_MODULES = [
     "memory_coach",
 ]
 OFFLINE_OPERATOR_MODULES = {
-    "eneo_review_learning",
-    "eneo_review_coach",
-    "eneo_review_coach_proposals",
-    "eneo_review_replay",
-    "eneo_review_export",
+    "review_agent_learning",
+    "review_agent_coach",
+    "review_agent_coach_proposals",
+    "review_agent_replay",
+    "review_agent_export",
 }
 
 
@@ -42,7 +42,7 @@ class MemoryModuleBoundaryTests(unittest.TestCase):
     def test_owner_modules_import_without_facade_cycles(self):
         for module in OWNER_MODULES:
             with self.subTest(module=module):
-                importlib.import_module(f"eneo_review_tools.{module}")
+                importlib.import_module(f"review_agent_tools.{module}")
 
     def test_owner_modules_do_not_import_memory_db_facade(self):
         for module in OWNER_MODULES:
@@ -53,13 +53,13 @@ class MemoryModuleBoundaryTests(unittest.TestCase):
                     if isinstance(node, ast.Import):
                         imported = {alias.name for alias in node.names}
                         self.assertNotIn("memory_db", imported)
-                        self.assertNotIn("eneo_review_tools.memory_db", imported)
+                        self.assertNotIn("review_agent_tools.memory_db", imported)
                     elif isinstance(node, ast.ImportFrom):
                         imported = {alias.name for alias in node.names}
                         if node.level == 1 and node.module is None:
                             self.assertNotIn("memory_db", imported)
                         self.assertNotEqual(node.module, "memory_db")
-                        self.assertNotEqual(node.module, "eneo_review_tools.memory_db")
+                        self.assertNotEqual(node.module, "review_agent_tools.memory_db")
                         self.assertFalse(
                             node.level == 1 and node.module == "memory_db"
                         )

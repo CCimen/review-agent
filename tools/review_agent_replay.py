@@ -1,4 +1,4 @@
-"""Typed structural validation for Eneo reviewer replay fixtures."""
+"""Typed structural validation for review-agent replay fixtures."""
 
 from __future__ import annotations
 

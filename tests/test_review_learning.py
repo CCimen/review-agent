@@ -7,9 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins" / "eneo_review_tools"))
+sys.path.insert(0, str(ROOT / "bootstrap" / "plugins" / "review_agent_tools"))
 
-from eneo_review_learning import (
+from review_agent_learning import (
     CONTRADICTORY_DECISIONS,
     DECISION_POLICIES,
     POSITIVE_DECISIONS,
@@ -18,7 +18,7 @@ from eneo_review_learning import (
     build_learning_report,
     render_markdown,
 )
-from eneo_review_export import SUPPORTED_SCHEMA_VERSIONS
+from review_agent_export import SUPPORTED_SCHEMA_VERSIONS
 from memory_validation import DECISIONS, REVIEW_FEEDBACK_CATEGORIES, SUPPRESSIVE_DECISIONS
 import memory_db
 

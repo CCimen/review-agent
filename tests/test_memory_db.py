@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-PLUGIN = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "eneo_review_tools"
+PLUGIN = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "review_agent_tools"
 sys.path.insert(0, str(PLUGIN))
 
 import memory_db  # noqa: E402
@@ -490,7 +490,7 @@ class ReviewMemoryTests(unittest.TestCase):
 
     def test_runtime_connection_requires_initialized_schema(self):
         missing = str(Path(self.temp.name) / "missing.sqlite3")
-        with self.assertRaisesRegex(memory_db.ReviewMemoryError, "run `eneo-review-memory init`"):
+        with self.assertRaisesRegex(memory_db.ReviewMemoryError, "run `review-agent-memory init`"):
             memory_db.connect_existing(missing)
 
         empty = str(Path(self.temp.name) / "empty.sqlite3")

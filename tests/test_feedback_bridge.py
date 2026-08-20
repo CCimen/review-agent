@@ -13,7 +13,7 @@ from pathlib import Path
 PLUGIN_PARENT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
-from eneo_review_tools import feedback_bridge, memory_db, review_identity  # noqa: E402
+from review_agent_tools import feedback_bridge, memory_db, review_identity  # noqa: E402
 
 
 class FakeGitHub:

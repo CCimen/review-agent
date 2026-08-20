@@ -29,7 +29,7 @@ class AssembledDiff:
     exposed_paths: list[str]
     # Files included but cut at the byte budget (genuine per-path truncation).
     truncated_paths: list[str]
-    # Files whose patch GitHub omitted (binary / too large); need eneo_pr_file.
+    # Files whose patch GitHub omitted (binary / too large); need review_agent_pr_file.
     unavailable_paths: list[str]
     # Other files were left out entirely for budget — request them via path=.
     # This is a RESPONSE-level signal and must NOT mark the included files as

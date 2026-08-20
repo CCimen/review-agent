@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Human administration for the Eneo review-memory SQLite database."""
+"""Human administration for the review-memory SQLite database."""
 
 from __future__ import annotations
 
@@ -16,15 +16,15 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Protocol, cast
 
-from eneo_review_coach_proposals import ProposalBundle
-from eneo_review_coach_proposals import ProposalVerification
-from eneo_review_coach_run import build_coach_run_artifacts
-from eneo_review_learning import LearningReport
-from eneo_review_private_io import write_private_file
-from eneo_review_replay import ReplayValidationResult
+from review_agent_coach_proposals import ProposalBundle
+from review_agent_coach_proposals import ProposalVerification
+from review_agent_coach_run import build_coach_run_artifacts
+from review_agent_learning import LearningReport
+from review_agent_private_io import write_private_file
+from review_agent_replay import ReplayValidationResult
 
 if TYPE_CHECKING:
-    from eneo_review_tools.memory_coach import (
+    from review_agent_tools.memory_coach import (
         CoachCandidateInput as MemoryCoachCandidateInput,
         CoachRunDecision as MemoryCoachRunDecision,
         CoachRunInput as MemoryCoachRunInput,
@@ -204,9 +204,9 @@ def _import_module(name: str) -> ModuleType:
 
 def memory_module_candidates() -> tuple[Path, ...]:
     return (
-        Path("/opt/eneo-bootstrap/plugins/eneo_review_tools"),
-        Path(os.environ.get("HERMES_HOME", "/opt/data")) / "plugins" / "eneo_review_tools",
-        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "eneo_review_tools",
+        Path("/opt/review-agent-bootstrap/plugins/review_agent_tools"),
+        Path(os.environ.get("HERMES_HOME", "/opt/data")) / "plugins" / "review_agent_tools",
+        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "review_agent_tools",
     )
 
 
@@ -265,7 +265,7 @@ def load_memory_module() -> MemoryDbModule:
             module = _import_module("memory_db")
             _describe_memory_source(module, candidate)
             return cast(MemoryDbModule, module)
-    raise SystemExit("Could not locate the eneo_review_tools plugin")
+    raise SystemExit("Could not locate the review_agent_tools plugin")
 
 
 class ReviewPublisherModule(Protocol):
@@ -283,7 +283,7 @@ def load_review_publisher() -> ReviewPublisherModule:
     try:
         return cast(ReviewPublisherModule, _import_module("review_publisher"))
     except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the Eneo review publisher module") from exc
+        raise SystemExit("Could not locate the review publisher module") from exc
 
 
 def reap_and_publish(
@@ -331,37 +331,37 @@ def reap_and_publish(
 
 def load_learning_module() -> LearningModule:
     try:
-        return cast(LearningModule, _import_module("eneo_review_learning"))
+        return cast(LearningModule, _import_module("review_agent_learning"))
     except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the Eneo learning report module") from exc
+        raise SystemExit("Could not locate the learning report module") from exc
 
 
 def load_coach_module() -> CoachModule:
     try:
-        return cast(CoachModule, _import_module("eneo_review_coach"))
+        return cast(CoachModule, _import_module("review_agent_coach"))
     except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the Eneo coach export module") from exc
+        raise SystemExit("Could not locate the coach export module") from exc
 
 
 def load_coach_proposals_module() -> CoachProposalsModule:
     try:
-        return cast(CoachProposalsModule, _import_module("eneo_review_coach_proposals"))
+        return cast(CoachProposalsModule, _import_module("review_agent_coach_proposals"))
     except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the Eneo coach proposal module") from exc
+        raise SystemExit("Could not locate the coach proposal module") from exc
 
 
 def load_replay_module() -> ReplayModule:
     try:
-        return cast(ReplayModule, _import_module("eneo_review_replay"))
+        return cast(ReplayModule, _import_module("review_agent_replay"))
     except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the Eneo replay validator module") from exc
+        raise SystemExit("Could not locate the replay validator module") from exc
 
 
 def load_verification_module() -> VerificationModule:
     try:
-        return cast(VerificationModule, _import_module("eneo_review_verification"))
+        return cast(VerificationModule, _import_module("review_agent_verification"))
     except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the Eneo verification export module") from exc
+        raise SystemExit("Could not locate the verification export module") from exc
 
 
 def _nested(row: JsonObject, key: str) -> JsonObject:
@@ -399,7 +399,7 @@ def print_table(items: Sequence[JsonObject]) -> None:
 
 def print_stats(stats: JsonObject) -> None:
     repo = stats.get("repository") or "(all repositories)"
-    print(f"Eneo review memory - {repo}  (as of {stats['generated_at']})")
+    print(f"Review agent memory - {repo}  (as of {stats['generated_at']})")
     print(f"  findings: {stats['findings_total']}  (no decision: {stats['findings_without_decision']})")
     by_severity = _nested(stats, "findings_by_severity")
     by_category = _nested(stats, "findings_by_category")
@@ -534,7 +534,7 @@ def print_coverage(summary: JsonObject | None) -> None:
 
 def print_run_stats(stats: JsonObject) -> None:
     repo = stats.get("repository") or "(all repositories)"
-    print(f"Eneo review runs - {repo}  (last {stats['window_days']}d, as of {stats['generated_at']})")
+    print(f"Review agent runs - {repo}  (last {stats['window_days']}d, as of {stats['generated_at']})")
     print("  (run lifecycle state recorded by the reviewer; treat counts as approximate)")
     print(f"  total: {stats['total']}")
     by_status = _nested(stats, "by_status")
@@ -689,7 +689,7 @@ def main() -> int:
     learning_parser.add_argument(
         "--export",
         required=True,
-        help="Path created by `eneo-review-memory export --output`.",
+        help="Path created by `review-agent-memory export --output`.",
     )
     learning_parser.add_argument("--repo", help="Limit to owner/repository.")
     learning_parser.add_argument("--output", help="Write Markdown to a file instead of stdout.")
@@ -711,7 +711,7 @@ def main() -> int:
     coach_parser.add_argument(
         "--export",
         required=True,
-        help="Path created by `eneo-review-memory export --output`.",
+        help="Path created by `review-agent-memory export --output`.",
     )
     coach_parser.add_argument("--repo", help="Limit to owner/repository.")
     coach_parser.add_argument("--after-decision-id", type=int, default=0)
@@ -726,7 +726,7 @@ def main() -> int:
     coach_propose_parser.add_argument(
         "--events",
         required=True,
-        help="Path created by `eneo-review-memory coach-export --output`.",
+        help="Path created by `review-agent-memory coach-export --output`.",
     )
     coach_propose_parser.add_argument(
         "--output-dir",
@@ -743,7 +743,7 @@ def main() -> int:
     coach_verify_parser.add_argument(
         "--proposal",
         required=True,
-        help="Path created by `eneo-review-memory coach-propose` or `coach-run`.",
+        help="Path created by `review-agent-memory coach-propose` or `coach-run`.",
     )
 
     coach_run_parser = sub.add_parser(

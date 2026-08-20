@@ -10,11 +10,11 @@ from datetime import timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "bootstrap" / "plugins" / "eneo_review_tools"
+PLUGIN = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
 sys.path.insert(0, str(PLUGIN))
 sys.path.insert(0, str(ROOT / "tools"))
 
-import eneo_review_memory  # noqa: E402
+import review_agent_memory  # noqa: E402
 import memory_db  # noqa: E402
 
 
@@ -164,7 +164,7 @@ class ReviewStatsTests(unittest.TestCase):
         output = io.StringIO()
 
         with redirect_stdout(output):
-            eneo_review_memory.print_stats(stats)
+            review_agent_memory.print_stats(stats)
 
         rendered = output.getvalue()
         self.assertIn("tests.rule-16=17", rendered)

@@ -52,7 +52,7 @@ Then add the following to the managed Hermes configuration:
 ```yaml
 platform_toolsets:
   webhook:
-    - eneo_review
+    - review_agent
     - mcp-code_review_graph
 
 mcp_servers:

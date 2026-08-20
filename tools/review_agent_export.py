@@ -1,4 +1,4 @@
-"""Shared typed reader for exported Eneo review-memory snapshots."""
+"""Shared typed reader for exported review-memory snapshots."""
 
 from __future__ import annotations
 

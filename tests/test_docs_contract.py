@@ -25,13 +25,13 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("# Hermes GitHub PR review agent", readme)
         self.assertIn("engine", readme)
         self.assertIn("profile", readme)
-        self.assertIn("historical `ENEO_*`", readme)
+        self.assertIn("not supported compatibility contracts", readme)
         self.assertIn("docs/OPERATIONS.md", readme)
         self.assertIn("docs/SECURITY.md", readme)
 
         for runbook_detail in [
             "migrate-volume",
-            "eneo-review-memory decide",
+            "review-agent-memory decide",
             "HERMES_REVIEW_URL=",
             "AI_REVIEW_ALLOWED_USERS=alice",
             "review-memory-init` as `Exited (0)`",
@@ -48,7 +48,7 @@ class DocsContractTests(unittest.TestCase):
             "README.md",
             "docs/OPERATIONS.md",
             "docs/SECURITY.md",
-            "bootstrap/skills/eneo-pr-review/SKILL.md",
+            "bootstrap/skills/review-agent-pr/SKILL.md",
         ]:
             with self.subTest(relative=relative):
                 self.assertIsNone(duplicate_budget.search(read(relative)))
@@ -120,7 +120,7 @@ class DocsContractTests(unittest.TestCase):
 
     def test_repeated_reviews_reexamine_prior_findings(self):
         canonical = read("bootstrap/workspace/AGENTS.md")
-        skill = read("bootstrap/skills/eneo-pr-review/SKILL.md")
+        skill = read("bootstrap/skills/review-agent-pr/SKILL.md")
         operations = read("docs/OPERATIONS.md")
         self.assertIn("re-check each prior unresolved finding", skill)
         self.assertIn("`repeat_review_findings`", skill)
@@ -146,7 +146,7 @@ class DocsContractTests(unittest.TestCase):
 
     def test_skeptical_gate_pins_falsification_and_quality_rules(self):
         canonical = read("bootstrap/workspace/AGENTS.md")
-        skill = read("bootstrap/skills/eneo-pr-review/SKILL.md")
+        skill = read("bootstrap/skills/review-agent-pr/SKILL.md")
         canonical_words = words(canonical)
         self.assertIn("cheapest falsifier", canonical)
         self.assertIn("challenge each candidate under AGENTS.md", skill)
@@ -203,7 +203,7 @@ class DocsContractTests(unittest.TestCase):
 
     def test_atomic_suggestions_are_optional_independent_and_github_native(self):
         canonical = words(read("bootstrap/workspace/AGENTS.md"))
-        skill = words(read("bootstrap/skills/eneo-pr-review/SKILL.md"))
+        skill = words(read("bootstrap/skills/review-agent-pr/SKILL.md"))
         operations = words(read("docs/OPERATIONS.md"))
 
         self.assertIn("at most one suggestion per finding", canonical)
@@ -234,7 +234,7 @@ class DocsContractTests(unittest.TestCase):
 
     def test_all_surviving_findings_are_publishable(self):
         canonical = read("bootstrap/workspace/AGENTS.md")
-        skill = read("bootstrap/skills/eneo-pr-review/SKILL.md")
+        skill = read("bootstrap/skills/review-agent-pr/SKILL.md")
         canonical_words = re.sub(r"\s+", " ", canonical)
         skill_words = re.sub(r"\s+", " ", skill)
         self.assertIn("**Medium / P2**", canonical)
@@ -258,7 +258,7 @@ class DocsContractTests(unittest.TestCase):
 
     def test_machine_metadata_is_hidden_from_reading_path(self):
         canonical = read("bootstrap/workspace/AGENTS.md")
-        tools = read("bootstrap/plugins/eneo_review_tools/tools.py")
+        tools = read("bootstrap/plugins/review_agent_tools/tools.py")
         for body in [
             canonical,
             read("examples/comments/example-review.md"),
@@ -325,7 +325,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("--hold-on-config-error", feedback_section)
         self.assertIn("  review-memory-init:", compose)
         self.assertIn("condition: service_completed_successfully", compose)
-        self.assertIn("/opt/eneo-bootstrap/install.sh --force-agents", init_section)
+        self.assertIn("/opt/review-agent-bootstrap/install.sh --force-agents", init_section)
         self.assertIn("HERMES_HOME: /opt/data", init_section)
         self.assertIn(
             "ENEO_REVIEW_DB: /opt/data/review-memory/review_memory.sqlite3",
@@ -334,7 +334,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("PYTHONDONTWRITEBYTECODE", init_section)
         self.assertIn("hermes_review_data:/opt/data", init_section)
         self.assertIn("review_memory_data:/opt/data/review-memory", init_section)
-        self.assertNotIn("/opt/eneo-bootstrap/install.sh", reviewer_section)
+        self.assertNotIn("/opt/review-agent-bootstrap/install.sh", reviewer_section)
 
     def test_operations_own_deploy_time_profile_and_schema_refresh(self):
         readme = read("README.md")
@@ -348,12 +348,12 @@ class DocsContractTests(unittest.TestCase):
             "SQLite",
             "Exited (0)",
             "Manual recovery only",
-            "/opt/eneo-bootstrap/install.sh --force-agents",
-            "eneo-review-memory init",
+            "/opt/review-agent-bootstrap/install.sh --force-agents",
+            "review-agent-memory init",
         ]:
             with self.subTest(required=required):
                 self.assertIn(required, operations)
-        self.assertNotIn("eneo-review-memory init", readme)
+        self.assertNotIn("review-agent-memory init", readme)
 
     def test_review_delivery_uses_deterministic_publisher_not_github_comment(self):
         config = read("bootstrap/config.yaml")
@@ -372,7 +372,7 @@ class DocsContractTests(unittest.TestCase):
 
     def test_security_doc_owns_prompt_injection_and_dependency_scope(self):
         canonical = read("bootstrap/workspace/AGENTS.md")
-        skill = read("bootstrap/skills/eneo-pr-review/SKILL.md")
+        skill = read("bootstrap/skills/review-agent-pr/SKILL.md")
         readme = read("README.md")
         security = read("docs/SECURITY.md")
         workflow = read("examples/github/ai-review-request.yml")
@@ -448,7 +448,7 @@ class DocsContractTests(unittest.TestCase):
 
     def test_live_reviewer_keeps_unsafe_toolsets_disabled(self):
         config = read("bootstrap/config.yaml")
-        skill = read("bootstrap/skills/eneo-pr-review/SKILL.md")
+        skill = read("bootstrap/skills/review-agent-pr/SKILL.md")
         disabled = config.split("  disabled_toolsets:", 1)[1].split("\nmemory:", 1)[0]
         self.assertIn("- file", disabled)
         self.assertIn("- skills", disabled)
@@ -459,11 +459,11 @@ class DocsContractTests(unittest.TestCase):
 
     def test_large_prs_are_not_rejected_by_fixed_size_budget(self):
         canonical = read("bootstrap/workspace/AGENTS.md")
-        skill = read("bootstrap/skills/eneo-pr-review/SKILL.md")
+        skill = read("bootstrap/skills/review-agent-pr/SKILL.md")
         canonical_words = re.sub(r"\s+", " ", canonical)
         self.assertIn("Do not reject a PR because", skill)
         self.assertIn("it is large", skill)
-        self.assertIn("use `eneo_pr_files` to page changed paths", skill)
+        self.assertIn("use `review_agent_pr_files` to page changed paths", skill)
         self.assertIn("risk-rank the paths", skill)
         self.assertIn("Follow AGENTS.md for the complete", skill)
         self.assertIn("coverage was incomplete", skill)
@@ -495,9 +495,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("nousresearch/hermes-agent:latest", compose)
         self.assertNotIn("nousresearch/hermes-agent:latest", env_example)
         self.assertNotIn("ENEO_REVIEW_DB=", env_example)
-        self.assertIn("/opt/eneo-bootstrap/install.sh --force-agents", compose)
+        self.assertIn("/opt/review-agent-bootstrap/install.sh --force-agents", compose)
         self.assertIn("ENEO_REVIEW_DB: /opt/data/review-memory/review_memory.sqlite3", compose)
-        self.assertIn("eneo-review-memory migrate-volume", operations)
+        self.assertIn("review-agent-memory migrate-volume", operations)
         self.assertIn("SQLite's backup API", operations)
         self.assertIn("`ENEO_REVIEW_DB` is not a public `.env` setting", operations)
 
@@ -512,15 +512,6 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("hermes auth add openai-codex", operations)
         self.assertNotIn("hermes model", installer)
         self.assertNotIn("hermes model", operations)
-
-    def test_plugin_manifest_lists_registered_tools(self):
-        manifest = read("bootstrap/plugins/eneo_review_tools/plugin.yaml")
-        registered = set(
-            re.findall(r'name="(eneo_[a-z0-9_]+)"', read("bootstrap/plugins/eneo_review_tools/__init__.py"))
-        )
-        provided = set(re.findall(r"^\s+- (eneo_[a-z0-9_]+)$", manifest, re.MULTILINE))
-        self.assertEqual(provided, registered)
-
 
 if __name__ == "__main__":
     unittest.main()

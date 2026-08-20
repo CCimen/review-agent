@@ -16,7 +16,7 @@ The preferred operator path reads the live SQLite database directly and writes
 only bounded private coach artifacts:
 
 ```bash
-eneo-review-memory --db /opt/data/review-memory/review_memory.sqlite3 \
+review-agent-memory --db /opt/data/review-memory/review_memory.sqlite3 \
   coach-run \
   --repo eneo-ai/eneo \
   --output-dir /opt/data/review-memory/coach-run
@@ -35,14 +35,14 @@ diagnosis; the normal coach path does not need a raw database export on disk.
 Generate an export from the operator CLI:
 
 ```bash
-eneo-review-memory export \
+review-agent-memory export \
   --output /opt/data/review-memory/export.json
 ```
 
 Then generate a private candidate report from that export:
 
 ```bash
-eneo-review-memory learning-report \
+review-agent-memory learning-report \
   --export /opt/data/review-memory/export.json \
   --repo eneo-ai/eneo \
   --output /opt/data/review-memory/learning-candidates.md
@@ -57,7 +57,7 @@ For private coach input, generate the typed allowlist JSON bundle instead of
 feeding raw exports or Markdown to an LLM:
 
 ```bash
-eneo-review-memory coach-export \
+review-agent-memory coach-export \
   --export /opt/data/review-memory/export.json \
   --repo eneo-ai/eneo \
   --after-decision-id 0 \
@@ -74,7 +74,7 @@ For independent finding falsification, export one completed review run instead
 of asking another model to review the whole PR:
 
 ```bash
-eneo-review-memory verification-export \
+review-agent-memory verification-export \
   --run-id <id> \
   --output /opt/data/review-memory/verification/run-<id>.json
 ```
@@ -88,7 +88,7 @@ code review.
 Then select deterministic improvement proposals from the coach events:
 
 ```bash
-eneo-review-memory coach-propose \
+review-agent-memory coach-propose \
   --events /opt/data/review-memory/coach-export.json \
   --output-dir /opt/data/review-memory/coach-proposal
 ```
@@ -110,7 +110,7 @@ shown as not promoted until the feedback writer records that provenance.
 Validate replay fixtures before relying on them:
 
 ```bash
-eneo-review-memory validate-replay review-learning/replay
+review-agent-memory validate-replay review-learning/replay
 ```
 
 Replay fixtures are strict JSON files. This keeps validation on the standard
@@ -172,7 +172,7 @@ Weak signals are ignored:
    change.
 5. `shadow`: the change is measured on real reviews without making it a gate.
 6. `active`: the change is deployed through version control and
-   `/opt/eneo-bootstrap/install.sh --force-agents`.
+   `/opt/review-agent-bootstrap/install.sh --force-agents`.
 7. `retired/replaced`: a better canonical owner absorbs it or the lesson stops
    matching current architecture.
 
@@ -184,7 +184,7 @@ lessons into the narrowest canonical owner:
 - exact finding decisions stay in SQLite;
 - architectural context becomes an accepted ADR;
 - visible review shape belongs in `bootstrap/workspace/AGENTS.md`;
-- review procedure belongs in `bootstrap/skills/eneo-pr-review/SKILL.md`;
+- review procedure belongs in `bootstrap/skills/review-agent-pr/SKILL.md`;
 - mechanical enforcement belongs in plugin code and tests;
 - replay behavior belongs in `review-learning/replay/`.
 

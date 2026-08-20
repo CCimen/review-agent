@@ -14,8 +14,8 @@ from typing import cast
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from eneo_review_coach import COACH_EVENT_GROUPS, COACH_SCHEMA_VERSION, build_coach_export
-from eneo_review_coach_proposals import (
+from review_agent_coach import COACH_EVENT_GROUPS, COACH_SCHEMA_VERSION, build_coach_export
+from review_agent_coach_proposals import (
     POSITIVE_PATTERN_REASON,
     PROPOSAL_FORBIDDEN_ACTIONS,
     PROPOSAL_SUPPORTED_EVENT_GROUPS,
@@ -29,7 +29,7 @@ from eneo_review_coach_proposals import (
     render_markdown,
     verify_proposal_bundle,
 )
-from eneo_review_learning import (
+from review_agent_learning import (
     EMITTED_EVENT_TYPES,
     EMITTED_SIGNAL_STRENGTHS,
     EMITTED_SUGGESTED_ROUTES,
@@ -748,7 +748,7 @@ class CoachProposalTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "tools" / "eneo_review_memory.py"),
+                    str(ROOT / "tools" / "review_agent_memory.py"),
                     "coach-verify-proposal",
                     "--proposal",
                     str(proposal_path),
@@ -786,7 +786,7 @@ class CoachProposalTests(unittest.TestCase):
             subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "tools" / "eneo_review_memory.py"),
+                    str(ROOT / "tools" / "review_agent_memory.py"),
                     "coach-propose",
                     "--events",
                     str(export_path),

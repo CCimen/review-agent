@@ -14,7 +14,7 @@ from unittest import mock
 PLUGIN_PARENT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
-from eneo_review_tools import (  # noqa: E402
+from review_agent_tools import (  # noqa: E402
     memory_db,
     memory_publications,
     memory_suggestions,

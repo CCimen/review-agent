@@ -10,7 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "bootstrap" / "plugins" / "eneo_review_tools"
+PLUGIN = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
 sys.path.insert(0, str(PLUGIN))
 
 import memory_db  # noqa: E402
@@ -352,7 +352,7 @@ class ReviewRunsTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 sys.executable,
-                str(ROOT / "tools" / "eneo_review_memory.py"),
+                str(ROOT / "tools" / "review_agent_memory.py"),
                 "--db",
                 str(self.db_path),
                 "runs",
@@ -382,7 +382,7 @@ class ReviewRunsTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 sys.executable,
-                str(ROOT / "tools" / "eneo_review_memory.py"),
+                str(ROOT / "tools" / "review_agent_memory.py"),
                 "--db",
                 str(self.db_path),
                 "runs",
@@ -397,7 +397,7 @@ class ReviewRunsTests(unittest.TestCase):
 
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("review memory schema version 6", completed.stderr)
-        self.assertIn("run `eneo-review-memory init`", completed.stderr)
+        self.assertIn("run `review-agent-memory init`", completed.stderr)
         self.assertNotIn("Traceback", completed.stderr)
         self.connection = memory_db.connect(str(self.db_path))
 
@@ -448,7 +448,7 @@ class ReviewRunsTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 sys.executable,
-                str(ROOT / "tools" / "eneo_review_memory.py"),
+                str(ROOT / "tools" / "review_agent_memory.py"),
                 "--db",
                 str(self.db_path),
                 "publications",
@@ -501,7 +501,7 @@ class ReviewRunsTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 sys.executable,
-                str(ROOT / "tools" / "eneo_review_memory.py"),
+                str(ROOT / "tools" / "review_agent_memory.py"),
                 "--db",
                 str(self.db_path),
                 "coverage",

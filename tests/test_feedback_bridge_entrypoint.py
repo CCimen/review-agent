@@ -14,7 +14,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-import eneo_review_feedback_bridge as entrypoint  # noqa: E402
+import review_agent_feedback_bridge as entrypoint  # noqa: E402
 
 
 class _FailingBridge:
@@ -24,7 +24,7 @@ class _FailingBridge:
 
 class FeedbackBridgeEntrypointTests(unittest.TestCase):
     def tearDown(self) -> None:
-        for name in ("eneo_review_tools.feedback_bridge", "eneo_review_tools"):
+        for name in ("review_agent_tools.feedback_bridge", "review_agent_tools"):
             sys.modules.pop(name, None)
 
     def test_env_presence_summary_redacts_secret_values(self) -> None:
@@ -70,7 +70,7 @@ class FeedbackBridgeEntrypointTests(unittest.TestCase):
             stale_parent = root / "stale"
             fresh_parent = root / "fresh"
             for parent, marker in [(stale_parent, "stale"), (fresh_parent, "fresh")]:
-                package = parent / "eneo_review_tools"
+                package = parent / "review_agent_tools"
                 package.mkdir(parents=True)
                 (package / "__init__.py").write_text("", encoding="utf-8")
                 (package / "feedback_bridge.py").write_text(
@@ -87,7 +87,7 @@ class FeedbackBridgeEntrypointTests(unittest.TestCase):
 
             sys.path.insert(0, str(stale_parent))
             try:
-                stale = importlib.import_module("eneo_review_tools.feedback_bridge")
+                stale = importlib.import_module("review_agent_tools.feedback_bridge")
                 self.assertEqual(stale.MARKER, "stale")
             finally:
                 sys.path.remove(str(stale_parent))

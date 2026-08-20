@@ -8,7 +8,7 @@ PLUGIN = (
     Path(__file__).resolve().parents[1]
     / "bootstrap"
     / "plugins"
-    / "eneo_review_tools"
+    / "review_agent_tools"
 )
 sys.path.insert(0, str(PLUGIN))
 

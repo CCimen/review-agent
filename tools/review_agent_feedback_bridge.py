@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HTTP entrypoint for the deterministic Eneo review-feedback bridge."""
+"""HTTP entrypoint for the deterministic review-feedback bridge."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def _import_module(name: str) -> ModuleType:
 
 def plugin_parent_candidates() -> tuple[Path, ...]:
     candidates: list[Path] = [
-        Path("/opt/eneo-bootstrap/plugins"),
+        Path("/opt/review-agent-bootstrap/plugins"),
         Path(os.environ.get("HERMES_HOME", "/opt/data")) / "plugins",
         Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
     ]
@@ -84,10 +84,10 @@ def plugin_parent_candidates() -> tuple[Path, ...]:
 
 def _insert_plugin_parent() -> Path:
     for candidate in plugin_parent_candidates():
-        if (candidate / "eneo_review_tools" / "feedback_bridge.py").exists():
+        if (candidate / "review_agent_tools" / "feedback_bridge.py").exists():
             sys.path.insert(0, str(candidate))
             return candidate
-    raise SystemExit("Could not locate the eneo_review_tools plugin")
+    raise SystemExit("Could not locate the review_agent_tools plugin")
 
 
 def _module_is_from_parent(module: ModuleType, parent: Path) -> bool:
@@ -103,7 +103,7 @@ def _module_is_from_parent(module: ModuleType, parent: Path) -> bool:
 
 
 def _evict_stale_plugin_modules(parent: Path) -> None:
-    for name in ("eneo_review_tools.feedback_bridge", "eneo_review_tools"):
+    for name in ("review_agent_tools.feedback_bridge", "review_agent_tools"):
         module = sys.modules.get(name)
         if module is not None and not _module_is_from_parent(module, parent):
             sys.modules.pop(name, None)
@@ -121,7 +121,7 @@ def _describe_bridge_source(module: ModuleType, parent: Path) -> None:
 def load_feedback_bridge() -> FeedbackBridgeModule:
     parent = _insert_plugin_parent()
     _evict_stale_plugin_modules(parent)
-    module = _import_module("eneo_review_tools.feedback_bridge")
+    module = _import_module("review_agent_tools.feedback_bridge")
     _describe_bridge_source(module, parent)
     return cast(FeedbackBridgeModule, module)
 
@@ -302,7 +302,7 @@ def serve(
         config=config,
         github=github_client_class(config.token),
     )
-    print(f"Eneo review feedback bridge listening on {host}:{port}", flush=True)
+    print(f"Review agent feedback bridge listening on {host}:{port}", flush=True)
     server.serve_forever()
 
 

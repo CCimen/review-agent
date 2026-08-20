@@ -6,9 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-import eneo_review_coach
-import eneo_review_coach_proposals
-from eneo_review_private_io import write_private_file
+import review_agent_coach
+import review_agent_coach_proposals
+from review_agent_private_io import write_private_file
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class CoachRunArtifactPaths:
 
 @dataclass(frozen=True)
 class CoachRunArtifacts:
-    bundle: eneo_review_coach_proposals.ProposalBundle
+    bundle: review_agent_coach_proposals.ProposalBundle
     paths: CoachRunArtifactPaths
 
 
@@ -40,19 +40,19 @@ def build_coach_run_artifacts(
     after_decision_id: int = 0,
     after_feedback_id: int = 0,
     include_incomplete: bool = False,
-    max_candidates: int = eneo_review_coach_proposals.DEFAULT_MAX_CANDIDATES,
+    max_candidates: int = review_agent_coach_proposals.DEFAULT_MAX_CANDIDATES,
     min_independent_episodes: int = (
-        eneo_review_coach_proposals.DEFAULT_MIN_INDEPENDENT_EPISODES
+        review_agent_coach_proposals.DEFAULT_MIN_INDEPENDENT_EPISODES
     ),
 ) -> CoachRunArtifacts:
-    coach_payload = eneo_review_coach.build_coach_export(
+    coach_payload = review_agent_coach.build_coach_export(
         state,
         repository=repository,
         after_decision_id=after_decision_id,
         after_feedback_id=after_feedback_id,
         include_incomplete=include_incomplete,
     )
-    bundle = eneo_review_coach_proposals.build_proposal(
+    bundle = review_agent_coach_proposals.build_proposal(
         coach_payload,
         max_candidates=max_candidates,
         min_independent_episodes=min_independent_episodes,
@@ -65,11 +65,11 @@ def build_coach_run_artifacts(
     )
     write_private_file(
         paths.coach_export,
-        eneo_review_coach.dumps_coach_export(coach_payload),
+        review_agent_coach.dumps_coach_export(coach_payload),
     )
     write_private_file(
         paths.proposal,
-        eneo_review_coach_proposals.dumps_proposal_bundle(bundle),
+        review_agent_coach_proposals.dumps_proposal_bundle(bundle),
     )
-    write_private_file(paths.summary, eneo_review_coach_proposals.render_markdown(bundle))
+    write_private_file(paths.summary, review_agent_coach_proposals.render_markdown(bundle))
     return CoachRunArtifacts(bundle=bundle, paths=paths)

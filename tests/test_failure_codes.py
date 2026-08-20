@@ -7,7 +7,7 @@ from pathlib import Path
 PLUGINS = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGINS))
 
-from eneo_review_tools import failure_codes  # noqa: E402
+from review_agent_tools import failure_codes  # noqa: E402
 
 
 class FailureCodesTests(unittest.TestCase):

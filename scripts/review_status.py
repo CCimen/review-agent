@@ -70,7 +70,7 @@ def main() -> int:
     print("\nDrill in:")
     print(f"  why a run was ignored:   gh run view <id> --repo {REPO}")
     print( "  live gateway activity:   Dokploy -> Eneo-Security-Review -> hermes-review -> Logs")
-    print( "  findings totals:         eneo-review-memory stats --repo eneo-ai/eneo   (run in the container)")
+    print( "  findings totals:         review-agent-memory stats --repo eneo-ai/eneo   (run in the container)")
     return 0
 
 

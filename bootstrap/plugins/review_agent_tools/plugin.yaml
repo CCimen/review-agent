@@ -1,14 +1,14 @@
-name: eneo-review-tools
+name: review-agent-tools
 version: 2.1.0
 description: Bounded GitHub PR context plus human-curated SQLite finding memory
 provides_tools:
-  - eneo_review_begin
-  - eneo_pr_diff
-  - eneo_pr_files
-  - eneo_pr_file
-  - eneo_review_memory_context
-  - eneo_review_memory_record
-  - eneo_review_deliver
+  - review_agent_begin
+  - review_agent_pr_diff
+  - review_agent_pr_files
+  - review_agent_pr_file
+  - review_agent_memory_context
+  - review_agent_memory_record
+  - review_agent_deliver
 requires_env:
   - name: REVIEW_AGENT_ALLOWED_REPOSITORIES
     description: Exact comma-separated GitHub repositories this plugin may read

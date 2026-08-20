@@ -1,4 +1,4 @@
-"""Deterministic proposal bundles for the private Eneo reviewer coach."""
+"""Deterministic proposal bundles for the private review coach."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, cast
 
-from eneo_review_coach import COACH_EVENT_GROUPS, COACH_SCHEMA_VERSION
-from eneo_review_learning import EMITTED_SIGNAL_STRENGTHS
+from review_agent_coach import COACH_EVENT_GROUPS, COACH_SCHEMA_VERSION
+from review_agent_learning import EMITTED_SIGNAL_STRENGTHS
 
 
 PROPOSAL_SCHEMA_VERSION: Final = 2
@@ -493,7 +493,7 @@ def dumps_proposal_bundle(bundle: ProposalBundle) -> str:
 
 def render_markdown(bundle: ProposalBundle) -> str:
     lines = [
-        "# Eneo reviewer coach proposal",
+        "# Review agent coach proposal",
         "",
         "This private bundle selects review-memory signals that may be worth turning "
         "into a replay, skill, ADR, or plugin improvement. It does not change "
@@ -943,7 +943,7 @@ def _proposed_change(group: CandidateGroup) -> str:
     if group.event_type == "accepted_risk":
         return (
             "Review whether repeated accepted-risk decisions point to a missing ADR, checklist, "
-            "or explicit Eneo architecture context before changing reviewer behavior."
+            "or explicit architecture context before changing reviewer behavior."
         )
     return (
         f"Start in `{target}`. Add a focused replay or behavior test for this pattern, "

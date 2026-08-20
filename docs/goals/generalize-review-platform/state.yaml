@@ -233,6 +233,7 @@ tasks:
       - bootstrap/install.py
       - bootstrap/install.sh
       - Dockerfile
+      - compose.yaml
       - pyrightconfig.json
       - scripts/check_bundle.sh
       - tests

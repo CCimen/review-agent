@@ -472,8 +472,8 @@ def _overview_payload(
         "deletions": _int_value(pull.get("deletions")),
         "file_index": file_index,
         "instruction": (
-            "Use eneo_pr_files with this run_id to page changed paths by domain or "
-            "review_mode, then use eneo_pr_diff for selected paths. The full file "
+            "Use review_agent_pr_files with this run_id to page changed paths by domain or "
+            "review_mode, then use review_agent_pr_diff for selected paths. The full file "
             "list is intentionally not embedded in this overview."
         ),
         "untrusted_data_notice": (
@@ -757,14 +757,14 @@ def _pr_diff_from_patches(
             ] = "not_in_changed_files"
             next_action = (
                 "This path has no PR diff. If it is needed as unchanged context, "
-                "read it with eneo_pr_file. Do not retry eneo_pr_diff for this path."
+                "read it with review_agent_pr_file. Do not retry review_agent_pr_diff for this path."
             )
         else:
             path_state = "not_in_changed_index"
             next_action = (
                 "The changed-file index is incomplete, so this path's diff availability "
-                "cannot be determined. Read bounded source context with eneo_pr_file and "
-                "continue with coverage marked incomplete. Do not retry eneo_pr_diff for "
+                "cannot be determined. Read bounded source context with review_agent_pr_file and "
+                "continue with coverage marked incomplete. Do not retry review_agent_pr_diff for "
                 "this path."
             )
         return _pr_diff_terminal_handoff(
@@ -826,8 +826,8 @@ def _pr_diff_from_patches(
             unavailable_paths=assembled.unavailable_paths,
             next_action=(
                 "GitHub did not provide a text patch for this large or binary path. "
-                "Read bounded source context with eneo_pr_file, then continue the "
-                "review with coverage marked incomplete. Do not retry eneo_pr_diff "
+                "Read bounded source context with review_agent_pr_file, then continue the "
+                "review with coverage marked incomplete. Do not retry review_agent_pr_diff "
                 "for this path."
             ),
         )
@@ -957,7 +957,7 @@ def pr_diff(args: dict[str, Any], **_: Any) -> str:
 
 
 # GitHub's Contents API only base64-encodes files up to 1 MB. Larger files are fetched from the
-# Git Blob API up to this cap; beyond it the reviewer is pointed at eneo_pr_diff rather than
+# Git Blob API up to this cap; beyond it the reviewer is pointed at review_agent_pr_diff rather than
 # pulling megabytes into a bounded review.
 _MAX_FILE_BYTES = 5_000_000
 
@@ -989,7 +989,7 @@ def _file_at_revision(repository: str, path: str, revision: str) -> bytes:
         raise TerminalFileReadError(
             "not_found_at_revision",
             "the requested file was not found at the pull-request revision. Read paths from the "
-            "eneo_review_begin changed-file list; use side: head for added or modified files and "
+            "review_agent_begin changed-file list; use side: head for added or modified files and "
             "side: base only for the prior version of a modified or deleted file; do not retry "
             "guessed paths."
         ) from exc
@@ -1010,7 +1010,7 @@ def _file_at_revision(repository: str, path: str, revision: str) -> bytes:
     if _int_value(value.get("size")) > _MAX_FILE_BYTES:
         raise TerminalFileReadError(
             "too_large",
-            "the file exceeds the bounded read size; inspect its changed lines with eneo_pr_diff "
+            "the file exceeds the bounded read size; inspect its changed lines with review_agent_pr_diff "
             "for this path instead, and do not retry this read."
         )
     # Raw media type returns the file bytes directly (no base64/JSON wrapper to budget),
@@ -1030,7 +1030,7 @@ def _file_at_revision(repository: str, path: str, revision: str) -> bytes:
     if truncated or len(data) > _MAX_FILE_BYTES:
         raise TerminalFileReadError(
             "too_large",
-            "the file exceeds the bounded read size; inspect its changed lines with eneo_pr_diff "
+            "the file exceeds the bounded read size; inspect its changed lines with review_agent_pr_diff "
             "for this path instead, and do not retry this read."
         )
     return data
@@ -1120,7 +1120,7 @@ def pr_file(args: dict[str, Any], **_: Any) -> str:
                 next_action=(
                     "GitHub no longer exposes the repository that owns this revision. "
                     "Continue from the available diff and overview evidence with coverage "
-                    "marked incomplete. Do not retry eneo_pr_file for this path and side."
+                    "marked incomplete. Do not retry review_agent_pr_file for this path and side."
                 ),
             )
         source_repository = raw_source_repository
@@ -1231,7 +1231,7 @@ def pr_file(args: dict[str, Any], **_: Any) -> str:
                 file_state=exc.state,
                 next_action=(
                     f"{reason} Continue from the available diff and overview evidence "
-                    "with coverage marked incomplete. Do not retry eneo_pr_file for "
+                    "with coverage marked incomplete. Do not retry review_agent_pr_file for "
                     "this path and side."
                 ),
             )
@@ -1247,7 +1247,7 @@ def pr_file(args: dict[str, Any], **_: Any) -> str:
                 next_action=(
                     "Binary content cannot be inspected as source text. Continue from "
                     "the available diff metadata and overview evidence with coverage "
-                    "marked incomplete. Do not retry eneo_pr_file for this path and side."
+                    "marked incomplete. Do not retry review_agent_pr_file for this path and side."
                 ),
             )
         text = raw.decode("utf-8", errors="replace")
@@ -1742,7 +1742,7 @@ def review_deliver(args: dict[str, Any], **_: Any) -> str:
                     "findings_count": findings_count,
                     "resolved_count": finalized["resolved_count"],
                     "operator_hint": (
-                        "Run `eneo-review-memory publications --repo "
+                        "Run `review-agent-memory publications --repo "
                         f"{repository} --pr {number}` to inspect the publication ledger."
                     ),
                 }
@@ -1775,7 +1775,7 @@ def review_deliver(args: dict[str, Any], **_: Any) -> str:
                     "next_action": (
                         "Align previous_verdicts with the recorded findings. Re-record "
                         "any omitted still-current finding or use not_checked when it "
-                        "was not rechecked, then call eneo_review_deliver again with "
+                        "was not rechecked, then call review_agent_deliver again with "
                         "this same run_id."
                     ),
                 }

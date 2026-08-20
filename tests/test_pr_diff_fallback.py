@@ -11,7 +11,7 @@ from unittest.mock import patch
 PLUGINS = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGINS))
 
-from eneo_review_tools import changed_files, memory_db, tools  # noqa: E402
+from review_agent_tools import changed_files, memory_db, tools  # noqa: E402
 
 
 def _cf(**over: object) -> dict[str, object]:
@@ -186,8 +186,8 @@ class PrDiffFallbackTests(unittest.TestCase):
         self.assertFalse(result["truncated"])
         self.assertTrue(result["terminal"])
         self.assertFalse(result["retryable"])
-        self.assertIn("eneo_pr_file", result["next_action"])
-        self.assertIn("Do not retry eneo_pr_diff", result["next_action"])
+        self.assertIn("review_agent_pr_file", result["next_action"])
+        self.assertIn("Do not retry review_agent_pr_diff", result["next_action"])
 
     def test_incomplete_index_does_not_claim_path_is_unchanged(self):
         run_id = self._begin_run(["src/changed.py"])
@@ -206,7 +206,7 @@ class PrDiffFallbackTests(unittest.TestCase):
         self.assertTrue(result["terminal"])
         self.assertFalse(result["retryable"])
         self.assertIn("index is incomplete", result["next_action"])
-        self.assertIn("eneo_pr_file", result["next_action"])
+        self.assertIn("review_agent_pr_file", result["next_action"])
 
     def test_pr_diff_unavailable_path_returns_non_failure_handoff_to_pr_file(self):
         run_id = self._begin_run()
@@ -217,8 +217,8 @@ class PrDiffFallbackTests(unittest.TestCase):
         self.assertEqual(result["diff"], "")
         self.assertTrue(result["terminal"])
         self.assertFalse(result["retryable"])
-        self.assertIn("eneo_pr_file", result["next_action"])
-        self.assertIn("Do not retry eneo_pr_diff", result["next_action"])
+        self.assertIn("review_agent_pr_file", result["next_action"])
+        self.assertIn("Do not retry review_agent_pr_diff", result["next_action"])
 
     def test_pr_diff_no_path_fallback_records_complete_coverage(self):
         run_id = self._begin_run()

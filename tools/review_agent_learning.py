@@ -1,4 +1,4 @@
-"""Offline learning-candidate reports for the Eneo PR reviewer.
+"""Offline learning-candidate reports for the pull-request review agent.
 
 The public webhook reviewer must not import this module. It is operator tooling
 that reads an exported review-memory JSON snapshot and turns explicit human
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from eneo_review_export import (
+from review_agent_export import (
     DecisionProvenance,
     decision_provenances,
     load_export as _load_export,
@@ -295,7 +295,7 @@ def build_learning_report(
 
 def render_markdown(report: LearningReport) -> str:
     lines = [
-        "# Eneo reviewer learning candidates",
+        "# Review agent learning candidates",
         "",
         "Generated from an exported review-memory snapshot. This report is "
         "advisory; the public webhook reviewer must not read it as policy.",

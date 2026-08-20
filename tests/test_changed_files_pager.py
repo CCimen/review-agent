@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from eneo_review_tools import changed_files, tools  # noqa: E402
+from review_agent_tools import changed_files, tools  # noqa: E402
 
 
 def _files(n: int, *, with_patch: bool = True):

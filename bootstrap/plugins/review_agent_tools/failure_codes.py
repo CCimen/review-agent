@@ -1,7 +1,7 @@
 """Canonical run-level failure codes — one source of truth for `review_runs.failure_code`.
 
 These are stable, machine-grep-able codes written to the durable run row and surfaced by
-the operator CLI (`eneo-review-memory runs --failed`). Keeping them here stops the codes
+the operator CLI (`review-agent-memory runs --failed`). Keeping them here stops the codes
 from drifting across the lifecycle, delivery, and reaper modules that set them.
 """
 

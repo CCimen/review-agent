@@ -1,4 +1,4 @@
-"""Eneo bounded pull-request context and review-memory plugin."""
+"""Bounded pull-request context and review-memory plugin."""
 
 from __future__ import annotations
 
@@ -24,44 +24,44 @@ def register(ctx: ToolRegistry) -> None:
     tools = import_module(f"{__name__}.tools")
 
     ctx.register_tool(
-        name="eneo_review_begin",
-        toolset="eneo_review",
-        schema=getattr(schemas, "ENEO_REVIEW_BEGIN"),
+        name="review_agent_begin",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_BEGIN"),
         handler=getattr(tools, "review_begin"),
     )
     ctx.register_tool(
-        name="eneo_pr_diff",
-        toolset="eneo_review",
-        schema=getattr(schemas, "ENEO_PR_DIFF"),
+        name="review_agent_pr_diff",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_PR_DIFF"),
         handler=getattr(tools, "pr_diff"),
     )
     ctx.register_tool(
-        name="eneo_pr_files",
-        toolset="eneo_review",
-        schema=getattr(schemas, "ENEO_PR_FILES"),
+        name="review_agent_pr_files",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_PR_FILES"),
         handler=getattr(tools, "pr_files"),
     )
     ctx.register_tool(
-        name="eneo_pr_file",
-        toolset="eneo_review",
-        schema=getattr(schemas, "ENEO_PR_FILE"),
+        name="review_agent_pr_file",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_PR_FILE"),
         handler=getattr(tools, "pr_file"),
     )
     ctx.register_tool(
-        name="eneo_review_memory_context",
-        toolset="eneo_review",
-        schema=getattr(schemas, "ENEO_REVIEW_MEMORY_CONTEXT"),
+        name="review_agent_memory_context",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_MEMORY_CONTEXT"),
         handler=getattr(tools, "review_memory_context"),
     )
     ctx.register_tool(
-        name="eneo_review_memory_record",
-        toolset="eneo_review",
-        schema=getattr(schemas, "ENEO_REVIEW_MEMORY_RECORD"),
+        name="review_agent_memory_record",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_MEMORY_RECORD"),
         handler=getattr(tools, "review_memory_record"),
     )
     ctx.register_tool(
-        name="eneo_review_deliver",
-        toolset="eneo_review",
-        schema=getattr(schemas, "ENEO_REVIEW_DELIVER"),
+        name="review_agent_deliver",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_DELIVER"),
         handler=getattr(tools, "review_deliver"),
     )

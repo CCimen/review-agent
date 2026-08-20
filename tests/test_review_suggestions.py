@@ -10,7 +10,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from eneo_review_tools import memory_db, memory_suggestions  # noqa: E402
+from review_agent_tools import memory_db, memory_suggestions  # noqa: E402
 
 
 class SuggestionValidationTests(unittest.TestCase):

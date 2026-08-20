@@ -28,7 +28,7 @@ The live reviewer does not receive:
 - arbitrary code execution;
 - access to private coach artifacts under `review-learning/`.
 
-Review output reaches GitHub only through `eneo_review_deliver`. The tool verifies
+Review output reaches GitHub only through `review_agent_deliver`. The tool verifies
 the PR base/head snapshot, renders the stored comment, publishes deterministic
 comment parts and any validated atomic suggestions, and records the delivery
 state. Suggestions are grouped in one non-blocking GitHub `COMMENT` review; the
@@ -59,7 +59,7 @@ webhook reviewer. The public review path does not launch Claude, spawn
 subprocesses, delegate to subagents, execute repository code, or hand another
 model a GitHub write token.
 
-`eneo-review-memory verification-export` reads an already completed review run
+`review-agent-memory verification-export` reads an already completed review run
 and writes a bounded private JSON artifact with mode `0600`. The artifact is for
 falsifying current published findings out of band. It contains stable ids,
 base/head SHAs, coverage summary, and bounded `*_untrusted` finding evidence. It
@@ -88,7 +88,7 @@ to apply an individual suggestion or a selected batch in GitHub, and that human
 action creates the commit.
 
 If GitHub returns `Resource not accessible by personal access token`, inspect the
-endpoint-specific failure in `eneo-review-memory publications --json`. Most
+endpoint-specific failure in `review-agent-memory publications --json`. Most
 runtime 403s are missing org approval or missing Issues/Pull requests permission
 on a fine-grained token.
 

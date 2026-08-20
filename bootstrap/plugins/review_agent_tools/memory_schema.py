@@ -80,7 +80,7 @@ def connect_existing(explicit: str | None = None) -> sqlite3.Connection:
     if not path.exists():
         raise ReviewMemoryError(
             f"review memory database does not exist at {path}; "
-            "run `eneo-review-memory init` first"
+            "run `review-agent-memory init` first"
         )
     connection = open_connection(path)
     try:
@@ -105,7 +105,7 @@ def verify_schema(connection: sqlite3.Connection) -> None:
     if existing_version != SCHEMA_VERSION:
         raise ReviewMemoryError(
             f"review memory schema version {existing_version} does not match "
-            f"expected version {SCHEMA_VERSION}; run `eneo-review-memory init`"
+            f"expected version {SCHEMA_VERSION}; run `review-agent-memory init`"
         )
     existing_tables = {
         str(row["name"])

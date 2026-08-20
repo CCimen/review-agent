@@ -11,8 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from eneo_review_coach import COACH_SCHEMA_VERSION, build_coach_export, dumps_coach_export
-from eneo_review_private_io import write_private_file
+from review_agent_coach import COACH_SCHEMA_VERSION, build_coach_export, dumps_coach_export
+from review_agent_private_io import write_private_file
 
 
 def state_with_signals(reason: str = "Human confirmed this was wrong.") -> dict[str, object]:

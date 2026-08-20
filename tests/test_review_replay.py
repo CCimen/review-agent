@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from eneo_review_replay import validate_replay_path
+from review_agent_replay import validate_replay_path
 
 
 VALID_FIXTURE = """{

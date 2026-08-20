@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Final, cast
 
-from eneo_review_private_export import (
+from review_agent_private_export import (
     bounded_text,
     dumps_private_json,
     stable_json_hash,

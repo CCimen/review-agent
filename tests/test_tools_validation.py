@@ -14,8 +14,8 @@ from unittest.mock import patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from eneo_review_tools import memory_db, review_publisher, schemas, tools  # noqa: E402
-import eneo_review_tools  # noqa: E402
+from review_agent_tools import memory_db, review_publisher, schemas, tools  # noqa: E402
+import review_agent_tools  # noqa: E402
 
 
 class _FakeResponse:
@@ -49,7 +49,7 @@ class _FakeRegistry:
 
 class _FakeGitHub:
     def current_user_login(self):
-        return "eneo-ai-bot"
+        return "review-agent-bot"
 
     def get_pull_request(self, repository, pr_number):
         del repository, pr_number
@@ -69,7 +69,7 @@ class _FakeGitHub:
         return review_publisher.IssueComment(
             comment_id=comment_id,
             body="updated",
-            author_login="eneo-ai-bot",
+            author_login="review-agent-bot",
         )
 
     def create_issue_comment(self, repository, issue_number, body):
@@ -77,7 +77,7 @@ class _FakeGitHub:
         return review_publisher.IssueComment(
             comment_id=123,
             body=body,
-            author_login="eneo-ai-bot",
+            author_login="review-agent-bot",
         )
 
     def delete_issue_comment(self, repository, comment_id):
@@ -198,13 +198,13 @@ class ToolValidationTests(unittest.TestCase):
         self.assertEqual(result["error"], "pr_number must be positive")
 
     def test_schema_severities_come_from_memory_owner(self):
-        severity_schema = schemas.ENEO_REVIEW_MEMORY_RECORD["parameters"]["properties"][
+        severity_schema = schemas.REVIEW_AGENT_MEMORY_RECORD["parameters"]["properties"][
             "findings"
         ]["items"]["properties"]["severity"]
         self.assertEqual(severity_schema["enum"], sorted(memory_db.SEVERITIES))
 
     def test_schema_finding_text_limits_come_from_validation_owner(self):
-        finding_properties = schemas.ENEO_REVIEW_MEMORY_RECORD["parameters"][
+        finding_properties = schemas.REVIEW_AGENT_MEMORY_RECORD["parameters"][
             "properties"
         ]["findings"]["items"]["properties"]
 
@@ -213,7 +213,7 @@ class ToolValidationTests(unittest.TestCase):
                 self.assertEqual(finding_properties[field]["maxLength"], maximum)
 
     def test_schema_exposes_bounded_optional_atomic_suggestion(self):
-        properties = schemas.ENEO_REVIEW_MEMORY_RECORD["parameters"]["properties"][
+        properties = schemas.REVIEW_AGENT_MEMORY_RECORD["parameters"]["properties"][
             "findings"
         ]["items"]["properties"]
         suggestion = properties["suggestion"]
@@ -229,7 +229,7 @@ class ToolValidationTests(unittest.TestCase):
         )
 
     def test_schema_describes_demonstrated_paths_and_complete_remediation(self):
-        finding_properties = schemas.ENEO_REVIEW_MEMORY_RECORD["parameters"][
+        finding_properties = schemas.REVIEW_AGENT_MEMORY_RECORD["parameters"][
             "properties"
         ]["findings"]["items"]["properties"]
 
@@ -258,7 +258,7 @@ class ToolValidationTests(unittest.TestCase):
         )
 
     def test_read_schemas_expose_non_retryable_terminal_contract(self):
-        for schema in (schemas.ENEO_PR_DIFF, schemas.ENEO_PR_FILE):
+        for schema in (schemas.REVIEW_AGENT_PR_DIFF, schemas.REVIEW_AGENT_PR_FILE):
             with self.subTest(tool=schema["name"]):
                 description = schema["description"]
                 self.assertIn("terminal: true", description)
@@ -266,7 +266,7 @@ class ToolValidationTests(unittest.TestCase):
                 self.assertIn("next_action", description)
 
     def test_schema_prior_verdicts_come_from_memory_owner(self):
-        deliver_verdict_schema = schemas.ENEO_REVIEW_DELIVER["parameters"]["properties"][
+        deliver_verdict_schema = schemas.REVIEW_AGENT_DELIVER["parameters"]["properties"][
             "previous_verdicts"
         ]["items"]["properties"]["verdict"]
         self.assertEqual(
@@ -277,23 +277,29 @@ class ToolValidationTests(unittest.TestCase):
     def test_plugin_registers_all_declared_tools(self):
         registry = _FakeRegistry()
 
-        eneo_review_tools.register(registry)
+        review_agent_tools.register(registry)
 
-        self.assertEqual(
-            set(registry.tools),
-            {
-                "eneo_review_begin",
-                "eneo_pr_diff",
-                "eneo_pr_files",
-                "eneo_pr_file",
-                "eneo_review_memory_context",
-                "eneo_review_memory_record",
-                "eneo_review_deliver",
-            },
+        manifest_text = (
+            PACKAGE_ROOT / "review_agent_tools" / "plugin.yaml"
+        ).read_text(encoding="utf-8")
+        tool_block = manifest_text.partition("provides_tools:")[2].partition(
+            "requires_env:"
+        )[0]
+        declared = {
+            line.strip().removeprefix("- ").strip()
+            for line in tool_block.splitlines()
+            if line.strip().startswith("- ")
+        }
+        self.assertTrue(
+            declared,
+            "plugin manifest must declare at least one tool",
         )
-        for item in registry.tools.values():
-            self.assertEqual(item["toolset"], "eneo_review")
+        self.assertEqual(set(registry.tools), declared)
+
+        for name, item in registry.tools.items():
+            self.assertEqual(item["toolset"], "review_agent")
             self.assertIsInstance(item["schema"], dict)
+            self.assertEqual(item["schema"]["name"], name)
             self.assertTrue(callable(item["handler"]))
 
     def test_non_allowlisted_repository_is_denied_before_network(self):
@@ -1375,7 +1381,7 @@ class ToolValidationTests(unittest.TestCase):
         self.assertEqual(result["content"], "")
         self.assertTrue(result["terminal"])
         self.assertFalse(result["retryable"])
-        self.assertIn("Do not retry eneo_pr_file", result["next_action"])
+        self.assertIn("Do not retry review_agent_pr_file", result["next_action"])
 
     def test_pr_file_missing_blob_returns_terminal_non_failure(self):
         metadata = {

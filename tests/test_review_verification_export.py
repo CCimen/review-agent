@@ -10,13 +10,13 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "bootstrap" / "plugins" / "eneo_review_tools"
+PLUGIN = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
 TOOLS = ROOT / "tools"
 sys.path.insert(0, str(PLUGIN))
 sys.path.insert(0, str(TOOLS))
 
 import memory_db  # noqa: E402
-from eneo_review_verification import (  # noqa: E402
+from review_agent_verification import (  # noqa: E402
     build_verification_export,
     dumps_verification_export,
 )
@@ -247,7 +247,7 @@ class VerificationExportTests(unittest.TestCase):
         completed = subprocess.run(
             [
                 sys.executable,
-                str(ROOT / "tools" / "eneo_review_memory.py"),
+                str(ROOT / "tools" / "review_agent_memory.py"),
                 "--db",
                 self.db_path,
                 "verification-export",

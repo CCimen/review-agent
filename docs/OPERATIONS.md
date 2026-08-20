@@ -98,8 +98,8 @@ failures.
 Manual recovery only:
 
 ```bash
-/opt/eneo-bootstrap/install.sh --force-agents
-eneo-review-memory init
+/opt/review-agent-bootstrap/install.sh --force-agents
+review-agent-memory init
 ```
 
 Run those commands inside the `hermes-review` container, then restart the
@@ -112,7 +112,7 @@ Inside the `hermes-review` container:
 ```bash
 hermes plugins list
 hermes auth add openai-codex
-/opt/eneo-bootstrap/install.sh
+/opt/review-agent-bootstrap/install.sh
 ```
 
 Complete the ChatGPT device-code login with the intended subscription account.
@@ -130,7 +130,7 @@ Inside the `hermes-review-feedback` container:
 
 ```bash
 curl -fsS http://127.0.0.1:8645/ready
-eneo-review-feedback-bridge verify-config
+review-agent-feedback-bridge verify-config
 ```
 
 ## Install The GitHub Trigger
@@ -234,27 +234,27 @@ governance actions until there is deterministic ADR validation for PR comments.
 Inspect recent runs:
 
 ```bash
-eneo-review-memory runs --repo <org>/<repo> --limit 10
-eneo-review-memory runs --repo <org>/<repo> --stats --json
+review-agent-memory runs --repo <org>/<repo> --limit 10
+review-agent-memory runs --repo <org>/<repo> --stats --json
 ```
 
 Inspect publication state:
 
 ```bash
-eneo-review-memory publications --repo <org>/<repo> --pr <number>
-eneo-review-memory publications --repo <org>/<repo> --pr <number> --json
+review-agent-memory publications --repo <org>/<repo> --pr <number>
+review-agent-memory publications --repo <org>/<repo> --pr <number> --json
 ```
 
 Inspect coverage for one run:
 
 ```bash
-eneo-review-memory coverage --run-id <id> --json
+review-agent-memory coverage --run-id <id> --json
 ```
 
 Mark stale runs failed after a crash:
 
 ```bash
-eneo-review-memory runs --mark-stalled --older-than-minutes 10 --repo <org>/<repo> --pr <number>
+review-agent-memory runs --mark-stalled --older-than-minutes 10 --repo <org>/<repo> --pr <number>
 ```
 
 Common states:
@@ -276,19 +276,19 @@ through `accepted`, `fetching_pr`, `collecting_diff`, `reviewing`, `rendering`,
 List findings:
 
 ```bash
-eneo-review-memory list --repo <org>/<repo>
+review-agent-memory list --repo <org>/<repo>
 ```
 
 Show one finding:
 
 ```bash
-eneo-review-memory show <fingerprint-prefix>
+review-agent-memory show <fingerprint-prefix>
 ```
 
 Prefer exact observation ids or PR-local references when recording decisions:
 
 ```bash
-eneo-review-memory decide <fingerprint> false_positive \
+review-agent-memory decide <fingerprint> false_positive \
   --repo <org>/<repo> \
   --pr <number> \
   --local-reference F2 \
@@ -296,7 +296,7 @@ eneo-review-memory decide <fingerprint> false_positive \
   --reason "The tenant-scoped repository binds tenant_id before this query." \
   --expires-days 180
 
-eneo-review-memory decide <fingerprint> resolved \
+review-agent-memory decide <fingerprint> resolved \
   --repo <org>/<repo> \
   --pr <number> \
   --local-reference F2 \
@@ -317,7 +317,7 @@ If upgrading from an older deployment that stored the database under
 feedback services before migrating:
 
 ```bash
-eneo-review-memory migrate-volume \
+review-agent-memory migrate-volume \
   --source /legacy/review_memory.sqlite3 \
   --destination /review-memory/review_memory.sqlite3 \
   --owner-uid 10000 \
@@ -333,14 +333,14 @@ new destination was written successfully.
 Export the registry:
 
 ```bash
-eneo-review-memory export \
+review-agent-memory export \
   --output /opt/data/review-memory/export.json
 ```
 
 Generate a learning report:
 
 ```bash
-eneo-review-memory learning-report \
+review-agent-memory learning-report \
   --export /opt/data/review-memory/export.json \
   --repo <org>/<repo> \
   --output /opt/data/review-memory/learning-candidates.md
@@ -349,7 +349,7 @@ eneo-review-memory learning-report \
 Generate a bounded coach bundle:
 
 ```bash
-eneo-review-memory coach-export \
+review-agent-memory coach-export \
   --export /opt/data/review-memory/export.json \
   --repo <org>/<repo> \
   --after-decision-id 0 \
@@ -360,7 +360,7 @@ eneo-review-memory coach-export \
 Generate a bounded private verification bundle for one completed review run:
 
 ```bash
-eneo-review-memory verification-export \
+review-agent-memory verification-export \
   --run-id <id> \
   --output /opt/data/review-memory/verification/run-<id>.json
 ```
@@ -387,7 +387,7 @@ Run the private coach directly from the live database so a raw export is not
 left on disk:
 
 ```bash
-eneo-review-memory --db /opt/data/review-memory/review_memory.sqlite3 \
+review-agent-memory --db /opt/data/review-memory/review_memory.sqlite3 \
   coach-run \
   --repo sundsvallskommun/example-repository \
   --output-dir /opt/data/review-memory/coach-run
@@ -417,7 +417,7 @@ SQLite exports, or unsanitized session transcripts.
 Validate replay fixtures:
 
 ```bash
-eneo-review-memory validate-replay review-learning/replay
+review-agent-memory validate-replay review-learning/replay
 ```
 
 The public webhook reviewer does not read `review-learning/`. Coach exports are

@@ -170,29 +170,29 @@ class FeedbackBridgeTests(unittest.TestCase):
 
     def test_config_requires_write_capable_github_token(self) -> None:
         environment = {
-            "ENEO_FEEDBACK_WEBHOOK_SECRET": "secret",
+            "REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET": "secret",
             "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository",
             "GH_TOKEN": "broader-review-token",
-            "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
+            "REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
         }
 
         with patch.dict(os.environ, environment, clear=True):
-            with self.assertRaisesRegex(SystemExit, "ENEO_FEEDBACK_GH_TOKEN is required"):
+            with self.assertRaisesRegex(SystemExit, "REVIEW_AGENT_FEEDBACK_GH_TOKEN is required"):
                 feedback_bridge.load_config()
 
-        environment["ENEO_FEEDBACK_GH_TOKEN"] = "feedback-token"
+        environment["REVIEW_AGENT_FEEDBACK_GH_TOKEN"] = "feedback-token"
         with patch.dict(os.environ, environment, clear=True):
             config = feedback_bridge.load_config()
 
         self.assertEqual(config.token, "feedback-token")
         self.assertEqual(config.allowed_actor_ids, frozenset({"12345"}))
 
-    def test_config_uses_generic_repository_allowlist(self) -> None:
+    def test_config_uses_generic_environment_names(self) -> None:
         environment = {
-            "ENEO_FEEDBACK_WEBHOOK_SECRET": "secret",
-            "ENEO_FEEDBACK_GH_TOKEN": "feedback-token",
+            "REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET": "secret",
+            "REVIEW_AGENT_FEEDBACK_GH_TOKEN": "feedback-token",
             "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvall/platform",
-            "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
+            "REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
         }
 
         with patch.dict(os.environ, environment, clear=True):
@@ -204,10 +204,10 @@ class FeedbackBridgeTests(unittest.TestCase):
 
     def test_config_ignores_legacy_gh_token(self) -> None:
         environment = {
-            "ENEO_FEEDBACK_WEBHOOK_SECRET": "secret",
+            "REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET": "secret",
             "GH_TOKEN": "legacy-token",
             "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository",
-            "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
+            "REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
         }
 
         with patch.dict(os.environ, environment, clear=True):
@@ -216,10 +216,10 @@ class FeedbackBridgeTests(unittest.TestCase):
 
     def test_config_rejects_malformed_actor_allowlist_at_startup(self) -> None:
         environment = {
-            "ENEO_FEEDBACK_WEBHOOK_SECRET": "secret",
-            "ENEO_FEEDBACK_GH_TOKEN": "feedback-token",
+            "REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET": "secret",
+            "REVIEW_AGENT_FEEDBACK_GH_TOKEN": "feedback-token",
             "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository",
-            "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS": "12345,nope",
+            "REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS": "12345,nope",
         }
 
         with patch.dict(os.environ, environment, clear=True):

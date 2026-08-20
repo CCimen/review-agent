@@ -59,9 +59,9 @@ class PrDiffFallbackTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self._env = dict(os.environ)
-        os.environ["ENEO_REVIEW_DB"] = str(Path(self.temp.name) / "memory.sqlite3")
+        os.environ["REVIEW_AGENT_DB"] = str(Path(self.temp.name) / "memory.sqlite3")
         os.environ["REVIEW_AGENT_ALLOWED_REPOSITORIES"] = "sundsvallskommun/example-repository"
-        memory_db.connect(os.environ["ENEO_REVIEW_DB"]).close()
+        memory_db.connect(os.environ["REVIEW_AGENT_DB"]).close()
 
     def tearDown(self):
         os.environ.clear()

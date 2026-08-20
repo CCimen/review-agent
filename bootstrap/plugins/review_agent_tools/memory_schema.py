@@ -59,7 +59,7 @@ REQUIRED_TABLES = frozenset(
 
 
 def database_path(explicit: str | None = None) -> Path:
-    raw = explicit or os.environ.get("ENEO_REVIEW_DB")
+    raw = explicit or os.environ.get("REVIEW_AGENT_DB")
     if raw:
         return Path(raw).expanduser()
     hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()

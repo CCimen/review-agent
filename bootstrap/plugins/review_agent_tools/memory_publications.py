@@ -589,7 +589,7 @@ def _finding_payload(
 
 
 def _feedback_enabled() -> bool:
-    return os.environ.get("ENEO_REVIEW_FEEDBACK_ENABLED", "").strip().lower() in {
+    return os.environ.get("REVIEW_AGENT_FEEDBACK_ENABLED", "").strip().lower() in {
         "1",
         "true",
         "yes",

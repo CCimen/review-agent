@@ -582,21 +582,21 @@ class GitHubIssueCommentGateway:
 
 
 def _max_comment_bytes() -> int:
-    raw = os.environ.get("ENEO_REVIEW_PUBLISH_MAX_BYTES", "").strip()
+    raw = os.environ.get("REVIEW_AGENT_PUBLISH_MAX_BYTES", "").strip()
     if not raw:
         return DEFAULT_MAX_COMMENT_BYTES
     try:
         value = int(raw)
     except ValueError as exc:
         raise ReviewMemoryError(
-            "ENEO_REVIEW_PUBLISH_MAX_BYTES must be an integer"
+            "REVIEW_AGENT_PUBLISH_MAX_BYTES must be an integer"
         ) from exc
     return max(1_000, min(value, 65_000))
 
 
 def _default_gateway() -> GitHubIssueCommentGateway:
     return GitHubIssueCommentGateway(
-        os.environ.get("ENEO_REVIEW_PUBLISH_GH_TOKEN", "").strip(),
+        os.environ.get("REVIEW_AGENT_PUBLISH_GH_TOKEN", "").strip(),
         read_token=os.environ.get("GITHUB_READ_TOKEN", "").strip(),
     )
 

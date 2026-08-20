@@ -16,6 +16,6 @@ requires_env:
   - name: GITHUB_READ_TOKEN
     description: Fine-grained GitHub token for bounded PR reads
     secret: true
-  - name: ENEO_REVIEW_PUBLISH_GH_TOKEN
+  - name: REVIEW_AGENT_PUBLISH_GH_TOKEN
     description: Fine-grained GitHub token for deterministic summaries and native review suggestions
     secret: true

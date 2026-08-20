@@ -107,7 +107,7 @@ def parse_time(value: str | None) -> datetime | None:
 
 def current_policy_revision(explicit: str | None = None) -> str:
     value = explicit or os.environ.get(
-        "ENEO_REVIEW_POLICY_REVISION", DEFAULT_POLICY_REVISION
+        "REVIEW_AGENT_POLICY_REVISION", DEFAULT_POLICY_REVISION
     )
     return clean_text(value, field="policy_revision", maximum=120)
 

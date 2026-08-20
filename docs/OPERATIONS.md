@@ -22,11 +22,11 @@ reviewed repository, for example `<org>/<repo>`.
 | Token env var | Required permissions | Purpose |
 | --- | --- | --- |
 | `GITHUB_READ_TOKEN` | Contents read, Pull requests read, Metadata read | PR metadata, diff, and file reads. |
-| `ENEO_REVIEW_PUBLISH_GH_TOKEN` | Metadata read, Pull requests read/write | Create, update, and delete PR summary comments and publish native suggested changes. |
-| `ENEO_FEEDBACK_GH_TOKEN` | Issues read/write, Metadata read, Pull requests read | Add feedback reactions and read PR/comment state. |
+| `REVIEW_AGENT_PUBLISH_GH_TOKEN` | Metadata read, Pull requests read/write | Create, update, and delete PR summary comments and publish native suggested changes. |
+| `REVIEW_AGENT_FEEDBACK_GH_TOKEN` | Issues read/write, Metadata read, Pull requests read | Add feedback reactions and read PR/comment state. |
 
 The publisher tries `GITHUB_READ_TOKEN` for read paths first and uses
-`ENEO_REVIEW_PUBLISH_GH_TOKEN` for comment and review writes. The publisher token
+`REVIEW_AGENT_PUBLISH_GH_TOKEN` for comment and review writes. The publisher token
 does not need Contents write or Issues write: GitHub accepts Pull requests write
 for comments on pull requests, and only the developer's GitHub action creates a
 commit from a proposed patch. Endpoint-specific failures such as
@@ -46,23 +46,23 @@ Set these values in the Dokploy Compose environment:
 | `WEBHOOK_ENABLED` | yes | `true` | Enables Hermes webhook mode. |
 | `WEBHOOK_PORT` | yes | `8644` | Review webhook port. |
 | `WEBHOOK_SECRET` | yes | none | HMAC secret for `/webhooks/eneo-review`. |
-| `ENEO_FEEDBACK_WEBHOOK_SECRET` | yes | none | Different HMAC secret for feedback. |
+| `REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET` | yes | none | Different HMAC secret for feedback. |
 | `GITHUB_READ_TOKEN` | yes | none | Read token described above. |
-| `ENEO_REVIEW_PUBLISH_GH_TOKEN` | yes | none | Publisher token described above. |
-| `ENEO_REVIEW_PUBLISH_MAX_BYTES` | no | `60000` | Max bytes per GitHub comment, not a finding cap. |
-| `ENEO_FEEDBACK_GH_TOKEN` | yes | none | Feedback token described above. |
+| `REVIEW_AGENT_PUBLISH_GH_TOKEN` | yes | none | Publisher token described above. |
+| `REVIEW_AGENT_PUBLISH_MAX_BYTES` | no | `60000` | Max bytes per GitHub comment, not a finding cap. |
+| `REVIEW_AGENT_FEEDBACK_GH_TOKEN` | yes | none | Feedback token described above. |
 | `REVIEW_AGENT_ALLOWED_REPOSITORIES` | yes | none | Comma-separated exact repositories, for example `<org>/<repo>`. |
-| `ENEO_FEEDBACK_ALLOWED_ACTOR_IDS` | yes | none | Comma-separated numeric GitHub user ids allowed to give feedback. |
-| `ENEO_REVIEW_FEEDBACK_ENABLED` | no | `false` | Enables feedback help in rendered comments. |
+| `REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS` | yes | none | Comma-separated numeric GitHub user ids allowed to give feedback. |
+| `REVIEW_AGENT_FEEDBACK_ENABLED` | no | `false` | Enables feedback help in rendered comments. |
 | `GH_PROMPT_DISABLED` | yes | `1` | Prevents interactive GitHub auth prompts. |
 | `HERMES_DASHBOARD` | yes | `0` | Keep the dashboard off for this deployment. |
 | `API_SERVER_ENABLED` | yes | `false` | Keep the OpenAI-compatible API off. |
 | `PYTHONUNBUFFERED` | no | `1` | Easier logs. |
 
-`ENEO_REVIEW_DB` is not a public `.env` setting. Compose sets it explicitly:
+`REVIEW_AGENT_DB` is not a public `.env` setting. Compose sets it explicitly:
 
 ```text
-ENEO_REVIEW_DB: /opt/data/review-memory/review_memory.sqlite3
+REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3
 ```
 
 ## Deploy In Dokploy
@@ -147,7 +147,7 @@ Create these Actions secrets:
 HERMES_REVIEW_URL=https://review.example.org/webhooks/eneo-review
 HERMES_WEBHOOK_SECRET=<same value as WEBHOOK_SECRET>
 HERMES_REVIEW_FEEDBACK_URL=https://review-feedback.example.org/webhooks/eneo-review-feedback
-HERMES_REVIEW_FEEDBACK_SECRET=<same value as ENEO_FEEDBACK_WEBHOOK_SECRET>
+HERMES_REVIEW_FEEDBACK_SECRET=<same value as REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET>
 ```
 
 Create this Actions variable:
@@ -177,7 +177,7 @@ reaction step. The workflow does not check out PR code. It sends only repository
 name, PR number, requester, and request id to Hermes. The workflow must exist on
 the repository's default branch before an `issue_comment` event can start it.
 
-Set `ENEO_REVIEW_FEEDBACK_ENABLED=true` in Dokploy if the rendered review comment
+Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` in Dokploy if the rendered review comment
 should show the copyable feedback commands documented below.
 
 ## Run A Review

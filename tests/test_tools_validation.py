@@ -90,7 +90,7 @@ class ToolValidationTests(unittest.TestCase):
         self.db = str(Path(self.temp.name) / "memory.sqlite3")
         self.env = {
             "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository",
-            "ENEO_REVIEW_DB": self.db,
+            "REVIEW_AGENT_DB": self.db,
         }
         memory_db.connect(self.db).close()
         self.finding = {

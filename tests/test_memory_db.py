@@ -21,7 +21,7 @@ class ReviewMemoryTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.temp.name) / "memory.sqlite3")
         self.connection = memory_db.connect(self.db)
-        self.feedback_env = patch.dict(os.environ, {"ENEO_REVIEW_FEEDBACK_ENABLED": "true"})
+        self.feedback_env = patch.dict(os.environ, {"REVIEW_AGENT_FEEDBACK_ENABLED": "true"})
         self.feedback_env.start()
         self._runs: dict[tuple[int, str, str], int] = {}
         self.finding = {
@@ -1023,7 +1023,7 @@ class ReviewMemoryTests(unittest.TestCase):
     def test_finalize_review_omits_feedback_help_when_disabled(self):
         self.record()
 
-        with patch.dict(os.environ, {"ENEO_REVIEW_FEEDBACK_ENABLED": "false"}):
+        with patch.dict(os.environ, {"REVIEW_AGENT_FEEDBACK_ENABLED": "false"}):
             result = self.finalize()
 
         self.assertIn("Copyable fix brief for a coding agent", result["markdown"])

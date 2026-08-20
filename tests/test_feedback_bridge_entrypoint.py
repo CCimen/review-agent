@@ -19,7 +19,7 @@ import review_agent_feedback_bridge as entrypoint  # noqa: E402
 
 class _FailingBridge:
     def load_config(self) -> object:
-        raise SystemExit("ENEO_FEEDBACK_GH_TOKEN is required")
+        raise SystemExit("REVIEW_AGENT_FEEDBACK_GH_TOKEN is required")
 
 
 class FeedbackBridgeEntrypointTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class FeedbackBridgeEntrypointTests(unittest.TestCase):
 
     def test_env_presence_summary_redacts_secret_values(self) -> None:
         environment = {
-            "ENEO_FEEDBACK_WEBHOOK_SECRET": "super-secret",
+            "REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET": "super-secret",
             "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvall/private",
             "GH_TOKEN": "legacy-secret",
         }
@@ -37,8 +37,8 @@ class FeedbackBridgeEntrypointTests(unittest.TestCase):
         with patch.dict(os.environ, environment, clear=True):
             summary = entrypoint.env_presence_summary()
 
-        self.assertIn("ENEO_FEEDBACK_WEBHOOK_SECRET=set", summary)
-        self.assertIn("ENEO_FEEDBACK_GH_TOKEN=missing", summary)
+        self.assertIn("REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET=set", summary)
+        self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN=missing", summary)
         self.assertIn("REVIEW_AGENT_ALLOWED_REPOSITORIES=set", summary)
         self.assertIn("GH_TOKEN=set", summary)
         self.assertNotIn("super-secret", summary)
@@ -57,10 +57,10 @@ class FeedbackBridgeEntrypointTests(unittest.TestCase):
 
         output = stderr.getvalue()
         self.assertIn(
-            "feedback bridge configuration error: ENEO_FEEDBACK_GH_TOKEN is required",
+            "feedback bridge configuration error: REVIEW_AGENT_FEEDBACK_GH_TOKEN is required",
             output,
         )
-        self.assertIn("ENEO_FEEDBACK_GH_TOKEN=missing", output)
+        self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN=missing", output)
         self.assertIn("GH_TOKEN=set", output)
         self.assertNotIn("legacy-secret", output)
 

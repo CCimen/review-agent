@@ -69,7 +69,7 @@ class FailureStatusTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.temp.name) / "memory.sqlite3")
         self._env = dict(os.environ)
-        os.environ["ENEO_REVIEW_DB"] = self.db
+        os.environ["REVIEW_AGENT_DB"] = self.db
         os.environ["REVIEW_AGENT_ALLOWED_REPOSITORIES"] = "sundsvallskommun/example-repository"
         memory_db.connect(self.db).close()
 

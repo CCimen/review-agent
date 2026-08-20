@@ -547,7 +547,7 @@ def print_run_stats(stats: JsonObject) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", help="Override ENEO_REVIEW_DB for this command.")
+    parser.add_argument("--db", help="Override REVIEW_AGENT_DB for this command.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="Create or migrate the database schema.")

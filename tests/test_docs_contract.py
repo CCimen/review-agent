@@ -305,16 +305,16 @@ class DocsContractTests(unittest.TestCase):
         )[0]
 
         self.assertNotIn("env_file:", reviewer_section)
-        self.assertNotIn("ENEO_FEEDBACK_GH_TOKEN", reviewer_section)
-        self.assertNotIn("ENEO_FEEDBACK_WEBHOOK_SECRET", reviewer_section)
+        self.assertNotIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", reviewer_section)
+        self.assertNotIn("REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET", reviewer_section)
         self.assertIn("GITHUB_READ_TOKEN", reviewer_section)
-        self.assertIn("ENEO_REVIEW_PUBLISH_GH_TOKEN", reviewer_section)
+        self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", reviewer_section)
         self.assertNotIn("\n      GH_TOKEN:", reviewer_section)
         self.assertIn("PYTHONDONTWRITEBYTECODE", reviewer_section)
         self.assertIn("review_memory_data:/review-memory", feedback_section)
         self.assertNotIn("hermes_review_data:/opt/data", feedback_section)
         self.assertNotIn("env_file:", feedback_section)
-        self.assertIn("ENEO_FEEDBACK_GH_TOKEN", feedback_section)
+        self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", feedback_section)
         self.assertNotIn("\n      GH_TOKEN:", feedback_section)
         self.assertIn("review_memory_data:/opt/data/review-memory", compose)
         self.assertIn("read_only: true", feedback_section)
@@ -328,7 +328,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("/opt/review-agent-bootstrap/install.sh --force-agents", init_section)
         self.assertIn("HERMES_HOME: /opt/data", init_section)
         self.assertIn(
-            "ENEO_REVIEW_DB: /opt/data/review-memory/review_memory.sqlite3",
+            "REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3",
             init_section,
         )
         self.assertIn("PYTHONDONTWRITEBYTECODE", init_section)
@@ -362,7 +362,7 @@ class DocsContractTests(unittest.TestCase):
 
         self.assertIn("deliver: log", config)
         self.assertNotIn("deliver: github_comment", config)
-        self.assertIn("ENEO_REVIEW_PUBLISH_GH_TOKEN", operations)
+        self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", operations)
         self.assertIn("deterministic publisher", readme)
         self.assertIn("deterministic", operations)
         self.assertIn("comment parts", words(readme))
@@ -442,9 +442,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("The model can record observations, but it cannot dismiss", operations)
         self.assertNotIn("Suppressions are conservative", operations)
 
-        self.assertIn("ENEO_REVIEW_FEEDBACK_ENABLED=true", env_example)
-        self.assertIn('ENEO_REVIEW_FEEDBACK_ENABLED: "${ENEO_REVIEW_FEEDBACK_ENABLED:-false}"', compose)
-        self.assertIn("Set `ENEO_REVIEW_FEEDBACK_ENABLED=true`", operations)
+        self.assertIn("REVIEW_AGENT_FEEDBACK_ENABLED=true", env_example)
+        self.assertIn('REVIEW_AGENT_FEEDBACK_ENABLED: "${REVIEW_AGENT_FEEDBACK_ENABLED:-false}"', compose)
+        self.assertIn("Set `REVIEW_AGENT_FEEDBACK_ENABLED=true`", operations)
 
     def test_live_reviewer_keeps_unsafe_toolsets_disabled(self):
         config = read("bootstrap/config.yaml")
@@ -494,12 +494,12 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn(digest, dockerfile)
         self.assertNotIn("nousresearch/hermes-agent:latest", compose)
         self.assertNotIn("nousresearch/hermes-agent:latest", env_example)
-        self.assertNotIn("ENEO_REVIEW_DB=", env_example)
+        self.assertNotIn("REVIEW_AGENT_DB=", env_example)
         self.assertIn("/opt/review-agent-bootstrap/install.sh --force-agents", compose)
-        self.assertIn("ENEO_REVIEW_DB: /opt/data/review-memory/review_memory.sqlite3", compose)
+        self.assertIn("REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3", compose)
         self.assertIn("review-agent-memory migrate-volume", operations)
         self.assertIn("SQLite's backup API", operations)
-        self.assertIn("`ENEO_REVIEW_DB` is not a public `.env` setting", operations)
+        self.assertIn("`REVIEW_AGENT_DB` is not a public `.env` setting", operations)
 
     def test_managed_profile_owns_the_codex_model(self):
         config = read("bootstrap/config.yaml")

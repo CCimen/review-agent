@@ -13,7 +13,7 @@ try:
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
     from memory_validation import ReviewMemoryError
 
-FEEDBACK_ALLOWED_ACTOR_IDS_ENV = "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS"
+FEEDBACK_ALLOWED_ACTOR_IDS_ENV = "REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS"
 
 __all__ = (
     "FEEDBACK_ALLOWED_ACTOR_IDS_ENV",

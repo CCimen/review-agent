@@ -15,7 +15,10 @@ import urllib.parse
 import urllib.request
 
 try:
-    from .feedback_authorization import parse_feedback_actor_allowlist
+    from .feedback_authorization import (
+        FEEDBACK_ALLOWED_ACTOR_IDS_ENV,
+        parse_feedback_actor_allowlist,
+    )
     from .feedback_contract import usage_lines
     from .review_identity import (
         FEEDBACK_COMMAND_NOT_RECOGNIZED,
@@ -32,7 +35,10 @@ try:
     from .memory_schema import connect_existing, verify_database_ready
     from .memory_validation import ReviewMemoryError
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
-    from feedback_authorization import parse_feedback_actor_allowlist
+    from feedback_authorization import (
+        FEEDBACK_ALLOWED_ACTOR_IDS_ENV,
+        parse_feedback_actor_allowlist,
+    )
     from feedback_contract import usage_lines
     from review_identity import (  # type: ignore[no-redef]
         FEEDBACK_COMMAND_NOT_RECOGNIZED,
@@ -56,7 +62,7 @@ DEFAULT_PATH = "/webhooks/eneo-review-feedback"
 DEFAULT_PORT = 8645
 MAX_BODY_BYTES = 64 * 1024
 GITHUB_API = "https://api.github.com"
-FEEDBACK_TOKEN_ENV = "ENEO_FEEDBACK_GH_TOKEN"
+FEEDBACK_TOKEN_ENV = "REVIEW_AGENT_FEEDBACK_GH_TOKEN"
 
 
 class BridgeError(Exception):
@@ -194,15 +200,15 @@ def feedback_github_token() -> str:
 
 
 def load_config() -> BridgeConfig:
-    secret = os.environ.get("ENEO_FEEDBACK_WEBHOOK_SECRET", "").strip()
+    secret = os.environ.get("REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET", "").strip()
     if not secret:
-        raise SystemExit("ENEO_FEEDBACK_WEBHOOK_SECRET is required")
+        raise SystemExit("REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET is required")
     token = feedback_github_token()
     allowed_actor_ids = parse_feedback_actor_allowlist(
-        os.environ.get("ENEO_FEEDBACK_ALLOWED_ACTOR_IDS", "")
+        os.environ.get(FEEDBACK_ALLOWED_ACTOR_IDS_ENV, "")
     )
     if not allowed_actor_ids:
-        raise SystemExit("ENEO_FEEDBACK_ALLOWED_ACTOR_IDS is empty; deny by default")
+        raise SystemExit(f"{FEEDBACK_ALLOWED_ACTOR_IDS_ENV} is empty; deny by default")
     return BridgeConfig(
         secret=secret,
         token=token,
@@ -210,7 +216,7 @@ def load_config() -> BridgeConfig:
             os.environ.get("REVIEW_AGENT_ALLOWED_REPOSITORIES", "")
         ),
         allowed_actor_ids=allowed_actor_ids,
-        database_path=os.environ.get("ENEO_REVIEW_DB") or None,
+        database_path=os.environ.get("REVIEW_AGENT_DB") or None,
     )
 
 

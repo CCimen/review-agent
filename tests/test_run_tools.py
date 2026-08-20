@@ -1,0 +1,939 @@
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+import unittest
+from contextlib import closing
+from pathlib import Path
+from unittest.mock import patch
+
+PLUGINS = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
+sys.path.insert(0, str(PLUGINS))
+
+from eneo_review_tools import memory_db, review_publisher, tools  # noqa: E402
+
+
+class FakeGitHub:
+    def __init__(
+        self,
+        *,
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        draft=False,
+    ):
+        self.base_sha = base_sha
+        self.head_sha = head_sha
+        self.draft = draft
+        self.created = []
+        self.next_comment_id = 1000
+
+    def current_user_login(self):
+        return "eneo-ai-bot"
+
+    def get_pull_request(self, repository, pr_number):
+        del repository, pr_number
+        return review_publisher.PullRequestState(
+            state="open",
+            draft=self.draft,
+            base_sha=self.base_sha,
+            head_sha=self.head_sha,
+        )
+
+    def list_issue_comments(self, repository, issue_number, *, max_pages=3):
+        del repository, issue_number, max_pages
+        return []
+
+    def update_issue_comment(self, repository, comment_id, body):
+        del repository
+        return review_publisher.IssueComment(
+            comment_id=comment_id,
+            body=body,
+            author_login="eneo-ai-bot",
+        )
+
+    def create_issue_comment(self, repository, issue_number, body):
+        del repository, issue_number
+        self.next_comment_id += 1
+        self.created.append(body)
+        return review_publisher.IssueComment(
+            comment_id=self.next_comment_id,
+            body=body,
+            author_login="eneo-ai-bot",
+        )
+
+    def delete_issue_comment(self, repository, comment_id):
+        del repository, comment_id
+
+
+class RunToolTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self._env = dict(os.environ)
+        os.environ["ENEO_REVIEW_DB"] = str(Path(self.temp.name) / "memory.sqlite3")
+        os.environ["ENEO_ALLOWED_REPOSITORIES"] = "eneo-ai/eneo"
+        memory_db.connect(os.environ["ENEO_REVIEW_DB"]).close()
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self._env)
+        self.temp.cleanup()
+
+    def call(self, handler, args):
+        return json.loads(handler(args))
+
+    def begin(
+        self,
+        *,
+        pr: int = 498,
+        base_sha: str = "b" * 40,
+        head_sha: str = "a" * 40,
+        draft: bool = False,
+        changed_files: list[dict] | None = None,
+        extra: dict | None = None,
+    ):
+        args = {"repository": "eneo-ai/eneo", "pr_number": pr}
+        if extra:
+            args.update(extra)
+        with (
+            patch.object(
+                tools,
+                "_pr",
+                return_value=self.pull_with_repositories(
+                    base_sha=base_sha,
+                    head_sha=head_sha,
+                    draft=draft,
+                ),
+            ),
+            patch.object(
+                tools,
+                "_changed_files",
+                return_value=changed_files
+                if changed_files is not None
+                else [
+                    {
+                        "path": "backend/api.py",
+                        "status": "modified",
+                        "additions": 2,
+                        "deletions": 1,
+                        "changes": 3,
+                        "patch_available": True,
+                        "context_hash": "d" * 40,
+                        "context_hash_source": "blob",
+                    }
+                ],
+            ),
+        ):
+            return self.call(tools.review_begin, args)
+
+    def test_begin_starts_run_and_registers_changed_paths(self):
+        start = self.begin()
+        self.assertEqual(start["status"], "running")
+        self.assertEqual(start["phase"], "collecting_diff")
+        self.assertIn("run_id", start)
+        self.assertNotIn("files", start)
+        self.assertEqual(start["file_index"]["changed_files_registered"], 1)
+        self.assertEqual(start["file_index"]["sample_paths"][0]["path"], "backend/api.py")
+        with closing(memory_db.connect()) as connection:
+            runs = memory_db.list_runs(connection)
+            coverage = memory_db.coverage_summary(connection, run_id=start["run_id"])
+        self.assertEqual(runs[0]["phase"], "collecting_diff")
+        self.assertIsNotNone(coverage)
+        self.assertEqual(coverage["changed_paths"], 1)
+
+    def test_begin_failure_after_run_creation_does_not_block_immediate_retry(self):
+        pull = self.pull_with_repositories()
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(
+                tools,
+                "_changed_files",
+                side_effect=tools.ToolInputError("changed-file enumeration failed"),
+            ),
+        ):
+            failed = self.call(
+                tools.review_begin,
+                {"repository": "eneo-ai/eneo", "pr_number": 501},
+            )
+
+        self.assertEqual(failed["error"], "changed-file enumeration failed")
+        with closing(memory_db.connect()) as connection:
+            runs = memory_db.list_runs(connection, repository="eneo-ai/eneo")
+        failed_run = next(run for run in runs if run["pr_number"] == 501)
+        self.assertEqual(failed_run["status"], "failed")
+        self.assertEqual(failed_run["phase"], "failed")
+        self.assertEqual(failed_run["failure_code"], "review_failed")
+
+        retry = self.begin(pr=501)
+
+        self.assertEqual(retry["status"], "running")
+        self.assertNotEqual(retry["run_id"], failed_run["id"])
+
+    def test_begin_marks_registration_failure_terminal(self):
+        pull = self.pull_with_repositories()
+        changed_files = [
+            {
+                "path": "backend/api.py",
+                "status": "modified",
+                "additions": 2,
+                "deletions": 1,
+                "changes": 3,
+                "patch_available": True,
+                "context_hash": "d" * 40,
+                "context_hash_source": "blob",
+            }
+        ]
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(tools, "_changed_files", return_value=changed_files),
+            patch.object(
+                memory_db,
+                "register_changed_files",
+                side_effect=memory_db.ReviewMemoryError("registration failed"),
+            ),
+        ):
+            result = self.call(
+                tools.review_begin,
+                {"repository": "eneo-ai/eneo", "pr_number": 502},
+            )
+
+        self.assertEqual(result["error"], "registration failed")
+        with closing(memory_db.connect()) as connection:
+            runs = memory_db.list_runs(connection, repository="eneo-ai/eneo")
+        failed_run = next(run for run in runs if run["pr_number"] == 502)
+        self.assertEqual(failed_run["status"], "failed")
+        self.assertEqual(failed_run["failure_code"], "review_failed")
+
+    def test_begin_marks_unexpected_snapshot_failure_terminal(self):
+        pull = self.pull_with_repositories()
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(
+                tools,
+                "_changed_files",
+                return_value=[
+                    {
+                        "path": "backend/api.py",
+                        "status": "modified",
+                        "additions": 2,
+                        "deletions": 1,
+                        "changes": 3,
+                        "patch_available": True,
+                        "context_hash": "d" * 40,
+                        "context_hash_source": "blob",
+                    }
+                ],
+            ),
+            patch.object(
+                tools,
+                "_review_run_snapshot",
+                side_effect=RuntimeError("database unavailable"),
+            ),
+        ):
+            result = self.call(
+                tools.review_begin,
+                {"repository": "eneo-ai/eneo", "pr_number": 503},
+            )
+
+        self.assertEqual(result["error"], "unexpected review-begin failure")
+        with closing(memory_db.connect()) as connection:
+            runs = memory_db.list_runs(connection, repository="eneo-ai/eneo")
+        failed_run = next(run for run in runs if run["pr_number"] == 503)
+        self.assertEqual(failed_run["status"], "failed")
+        self.assertEqual(failed_run["failure_code"], "review_failed")
+
+    def test_begin_persists_trigger_comment_context(self):
+        start = self.begin(
+            extra={"trigger_comment_id": 4903308824, "trigger_user": "CCimen"}
+        )
+
+        with closing(memory_db.connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT trigger_comment_id, trigger_user
+                FROM review_runs
+                WHERE id = ?
+                """,
+                (start["run_id"],),
+            ).fetchone()
+
+        self.assertEqual(row["trigger_comment_id"], 4903308824)
+        self.assertEqual(row["trigger_user"], "CCimen")
+
+    def test_begin_returns_bounded_file_index_for_large_pr(self):
+        changed_files = [
+            {
+                "path": f"backend/module_{i:04d}.py",
+                "status": "modified",
+                "additions": 1,
+                "deletions": 0,
+                "changes": 1,
+                "patch_available": True,
+                "context_hash": "d" * 40,
+                "context_hash_source": "blob",
+            }
+            for i in range(1500)
+        ]
+
+        start = self.begin(pr=13, changed_files=changed_files)
+
+        self.assertNotIn("files", start)
+        self.assertEqual(start["changed_files_reported"], 1500)
+        self.assertEqual(start["file_index"]["changed_files_registered"], 1500)
+        self.assertEqual(start["file_index"]["by_domain"], {"backend": 1500})
+        self.assertLessEqual(len(start["file_index"]["sample_paths"]), 40)
+        self.assertLess(len(json.dumps(start)), 20000)
+
+    def test_pr_files_pages_run_owned_changed_file_index(self):
+        changed_files = [
+            {
+                "path": ".github/workflows/ci.yml",
+                "status": "modified",
+                "additions": 1,
+                "deletions": 0,
+                "changes": 1,
+                "patch_available": True,
+                "context_hash": "a" * 40,
+                "context_hash_source": "blob",
+            },
+            {
+                "path": "backend/api.py",
+                "status": "modified",
+                "additions": 2,
+                "deletions": 1,
+                "changes": 3,
+                "patch_available": True,
+                "context_hash": "b" * 40,
+                "context_hash_source": "blob",
+            },
+            {
+                "path": "frontend/app.ts",
+                "status": "added",
+                "additions": 5,
+                "deletions": 0,
+                "changes": 5,
+                "patch_available": True,
+                "context_hash": "c" * 40,
+                "context_hash_source": "blob",
+            },
+        ]
+        start = self.begin(pr=14, changed_files=changed_files)
+        run_id = int(start["run_id"])
+        pull = self.pull_with_repositories()
+
+        with patch.object(tools, "_pr", return_value=pull):
+            first = self.call(
+                tools.pr_files,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 14,
+                    "run_id": run_id,
+                    "limit": 2,
+                },
+            )
+            second = self.call(
+                tools.pr_files,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 14,
+                    "run_id": run_id,
+                    "limit": 2,
+                    "cursor": first["next_cursor"],
+                },
+            )
+            backend = self.call(
+                tools.pr_files,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 14,
+                    "run_id": run_id,
+                    "domain": "backend",
+                },
+            )
+
+        self.assertEqual(first["total_matching"], 3)
+        self.assertEqual([item["path"] for item in first["items"]], [".github/workflows/ci.yml", "backend/api.py"])
+        self.assertEqual(first["next_cursor"], "backend/api.py")
+        self.assertEqual([item["path"] for item in second["items"]], ["frontend/app.ts"])
+        self.assertIsNone(second["next_cursor"])
+        self.assertEqual(backend["total_matching"], 1)
+        self.assertEqual(backend["items"][0]["path"], "backend/api.py")
+
+    def test_pr_files_rejects_run_owned_by_another_pr_before_network(self):
+        start = self.begin(pr=14)
+        run_id = int(start["run_id"])
+
+        with patch.object(tools, "_pr", side_effect=AssertionError("unexpected network")):
+            result = self.call(
+                tools.pr_files,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 15,
+                    "run_id": run_id,
+                },
+            )
+
+        self.assertIn("error", result)
+        self.assertIn("does not match this pull request", result["error"])
+
+    def test_pr_files_rejects_invalid_cursor_cleanly(self):
+        start = self.begin(pr=15)
+        run_id = int(start["run_id"])
+        pull = self.pull_with_repositories()
+
+        with patch.object(tools, "_pr", return_value=pull):
+            result = self.call(
+                tools.pr_files,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 15,
+                    "run_id": run_id,
+                    "cursor": "../backend/api.py",
+                },
+            )
+
+        self.assertIn("error", result)
+        self.assertIn("traversal", result["error"])
+
+    def test_duplicate_start_does_not_create_second_same_pr_run(self):
+        a = self.begin(pr=7, head_sha="a" * 40)
+        b = self.begin(pr=7, head_sha="a" * 40)
+
+        self.assertEqual(b["status"], "duplicate")
+        self.assertNotIn("run_id", b)
+        self.assertEqual(b["existing_run_id"], a["run_id"])
+        with closing(memory_db.connect()) as connection:
+            runs = memory_db.list_runs(connection)
+        self.assertEqual(len(runs), 1)
+
+    def test_new_snapshot_request_supersedes_active_run_and_starts_now(self):
+        first = self.begin(pr=7, head_sha="a" * 40)
+        second = self.begin(pr=7, head_sha="b" * 40)
+
+        self.assertEqual(second["status"], "running")
+        self.assertNotEqual(second["run_id"], first["run_id"])
+        with closing(memory_db.connect()) as connection:
+            runs = {run["id"]: run for run in memory_db.list_runs(connection)}
+        self.assertEqual(runs[first["run_id"]]["status"], "failed")
+        self.assertEqual(
+            runs[first["run_id"]]["failure_code"], "snapshot_superseded"
+        )
+        self.assertEqual(runs[second["run_id"]]["status"], "running")
+
+    def test_model_supplied_force_does_not_override_duplicate_guard(self):
+        a = self.begin(pr=7, head_sha="a" * 40)
+        b = self.begin(pr=7, head_sha="a" * 40, extra={"force": True})
+
+        self.assertEqual(b["status"], "duplicate")
+        with closing(memory_db.connect()) as connection:
+            runs = {r["id"]: r for r in memory_db.list_runs(connection)}
+        self.assertEqual(runs[a["run_id"]]["status"], "running")
+        self.assertEqual(len(runs), 1)
+
+    def test_begin_starts_fresh_run_after_posted_same_snapshot_review(self):
+        first_run_id = self.prepare_recorded_review(pr=16)
+        github = FakeGitHub()
+        with (
+            patch.object(tools, "_pr", return_value=self.pull()),
+            patch.object(review_publisher, "_default_gateway", return_value=github),
+        ):
+            delivered = self.call(
+                tools.review_deliver,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 16,
+                    "head_sha": "a" * 40,
+                    "run_id": first_run_id,
+                },
+            )
+        self.assertTrue(delivered["published"])
+
+        rerun = self.begin(pr=16)
+
+        self.assertEqual(rerun["status"], "running")
+        self.assertNotEqual(rerun["run_id"], first_run_id)
+        with closing(memory_db.connect()) as connection:
+            runs = memory_db.list_runs(connection, repository="eneo-ai/eneo")
+        pr_runs = [run for run in runs if run["pr_number"] == 16]
+        self.assertEqual([run["status"] for run in pr_runs], ["running", "generated"])
+
+    def test_non_allowlisted_repo_rejected(self):
+        result = self.call(
+            tools.review_begin,
+            {"repository": "evil/repo", "pr_number": 1},
+        )
+        self.assertIn("error", result)
+        self.assertIn("allowlisted", result["error"])
+
+    def test_draft_pr_starts_review(self):
+        result = self.begin(pr=1, draft=True)
+
+        self.assertEqual(result["status"], "running")
+        self.assertEqual(result["phase"], "collecting_diff")
+
+    def finding(self):
+        return {
+            "rule_id": "tenant.missing-scope",
+            "category": "security",
+            "path": "backend/api.py",
+            "line": 42,
+            "symbol": "handler",
+            "anchor": "POST /api",
+            "title": "Tenant scope omitted",
+            "severity": "High",
+            "publication_score": 9,
+            "confidence": 0.9,
+            "evidence": "Concrete evidence.",
+            "disproof_checks": "Checked the guard.",
+            "impact": "Cross-tenant write.",
+            "smallest_fix": "Bind tenant from context.",
+            "introduced_by_diff": True,
+        }
+
+    def pull(self, *, base_sha="b" * 40, head_sha="a" * 40, draft=False):
+        return {
+            "state": "open",
+            "draft": draft,
+            "head": {"sha": head_sha},
+            "base": {"sha": base_sha},
+        }
+
+    def pull_with_repositories(
+        self, *, base_sha="b" * 40, head_sha="a" * 40, draft=False
+    ):
+        return {
+            "state": "open",
+            "draft": draft,
+            "title": "Test PR",
+            "html_url": "https://github.com/eneo-ai/eneo/pull/12",
+            "user": {"login": "alice"},
+            "changed_files": 1,
+            "additions": 2,
+            "deletions": 1,
+            "head": {
+                "ref": "feature/example",
+                "sha": head_sha,
+                "repo": {"full_name": "eneo-ai/eneo"},
+            },
+            "base": {
+                "ref": "main",
+                "sha": base_sha,
+                "repo": {"full_name": "eneo-ai/eneo"},
+            },
+        }
+
+    def prepare_recorded_review(self, *, pr=9, base_sha="b" * 40, head_sha="a" * 40):
+        finding = self.finding()
+        with closing(memory_db.connect()) as connection:
+            run = memory_db.start_run(
+                connection,
+                "eneo-ai/eneo",
+                pr,
+                base_sha=base_sha,
+                head_sha=head_sha,
+            )
+            memory_db.record_findings(
+                connection,
+                "eneo-ai/eneo",
+                pr,
+                head_sha,
+                [finding],
+                review_run_id=int(run["id"]),
+                base_sha=base_sha,
+                context_hashes={finding["path"]: "d" * 40},
+            )
+        return int(run["id"])
+
+    def prepare_empty_review(self, *, pr: int, base_sha="b" * 40, head_sha="a" * 40):
+        with closing(memory_db.connect()) as connection:
+            run = memory_db.start_run(
+                connection,
+                "eneo-ai/eneo",
+                pr,
+                base_sha=base_sha,
+                head_sha=head_sha,
+            )
+            memory_db.record_findings(
+                connection,
+                "eneo-ai/eneo",
+                pr,
+                head_sha,
+                [],
+                review_run_id=int(run["id"]),
+                base_sha=base_sha,
+                context_hashes={},
+            )
+        return int(run["id"])
+
+    def test_deliver_publishes_and_completes_run(self):
+        run_id = self.prepare_recorded_review()
+        github = FakeGitHub()
+        with (
+            patch.object(tools, "_pr", return_value=self.pull()),
+            patch.object(review_publisher, "_default_gateway", return_value=github),
+        ):
+            result = self.call(
+                tools.review_deliver,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 9,
+                    "head_sha": "a" * 40,
+                    "run_id": run_id,
+                },
+            )
+
+        self.assertTrue(result["published"])
+        self.assertEqual(result["stage"], "delivered")
+        with closing(memory_db.connect()) as connection:
+            run = memory_db.list_runs(connection, repository="eneo-ai/eneo")[0]
+            publication = memory_db.list_publications(connection, repository="eneo-ai/eneo", pr_number=9)[0]
+        self.assertEqual(run["status"], "generated")
+        self.assertEqual(run["posted_comment_id"], result["comment_id"])
+        self.assertEqual(publication["delivery_status"], "posted")
+        self.assertEqual(publication["comment_id"], result["comment_id"])
+
+    def test_draft_review_records_and_publishes(self):
+        start = self.begin(pr=20, draft=True)
+        run_id = int(start["run_id"])
+        pull = self.pull_with_repositories(draft=True)
+        github = FakeGitHub(draft=True)
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(
+                tools,
+                "_changed_files",
+                return_value=[
+                    {
+                        "path": "backend/api.py",
+                        "context_hash": "d" * 40,
+                        "context_hash_source": "blob",
+                    }
+                ],
+            ),
+            patch.object(review_publisher, "_default_gateway", return_value=github),
+        ):
+            recorded = self.call(
+                tools.review_memory_record,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 20,
+                    "head_sha": "a" * 40,
+                    "run_id": run_id,
+                    "findings": [self.finding()],
+                },
+            )
+            delivered = self.call(
+                tools.review_deliver,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 20,
+                    "head_sha": "a" * 40,
+                    "run_id": run_id,
+                },
+            )
+
+        self.assertEqual(len(recorded["recorded"]), 1)
+        self.assertTrue(delivered["published"])
+        self.assertEqual(delivered["stage"], "delivered")
+
+    def test_deliver_allows_retry_after_correctable_prior_verdict_conflict(self):
+        first_run_id = self.prepare_recorded_review(pr=17)
+        github = FakeGitHub()
+        with (
+            patch.object(tools, "_pr", return_value=self.pull()),
+            patch.object(review_publisher, "_default_gateway", return_value=github),
+        ):
+            first = self.call(
+                tools.review_deliver,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 17,
+                    "head_sha": "a" * 40,
+                    "run_id": first_run_id,
+                },
+            )
+            self.assertTrue(first["published"])
+
+            retryable_run_id = self.prepare_recorded_review(pr=17)
+            rejected = self.call(
+                tools.review_deliver,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 17,
+                    "head_sha": "a" * 40,
+                    "run_id": retryable_run_id,
+                    "previous_verdicts": [
+                        {
+                            "local_reference": "F1",
+                            "verdict": "resolved",
+                            "evidence": "Claimed fixed despite a current observation.",
+                        }
+                    ],
+                },
+            )
+
+            self.assertEqual(rejected["stage"], "validation_failed")
+            self.assertTrue(rejected["retryable"])
+            self.assertFalse(rejected["published"])
+            with closing(memory_db.connect()) as connection:
+                retryable_run = next(
+                    run
+                    for run in memory_db.list_runs(
+                        connection, repository="eneo-ai/eneo"
+                    )
+                    if run["id"] == retryable_run_id
+                )
+            self.assertEqual(retryable_run["status"], "running")
+            self.assertEqual(retryable_run["phase"], "reviewing")
+
+            delivered = self.call(
+                tools.review_deliver,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 17,
+                    "head_sha": "a" * 40,
+                    "run_id": retryable_run_id,
+                    "previous_verdicts": [
+                        {
+                            "local_reference": "F1",
+                            "verdict": "still_present",
+                        }
+                    ],
+                },
+            )
+
+        self.assertTrue(delivered["published"])
+        self.assertEqual(delivered["stage"], "delivered")
+
+    def test_deliver_keeps_absent_prior_verdict_contract_errors_retryable(self):
+        github = FakeGitHub()
+        cases = (
+            (18, "still_present"),
+            (19, "suppressed"),
+        )
+
+        for pr_number, verdict in cases:
+            with self.subTest(verdict=verdict):
+                first_run_id = self.prepare_recorded_review(pr=pr_number)
+                with (
+                    patch.object(tools, "_pr", return_value=self.pull()),
+                    patch.object(
+                        review_publisher,
+                        "_default_gateway",
+                        return_value=github,
+                    ),
+                ):
+                    first = self.call(
+                        tools.review_deliver,
+                        {
+                            "repository": "eneo-ai/eneo",
+                            "pr_number": pr_number,
+                            "head_sha": "a" * 40,
+                            "run_id": first_run_id,
+                        },
+                    )
+                    self.assertTrue(first["published"])
+
+                    retryable_run_id = self.prepare_empty_review(pr=pr_number)
+                    rejected = self.call(
+                        tools.review_deliver,
+                        {
+                            "repository": "eneo-ai/eneo",
+                            "pr_number": pr_number,
+                            "head_sha": "a" * 40,
+                            "run_id": retryable_run_id,
+                            "previous_verdicts": [
+                                {
+                                    "local_reference": "F1",
+                                    "verdict": verdict,
+                                }
+                            ],
+                        },
+                    )
+
+                self.assertEqual(rejected["stage"], "validation_failed")
+                self.assertTrue(rejected["retryable"])
+                self.assertFalse(rejected["published"])
+                with closing(memory_db.connect()) as connection:
+                    retryable_run = next(
+                        run
+                        for run in memory_db.list_runs(
+                            connection, repository="eneo-ai/eneo"
+                        )
+                        if run["id"] == retryable_run_id
+                    )
+                self.assertEqual(retryable_run["status"], "running")
+                self.assertEqual(retryable_run["phase"], "reviewing")
+
+    def test_deliver_records_publish_failure_and_failed_run(self):
+        run_id = self.prepare_recorded_review(pr=10)
+        github = FakeGitHub(base_sha="c" * 40)
+        with (
+            patch.object(tools, "_pr", return_value=self.pull()),
+            patch.object(review_publisher, "_default_gateway", return_value=github),
+        ):
+            result = self.call(
+                tools.review_deliver,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 10,
+                    "head_sha": "a" * 40,
+                    "run_id": run_id,
+                },
+            )
+
+        self.assertFalse(result["published"])
+        self.assertEqual(result["delivery_status"], "stale")
+        self.assertEqual(result["failure_code"], "base_sha_changed")
+        with closing(memory_db.connect()) as connection:
+            run = memory_db.list_runs(connection, repository="eneo-ai/eneo")[0]
+            publication = memory_db.list_publications(connection, repository="eneo-ai/eneo", pr_number=10)[0]
+        self.assertEqual(run["status"], "failed")
+        self.assertEqual(publication["delivery_status"], "stale")
+        self.assertEqual(publication["failure_code"], "base_sha_changed")
+
+    def test_read_tools_record_review_context_coverage(self):
+        changed_files = [
+            {
+                "path": "backend/api.py",
+                "status": "modified",
+                "additions": 2,
+                "deletions": 1,
+                "changes": 3,
+                "patch_available": True,
+                "context_hash": "d" * 40,
+                "context_hash_source": "blob",
+            }
+        ]
+        pull = self.pull_with_repositories()
+
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(tools, "_changed_files", return_value=changed_files),
+        ):
+            overview = self.call(
+                tools.review_begin,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 12,
+                },
+            )
+        run_id = int(overview["run_id"])
+        self.assertNotIn("files", overview)
+        self.assertEqual(
+            overview["file_index"]["sample_paths"][0]["path"],
+            "backend/api.py",
+        )
+
+        with closing(memory_db.connect()) as connection:
+            summary = memory_db.coverage_summary(connection, run_id=run_id)
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["state"], "incomplete")
+        self.assertEqual(summary["changed_paths"], 1)
+        self.assertEqual(summary["diff_exposed"], 0)
+
+        diff = (
+            b"diff --git a/backend/api.py b/backend/api.py\n"
+            b"@@ -1,2 +1,3 @@\n-old\n+new\n"
+        )
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(tools, "_request", return_value=(diff, False, {})),
+        ):
+            result = self.call(
+                tools.pr_diff,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 12,
+                    "run_id": run_id,
+                    "path": "backend/api.py",
+                },
+            )
+        self.assertEqual(result["path"], "backend/api.py")
+
+        with closing(memory_db.connect()) as connection:
+            summary = memory_db.coverage_summary(connection, run_id=run_id)
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["state"], "complete")
+        self.assertEqual(summary["diff_exposed"], 1)
+        self.assertEqual(summary["context_paths_read"], 0)
+        self.assertEqual(summary["context_ranges_read"], 0)
+
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(tools, "_changed_files", return_value=changed_files),
+            patch.object(tools, "_file_at_revision", return_value=b"one\ntwo\nthree\n"),
+        ):
+            file_result = self.call(
+                tools.pr_file,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 12,
+                    "run_id": run_id,
+                    "path": "backend/api.py",
+                    "side": "head",
+                    "start_line": 2,
+                    "max_lines": 2,
+                },
+            )
+        self.assertEqual(file_result["start_line"], 2)
+        self.assertEqual(file_result["end_line"], 3)
+
+        with closing(memory_db.connect()) as connection:
+            summary = memory_db.coverage_summary(connection, run_id=run_id)
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["context_paths_read"], 1)
+        self.assertEqual(summary["context_ranges_read"], 1)
+
+    def test_whole_diff_budget_keeps_complete_prefix_untruncated(self):
+        changed_files = [
+            {
+                "path": path,
+                "status": "modified",
+                "additions": 1,
+                "deletions": 0,
+                "changes": 1,
+                "patch_available": True,
+                "context_hash": character * 40,
+                "context_hash_source": "blob",
+            }
+            for path, character in (("a.py", "a"), ("b.py", "b"))
+        ]
+        start = self.begin(pr=504, changed_files=changed_files)
+        run_id = int(start["run_id"])
+        first = "diff --git a/a.py b/a.py\n+" + "a" * 600 + "\n"
+        second = "diff --git a/b.py b/b.py\n+" + "b" * 600 + "\n"
+
+        with (
+            patch.object(tools, "_pr", return_value=self.pull_with_repositories()),
+            patch.object(
+                tools,
+                "_request",
+                return_value=((first + second).encode("utf-8"), False, {}),
+            ),
+        ):
+            result = self.call(
+                tools.pr_diff,
+                {
+                    "repository": "eneo-ai/eneo",
+                    "pr_number": 504,
+                    "run_id": run_id,
+                    "max_chars": 1000,
+                },
+            )
+
+        self.assertEqual(result["diff"], first)
+        self.assertFalse(result["truncated"])
+        self.assertTrue(result["more_paths_available"])
+        with closing(memory_db.connect()) as connection:
+            summary = memory_db.coverage_summary(connection, run_id=run_id)
+        assert summary is not None
+        self.assertEqual(summary["state"], "incomplete")
+        self.assertEqual(summary["diff_exposed"], 1)
+        self.assertEqual(summary["diff_truncated"], 0)
+        self.assertEqual(summary["truncated_paths"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()

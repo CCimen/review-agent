@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "fixture_id": "pr-638-lock-free-skill-preflight",
+  "executed_at": "2026-08-04",
+  "runner": {
+    "kind": "blind_current-policy_replay",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "xhigh",
+    "transport": "local_read_only_snapshot",
+    "policy_sha256": "dc2baf6c6939ac221c2c2d17a4b52cccaee70244e8365760f14c902ac0f74212",
+    "skill_sha256": "f711af6e819a3f0533b83242f4ffafaa73f06670d3460780df6bf85ba7bb4a3d",
+    "soul_sha256": "0397ca184d79d4002c94c4310846bdff6714ad1db4adec23e67b9649b70240c5",
+    "prompt_sha256": "768ee663da95f0147205dc753e4c5f44e7d2daa25d993d09579836b33c3c47c8",
+    "raw_output_sha256": "a381046245245f49c4d5b493afa7801824ce2440f2fb640aeb0335c0b249e0fc"
+  },
+  "isolation": {
+    "review_comments_read": false,
+    "review_memory_read": false,
+    "expectation_fixture_read": false,
+    "other_model_output_read": false,
+    "source_writes_allowed": false,
+    "contributor_code_executed": false
+  },
+  "expectation_evaluation": {
+    "status": "pass",
+    "forbidden_rule_ids_observed": [],
+    "forbidden_semantic_claims_observed": [],
+    "note": "The reviewer inspected the exact execution-snapshot caller and did not emit the disproved shared-lock/upgrade claim. Other surviving findings remain in the output so this receipt does not mistake silence for a generally clean review."
+  },
+  "reviewer_output": {
+    "reviewed_base_sha": "7cc8611f0d0fe3086eba52960a8cdfee78cb6551",
+    "reviewed_head_sha": "0f640c99338253311ed80fd4c53127dc813c795a",
+    "coverage": "complete",
+    "coverage_note": "All 27 changed files were diff-reviewed, and risk-relevant caller, persistence, file-loading, provider, and runtime paths were deep-read at the exact head and compared with base where needed. Contributor code and tests were not executed, as required.",
+    "findings": [
+      {
+        "rule_id": "correctness.cross-owner-derived-images",
+        "severity": "High",
+        "claim": "Fleet validation can omit document-derived images for Assistants owned by another tenant user, allowing an incompatible Skill pin to advance.",
+        "evidence": "organization_skill_service.py:617-630 validates every target through the request-scoped admin AssistantService. assistant_service.py:825-828 expands vision attachments through FileService, but file_service.py:481-495 and file_repo.py:229-245 load derivatives only where Files.user_id equals the current admin. get_by_ids_for_validation hydrates the target owner's parent attachments at assistant_repo.py:807-817, so cross-owner parents are present while their derived images silently disappear. The owner-bound ask path expands those images at assistant_service.py:2234-2243; their image tokens can then make the newly advanced configuration fail the ask-time context guard.",
+        "disproof_checks": "Confirmed derivative metadata inherits the uploader's user_id at file_service.py:315-330, target discovery includes non-default personal and shared Assistants, and no later fleet validation restores missing derivatives before the write. The added fleet tests use admin-owned or attachment-free Assistants and do not exercise a cross-owner vision document."
+      },
+      {
+        "rule_id": "performance.n-plus-one-provider-preflight",
+        "severity": "High",
+        "claim": "Governance saves with unrestricted models now perform a provider lookup per MCP-configured personal default instead of using the batch preload.",
+        "evidence": "assistant_service.py:917-922 preloads only effective_config.available_models, which policy_resolver.py:115-120 leaves empty when model restriction is disabled. The changed page path at assistant_service.py:970-1024 nevertheless validates every configured-MCP personal default and passes no adapter for its current model. completion_service.py:185-186 then calls _get_adapter for each Assistant, issuing a provider query each time. A 10,000-user tenant can therefore add roughly 10,000 provider reads to one otherwise bounded governance update.",
+        "disproof_checks": "Compared base: MCP projection and provider-payload preflight were gated by on-demand candidate IDs, so the always-only/configured-MCP path did not make these calls. The batch loader caches providers only within the models supplied to that call. The query-count regression test enables an explicit model restriction, so its model is preloaded and it does not cover the unrestricted/default path."
+      },
+      {
+        "rule_id": "reliability.unrelated-provider-gates-fleet",
+        "severity": "High",
+        "claim": "One target using an inactive provider can abort an entire fleet chunk even when that target needs no provider adapter for fit validation.",
+        "evidence": "organization_skill_service.py:559-568 unconditionally loads adapters for every target model before processing any target. load_active_litellm_provider rejects an inactive provider at litellm_provider.py:113-129, producing a 503 before per-target outcomes. For an Assistant with only always-on Skills and no MCP servers, the actual fit owner returns before provider preparation at assistant_service.py:630-638, so ordinary save-equivalent validation does not require that provider at all.",
+        "disproof_checks": "Confirmed providers can be deactivated while attached models remain, completion_model_repo.all(with_deprecated=True) does not filter provider activity, and there is no per-target exception handling around the batch preload. The deprecated-model regression test retains an active provider and therefore does not falsify this path."
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "pr-638-lock-free-skill-preflight",
+  "source": {
+    "repository": "eneo-ai/eneo",
+    "pull_request": 638,
+    "base_sha": "7cc8611f0d0fe3086eba52960a8cdfee78cb6551",
+    "head_sha": "0f640c99338253311ed80fd4c53127dc813c795a",
+    "trust": "human_confirmed"
+  },
+  "model_expectations": {
+    "mode": "advisory",
+    "required_root_causes": [],
+    "forbidden_root_causes": [
+      {
+        "rule_id": "reliability.skill-lock-upgrade-deadlock",
+        "severity": {
+          "highest_allowed": "High",
+          "lowest_allowed": "High"
+        },
+        "semantic_claim": "fleet candidate validation holds a shared Skill lock before the guarded writer upgrades it"
+      }
+    ]
+  },
+  "deterministic_invariants": [],
+  "advisory_notes": [
+    "The candidate resolver passes lock_active_state=false, so the preflight takes no shared Skill-row lock.",
+    "Trace actual caller arguments into the repository lock branch before claiming an upgrade deadlock."
+  ]
+}

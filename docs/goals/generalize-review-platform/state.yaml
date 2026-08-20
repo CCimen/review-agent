@@ -1,0 +1,163 @@
+# Goal Maker v2 state.yaml
+# Board truth lives here. goal.md is the editable charter; notes/ holds long receipts only.
+
+version: 2
+
+goal:
+  title: "Generalize the pull-request review platform"
+  slug: "generalize-review-platform"
+  kind: open_ended
+  tranche: "Map Eneo coupling, implement the first generic identity/configuration slice without behavior change, verify it, and audit it."
+  status: active
+
+rules:
+  pm_owns_state: true
+  one_active_task: true
+  max_write_workers: 1
+  no_implementation_without_worker_or_pm_task: true
+  no_completion_without_judge_or_pm_audit: true
+  planning_is_not_completion: true
+  queued_required_worker_blocks_completion: true
+
+agents:
+  scout: installed
+  worker: installed
+  judge: installed
+
+continuity:
+  rotate_threads: false
+  rotation_authorized_by: null
+  rotate_after_completed_write_tasks: 2
+  rotate_after_hours: 6
+  rotate_when_slow: true
+  current_thread_id: null
+  previous_thread_id: null
+  rotation_count: 0
+  completed_write_tasks_in_thread: 0
+  handoff_note: notes/handoff.md
+  last_handoff_at: null
+  last_verified_revision: "0457068"
+
+active_task: T001
+
+tasks:
+  - id: T000
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: default
+    objective: "Import and publish the exact validated Eneo reviewer baseline."
+    inputs:
+      - "eneo-ai-bot/eneo-security-review-infra at 4c8cb1b0590575852ead6767890a677c316089b9"
+    constraints:
+      - "No runtime, policy, schema, or naming changes."
+      - "Preserve upstream history."
+    expected_output:
+      - "Baseline on CCimen/review-agent main"
+      - "Green validation receipt"
+    receipt:
+      result: done
+      summary: "Imported the exact upstream tree, connected its history, and pushed the validated baseline to main."
+      changed_files:
+        - "Validated upstream repository snapshot"
+      commands:
+        - cmd: "git diff --cached --quiet eneo-upstream/main"
+          status: pass
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+        - cmd: "git push origin main"
+          status: pass
+  - id: T001
+    type: scout
+    assignee: Scout
+    status: active
+    reasoning_hint: high
+    objective: "Map Eneo-specific coupling and identify the smallest behavior-preserving generic identity/configuration slice."
+    inputs:
+      - README.md
+      - .env.example
+      - compose.yaml
+      - bootstrap/config.yaml
+      - bootstrap/SOUL.md
+      - bootstrap/workspace/AGENTS.md
+      - bootstrap/skills/eneo-pr-review/SKILL.md
+      - bootstrap/plugins/eneo_review_tools
+      - tools
+      - tests
+      - docs
+    constraints:
+      - "Read-only."
+      - "Classify visible identity, compatibility identifiers, policy/profile, persistence, deployment, workflow, and test contracts separately."
+      - "Prefer exact paths and symbols over directory-layout advice."
+      - "Do not assume the proposed clean-architecture directory tree is justified."
+    expected_output:
+      - "Canonical owner map"
+      - "Coupling inventory"
+      - "Smallest safe first implementation slice"
+      - "Explicit deferrals and stop conditions"
+    receipt: null
+  - id: T002
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "Challenge the Scout map and select one reviewable genericization task."
+    inputs:
+      - "T001 receipt"
+      - "Current clean main revision"
+      - "Existing replay and bundle validation"
+    constraints:
+      - "Do not implement."
+      - "Prefer deepening existing owners over creating domain/port scaffolding."
+      - "Reject PostgreSQL, queue, GitHub App, scanner, Slack, and broad package renames from this tranche."
+      - "Require only focused tests that protect observable behavior or compatibility."
+    expected_output:
+      - "Decision"
+      - "Exact Worker objective"
+      - "allowed_files"
+      - "verify"
+      - "stop_if"
+      - "Deferred tasks"
+    receipt: null
+  - id: T003
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: default
+    objective: "Execute the generic identity/configuration task selected by Judge."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "Need files outside allowed_files."
+      - "A compatibility or visible-output behavior is ambiguous."
+      - "A focused verification fails twice."
+      - "The change requires schema, PostgreSQL, GitHub App, scanner, Slack, or deployment-topology work."
+    receipt: null
+  - id: T999
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "Audit whether the generic identity/configuration slice satisfies the current tranche."
+    inputs:
+      - "All done task receipts"
+      - "Last verification"
+      - "Current dirty diff"
+      - "Published main revision"
+    constraints:
+      - "Do not implement."
+      - "Reject completion if required Worker work is queued or active."
+      - "Reject added architecture that lacks a proven second adapter or caller need."
+    expected_output:
+      - "complete | not_complete"
+      - "Missing evidence"
+      - "Next task if not complete"
+    receipt: null
+
+checks:
+  dirty_fingerprint: "goal-board-files-uncommitted"
+  last_verification:
+    result: pass
+    task: T000
+    commands:
+      - "./scripts/check_bundle.sh"

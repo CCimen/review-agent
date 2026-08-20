@@ -51,7 +51,7 @@ Set these values in the Dokploy Compose environment:
 | `ENEO_REVIEW_PUBLISH_GH_TOKEN` | yes | none | Publisher token described above. |
 | `ENEO_REVIEW_PUBLISH_MAX_BYTES` | no | `60000` | Max bytes per GitHub comment, not a finding cap. |
 | `ENEO_FEEDBACK_GH_TOKEN` | yes | none | Feedback token described above. |
-| `ENEO_ALLOWED_REPOSITORIES` | yes | none | Comma-separated exact repositories, for example `<org>/<repo>`. |
+| `REVIEW_AGENT_ALLOWED_REPOSITORIES` | yes | none | Comma-separated exact repositories, for example `<org>/<repo>`. |
 | `ENEO_FEEDBACK_ALLOWED_ACTOR_IDS` | yes | none | Comma-separated numeric GitHub user ids allowed to give feedback. |
 | `ENEO_REVIEW_FEEDBACK_ENABLED` | no | `false` | Enables feedback help in rendered comments. |
 | `GH_PROMPT_DISABLED` | yes | `1` | Prevents interactive GitHub auth prompts. |
@@ -389,7 +389,7 @@ left on disk:
 ```bash
 eneo-review-memory --db /opt/data/review-memory/review_memory.sqlite3 \
   coach-run \
-  --repo eneo-ai/eneo \
+  --repo sundsvallskommun/example-repository \
   --output-dir /opt/data/review-memory/coach-run
 ```
 

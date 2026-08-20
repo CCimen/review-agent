@@ -7,7 +7,7 @@ goal:
   title: "Generalize the pull-request review platform"
   slug: "generalize-review-platform"
   kind: open_ended
-  tranche: "Map Eneo coupling, implement the first generic identity/configuration slice without behavior change, verify it, and audit it."
+  tranche: "Map Eneo coupling, implement the first clean-break generic identity/configuration slice without review behavior change, verify it, and audit it."
   status: active
 
 rules:
@@ -131,24 +131,29 @@ tasks:
       - "Deferred tasks"
     receipt:
       result: done
-      decision: "Approve the allowlist alias as one complete runtime-and-operator slice with a shared environment-selection owner; preserve consumer-specific parsing."
-      user_operator_value: "New deployments gain a generic setting, the current Eneo deployment remains compatible for one transition release, and conflicting configuration cannot silently widen repository access."
-      canonical_owner: "bootstrap/plugins/eneo_review_tools/repository_allowlist.py"
+      decision: "The original compatibility-alias decision was superseded by direct owner instruction: this new repository must use generic names only."
+      user_operator_value: "New deployments have one unambiguous generic allowlist setting, with no inherited Eneo configuration path."
+      canonical_owner: "Existing consumer-specific allowlist parsing in tools.py and feedback_bridge.py; environment selection no longer needs a separate abstraction."
       constraints:
-        - "Blank values are unset; equivalent normalized sets are accepted; differing nonblank sets fail closed without exposing values."
+        - "Missing or blank generic configuration fails closed."
+        - "Do not retain ENEO_ALLOWED_REPOSITORIES as an alias."
         - "Do not change repository parsing grammar, review output, schema, routes, tools, or markers."
         - "Do not add configuration permutation or internal wiring tests."
       next_allowed_task: T003
       blocked_tasks:
         - T999
   - id: T003
-    type: worker
-    assignee: Worker
+    type: pm
+    assignee: PM
     status: active
     reasoning_hint: default
-    objective: "Introduce REVIEW_AGENT_ALLOWED_REPOSITORIES as the canonical allowlist setting for live review and feedback, retain ENEO_ALLOWED_REPOSITORIES as a compatibility alias, wire runtime/operator surfaces, and deny conflicts without exposing values."
+    objective: "Replace ENEO_ALLOWED_REPOSITORIES with REVIEW_AGENT_ALLOWED_REPOSITORIES across live review, feedback, deployment, operator documentation, and affected tests, with no compatibility alias."
+    constraints:
+      - "The PM implements and verifies production changes directly."
+      - "Subagents may provide read-only research or review only."
+      - "Use selective behavior and contract tests; do not add a permutation matrix or internal wiring assertions."
+      - "Delete compatibility-only code instead of abstracting it."
     allowed_files:
-      - bootstrap/plugins/eneo_review_tools/repository_allowlist.py
       - bootstrap/plugins/eneo_review_tools/tools.py
       - bootstrap/plugins/eneo_review_tools/feedback_bridge.py
       - bootstrap/plugins/eneo_review_tools/plugin.yaml
@@ -156,15 +161,18 @@ tasks:
       - .env.example
       - docs/OPERATIONS.md
       - tools/eneo_review_feedback_bridge.py
-      - tests/test_repository_allowlist.py
+      - tests/test_failure_status.py
+      - tests/test_pr_diff_fallback.py
+      - tests/test_run_tools.py
       - tests/test_tools_validation.py
       - tests/test_feedback_bridge.py
       - tests/test_feedback_bridge_entrypoint.py
     verify:
-      - "PYTHONPATH=bootstrap/plugins python3 -m unittest -v tests.test_repository_allowlist tests.test_tools_validation.ToolValidationTests.test_generic_allowlist_is_accepted_before_other_input_validation tests.test_tools_validation.ToolValidationTests.test_conflicting_allowlist_settings_deny_before_network tests.test_feedback_bridge.FeedbackBridgeTests.test_config_uses_generic_repository_allowlist tests.test_feedback_bridge_entrypoint.FeedbackBridgeEntrypointTests.test_env_presence_summary_redacts_secret_values"
+      - "PYTHONPATH=bootstrap/plugins python3 -m unittest -v tests.test_tools_validation.ToolValidationTests.test_allowlist_is_accepted_before_other_input_validation tests.test_tools_validation.ToolValidationTests.test_empty_allowlist_denies_by_default tests.test_feedback_bridge.FeedbackBridgeTests.test_config_uses_generic_repository_allowlist tests.test_feedback_bridge_entrypoint.FeedbackBridgeEntrypointTests.test_env_presence_summary_redacts_secret_values"
       - "PYTHONPATH=bootstrap/plugins python3 -m unittest -v tests.test_tools_validation tests.test_feedback_bridge tests.test_feedback_bridge_entrypoint"
       - "pyright -p ."
-      - "Validate Compose once with only the generic alias and once with only the legacy alias, using harmless placeholders for other required variables."
+      - "Validate Compose with the generic allowlist and verify missing configuration is rejected, using harmless placeholders for other required variables."
+      - "rg -n 'ENEO_ALLOWED_REPOSITORIES' --glob '!docs/goals/**' --glob '!.codex/**' . returns no matches."
       - "git diff --check"
       - "./scripts/check_bundle.sh"
     stop_if:
@@ -172,8 +180,7 @@ tasks:
       - "A compatibility or visible-output behavior is ambiguous."
       - "A focused verification fails twice."
       - "The change requires schema, PostgreSQL, GitHub App, scanner, Slack, or deployment-topology work."
-      - "Either valid legacy-only or generic-only Compose configuration cannot start."
-      - "Conflict handling would expose configured repository values."
+      - "Generic-only Compose configuration cannot start or missing configuration does not fail closed."
       - "Repository parsing grammar or membership semantics must change."
     receipt: null
   - id: T010

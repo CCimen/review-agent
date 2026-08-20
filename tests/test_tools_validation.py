@@ -89,7 +89,7 @@ class ToolValidationTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.temp.name) / "memory.sqlite3")
         self.env = {
-            "ENEO_ALLOWED_REPOSITORIES": "eneo/platform",
+            "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository",
             "ENEO_REVIEW_DB": self.db,
         }
         memory_db.connect(self.db).close()
@@ -119,7 +119,7 @@ class ToolValidationTests(unittest.TestCase):
         try:
             run = memory_db.start_run(
                 connection,
-                "eneo/platform",
+                "sundsvallskommun/example-repository",
                 1,
                 base_sha=base_sha,
                 head_sha=head_sha,
@@ -141,7 +141,7 @@ class ToolValidationTests(unittest.TestCase):
         try:
             recorded = memory_db.record_findings(
                 connection,
-                "eneo/platform",
+                "sundsvallskommun/example-repository",
                 1,
                 "a" * 40,
                 findings,
@@ -156,7 +156,7 @@ class ToolValidationTests(unittest.TestCase):
         pull = {
             "head": {
                 "sha": "a" * 40,
-                "repo": {"full_name": "eneo/platform"},
+                "repo": {"full_name": "sundsvallskommun/example-repository"},
             }
         }
         changed = {
@@ -168,7 +168,7 @@ class ToolValidationTests(unittest.TestCase):
             patch.object(tools, "_file_at_revision", return_value=head_text.encode()),
         ):
             return tools._record_optional_suggestions(
-                repository="eneo/platform",
+                repository="sundsvallskommun/example-repository",
                 pr_number=1,
                 head_sha="a" * 40,
                 pull=pull,
@@ -178,11 +178,24 @@ class ToolValidationTests(unittest.TestCase):
             )
 
     def test_empty_allowlist_denies_by_default(self):
-        with patch.dict(os.environ, {"ENEO_ALLOWED_REPOSITORIES": ""}, clear=False):
+        with patch.dict(
+            os.environ, {"REVIEW_AGENT_ALLOWED_REPOSITORIES": ""}, clear=False
+        ):
             result = json.loads(
-                tools.review_begin({"repository": "eneo/platform", "pr_number": 1})
+                tools.review_begin({"repository": "sundsvallskommun/example-repository", "pr_number": 1})
             )
         self.assertIn("deny by default", result["error"])
+
+    def test_allowlist_is_accepted_before_other_input_validation(self):
+        with patch.dict(
+            os.environ,
+            {"REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository"},
+            clear=True,
+        ):
+            result = json.loads(
+                tools.review_begin({"repository": "sundsvallskommun/example-repository", "pr_number": 0})
+            )
+        self.assertEqual(result["error"], "pr_number must be positive")
 
     def test_schema_severities_come_from_memory_owner(self):
         severity_schema = schemas.ENEO_REVIEW_MEMORY_RECORD["parameters"]["properties"][
@@ -293,7 +306,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "../../etc/passwd",
                     }
@@ -317,7 +330,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "b" * 40,
                         "run_id": run_id,
@@ -357,7 +370,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -398,7 +411,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -436,7 +449,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -474,7 +487,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -490,7 +503,7 @@ class ToolValidationTests(unittest.TestCase):
             "draft": False,
             "head": {
                 "sha": "a" * 40,
-                "repo": {"full_name": "eneo/platform"},
+                "repo": {"full_name": "sundsvallskommun/example-repository"},
             },
             "base": {"sha": "b" * 40},
             "changed_files": 1,
@@ -521,7 +534,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -548,7 +561,7 @@ class ToolValidationTests(unittest.TestCase):
             "draft": False,
             "head": {
                 "sha": "a" * 40,
-                "repo": {"full_name": "eneo/platform"},
+                "repo": {"full_name": "sundsvallskommun/example-repository"},
             },
             "base": {"sha": "b" * 40},
             "changed_files": 1,
@@ -584,7 +597,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -606,7 +619,7 @@ class ToolValidationTests(unittest.TestCase):
             "draft": False,
             "head": {
                 "sha": "a" * 40,
-                "repo": {"full_name": "eneo/platform"},
+                "repo": {"full_name": "sundsvallskommun/example-repository"},
             },
             "base": {"sha": "b" * 40},
             "changed_files": 1,
@@ -637,7 +650,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -756,7 +769,7 @@ class ToolValidationTests(unittest.TestCase):
             memory_db.complete_run(
                 connection,
                 first_run_id,
-                repository="eneo/platform",
+                repository="sundsvallskommun/example-repository",
                 pr_number=1,
                 status="generated",
                 findings_count=1,
@@ -935,7 +948,7 @@ class ToolValidationTests(unittest.TestCase):
         try:
             recorded = memory_db.record_findings(
                 connection,
-                "eneo/platform",
+                "sundsvallskommun/example-repository",
                 1,
                 "a" * 40,
                 findings,
@@ -948,7 +961,7 @@ class ToolValidationTests(unittest.TestCase):
         pull = {
             "head": {
                 "sha": "a" * 40,
-                "repo": {"full_name": "eneo/platform"},
+                "repo": {"full_name": "sundsvallskommun/example-repository"},
             }
         }
         with (
@@ -960,7 +973,7 @@ class ToolValidationTests(unittest.TestCase):
             ) as read,
         ):
             count, statuses = tools._record_optional_suggestions(
-                repository="eneo/platform",
+                repository="sundsvallskommun/example-repository",
                 pr_number=1,
                 head_sha="a" * 40,
                 pull=pull,
@@ -989,7 +1002,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_deliver(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "b" * 40,
                         "run_id": run_id,
@@ -1017,7 +1030,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_deliver(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "c" * 40,
                         "run_id": run_id,
@@ -1054,7 +1067,7 @@ class ToolValidationTests(unittest.TestCase):
                 result = json.loads(
                     tools.pr_diff(
                         {
-                            "repository": "eneo/platform",
+                            "repository": "sundsvallskommun/example-repository",
                             "pr_number": 1,
                             "run_id": run_id,
                         }
@@ -1069,15 +1082,15 @@ class ToolValidationTests(unittest.TestCase):
         initial = {
             "state": "open",
             "draft": False,
-            "head": {"sha": "a" * 40, "repo": {"full_name": "eneo/platform"}},
-            "base": {"sha": "b" * 40, "repo": {"full_name": "eneo/platform"}},
+            "head": {"sha": "a" * 40, "repo": {"full_name": "sundsvallskommun/example-repository"}},
+            "base": {"sha": "b" * 40, "repo": {"full_name": "sundsvallskommun/example-repository"}},
             "changed_files": 1,
         }
         moved_head = {
             "state": "open",
             "draft": False,
-            "head": {"sha": "c" * 40, "repo": {"full_name": "eneo/platform"}},
-            "base": {"sha": "b" * 40, "repo": {"full_name": "eneo/platform"}},
+            "head": {"sha": "c" * 40, "repo": {"full_name": "sundsvallskommun/example-repository"}},
+            "base": {"sha": "b" * 40, "repo": {"full_name": "sundsvallskommun/example-repository"}},
             "changed_files": 1,
         }
         with patch.dict(os.environ, self.env, clear=False):
@@ -1091,7 +1104,7 @@ class ToolValidationTests(unittest.TestCase):
                 first = json.loads(
                     tools.pr_file(
                         {
-                            "repository": "eneo/platform",
+                            "repository": "sundsvallskommun/example-repository",
                             "pr_number": 1,
                             "path": "backend/changed.py",
                             "run_id": run_id,
@@ -1104,7 +1117,7 @@ class ToolValidationTests(unittest.TestCase):
                 second = json.loads(
                     tools.review_deliver(
                         {
-                            "repository": "eneo/platform",
+                            "repository": "sundsvallskommun/example-repository",
                             "pr_number": 1,
                             "head_sha": "a" * 40,
                             "run_id": run_id,
@@ -1142,7 +1155,7 @@ class ToolValidationTests(unittest.TestCase):
                 memory_db.complete_run(
                     connection,
                     candidate_run_id,
-                    repository="eneo/platform",
+                    repository="sundsvallskommun/example-repository",
                     pr_number=1,
                     status="failed",
                     failure_code="snapshot_superseded",
@@ -1176,7 +1189,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.review_deliver(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -1221,7 +1234,7 @@ class ToolValidationTests(unittest.TestCase):
             record_result = json.loads(
                 tools.review_memory_record(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -1232,7 +1245,7 @@ class ToolValidationTests(unittest.TestCase):
             deliver_result = json.loads(
                 tools.review_deliver(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "head_sha": "a" * 40,
                         "run_id": run_id,
@@ -1244,7 +1257,7 @@ class ToolValidationTests(unittest.TestCase):
         self.assertTrue(deliver_result["published"])
         with closing(memory_db.connect_existing(self.db)) as connection:
             publication = memory_db.list_publications(
-                connection, repository="eneo/platform", pr_number=1
+                connection, repository="sundsvallskommun/example-repository", pr_number=1
             )[0]
             rendered = connection.execute(
                 "SELECT rendered_markdown FROM review_publications WHERE id = ?",
@@ -1268,7 +1281,7 @@ class ToolValidationTests(unittest.TestCase):
             },
             "base": {
                 "sha": "b" * 40,
-                "repo": {"full_name": "eneo/platform"},
+                "repo": {"full_name": "sundsvallskommun/example-repository"},
             },
         }
         with (
@@ -1281,7 +1294,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "backend/app.py",
                         "side": "head",
@@ -1299,8 +1312,8 @@ class ToolValidationTests(unittest.TestCase):
 
     def _pull(self):
         return {
-            "head": {"sha": "a" * 40, "repo": {"full_name": "eneo/platform"}},
-            "base": {"sha": "b" * 40, "repo": {"full_name": "eneo/platform"}},
+            "head": {"sha": "a" * 40, "repo": {"full_name": "sundsvallskommun/example-repository"}},
+            "base": {"sha": "b" * 40, "repo": {"full_name": "sundsvallskommun/example-repository"}},
         }
 
     def test_request_retries_transient_5xx_then_succeeds(self):
@@ -1308,7 +1321,7 @@ class ToolValidationTests(unittest.TestCase):
             patch.object(tools.time, "sleep"),
             patch("urllib.request.urlopen", side_effect=[self._http_error(502), _FakeResponse(b'{"ok":true}')]) as opener,
         ):
-            data, truncated, _ = tools._request("/repos/eneo/platform/pulls/1")
+            data, truncated, _ = tools._request("/repos/sundsvallskommun/example-repository/pulls/1")
         self.assertEqual(opener.call_count, 2)
         self.assertEqual(data, b'{"ok":true}')
         self.assertFalse(truncated)
@@ -1316,19 +1329,19 @@ class ToolValidationTests(unittest.TestCase):
     def test_request_does_not_retry_4xx(self):
         with patch("urllib.request.urlopen", side_effect=self._http_error(404)) as opener:
             with self.assertRaises(tools.NotFoundError):
-                tools._request("/repos/eneo/platform/pulls/1")
+                tools._request("/repos/sundsvallskommun/example-repository/pulls/1")
         self.assertEqual(opener.call_count, 1)
 
     def test_request_does_not_retry_generic_urlerror(self):
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")) as opener:
             with self.assertRaises(tools.ToolInputError):
-                tools._request("/repos/eneo/platform/pulls/1")
+                tools._request("/repos/sundsvallskommun/example-repository/pulls/1")
         self.assertEqual(opener.call_count, 1)
 
     def test_file_not_found_message_is_stable_and_pathless(self):
         with patch.object(tools, "_request_json", side_effect=tools.NotFoundError("not found")):
             with self.assertRaises(tools.ToolInputError) as ctx:
-                tools._file_at_revision("eneo/platform", "backend/guessed/path.py", "a" * 40)
+                tools._file_at_revision("sundsvallskommun/example-repository", "backend/guessed/path.py", "a" * 40)
         message = str(ctx.exception)
         self.assertIn("do not retry guessed paths", message)
         self.assertNotIn("backend/guessed/path.py", message)
@@ -1348,7 +1361,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "backend/context.py",
                         "side": "head",
@@ -1387,7 +1400,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "backend/context.py",
                         "side": "head",
@@ -1414,7 +1427,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "backend/context.py",
                         "side": "head",
@@ -1440,7 +1453,7 @@ class ToolValidationTests(unittest.TestCase):
         ):
             run_id = self.start_run()
             result = json.loads(
-                tools.pr_file({"repository": "eneo/platform", "pr_number": 1, "path": "backend/new.py", "side": "base", "run_id": run_id})
+                tools.pr_file({"repository": "sundsvallskommun/example-repository", "pr_number": 1, "path": "backend/new.py", "side": "base", "run_id": run_id})
             )
         self.assertNotIn("error", result)
         self.assertEqual(result["file_state"], "side_unavailable")
@@ -1460,7 +1473,7 @@ class ToolValidationTests(unittest.TestCase):
         ):
             run_id = self.start_run()
             result = json.loads(
-                tools.pr_file({"repository": "eneo/platform", "pr_number": 1, "path": "backend/gone.py", "side": "head", "run_id": run_id})
+                tools.pr_file({"repository": "sundsvallskommun/example-repository", "pr_number": 1, "path": "backend/gone.py", "side": "head", "run_id": run_id})
             )
         self.assertNotIn("error", result)
         self.assertEqual(result["file_state"], "side_unavailable")
@@ -1480,9 +1493,9 @@ class ToolValidationTests(unittest.TestCase):
         ):
             run_id = self.start_run()
             json.loads(
-                tools.pr_file({"repository": "eneo/platform", "pr_number": 1, "path": "backend/new_name.py", "side": "base", "run_id": run_id})
+                tools.pr_file({"repository": "sundsvallskommun/example-repository", "pr_number": 1, "path": "backend/new_name.py", "side": "base", "run_id": run_id})
             )
-        reader.assert_called_once_with("eneo/platform", "backend/old_name.py", "b" * 40)
+        reader.assert_called_once_with("sundsvallskommun/example-repository", "backend/old_name.py", "b" * 40)
 
     def test_pr_file_reuses_run_owned_rename_metadata_without_remote_file_index(self):
         with patch.dict(os.environ, self.env, clear=False):
@@ -1491,7 +1504,7 @@ class ToolValidationTests(unittest.TestCase):
                 memory_db.register_changed_files(
                     connection,
                     run_id=run_id,
-                    repository="eneo/platform",
+                    repository="sundsvallskommun/example-repository",
                     pr_number=1,
                     files=[
                         {
@@ -1513,7 +1526,7 @@ class ToolValidationTests(unittest.TestCase):
                 result = json.loads(
                     tools.pr_file(
                         {
-                            "repository": "eneo/platform",
+                            "repository": "sundsvallskommun/example-repository",
                             "pr_number": 1,
                             "path": "backend/new_name.py",
                             "side": "base",
@@ -1525,7 +1538,7 @@ class ToolValidationTests(unittest.TestCase):
         self.assertNotIn("error", result)
         remote_index.assert_not_called()
         reader.assert_called_once_with(
-            "eneo/platform", "backend/old_name.py", "b" * 40
+            "sundsvallskommun/example-repository", "backend/old_name.py", "b" * 40
         )
 
     def test_pr_file_redirects_unchanged_base_read_to_head_without_tool_failure(self):
@@ -1539,7 +1552,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "backend/context.py",
                         "side": "base",
@@ -1573,7 +1586,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "backend/new_name.py",
                         "side": "base",
@@ -1606,7 +1619,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "backend",
                         "run_id": run_id,
@@ -1639,7 +1652,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "data/huge.json",
                         "run_id": run_id,
@@ -1665,7 +1678,7 @@ class ToolValidationTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_file(
                     {
-                        "repository": "eneo/platform",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 1,
                         "path": "assets/image.bin",
                         "run_id": run_id,

@@ -72,7 +72,7 @@ class RunToolTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self._env = dict(os.environ)
         os.environ["ENEO_REVIEW_DB"] = str(Path(self.temp.name) / "memory.sqlite3")
-        os.environ["ENEO_ALLOWED_REPOSITORIES"] = "eneo-ai/eneo"
+        os.environ["REVIEW_AGENT_ALLOWED_REPOSITORIES"] = "sundsvallskommun/example-repository"
         memory_db.connect(os.environ["ENEO_REVIEW_DB"]).close()
 
     def tearDown(self):
@@ -93,7 +93,7 @@ class RunToolTests(unittest.TestCase):
         changed_files: list[dict] | None = None,
         extra: dict | None = None,
     ):
-        args = {"repository": "eneo-ai/eneo", "pr_number": pr}
+        args = {"repository": "sundsvallskommun/example-repository", "pr_number": pr}
         if extra:
             args.update(extra)
         with (
@@ -154,12 +154,12 @@ class RunToolTests(unittest.TestCase):
         ):
             failed = self.call(
                 tools.review_begin,
-                {"repository": "eneo-ai/eneo", "pr_number": 501},
+                {"repository": "sundsvallskommun/example-repository", "pr_number": 501},
             )
 
         self.assertEqual(failed["error"], "changed-file enumeration failed")
         with closing(memory_db.connect()) as connection:
-            runs = memory_db.list_runs(connection, repository="eneo-ai/eneo")
+            runs = memory_db.list_runs(connection, repository="sundsvallskommun/example-repository")
         failed_run = next(run for run in runs if run["pr_number"] == 501)
         self.assertEqual(failed_run["status"], "failed")
         self.assertEqual(failed_run["phase"], "failed")
@@ -195,12 +195,12 @@ class RunToolTests(unittest.TestCase):
         ):
             result = self.call(
                 tools.review_begin,
-                {"repository": "eneo-ai/eneo", "pr_number": 502},
+                {"repository": "sundsvallskommun/example-repository", "pr_number": 502},
             )
 
         self.assertEqual(result["error"], "registration failed")
         with closing(memory_db.connect()) as connection:
-            runs = memory_db.list_runs(connection, repository="eneo-ai/eneo")
+            runs = memory_db.list_runs(connection, repository="sundsvallskommun/example-repository")
         failed_run = next(run for run in runs if run["pr_number"] == 502)
         self.assertEqual(failed_run["status"], "failed")
         self.assertEqual(failed_run["failure_code"], "review_failed")
@@ -233,12 +233,12 @@ class RunToolTests(unittest.TestCase):
         ):
             result = self.call(
                 tools.review_begin,
-                {"repository": "eneo-ai/eneo", "pr_number": 503},
+                {"repository": "sundsvallskommun/example-repository", "pr_number": 503},
             )
 
         self.assertEqual(result["error"], "unexpected review-begin failure")
         with closing(memory_db.connect()) as connection:
-            runs = memory_db.list_runs(connection, repository="eneo-ai/eneo")
+            runs = memory_db.list_runs(connection, repository="sundsvallskommun/example-repository")
         failed_run = next(run for run in runs if run["pr_number"] == 503)
         self.assertEqual(failed_run["status"], "failed")
         self.assertEqual(failed_run["failure_code"], "review_failed")
@@ -326,7 +326,7 @@ class RunToolTests(unittest.TestCase):
             first = self.call(
                 tools.pr_files,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 14,
                     "run_id": run_id,
                     "limit": 2,
@@ -335,7 +335,7 @@ class RunToolTests(unittest.TestCase):
             second = self.call(
                 tools.pr_files,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 14,
                     "run_id": run_id,
                     "limit": 2,
@@ -345,7 +345,7 @@ class RunToolTests(unittest.TestCase):
             backend = self.call(
                 tools.pr_files,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 14,
                     "run_id": run_id,
                     "domain": "backend",
@@ -368,7 +368,7 @@ class RunToolTests(unittest.TestCase):
             result = self.call(
                 tools.pr_files,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 15,
                     "run_id": run_id,
                 },
@@ -386,7 +386,7 @@ class RunToolTests(unittest.TestCase):
             result = self.call(
                 tools.pr_files,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 15,
                     "run_id": run_id,
                     "cursor": "../backend/api.py",
@@ -441,7 +441,7 @@ class RunToolTests(unittest.TestCase):
             delivered = self.call(
                 tools.review_deliver,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 16,
                     "head_sha": "a" * 40,
                     "run_id": first_run_id,
@@ -454,7 +454,7 @@ class RunToolTests(unittest.TestCase):
         self.assertEqual(rerun["status"], "running")
         self.assertNotEqual(rerun["run_id"], first_run_id)
         with closing(memory_db.connect()) as connection:
-            runs = memory_db.list_runs(connection, repository="eneo-ai/eneo")
+            runs = memory_db.list_runs(connection, repository="sundsvallskommun/example-repository")
         pr_runs = [run for run in runs if run["pr_number"] == 16]
         self.assertEqual([run["status"] for run in pr_runs], ["running", "generated"])
 
@@ -506,7 +506,7 @@ class RunToolTests(unittest.TestCase):
             "state": "open",
             "draft": draft,
             "title": "Test PR",
-            "html_url": "https://github.com/eneo-ai/eneo/pull/12",
+            "html_url": "https://github.com/sundsvallskommun/example-repository/pull/12",
             "user": {"login": "alice"},
             "changed_files": 1,
             "additions": 2,
@@ -514,12 +514,12 @@ class RunToolTests(unittest.TestCase):
             "head": {
                 "ref": "feature/example",
                 "sha": head_sha,
-                "repo": {"full_name": "eneo-ai/eneo"},
+                "repo": {"full_name": "sundsvallskommun/example-repository"},
             },
             "base": {
                 "ref": "main",
                 "sha": base_sha,
-                "repo": {"full_name": "eneo-ai/eneo"},
+                "repo": {"full_name": "sundsvallskommun/example-repository"},
             },
         }
 
@@ -528,14 +528,14 @@ class RunToolTests(unittest.TestCase):
         with closing(memory_db.connect()) as connection:
             run = memory_db.start_run(
                 connection,
-                "eneo-ai/eneo",
+                "sundsvallskommun/example-repository",
                 pr,
                 base_sha=base_sha,
                 head_sha=head_sha,
             )
             memory_db.record_findings(
                 connection,
-                "eneo-ai/eneo",
+                "sundsvallskommun/example-repository",
                 pr,
                 head_sha,
                 [finding],
@@ -549,14 +549,14 @@ class RunToolTests(unittest.TestCase):
         with closing(memory_db.connect()) as connection:
             run = memory_db.start_run(
                 connection,
-                "eneo-ai/eneo",
+                "sundsvallskommun/example-repository",
                 pr,
                 base_sha=base_sha,
                 head_sha=head_sha,
             )
             memory_db.record_findings(
                 connection,
-                "eneo-ai/eneo",
+                "sundsvallskommun/example-repository",
                 pr,
                 head_sha,
                 [],
@@ -576,7 +576,7 @@ class RunToolTests(unittest.TestCase):
             result = self.call(
                 tools.review_deliver,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 9,
                     "head_sha": "a" * 40,
                     "run_id": run_id,
@@ -586,8 +586,8 @@ class RunToolTests(unittest.TestCase):
         self.assertTrue(result["published"])
         self.assertEqual(result["stage"], "delivered")
         with closing(memory_db.connect()) as connection:
-            run = memory_db.list_runs(connection, repository="eneo-ai/eneo")[0]
-            publication = memory_db.list_publications(connection, repository="eneo-ai/eneo", pr_number=9)[0]
+            run = memory_db.list_runs(connection, repository="sundsvallskommun/example-repository")[0]
+            publication = memory_db.list_publications(connection, repository="sundsvallskommun/example-repository", pr_number=9)[0]
         self.assertEqual(run["status"], "generated")
         self.assertEqual(run["posted_comment_id"], result["comment_id"])
         self.assertEqual(publication["delivery_status"], "posted")
@@ -616,7 +616,7 @@ class RunToolTests(unittest.TestCase):
             recorded = self.call(
                 tools.review_memory_record,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 20,
                     "head_sha": "a" * 40,
                     "run_id": run_id,
@@ -626,7 +626,7 @@ class RunToolTests(unittest.TestCase):
             delivered = self.call(
                 tools.review_deliver,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 20,
                     "head_sha": "a" * 40,
                     "run_id": run_id,
@@ -647,7 +647,7 @@ class RunToolTests(unittest.TestCase):
             first = self.call(
                 tools.review_deliver,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 17,
                     "head_sha": "a" * 40,
                     "run_id": first_run_id,
@@ -659,7 +659,7 @@ class RunToolTests(unittest.TestCase):
             rejected = self.call(
                 tools.review_deliver,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 17,
                     "head_sha": "a" * 40,
                     "run_id": retryable_run_id,
@@ -680,7 +680,7 @@ class RunToolTests(unittest.TestCase):
                 retryable_run = next(
                     run
                     for run in memory_db.list_runs(
-                        connection, repository="eneo-ai/eneo"
+                        connection, repository="sundsvallskommun/example-repository"
                     )
                     if run["id"] == retryable_run_id
                 )
@@ -690,7 +690,7 @@ class RunToolTests(unittest.TestCase):
             delivered = self.call(
                 tools.review_deliver,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 17,
                     "head_sha": "a" * 40,
                     "run_id": retryable_run_id,
@@ -727,7 +727,7 @@ class RunToolTests(unittest.TestCase):
                     first = self.call(
                         tools.review_deliver,
                         {
-                            "repository": "eneo-ai/eneo",
+                            "repository": "sundsvallskommun/example-repository",
                             "pr_number": pr_number,
                             "head_sha": "a" * 40,
                             "run_id": first_run_id,
@@ -739,7 +739,7 @@ class RunToolTests(unittest.TestCase):
                     rejected = self.call(
                         tools.review_deliver,
                         {
-                            "repository": "eneo-ai/eneo",
+                            "repository": "sundsvallskommun/example-repository",
                             "pr_number": pr_number,
                             "head_sha": "a" * 40,
                             "run_id": retryable_run_id,
@@ -759,7 +759,7 @@ class RunToolTests(unittest.TestCase):
                     retryable_run = next(
                         run
                         for run in memory_db.list_runs(
-                            connection, repository="eneo-ai/eneo"
+                            connection, repository="sundsvallskommun/example-repository"
                         )
                         if run["id"] == retryable_run_id
                     )
@@ -776,7 +776,7 @@ class RunToolTests(unittest.TestCase):
             result = self.call(
                 tools.review_deliver,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 10,
                     "head_sha": "a" * 40,
                     "run_id": run_id,
@@ -787,8 +787,8 @@ class RunToolTests(unittest.TestCase):
         self.assertEqual(result["delivery_status"], "stale")
         self.assertEqual(result["failure_code"], "base_sha_changed")
         with closing(memory_db.connect()) as connection:
-            run = memory_db.list_runs(connection, repository="eneo-ai/eneo")[0]
-            publication = memory_db.list_publications(connection, repository="eneo-ai/eneo", pr_number=10)[0]
+            run = memory_db.list_runs(connection, repository="sundsvallskommun/example-repository")[0]
+            publication = memory_db.list_publications(connection, repository="sundsvallskommun/example-repository", pr_number=10)[0]
         self.assertEqual(run["status"], "failed")
         self.assertEqual(publication["delivery_status"], "stale")
         self.assertEqual(publication["failure_code"], "base_sha_changed")
@@ -815,7 +815,7 @@ class RunToolTests(unittest.TestCase):
             overview = self.call(
                 tools.review_begin,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 12,
                 },
             )
@@ -844,7 +844,7 @@ class RunToolTests(unittest.TestCase):
             result = self.call(
                 tools.pr_diff,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 12,
                     "run_id": run_id,
                     "path": "backend/api.py",
@@ -868,7 +868,7 @@ class RunToolTests(unittest.TestCase):
             file_result = self.call(
                 tools.pr_file,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 12,
                     "run_id": run_id,
                     "path": "backend/api.py",
@@ -916,7 +916,7 @@ class RunToolTests(unittest.TestCase):
             result = self.call(
                 tools.pr_diff,
                 {
-                    "repository": "eneo-ai/eneo",
+                    "repository": "sundsvallskommun/example-repository",
                     "pr_number": 504,
                     "run_id": run_id,
                     "max_chars": 1000,

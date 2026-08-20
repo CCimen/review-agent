@@ -176,7 +176,9 @@ def parse_repository_allowlist(raw: str) -> frozenset[str]:
         if item.strip()
     }
     if not repositories:
-        raise SystemExit("ENEO_ALLOWED_REPOSITORIES is empty; deny by default")
+        raise SystemExit(
+            "REVIEW_AGENT_ALLOWED_REPOSITORIES is empty; deny by default"
+        )
     return frozenset(repositories)
 
 
@@ -205,7 +207,7 @@ def load_config() -> BridgeConfig:
         secret=secret,
         token=token,
         allowed_repositories=parse_repository_allowlist(
-            os.environ.get("ENEO_ALLOWED_REPOSITORIES", "")
+            os.environ.get("REVIEW_AGENT_ALLOWED_REPOSITORIES", "")
         ),
         allowed_actor_ids=allowed_actor_ids,
         database_path=os.environ.get("ENEO_REVIEW_DB") or None,

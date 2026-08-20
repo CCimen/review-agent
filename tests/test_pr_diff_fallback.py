@@ -45,13 +45,13 @@ def _pull(*, base_sha: str = "b" * 40, head_sha: str = "a" * 40) -> dict[str, ob
         "state": "open",
         "draft": False,
         "title": "Test PR",
-        "html_url": "https://github.com/eneo-ai/eneo/pull/12",
+        "html_url": "https://github.com/sundsvallskommun/example-repository/pull/12",
         "user": {"login": "alice"},
         "changed_files": 1,
         "additions": 2,
         "deletions": 1,
-        "head": {"ref": "feature", "sha": head_sha, "repo": {"full_name": "eneo-ai/eneo"}},
-        "base": {"ref": "main", "sha": base_sha, "repo": {"full_name": "eneo-ai/eneo"}},
+        "head": {"ref": "feature", "sha": head_sha, "repo": {"full_name": "sundsvallskommun/example-repository"}},
+        "base": {"ref": "main", "sha": base_sha, "repo": {"full_name": "sundsvallskommun/example-repository"}},
     }
 
 
@@ -60,7 +60,7 @@ class PrDiffFallbackTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self._env = dict(os.environ)
         os.environ["ENEO_REVIEW_DB"] = str(Path(self.temp.name) / "memory.sqlite3")
-        os.environ["ENEO_ALLOWED_REPOSITORIES"] = "eneo-ai/eneo"
+        os.environ["REVIEW_AGENT_ALLOWED_REPOSITORIES"] = "sundsvallskommun/example-repository"
         memory_db.connect(os.environ["ENEO_REVIEW_DB"]).close()
 
     def tearDown(self):
@@ -89,13 +89,13 @@ class PrDiffFallbackTests(unittest.TestCase):
             patch.object(tools, "_changed_files", return_value=adapter_files),
         ):
             start = json.loads(
-                tools.review_begin({"repository": "eneo-ai/eneo", "pr_number": 12})
+                tools.review_begin({"repository": "sundsvallskommun/example-repository", "pr_number": 12})
             )
         return int(start["run_id"])
 
     def _pr_diff(self, run_id, index, *, path=None, max_chars=None):
         args: dict[str, object] = {
-            "repository": "eneo-ai/eneo",
+            "repository": "sundsvallskommun/example-repository",
             "pr_number": 12,
             "run_id": run_id,
         }
@@ -136,7 +136,7 @@ class PrDiffFallbackTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_diff(
                     {
-                        "repository": "eneo-ai/eneo",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 12,
                         "run_id": run_id,
                         "path": "src/target.py",
@@ -160,7 +160,7 @@ class PrDiffFallbackTests(unittest.TestCase):
             result = json.loads(
                 tools.pr_diff(
                     {
-                        "repository": "eneo-ai/eneo",
+                        "repository": "sundsvallskommun/example-repository",
                         "pr_number": 12,
                         "run_id": run_id,
                         "path": "src/target.py",

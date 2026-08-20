@@ -97,7 +97,7 @@ class FeedbackBridgeTests(unittest.TestCase):
         with closing(memory_db.connect(self.db)) as connection:
             run = memory_db.start_run(
                 connection,
-                "eneo/platform",
+                "sundsvallskommun/example-repository",
                 17,
                 base_sha="b" * 40,
                 head_sha="a" * 40,
@@ -105,7 +105,7 @@ class FeedbackBridgeTests(unittest.TestCase):
             run_id = int(run["id"])
             memory_db.record_findings(
                 connection,
-                "eneo/platform",
+                "sundsvallskommun/example-repository",
                 17,
                 "a" * 40,
                 [self.finding],
@@ -115,7 +115,7 @@ class FeedbackBridgeTests(unittest.TestCase):
             )
             publication = memory_db.finalize_review(
                 connection,
-                "eneo/platform",
+                "sundsvallskommun/example-repository",
                 17,
                 "a" * 40,
                 review_run_id=run_id,
@@ -129,7 +129,7 @@ class FeedbackBridgeTests(unittest.TestCase):
             memory_db.complete_run(
                 connection,
                 run_id,
-                repository="eneo/platform",
+                repository="sundsvallskommun/example-repository",
                 pr_number=17,
                 status="generated",
                 findings_count=int(publication["findings_count"]),
@@ -138,7 +138,7 @@ class FeedbackBridgeTests(unittest.TestCase):
         self.config = feedback_bridge.BridgeConfig(
             secret="secret",
             token="token",
-            allowed_repositories=frozenset({"eneo/platform"}),
+            allowed_repositories=frozenset({"sundsvallskommun/example-repository"}),
             allowed_actor_ids=frozenset({"12345"}),
             database_path=self.db,
         )
@@ -146,7 +146,7 @@ class FeedbackBridgeTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def payload(self, *, repository: str = "eneo/platform", comment_id: int = 500) -> dict[str, object]:
+    def payload(self, *, repository: str = "sundsvallskommun/example-repository", comment_id: int = 500) -> dict[str, object]:
         return {
             "repository": {"full_name": repository},
             "pull_request": {"number": 17},
@@ -171,7 +171,7 @@ class FeedbackBridgeTests(unittest.TestCase):
     def test_config_requires_write_capable_github_token(self) -> None:
         environment = {
             "ENEO_FEEDBACK_WEBHOOK_SECRET": "secret",
-            "ENEO_ALLOWED_REPOSITORIES": "eneo/platform",
+            "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository",
             "GH_TOKEN": "broader-review-token",
             "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
         }
@@ -187,11 +187,26 @@ class FeedbackBridgeTests(unittest.TestCase):
         self.assertEqual(config.token, "feedback-token")
         self.assertEqual(config.allowed_actor_ids, frozenset({"12345"}))
 
+    def test_config_uses_generic_repository_allowlist(self) -> None:
+        environment = {
+            "ENEO_FEEDBACK_WEBHOOK_SECRET": "secret",
+            "ENEO_FEEDBACK_GH_TOKEN": "feedback-token",
+            "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvall/platform",
+            "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
+        }
+
+        with patch.dict(os.environ, environment, clear=True):
+            config = feedback_bridge.load_config()
+
+        self.assertEqual(
+            config.allowed_repositories, frozenset({"sundsvall/platform"})
+        )
+
     def test_config_ignores_legacy_gh_token(self) -> None:
         environment = {
             "ENEO_FEEDBACK_WEBHOOK_SECRET": "secret",
             "GH_TOKEN": "legacy-token",
-            "ENEO_ALLOWED_REPOSITORIES": "eneo/platform",
+            "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository",
             "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS": "12345",
         }
 
@@ -203,7 +218,7 @@ class FeedbackBridgeTests(unittest.TestCase):
         environment = {
             "ENEO_FEEDBACK_WEBHOOK_SECRET": "secret",
             "ENEO_FEEDBACK_GH_TOKEN": "feedback-token",
-            "ENEO_ALLOWED_REPOSITORIES": "eneo/platform",
+            "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvallskommun/example-repository",
             "ENEO_FEEDBACK_ALLOWED_ACTOR_IDS": "12345,nope",
         }
 

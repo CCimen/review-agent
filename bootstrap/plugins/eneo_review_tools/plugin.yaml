@@ -10,7 +10,7 @@ provides_tools:
   - eneo_review_memory_record
   - eneo_review_deliver
 requires_env:
-  - name: ENEO_ALLOWED_REPOSITORIES
+  - name: REVIEW_AGENT_ALLOWED_REPOSITORIES
     description: Exact comma-separated GitHub repositories this plugin may read
     secret: false
   - name: GITHUB_READ_TOKEN

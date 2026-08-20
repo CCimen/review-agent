@@ -98,11 +98,13 @@ def _allowlisted_repository(raw: Any) -> str:
     repository = _repository_name(raw)
     allowed = {
         item.strip().lower()
-        for item in os.environ.get("ENEO_ALLOWED_REPOSITORIES", "").split(",")
+        for item in os.environ.get("REVIEW_AGENT_ALLOWED_REPOSITORIES", "").split(",")
         if item.strip()
     }
     if not allowed:
-        raise ToolInputError("ENEO_ALLOWED_REPOSITORIES is empty; deny by default")
+        raise ToolInputError(
+            "REVIEW_AGENT_ALLOWED_REPOSITORIES is empty; deny by default"
+        )
     if repository.lower() not in allowed:
         raise ToolInputError("repository is not allowlisted")
     return repository

@@ -70,7 +70,7 @@ class FailureStatusTests(unittest.TestCase):
         self.db = str(Path(self.temp.name) / "memory.sqlite3")
         self._env = dict(os.environ)
         os.environ["ENEO_REVIEW_DB"] = self.db
-        os.environ["ENEO_ALLOWED_REPOSITORIES"] = "eneo-ai/eneo"
+        os.environ["REVIEW_AGENT_ALLOWED_REPOSITORIES"] = "sundsvallskommun/example-repository"
         memory_db.connect(self.db).close()
 
     def tearDown(self):
@@ -86,13 +86,13 @@ class FailureStatusTests(unittest.TestCase):
     ) -> int:
         with closing(memory_db.connect_existing(self.db)) as conn:
             run = memory_db.start_run(
-                conn, "eneo-ai/eneo", 12, base_sha="b" * 40, head_sha=head_sha
+                conn, "sundsvallskommun/example-repository", 12, base_sha="b" * 40, head_sha=head_sha
             )
             run_id = int(run["id"])
             memory_db.complete_run(
                 conn,
                 run_id,
-                repository="eneo-ai/eneo",
+                repository="sundsvallskommun/example-repository",
                 pr_number=12,
                 status="failed",
                 failure_code=failure_code,
@@ -201,7 +201,7 @@ class FailureStatusTests(unittest.TestCase):
                 conn,
                 memory_db,
                 review_publisher,
-                repository="eneo-ai/eneo",
+                repository="sundsvallskommun/example-repository",
                 github=fake,
             )
 
@@ -215,14 +215,14 @@ class FailureStatusTests(unittest.TestCase):
         with closing(memory_db.connect_existing(self.db)) as conn:
             first = memory_db.start_run(
                 conn,
-                "eneo-ai/eneo",
+                "sundsvallskommun/example-repository",
                 12,
                 base_sha="b" * 40,
                 head_sha="a" * 40,
             )
             second = memory_db.start_run(
                 conn,
-                "eneo-ai/eneo",
+                "sundsvallskommun/example-repository",
                 12,
                 base_sha="b" * 40,
                 head_sha="c" * 40,
@@ -246,7 +246,7 @@ class FailureStatusTests(unittest.TestCase):
                 conn,
                 memory_db,
                 review_publisher,
-                repository="eneo-ai/eneo",
+                repository="sundsvallskommun/example-repository",
                 github=fake,
             )
 
@@ -264,7 +264,7 @@ class FailureStatusTests(unittest.TestCase):
         fake = FakeGateway(comments=[orphan])
         with closing(memory_db.connect_existing(self.db)) as conn:
             review_publisher._cleanup_prior_failure_status(
-                conn, fake, "eneo-ai/eneo", 12
+                conn, fake, "sundsvallskommun/example-repository", 12
             )
         self.assertIn(4242, fake.deleted)
 
@@ -299,12 +299,12 @@ class FailureStatusTests(unittest.TestCase):
         # Run B reviews the same PR and publishes successfully.
         with closing(memory_db.connect_existing(self.db)) as conn:
             run = memory_db.start_run(
-                conn, "eneo-ai/eneo", 12, base_sha="b" * 40, head_sha="a" * 40
+                conn, "sundsvallskommun/example-repository", 12, base_sha="b" * 40, head_sha="a" * 40
             )
             run_b = int(run["id"])
             memory_db.record_findings(
                 conn,
-                "eneo-ai/eneo",
+                "sundsvallskommun/example-repository",
                 12,
                 "a" * 40,
                 [finding],
@@ -313,10 +313,10 @@ class FailureStatusTests(unittest.TestCase):
                 context_hashes={"backend/changed.py": "d" * 40},
             )
             memory_db.update_run_phase(
-                conn, run_b, "rendering", repository="eneo-ai/eneo", pr_number=12
+                conn, run_b, "rendering", repository="sundsvallskommun/example-repository", pr_number=12
             )
             final = memory_db.finalize_review(
-                conn, "eneo-ai/eneo", 12, "a" * 40, review_run_id=run_b
+                conn, "sundsvallskommun/example-repository", 12, "a" * 40, review_run_id=run_b
             )
             result = review_publisher.publish_review(
                 conn,
@@ -337,7 +337,7 @@ class FailureStatusTests(unittest.TestCase):
 
         with closing(memory_db.connect_existing(self.db)) as conn:
             run = memory_db.start_run(
-                conn, "eneo-ai/eneo", 12, base_sha="b" * 40, head_sha="a" * 40
+                conn, "sundsvallskommun/example-repository", 12, base_sha="b" * 40, head_sha="a" * 40
             )
             run_id = int(run["id"])
             conn.execute(
@@ -352,7 +352,7 @@ class FailureStatusTests(unittest.TestCase):
                 conn,
                 memory_db,
                 review_publisher,
-                repository="eneo-ai/eneo",
+                repository="sundsvallskommun/example-repository",
                 older_than_minutes=30,
                 github=fake,
             )

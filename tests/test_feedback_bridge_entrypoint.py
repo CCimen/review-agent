@@ -30,7 +30,7 @@ class FeedbackBridgeEntrypointTests(unittest.TestCase):
     def test_env_presence_summary_redacts_secret_values(self) -> None:
         environment = {
             "ENEO_FEEDBACK_WEBHOOK_SECRET": "super-secret",
-            "ENEO_ALLOWED_REPOSITORIES": "eneo-ai/eneo",
+            "REVIEW_AGENT_ALLOWED_REPOSITORIES": "sundsvall/private",
             "GH_TOKEN": "legacy-secret",
         }
 
@@ -39,9 +39,11 @@ class FeedbackBridgeEntrypointTests(unittest.TestCase):
 
         self.assertIn("ENEO_FEEDBACK_WEBHOOK_SECRET=set", summary)
         self.assertIn("ENEO_FEEDBACK_GH_TOKEN=missing", summary)
+        self.assertIn("REVIEW_AGENT_ALLOWED_REPOSITORIES=set", summary)
         self.assertIn("GH_TOKEN=set", summary)
         self.assertNotIn("super-secret", summary)
         self.assertNotIn("legacy-secret", summary)
+        self.assertNotIn("sundsvall/private", summary)
 
     def test_load_config_failure_prints_actionable_diagnostic(self) -> None:
         stderr = io.StringIO()

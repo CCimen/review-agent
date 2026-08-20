@@ -1,5 +1,11 @@
 # Eneo Coupling Map
 
+> **Superseded migration assumption:** This discovery receipt originally assumed
+> the source deployment needed one-release compatibility aliases. The repository
+> owner later clarified that this is a new Sundsvall platform with no Eneo
+> compatibility requirement. Do not follow compatibility recommendations below;
+> the active clean-break contract is recorded in `state.yaml`.
+
 ## Result
 
 The repository contains broad Eneo naming, but the review domain and SQLite

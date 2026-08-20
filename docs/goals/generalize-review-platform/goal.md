@@ -2,9 +2,11 @@
 
 ## Objective
 
-Turn the validated Eneo reviewer baseline into a maintainable, organization-wide
-review platform for Sundsvalls kommun without weakening its security, snapshot,
-feedback, or deterministic-publication guarantees.
+Use the validated Eneo reviewer baseline to build a maintainable,
+organization-wide review platform for Sundsvalls kommun without carrying Eneo
+branding or compatibility identifiers into the new product, and without
+weakening its security, snapshot, feedback, or deterministic-publication
+guarantees.
 
 ## Goal Kind
 
@@ -12,14 +14,18 @@ feedback, or deterministic-publication guarantees.
 
 ## Current Tranche
 
-Discover the exact Eneo-specific coupling, choose the smallest safe generic
-identity and configuration slice, implement it without changing review behavior,
-verify it, and audit the result before beginning persistence or deployment
-redesign.
+Discover the exact Eneo-specific coupling, remove it in bounded mechanical
+slices beginning with the repository allowlist, verify each slice without
+changing review behavior, and audit the result before beginning persistence or
+deployment redesign.
 
 ## Non-Negotiable Constraints
 
 - Keep the current Eneo deployment and source repository unchanged.
+- Treat the new repository as a clean Sundsvall platform: remove Eneo branding,
+  identifiers, and environment names instead of retaining compatibility aliases.
+- The refactor plan is architectural input; direct owner decisions supersede its
+  suggested transition compatibility where they differ.
 - Preserve the locked-down live reviewer, exact base/head subjects, bounded read
   tools, human-governed feedback, stale-head protection, and deterministic
   publication path.

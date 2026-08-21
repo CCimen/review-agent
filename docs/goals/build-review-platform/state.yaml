@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Audit the PostgreSQL runtime ownership and freeze the first cohesive persistence slice."
+  tranche: "Correct and freeze the PostgreSQL first-write contract, then add the authoritative migration runner."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-21T10:34:29Z"
   last_verified_revision: "32fc5ded06b367c8ea0aaf0308744c64b785a74f"
 
-active_task: T019
+active_task: T020
 
 tasks:
   - id: T001
@@ -820,7 +820,7 @@ tasks:
   - id: T019
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the initial PostgreSQL schema and freeze the first cohesive runtime-owner persistence slice before any PostgreSQL write."
     inputs:
@@ -842,6 +842,75 @@ tasks:
       - "T018 complete | not complete"
       - "Exact first runtime-owner objective and operation-owned module map"
       - "Allowed files, real PostgreSQL behavior tests, performance baseline, strict Pyright, verification, and stop conditions"
+    receipt:
+      result: done
+      decision: "Correct the empty initial schema before starting any PostgreSQL runtime adapter; follow with a separate checksum-locked migration-runner slice."
+      summary: "The external architecture review found four pre-write blockers in finding identity, request idempotency, migration ownership, and publication provenance, plus bounded lifecycle and audit corrections that are inexpensive before authoritative data exists."
+      evidence:
+        - "Reviewed HEAD 0fe085f524e391c62b3903ab6e3a380fed8b66df and schema revision 32fc5ded06b367c8ea0aaf0308744c64b785a74f"
+        - "No PostgreSQL runtime write exists, so 001_initial.sql remains the correct owner for pre-write corrections"
+        - "Recommended psycopg 3 with explicit SQL and cohesive operation modules; rejected ORM, generic store, and dual-backend paths"
+        - "Keep runtime cutover, publication module split, jobs, outbox, GitHub App, policy overlays, and scanners in later slices"
+      spawned_tasks:
+        - T020
+        - T021
+  - id: T020
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Correct and freeze the empty PostgreSQL initial schema as a reliable first-write contract without adding runtime code."
+    constraints:
+      - "Amend 001_initial.sql because no authoritative PostgreSQL data exists; do not add a corrective 002 migration."
+      - "Keep versioned plain SQL and real PostgreSQL contract tests as the canonical schema owner."
+      - "Add durable request idempotency, exact publication payloads and finding provenance, explicit lifecycle states, run-owned coaching candidates, generic numeric occurrence bounds, aggregate schema versions, and audit uniqueness."
+      - "Remove transaction and migration-ledger ownership from the SQL file so the next migration-runner slice owns both atomically."
+      - "Do not add psycopg, runtime modules, jobs, outbox, roles, Compose changes, SQLite compatibility, ORM, or generic persistence seams."
+      - "Keep current SQLite runtime and operator documentation truthful until cutover."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/001_initial.sql
+      - bootstrap/plugins/review_agent_tools/feedback_authorization.py
+      - tests/test_postgres_schema.py
+      - scripts/check_postgres_schema.sh
+      - docs/ROADMAP.md
+      - website/sidebars.ts
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+    verify:
+      - "Run focused real PostgreSQL red/green contract checks"
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_docs_contract tests.test_ci_workflow"
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate Goal Maker state"
+      - "Run one skeptical gpt-5.6-sol xhigh Codex peer gate with score >= 8 before commit"
+      - "After push, verify Python bundle and documentation publication workflows"
+    stop_if:
+      - "A correction requires a new product concept rather than a current lifecycle invariant."
+      - "The slice requires runtime, settings, Dockerfile, Compose, or memory_* changes."
+      - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
+      - "Scope expands into the migration runner or runtime adapter."
+    receipt: null
+  - id: T021
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: high
+    objective: "Add the checksum-verifying, advisory-locked PostgreSQL migration runner after the corrected schema contract is published."
+    constraints:
+      - "Keep migration application, ledger insertion, advisory locking, and rollback in one canonical runner."
+      - "Use synchronous psycopg 3 and no ORM or generic migration framework."
+      - "Do not start runtime persistence operations or Compose cutover."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "T020 is not committed, pushed, and green in live CI."
+      - "The implementation needs runtime persistence or deployment cutover changes."
     receipt: null
   - id: T999
     type: judge

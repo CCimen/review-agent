@@ -21,7 +21,7 @@ behavior documented in the repository and verified by the shipped bundle.
 - One shared reviewer per environment with an exact repository allowlist.
 - Trusted GitHub Actions request workflow and HMAC-signed webhooks.
 - Full Python bundle CI for pull requests and changes to `main`.
-- A forward-only initial PostgreSQL schema and real PostgreSQL CI contract.
+- A corrected first-write PostgreSQL schema and real PostgreSQL CI contract.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -41,19 +41,36 @@ introduced, and there will be no permanent dual writes. The initial PostgreSQL
 schema and real PostgreSQL integration contract are implemented and run in CI,
 but PostgreSQL is not deployed: the active reviewer still uses SQLite.
 
+Four gates protect the first authoritative PostgreSQL write:
+
+- **Stable finding identity:** fingerprints must use stable local finding fields,
+  while every full or abbreviated lookup is scoped by the repository's internal
+  ID. This remains part of the finding runtime slice.
+- **Request idempotency:** the schema now requires one globally unique durable
+  request key for each review command.
+- **Checksum migration ownership:** the next slice adds one advisory-locked
+  runner that verifies migration checksums and owns the migration transaction
+  and ledger insertion.
+- **Publication provenance:** the schema now records every current, resolved,
+  invalidated, suppressed, and not-checked outcome with its exact source
+  occurrence and review run.
+
 The remaining milestones are:
 
-1. Add the migration runner and runtime owner, including provider repository ID
-   acquisition and repository-scoped finding identity, without changing review
-   behavior.
-2. Define the initial PostgreSQL replacement recovery path before switching.
+1. Add the checksum-verifying migration runner and runtime owner, then the
+   bounded provider repository ID acquisition, pull-request, subject, run, and
+   coverage operations. No network or model call may hold a database
+   connection.
+2. Port stable repository-scoped finding identity and governance, followed by
+   exact publication payload delivery and feedback transactions.
+3. Define the initial PostgreSQL replacement recovery path before switching.
    Recovery after PostgreSQL writes uses the previous PostgreSQL-compatible
    application image against the same database.
-3. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
+4. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
    review against a fresh database.
-4. Delete the SQLite application persistence, migrations, volume, environment
+5. Delete the SQLite application persistence, migrations, volume, environment
    settings, and SQLite-only tests after the cutover passes.
-5. Add durable jobs and an outbox as separate work after PostgreSQL owns the
+6. Add durable jobs and an outbox as separate work after PostgreSQL owns the
    application state.
 
 This clean runtime replacement preserves observable review behavior without

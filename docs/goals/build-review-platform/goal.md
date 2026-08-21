@@ -13,11 +13,10 @@ architecture tranches without weakening the proven review contract.
 
 ## Current Tranche
 
-Audit the new full Python GitHub Actions gate and current-versus-planned
-documentation. Then freeze one narrow PostgreSQL schema and transaction boundary
-with observable behavior and integration invariants. Runtime/configuration and
-Compose switching, followed by SQLite deletion, remain later implementation
-slices.
+Correct and freeze the empty PostgreSQL first-write contract, then add one
+checksum-verifying migration runner. Runtime persistence operations,
+configuration and Compose switching, and SQLite deletion remain later
+implementation slices.
 
 ## Approved Sequencing Input
 

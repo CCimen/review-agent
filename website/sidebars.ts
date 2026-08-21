@@ -26,7 +26,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Future',
+      label: 'Architecture',
       collapsed: false,
       items: ['docs/ROADMAP'],
     },

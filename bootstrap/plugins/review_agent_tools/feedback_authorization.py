@@ -44,7 +44,7 @@ def parse_feedback_actor_allowlist(raw: str) -> frozenset[str]:
 def feedback_allowlist_version(actor_ids: frozenset[str]) -> str:
     payload = ",".join(sorted(actor_ids))
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return f"sha256:{digest[:16]}"
+    return f"sha256:{digest}"
 
 
 def authorize_feedback_actor(

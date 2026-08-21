@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = (
-    ROOT
-    / "bootstrap"
-    / "plugins"
-    / "review_agent_tools"
-    / "postgres_migrations"
-    / "001_initial.sql"
-)
+PLUGIN = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
+sys.path.insert(0, str(PLUGIN))
+
+from feedback_authorization import feedback_allowlist_version  # noqa: E402
+
+
+MIGRATION = PLUGIN / "postgres_migrations" / "001_initial.sql"
 CONTAINER = os.environ.get("REVIEW_AGENT_POSTGRES_CONTAINER", "")
 
 
@@ -108,9 +108,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.review_subjects (
                 pull_request_id, base_sha, head_sha, policy_revision,
-                resolved_config, resolved_config_hash, created_at
+                resolved_config_schema_version, resolved_config,
+                resolved_config_hash, created_at
             ) VALUES (
-                %d, '%s', '%s', 'profile@1', '{}'::jsonb, '%s', CURRENT_TIMESTAMP
+                %d, '%s', '%s', 'profile@1', 1, '{}'::jsonb, '%s',
+                CURRENT_TIMESTAMP
             )
             RETURNING id;
             """
@@ -126,15 +128,23 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         result = psql(
             """
             INSERT INTO review_agent.review_runs (
-                pull_request_id, review_subject_id, trigger_user, status, phase,
-                started_at, last_heartbeat_at, completed_at
+                pull_request_id, review_subject_id, request_key, trigger_user,
+                status, phase, started_at, last_heartbeat_at, completed_at
             ) VALUES (
-                %d, %d, 'reviewer', '%s', '%s', CURRENT_TIMESTAMP,
+                %d, %d, 'test:%d:%d', 'reviewer', '%s', '%s', CURRENT_TIMESTAMP,
                 CURRENT_TIMESTAMP, %s
             )
             RETURNING id;
             """
-            % (pull_request_id, subject_id, status, phase, completed)
+            % (
+                pull_request_id,
+                subject_id,
+                pull_request_id,
+                subject_id,
+                status,
+                phase,
+                completed,
+            )
         )
         return int(result.stdout.strip())
 
@@ -143,10 +153,10 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.finding_identities (
                 repository_id, fingerprint, rule_id, path, anchor,
-                first_seen_at, last_seen_at, occurrences
+                first_seen_at, last_seen_at
             ) VALUES (
                 %d, '%s', 'correctness.rule', 'src/app.py', 'stable anchor',
-                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             RETURNING id;
             """
@@ -161,14 +171,13 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 review_run_id, pull_request_id, repository_id, finding_id,
                 line, title, severity, category,
                 publication_score, confidence, context_hash, evidence,
-                disproof_checks, impact, smallest_fix, introduced_by_diff,
-                observed_at
+                disproof_checks, impact, smallest_fix, observed_at
             )
             SELECT
                 rr.id, rr.pull_request_id, pr.repository_id, %d,
                 12, 'State can be lost', 'High', 'correctness', 8,
                 0.9500, '%s', 'Observed lost update', 'Checked all callers',
-                'Review state is incomplete', 'Persist atomically', true,
+                'Review state is incomplete', 'Persist atomically',
                 CURRENT_TIMESTAMP
             FROM review_agent.review_runs AS rr
             JOIN review_agent.pull_requests AS pr ON pr.id = rr.pull_request_id
@@ -179,11 +188,131 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         )
         return int(result.stdout.strip())
 
+    def test_review_request_key_is_durable_and_idempotent(self) -> None:
+        repository_id = self.repository(91, "team/idempotency")
+        pull_request_id = self.pull_request(repository_id, 4)
+        subject_id = self.subject(pull_request_id)
+        statement = """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, trigger_user,
+                status, phase, started_at, last_heartbeat_at
+            ) VALUES (
+                %d, %d, 'github:issue-comment:9001', 'reviewer', 'running',
+                'accepted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            );
+        """ % (pull_request_id, subject_id)
+
+        psql(statement)
+        self.assert_rejected(statement, "review_runs_request_key_uk")
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, status, phase,
+                started_at, last_heartbeat_at, completed_at
+            ) VALUES (
+                %d, %d, '%s', 'completed', 'posted', CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            );
+            """
+            % (pull_request_id, subject_id, "x" * 501),
+            "review_runs_request_key_ck",
+        )
+
+    def test_terminal_runs_require_consistent_failure_and_timestamp_state(self) -> None:
+        repository_id = self.repository(92, "team/run-lifecycle")
+        pull_request_id = self.pull_request(repository_id, 5)
+        subject_id = self.subject(pull_request_id)
+
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, status, phase,
+                failure_code, started_at, last_heartbeat_at, completed_at
+            ) VALUES (
+                %d, %d, 'failed-without-code', 'failed', 'failed', NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            );
+            """
+            % (pull_request_id, subject_id),
+            "review_runs_lifecycle_ck",
+        )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, status, phase,
+                failure_code, started_at, last_heartbeat_at, completed_at
+            ) VALUES (
+                %d, %d, 'wrong-supersession-code', 'superseded', 'superseded',
+                'anything', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            );
+            """
+            % (pull_request_id, subject_id),
+            "review_runs_lifecycle_ck",
+        )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, status, phase,
+                started_at, last_heartbeat_at
+            ) VALUES (
+                %d, %d, 'backwards-heartbeat', 'running', 'accepted',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP - INTERVAL '1 minute'
+            );
+            """
+            % (pull_request_id, subject_id),
+            "review_runs_timestamps_ck",
+        )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, status, phase,
+                failure_status_comment_id, failure_status_posted_at, started_at,
+                last_heartbeat_at, completed_at
+            ) VALUES (
+                %d, %d, 'completed-with-failure-comment', 'completed', 'posted',
+                99, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            );
+            """
+            % (pull_request_id, subject_id),
+            "review_runs_failure_status_ck",
+        )
+        psql(
+            """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, status, phase,
+                failure_code, failure_status_comment_id,
+                failure_status_posted_at, started_at, last_heartbeat_at,
+                completed_at
+            ) VALUES (
+                %d, %d, 'superseded-with-status', 'superseded', 'superseded',
+                'snapshot_superseded', 100, CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            );
+            """
+            % (pull_request_id, subject_id)
+        )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, status, phase,
+                started_at, last_heartbeat_at, completed_at
+            ) VALUES (
+                %d, %d, 'heartbeat-after-completion', 'completed', 'posted',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '2 minutes',
+                CURRENT_TIMESTAMP + INTERVAL '1 minute'
+            );
+            """
+            % (pull_request_id, subject_id),
+            "review_runs_timestamps_ck",
+        )
+
     def test_repository_rename_preserves_pull_request_and_review_history(self) -> None:
         repository_id = self.repository(101, "team/old-name")
         pull_request_id = self.pull_request(repository_id, 123)
         subject_id = self.subject(pull_request_id)
-        run_id = self.create_run(pull_request_id, subject_id, status="generated")
+        run_id = self.create_run(pull_request_id, subject_id, status="completed")
 
         psql(
             """
@@ -218,6 +347,18 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """,
             "repositories_provider_identity_uk",
         )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.repositories (
+                provider, provider_repository_id, owner, name, full_name,
+                created_at, updated_at
+            ) VALUES (
+                'github', 102, 'Platform', 'New-Name', 'Platform/New-Name',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            );
+            """,
+            "repositories_provider_full_name_ci_idx",
+        )
 
     def test_pull_request_numbers_and_active_runs_are_repository_scoped(self) -> None:
         first_repository = self.repository(201, "team/first")
@@ -232,10 +373,10 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         self.assert_rejected(
             """
             INSERT INTO review_agent.review_runs (
-                pull_request_id, review_subject_id, trigger_user, status, phase,
-                started_at, last_heartbeat_at
+                pull_request_id, review_subject_id, request_key, trigger_user,
+                status, phase, started_at, last_heartbeat_at
             ) VALUES (
-                %d, %d, 'reviewer', 'running', 'accepted',
+                %d, %d, 'second-active-request', 'reviewer', 'running', 'accepted',
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
             """
@@ -245,11 +386,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         self.assert_rejected(
             """
             INSERT INTO review_agent.review_runs (
-                pull_request_id, review_subject_id, trigger_user, status, phase,
-                started_at, last_heartbeat_at, completed_at
+                pull_request_id, review_subject_id, request_key, trigger_user,
+                status, phase, started_at, last_heartbeat_at, completed_at
             ) VALUES (
-                %d, %d, 'reviewer', 'generated', 'posted', CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                %d, %d, 'cross-subject', 'reviewer', 'completed', 'posted',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
             """
             % (first_pr, self.subject(second_pr, "6")),
@@ -284,6 +425,14 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 f"{second_repository}|{second_occurrence}",
             ],
         )
+        psql(
+            """
+            UPDATE review_agent.finding_occurrences
+            SET publication_score = 1, confidence = 0.1000
+            WHERE id = %d;
+            """
+            % first_occurrence
+        )
         self.assert_rejected(
             """
             INSERT INTO review_agent.pull_request_finding_references (
@@ -300,10 +449,10 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 review_run_id, pull_request_id, repository_id, finding_id,
                 line, title, severity, category, publication_score, confidence,
                 context_hash, evidence, disproof_checks, impact, smallest_fix,
-                introduced_by_diff, observed_at
+                observed_at
             ) VALUES (
                 %d, %d, %d, %d, 12, 'Wrong repository', 'High', 'correctness',
-                8, 0.9500, '%s', 'evidence', 'checks', 'impact', 'fix', true,
+                8, 0.9500, '%s', 'evidence', 'checks', 'impact', 'fix',
                 CURRENT_TIMESTAMP
             );
             """
@@ -322,11 +471,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 finding_occurrence_id, start_line, end_line, expected_hash,
                 replacement_text, suggestion_key, recorded_at
             ) VALUES (
-                999999, 12, 12, '%s', 'replacement', 'missing-parent',
+                999999, 12, 12, '%s', 'replacement', 'sha256:%s',
                 CURRENT_TIMESTAMP
             );
             """
-            % ("d" * 64),
+            % ("d" * 64, "e" * 64),
             "finding_suggestions_occurrence_fk",
         )
 
@@ -343,12 +492,12 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 finding_occurrence_id, start_line, end_line, expected_hash,
                 replacement_text, suggestion_key, recorded_at
             ) VALUES (
-                %d, 12, 12, '%s', '', 'delete-obsolete-line',
+                %d, 12, 12, '%s', '', 'sha256:%s',
                 CURRENT_TIMESTAMP
             )
             RETURNING replacement_text;
             """
-            % (occurrence_id, "d" * 64)
+            % (occurrence_id, "d" * 64, "e" * 64)
         ).stdout
 
         self.assertEqual(stored_replacement, "\n")
@@ -375,14 +524,53 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "finding_decisions_occurrence_finding_fk",
         )
 
+    def test_decision_audit_is_idempotent_by_decision_and_source_comment(self) -> None:
+        repository_id = self.repository(355, "team/decision-audit")
+        first_finding = self.finding(repository_id, "a" * 64)
+        second_finding = self.finding(repository_id, "b" * 64)
+        decision_ids: list[int] = []
+        for finding_id in (first_finding, second_finding):
+            decision_ids.append(
+                int(
+                    psql(
+                        """
+                        INSERT INTO review_agent.finding_decisions (
+                            finding_id, decision, reason, actor, created_at
+                        ) VALUES (
+                            %d, 'resolved', 'fixed', 'reviewer', CURRENT_TIMESTAMP
+                        ) RETURNING id;
+                        """
+                        % finding_id
+                    ).stdout.strip()
+                )
+            )
+
+        allowlist_version = feedback_allowlist_version(frozenset({"42", "84"}))
+        audit = """
+            INSERT INTO review_agent.decision_audit (
+                finding_decision_id, actor_user_id, allowlist_version,
+                source_comment_id, created_at
+            ) VALUES (%d, '42', '%s', %d, CURRENT_TIMESTAMP);
+        """
+        psql(audit % (decision_ids[0], allowlist_version, 7001))
+        self.assert_rejected(
+            audit % (decision_ids[0], allowlist_version, 7002),
+            "decision_audit_decision_uk",
+        )
+        self.assert_rejected(
+            audit % (decision_ids[1], allowlist_version, 7001),
+            "decision_audit_source_comment_uk",
+        )
+
     def test_publication_membership_requires_matching_finding_and_occurrence(self) -> None:
         repository_id = self.repository(352, "team/membership")
         pull_request_id = self.pull_request(repository_id, 11)
         run_id = self.create_run(
-            pull_request_id, self.subject(pull_request_id), status="generated"
+            pull_request_id, self.subject(pull_request_id), status="completed"
         )
         first_finding = self.finding(repository_id, "3" * 64)
         second_finding = self.finding(repository_id, "4" * 64)
+        first_occurrence = self.occurrence(run_id, first_finding)
         second_occurrence = self.occurrence(run_id, second_finding)
         psql(
             """
@@ -398,10 +586,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 """
                 INSERT INTO review_agent.publications (
                     pull_request_id, review_run_id, review_number,
-                    publication_key, rendered_markdown, rendered_blocks,
+                    publication_key, rendered_markdown,
+                    rendered_blocks_schema_version, rendered_blocks,
                     rendered_hash, status, generated_at
                 ) VALUES (
-                    %d, %d, 1, 'sha256:%s', 'review', '[]'::jsonb, '%s',
+                    %d, %d, 1, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
                     'generated', CURRENT_TIMESTAMP
                 )
                 RETURNING id;
@@ -413,51 +602,328 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         self.assert_rejected(
             """
             INSERT INTO review_agent.publication_findings (
-                publication_id, pull_request_id, finding_id, finding_occurrence_id,
-                local_reference, status
-            ) VALUES (%d, %d, %d, %d, 'F1', 'current');
+                publication_id, publication_review_run_id, pull_request_id,
+                finding_id, source_finding_occurrence_id, source_review_run_id,
+                local_reference, outcome
+            ) VALUES (%d, %d, %d, %d, %d, %d, 'F1', 'current');
             """
-            % (publication_id, pull_request_id, first_finding, second_occurrence),
-            "publication_findings_occurrence_finding_fk",
+            % (
+                publication_id,
+                run_id,
+                pull_request_id,
+                first_finding,
+                second_occurrence,
+                run_id,
+            ),
+            "publication_findings_source_occurrence_fk",
         )
         self.assert_rejected(
             """
             INSERT INTO review_agent.publication_findings (
-                publication_id, pull_request_id, finding_id, local_reference
-            ) VALUES (%d, %d, %d, 'F9');
+                publication_id, publication_review_run_id, pull_request_id,
+                finding_id, source_finding_occurrence_id, source_review_run_id,
+                local_reference, outcome
+            ) VALUES (%d, %d, %d, %d, %d, %d, 'F9', 'current');
             """
-            % (publication_id, pull_request_id, first_finding),
+            % (
+                publication_id,
+                run_id,
+                pull_request_id,
+                first_finding,
+                first_occurrence,
+                run_id,
+            ),
             "publication_findings_pull_request_mapping_fk",
         )
         psql(
             """
             INSERT INTO review_agent.publication_findings (
-                publication_id, pull_request_id, finding_id, local_reference
-            ) VALUES (%d, %d, %d, 'F1');
+                publication_id, publication_review_run_id, pull_request_id,
+                finding_id, source_finding_occurrence_id, source_review_run_id,
+                local_reference, outcome
+            ) VALUES (%d, %d, %d, %d, %d, %d, 'F1', 'current');
             """
-            % (publication_id, pull_request_id, first_finding)
+            % (
+                publication_id,
+                run_id,
+                pull_request_id,
+                first_finding,
+                first_occurrence,
+                run_id,
+            )
         )
         self.assert_rejected(
             """
             INSERT INTO review_agent.review_quality_feedback (
-                pull_request_id, publication_id, head_sha, local_reference,
-                category, actor_user_id, created_at
+                pull_request_id, publication_id, local_reference, category,
+                actor_user_id, created_at
             ) VALUES (
-                %d, %d, '%s', 'F9', 'useful', '42', CURRENT_TIMESTAMP
+                %d, %d, 'F9', 'useful', '42', CURRENT_TIMESTAMP
             );
             """
-            % (pull_request_id, publication_id, "2" * 40),
+            % (pull_request_id, publication_id),
             "review_quality_feedback_publication_reference_fk",
+        )
+
+    def test_publication_outcomes_keep_exact_source_run_provenance(self) -> None:
+        repository_id = self.repository(354, "team/provenance")
+        pull_request_id = self.pull_request(repository_id, 13)
+        prior_run = self.create_run(
+            pull_request_id, self.subject(pull_request_id, "1"), status="completed"
+        )
+        publication_run = self.create_run(
+            pull_request_id, self.subject(pull_request_id, "3"), status="completed"
+        )
+        findings: list[tuple[int, int]] = []
+        for index in range(1, 6):
+            finding_id = self.finding(repository_id, str(index) * 64)
+            occurrence_id = self.occurrence(prior_run, finding_id)
+            findings.append((finding_id, occurrence_id))
+            psql(
+                """
+                INSERT INTO review_agent.pull_request_finding_references (
+                    pull_request_id, repository_id, finding_id, local_reference,
+                    first_assigned_at
+                ) VALUES (%d, %d, %d, 'F%d', CURRENT_TIMESTAMP);
+                """
+                % (pull_request_id, repository_id, finding_id, index)
+            )
+
+        current_occurrence = self.occurrence(publication_run, findings[0][0])
+        publication_id = int(
+            psql(
+                """
+                INSERT INTO review_agent.publications (
+                    pull_request_id, review_run_id, review_number,
+                    publication_key, rendered_markdown,
+                    rendered_blocks_schema_version, rendered_blocks,
+                    rendered_hash, status, generated_at
+                ) VALUES (
+                    %d, %d, 1, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
+                    'generated', CURRENT_TIMESTAMP
+                ) RETURNING id;
+                """
+                % (pull_request_id, publication_run, "6" * 64, "7" * 64)
+            ).stdout.strip()
+        )
+
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.publication_findings (
+                publication_id, publication_review_run_id, pull_request_id,
+                finding_id, source_finding_occurrence_id, source_review_run_id,
+                local_reference, outcome
+            ) VALUES (%d, %d, %d, %d, %d, %d, 'F1', 'current');
+            """
+            % (
+                publication_id,
+                publication_run,
+                pull_request_id,
+                findings[0][0],
+                findings[0][1],
+                prior_run,
+            ),
+            "publication_findings_outcome_ck",
+        )
+        psql(
+            """
+            INSERT INTO review_agent.publication_findings (
+                publication_id, publication_review_run_id, pull_request_id,
+                finding_id, source_finding_occurrence_id, source_review_run_id,
+                local_reference, outcome, outcome_evidence
+            ) VALUES
+                (%d, %d, %d, %d, %d, %d, 'F1', 'current', NULL),
+                (%d, %d, %d, %d, %d, %d, 'F2', 'resolved', 'fixed'),
+                (%d, %d, %d, %d, %d, %d, 'F3', 'invalidated', 'falsified'),
+                (%d, %d, %d, %d, %d, %d, 'F4', 'suppressed', 'authorized'),
+                (%d, %d, %d, %d, %d, %d, 'F5', 'not_checked', 'outside coverage');
+            """
+            % (
+                publication_id,
+                publication_run,
+                pull_request_id,
+                findings[0][0],
+                current_occurrence,
+                publication_run,
+                publication_id,
+                publication_run,
+                pull_request_id,
+                findings[1][0],
+                findings[1][1],
+                prior_run,
+                publication_id,
+                publication_run,
+                pull_request_id,
+                findings[2][0],
+                findings[2][1],
+                prior_run,
+                publication_id,
+                publication_run,
+                pull_request_id,
+                findings[3][0],
+                findings[3][1],
+                prior_run,
+                publication_id,
+                publication_run,
+                pull_request_id,
+                findings[4][0],
+                findings[4][1],
+                prior_run,
+            )
+        )
+        outcomes = psql(
+            """
+            SELECT outcome
+            FROM review_agent.publication_findings
+            WHERE publication_id = %d
+            ORDER BY local_reference;
+            """
+            % publication_id
+        ).stdout.splitlines()
+        self.assertEqual(
+            outcomes,
+            ["current", "resolved", "invalidated", "suppressed", "not_checked"],
+        )
+
+    def test_publication_payload_is_versioned_structured_delivery_input(self) -> None:
+        repository_id = self.repository(356, "team/payload")
+        pull_request_id = self.pull_request(repository_id, 14)
+        first_run = self.create_run(
+            pull_request_id, self.subject(pull_request_id, "1"), status="completed"
+        )
+        second_run = self.create_run(
+            pull_request_id, self.subject(pull_request_id, "3"), status="completed"
+        )
+        publication_ids: list[int] = []
+        for review_number, run_id, digit in (
+            (1, first_run, "8"),
+            (2, second_run, "9"),
+        ):
+            publication_ids.append(
+                int(
+                    psql(
+                        """
+                        INSERT INTO review_agent.publications (
+                            pull_request_id, review_run_id, review_number,
+                            publication_key, rendered_markdown,
+                            rendered_blocks_schema_version, rendered_blocks,
+                            rendered_hash, status, generated_at
+                        ) VALUES (
+                            %d, %d, %d, 'sha256:%s', 'review', 1,
+                            '[]'::jsonb, '%s', 'generated', CURRENT_TIMESTAMP
+                        ) RETURNING id;
+                        """
+                        % (
+                            pull_request_id,
+                            run_id,
+                            review_number,
+                            digit * 64,
+                            digit * 64,
+                        )
+                    ).stdout.strip()
+                )
+            )
+
+        self.assert_rejected(
+            """
+            UPDATE review_agent.review_subjects
+            SET resolved_config_schema_version = 0
+            WHERE id = (
+                SELECT review_subject_id FROM review_agent.review_runs WHERE id = %d
+            );
+            """
+            % first_run,
+            "review_subjects_resolved_config_ck",
+        )
+        self.assert_rejected(
+            """
+            UPDATE review_agent.publications
+            SET rendered_blocks_schema_version = 0
+            WHERE id = %d;
+            """
+            % publication_ids[0],
+            "publications_blocks_ck",
+        )
+
+        self.assert_rejected(
+            """
+            UPDATE review_agent.publications
+            SET superseded_at = CURRENT_TIMESTAMP,
+                superseded_by_publication_id = %d
+            WHERE id = %d;
+            """
+            % (publication_ids[1], publication_ids[0]),
+            "publications_supersession_ck",
+        )
+        canonical_payload = (
+            '{"body":"summary","comments":[{"line":12,"path":"src/app.py"}]}'
+        )
+        payload_hash = hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+        psql(
+            """
+            INSERT INTO review_agent.publication_parts (
+                publication_id, part_type, part_number, payload_schema_version,
+                payload, payload_hash, status
+            ) VALUES (
+                %d, 'suggestion_review', 1, 1,
+                '{"body":"summary","comments":[{"path":"src/app.py","line":12}]}'::jsonb,
+                '%s', 'pending'
+            );
+            """
+            % (publication_ids[0], payload_hash)
+        )
+        stored = psql(
+            """
+            SELECT payload_schema_version, payload_hash, payload->>'body',
+                   payload#>>'{comments,0,path}', payload#>>'{comments,0,line}'
+            FROM review_agent.publication_parts
+            WHERE publication_id = %d AND part_number = 1;
+            """
+            % publication_ids[0]
+        ).stdout.strip()
+        self.assertEqual(stored, f"1|{payload_hash}|summary|src/app.py|12")
+
+        invalid_part = """
+            INSERT INTO review_agent.publication_parts (
+                publication_id, part_type, part_number, payload_schema_version,
+                payload, payload_hash, status
+            ) VALUES (%d, 'continuation', %d, %d, %s, '%s', 'pending');
+        """
+        self.assert_rejected(
+            invalid_part
+            % (publication_ids[0], 2, 0, "'{\"body\":\"review\"}'::jsonb", "b" * 64),
+            "publication_parts_payload_ck",
+        )
+        self.assert_rejected(
+            invalid_part
+            % (publication_ids[0], 3, 1, "'[]'::jsonb", "b" * 64),
+            "publication_parts_payload_ck",
+        )
+        self.assert_rejected(
+            invalid_part
+            % (publication_ids[0], 4, 1, "'{\"body\":\"review\"}'::jsonb", "bad"),
+            "publication_parts_payload_ck",
+        )
+        self.assert_rejected(
+            invalid_part
+            % (
+                publication_ids[0],
+                5,
+                1,
+                "jsonb_build_object('body', repeat('x', 131072))",
+                "b" * 64,
+            ),
+            "publication_parts_payload_ck",
         )
 
     def test_verifier_and_reconciliation_parents_must_share_the_review_run(self) -> None:
         repository_id = self.repository(353, "team/verification")
         pull_request_id = self.pull_request(repository_id, 12)
         first_run = self.create_run(
-            pull_request_id, self.subject(pull_request_id, "1"), status="generated"
+            pull_request_id, self.subject(pull_request_id, "1"), status="completed"
         )
         second_run = self.create_run(
-            pull_request_id, self.subject(pull_request_id, "3"), status="generated"
+            pull_request_id, self.subject(pull_request_id, "3"), status="completed"
         )
         finding_id = self.finding(repository_id, "6" * 64)
         occurrence_id = self.occurrence(second_run, finding_id)
@@ -497,6 +963,29 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             % (second_run, occurrence_id, verification_run_id),
             "candidate_reconciliations_verification_review_run_fk",
         )
+        matching_verification_run = int(
+            psql(
+                """
+                INSERT INTO review_agent.verification_runs (
+                    review_run_id, mode, status, started_at, completed_at
+                ) VALUES (
+                    %d, 'shadow', 'completed', CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
+                ) RETURNING id;
+                """
+                % second_run
+            ).stdout.strip()
+        )
+        verdict = """
+            INSERT INTO review_agent.candidate_verifications (
+                verification_run_id, review_run_id, finding_occurrence_id,
+                verdict, confidence, created_at
+            ) VALUES (%d, %d, %d, 'confirmed', 0.9000, CURRENT_TIMESTAMP);
+        """ % (matching_verification_run, second_run, occurrence_id)
+        psql(verdict)
+        self.assert_rejected(
+            verdict, "candidate_verifications_attempt_occurrence_uk"
+        )
 
     def test_file_read_ranges_validate_deduplicate_and_order(self) -> None:
         repository_id = self.repository(401, "team/files")
@@ -507,7 +996,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 """
                 INSERT INTO review_agent.review_run_files (
                     review_run_id, path, change_status, is_changed_path,
-                    diff_state, first_accessed_at, last_accessed_at
+                    diff_state, registered_at, diff_observed_at
                 ) VALUES (
                     %d, 'src/app.py', 'modified', true, 'complete',
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -561,8 +1050,8 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             self.assert_rejected(
                 """
                 INSERT INTO review_agent.review_run_files (
-                    review_run_id, path, first_accessed_at, last_accessed_at
-                ) VALUES (%d, '%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+                    review_run_id, path, registered_at
+                ) VALUES (%d, '%s', CURRENT_TIMESTAMP);
                 """
                 % (run_id, invalid_path.replace("\\", "\\\\")),
                 "review_run_files_path_ck",
@@ -570,8 +1059,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         self.assert_rejected(
             """
             INSERT INTO review_agent.review_run_files (
-                review_run_id, path, diff_state, first_accessed_at,
-                last_accessed_at
+                review_run_id, path, diff_state, registered_at, diff_observed_at
             ) VALUES (
                 %d, 'src/unavailable.py', 'unavailable', CURRENT_TIMESTAMP,
                 CURRENT_TIMESTAMP
@@ -584,7 +1072,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.review_run_files (
                 review_run_id, path, diff_state, unavailable_reason,
-                first_accessed_at, last_accessed_at
+                registered_at, diff_observed_at
             ) VALUES (
                 %d, 'src/complete.py', 'complete', 'contradictory',
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
@@ -598,10 +1086,10 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         repository_id = self.repository(501, "team/publish")
         pull_request_id = self.pull_request(repository_id, 18)
         first_run = self.create_run(
-            pull_request_id, self.subject(pull_request_id, "1"), status="generated"
+            pull_request_id, self.subject(pull_request_id, "1"), status="completed"
         )
         second_run = self.create_run(
-            pull_request_id, self.subject(pull_request_id, "3"), status="generated"
+            pull_request_id, self.subject(pull_request_id, "3"), status="completed"
         )
         other_repository = self.repository(502, "team/other")
         other_pr = self.pull_request(other_repository, 18)
@@ -609,10 +1097,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
-                rendered_markdown, rendered_blocks, rendered_hash, status,
+                rendered_markdown, rendered_blocks_schema_version,
+                rendered_blocks, rendered_hash, status,
                 generated_at
             ) VALUES (
-                %d, %d, 1, 'sha256:%s', 'review', '[]'::jsonb, '%s',
+                %d, %d, 1, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
                 'generated', CURRENT_TIMESTAMP
             );
             """
@@ -624,11 +1113,12 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 """
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
-                rendered_markdown, rendered_blocks, rendered_hash, status,
-                generated_at, posted_at
+                rendered_markdown, rendered_blocks_schema_version,
+                rendered_blocks, rendered_hash, status, generated_at,
+                posting_started_at, posted_at
             ) VALUES (
-                %d, %d, 1, 'sha256:%s', 'review', '[]'::jsonb, '%s',
-                'posted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                %d, %d, 1, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
+                'posted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) RETURNING id;
             """
                 % (pull_request_id, first_run, "b" * 64, "e" * 64)
@@ -637,10 +1127,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         self.assert_rejected(
             """
             INSERT INTO review_agent.publication_parts (
-                publication_id, part_type, part_number, body_hash, status,
-                posted_at
+                publication_id, part_type, part_number, payload_schema_version,
+                payload, payload_hash, status, posted_at
             ) VALUES (
-                %d, 'summary', 1, '%s', 'posted', CURRENT_TIMESTAMP
+                %d, 'summary', 1, 1, '{"body":"review"}'::jsonb, '%s',
+                'posted', CURRENT_TIMESTAMP
             );
             """
             % (publication_id, "9" * 64),
@@ -649,10 +1140,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         self.assert_rejected(
             """
             INSERT INTO review_agent.publication_parts (
-                publication_id, part_type, part_number, body_hash, status,
-                failure_at, failure_code
+                publication_id, part_type, part_number, payload_schema_version,
+                payload, payload_hash, status, failure_at, failure_code
             ) VALUES (
-                %d, 'summary', 1, '%s', 'publish_failed', CURRENT_TIMESTAMP, ''
+                %d, 'summary', 1, 1, '{"body":"review"}'::jsonb, '%s',
+                'publish_failed', CURRENT_TIMESTAMP, ''
             );
             """
             % (publication_id, "8" * 64),
@@ -661,9 +1153,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         self.assert_rejected(
             """
             INSERT INTO review_agent.publication_parts (
-                publication_id, part_type, part_number, body_hash, status
+                publication_id, part_type, part_number, payload_schema_version,
+                payload, payload_hash, status
             ) VALUES (
-                %d, 'continuation', 2, '%s', 'stale'
+                %d, 'continuation', 2, 1, '{"body":"review"}'::jsonb, '%s',
+                'stale'
             );
             """
             % (publication_id, "7" * 64),
@@ -672,11 +1166,12 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         psql(
             """
             INSERT INTO review_agent.publication_parts (
-                publication_id, part_type, part_number, body_hash, status,
-                failure_at, failure_code
+                publication_id, part_type, part_number, payload_schema_version,
+                payload, payload_hash, status, posting_started_at, failure_at,
+                failure_code
             ) VALUES (
-                %d, 'continuation', 2, '%s', 'stale', CURRENT_TIMESTAMP,
-                'stale_head'
+                %d, 'continuation', 2, 1, '{"body":"review"}'::jsonb, '%s',
+                'stale', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'stale_head'
             );
             """
             % (publication_id, "7" * 64)
@@ -685,11 +1180,12 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
-                rendered_markdown, rendered_blocks, rendered_hash, status,
-                generated_at, posted_at
+                rendered_markdown, rendered_blocks_schema_version,
+                rendered_blocks, rendered_hash, status, generated_at,
+                posting_started_at, posted_at
             ) VALUES (
-                %d, %d, 2, 'sha256:%s', 'review', '[]'::jsonb, '%s',
-                'posted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                %d, %d, 2, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
+                'posted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
             """
             % (pull_request_id, second_run, "c" * 64, "f" * 64),
@@ -697,17 +1193,18 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         )
 
         other_run = self.create_run(
-            other_pr, self.subject(other_pr, "5"), status="generated"
+            other_pr, self.subject(other_pr, "5"), status="completed"
         )
         other_publication = int(
             psql(
                 """
                 INSERT INTO review_agent.publications (
                     pull_request_id, review_run_id, review_number,
-                    publication_key, rendered_markdown, rendered_blocks,
+                    publication_key, rendered_markdown,
+                    rendered_blocks_schema_version, rendered_blocks,
                     rendered_hash, status, generated_at
                 ) VALUES (
-                    %d, %d, 1, 'sha256:%s', 'review', '[]'::jsonb, '%s',
+                    %d, %d, 1, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
                     'generated', CURRENT_TIMESTAMP
                 ) RETURNING id;
                 """
@@ -717,11 +1214,10 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         self.assert_rejected(
             """
             INSERT INTO review_agent.review_quality_feedback (
-                pull_request_id, publication_id, head_sha, category, actor_user_id,
-                created_at
-            ) VALUES (%d, %d, '%s', 'useful', '42', CURRENT_TIMESTAMP);
+                pull_request_id, publication_id, category, actor_user_id, created_at
+            ) VALUES (%d, %d, 'useful', '42', CURRENT_TIMESTAMP);
             """
-            % (other_pr, publication_id, "6" * 40),
+            % (other_pr, publication_id),
             "review_quality_feedback_publication_pull_request_fk",
         )
         self.assert_rejected(
@@ -748,10 +1244,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
-                rendered_markdown, rendered_blocks, rendered_hash, status,
+                rendered_markdown, rendered_blocks_schema_version,
+                rendered_blocks, rendered_hash, status,
                 generated_at
             ) VALUES (
-                %d, %d, 2, 'sha256:%s', 'review', '[]'::jsonb, '%s',
+                %d, %d, 2, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
                 'generated', CURRENT_TIMESTAMP
             );
             """
@@ -759,25 +1256,72 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "publications_key_uk",
         )
 
+        first_coach_run = int(
+            psql(
+                """
+                INSERT INTO review_agent.coach_runs (
+                    repository_id, source_event_set_id, proposal_set_id,
+                    events_considered, recorded_at
+                ) VALUES (
+                    %d, 'sha256:%s', 'sha256:%s', 2, CURRENT_TIMESTAMP
+                ) RETURNING id;
+                """
+                % (repository_id, "1" * 64, "2" * 64)
+            ).stdout.strip()
+        )
+        second_coach_run = int(
+            psql(
+                """
+                INSERT INTO review_agent.coach_runs (
+                    repository_id, source_event_set_id, proposal_set_id,
+                    events_considered, recorded_at
+                ) VALUES (
+                    %d, 'sha256:%s', 'sha256:%s', 2, CURRENT_TIMESTAMP
+                ) RETURNING id;
+                """
+                % (repository_id, "3" * 64, "4" * 64)
+            ).stdout.strip()
+        )
         candidate = """
             INSERT INTO review_agent.coach_candidates (
-                repository_id, candidate_key, proposal_set_id,
-                source_event_set_id, target_owner, suggested_route, event_type,
-                independent_episode_count, evidence_event_ids,
-                evidence_events_total, first_seen_at, last_seen_at, seen_count
+                coach_run_id, candidate_key, target_owner, suggested_route,
+                event_type, independent_episode_count, evidence_event_ids,
+                evidence_events_total
             ) VALUES (
-                %s, 'candidate', 'proposal', 'events', 'profile', 'route',
-                'feedback', 1, '[]'::jsonb, 0, CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP, 1
+                %d, 'candidate', 'profile', 'route', 'feedback', 1,
+                ARRAY['decision:1'], 1
             );
         """
-        psql(candidate % "NULL")
+        psql(candidate % first_coach_run)
         self.assert_rejected(
-            candidate % "NULL", "coach_candidates_scope_key_uk"
+            candidate % first_coach_run, "coach_candidates_run_key_uk"
         )
-        psql(candidate % repository_id)
+        psql(candidate % second_coach_run)
         self.assert_rejected(
-            candidate % repository_id, "coach_candidates_scope_key_uk"
+            """
+            INSERT INTO review_agent.coach_candidates (
+                coach_run_id, candidate_key, target_owner, suggested_route,
+                event_type, independent_episode_count, evidence_event_ids,
+                evidence_events_total
+            ) VALUES (
+                %d, 'null-evidence', 'profile', 'route', 'feedback', 1,
+                ARRAY[NULL]::text[], 1
+            );
+            """
+            % first_coach_run,
+            "coach_candidates_evidence_ck",
+        )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.coach_runs (
+                repository_id, source_event_set_id, source_snapshot_id,
+                proposal_set_id, events_considered, recorded_at
+            ) VALUES (
+                %d, 'events', '', 'sha256:%s', 1, CURRENT_TIMESTAMP
+            );
+            """
+            % (repository_id, "5" * 64),
+            "coach_runs_identifiers_ck",
         )
 
     def test_governance_and_terminal_lifecycle_constraints_match_current_behavior(
@@ -786,7 +1330,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         repository_id = self.repository(551, "team/lifecycle")
         pull_request_id = self.pull_request(repository_id, 19)
         run_id = self.create_run(
-            pull_request_id, self.subject(pull_request_id), status="generated"
+            pull_request_id, self.subject(pull_request_id), status="completed"
         )
         finding_id = self.finding(repository_id, "7" * 64)
 
@@ -824,7 +1368,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             ) VALUES (%d, 'shadow', 'completed', CURRENT_TIMESTAMP);
             """
             % run_id,
-            "verification_runs_completed_ck",
+            "verification_runs_lifecycle_ck",
         )
         self.assert_rejected(
             """
@@ -843,9 +1387,10 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
-                rendered_markdown, rendered_blocks, rendered_hash, generated_at
+                rendered_markdown, rendered_blocks_schema_version,
+                rendered_blocks, rendered_hash, generated_at
             ) VALUES (
-                %d, %d, 1, 'not-a-recovery-key', 'review', '[]'::jsonb, '%s',
+                %d, %d, 1, 'not-a-recovery-key', 'review', 1, '[]'::jsonb, '%s',
                 CURRENT_TIMESTAMP
             );
             """
@@ -856,11 +1401,13 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
-                rendered_markdown, rendered_blocks, rendered_hash, status,
-                generated_at, publish_failed_at, failure_code
+                rendered_markdown, rendered_blocks_schema_version,
+                rendered_blocks, rendered_hash, status, generated_at,
+                posting_started_at, publish_failed_at, failure_code
             ) VALUES (
-                %d, %d, 1, 'sha256:%s', 'review', '[]'::jsonb, '%s',
-                'publish_failed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ''
+                %d, %d, 1, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
+                'publish_failed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP, ''
             );
             """
             % (pull_request_id, run_id, "d" * 64, "e" * 64),
@@ -870,10 +1417,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
-                rendered_markdown, rendered_blocks, rendered_hash, status,
+                rendered_markdown, rendered_blocks_schema_version,
+                rendered_blocks, rendered_hash, status,
                 generated_at
             ) VALUES (
-                %d, %d, 2, 'sha256:%s', 'review', '[]'::jsonb, '%s',
+                %d, %d, 2, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
                 'stale', CURRENT_TIMESTAMP
             );
             """
@@ -884,11 +1432,13 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             """
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
-                rendered_markdown, rendered_blocks, rendered_hash, status,
-                generated_at, publish_failed_at, failure_code
+                rendered_markdown, rendered_blocks_schema_version,
+                rendered_blocks, rendered_hash, status, generated_at,
+                posting_started_at, publish_failed_at, failure_code
             ) VALUES (
-                %d, %d, 2, 'sha256:%s', 'review', '[]'::jsonb, '%s',
-                'stale', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'stale_head'
+                %d, %d, 2, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
+                'stale', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP, 'stale_head'
             );
             """
             % (pull_request_id, run_id, "f" * 64, "0" * 64)
@@ -950,26 +1500,21 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "processed_feedback_events_outcome_ck",
         )
 
-    def test_migration_is_single_use_and_partial_failure_is_transactional(self) -> None:
-        reapplied = psql(MIGRATION.read_text(encoding="utf-8"), check=False)
+    def test_migration_leaves_transaction_and_ledger_to_the_runner(self) -> None:
+        source = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("BEGIN;", source)
+        self.assertNotIn("COMMIT;", source)
+        self.assertNotIn("schema_migrations", source)
+
+        reapplied = psql(source, check=False)
         self.assertNotEqual(reapplied.returncode, 0)
         self.assertIn('schema "review_agent" already exists', reapplied.stderr)
-        self.assertEqual(
-            psql("SELECT version FROM review_agent.schema_migrations;").stdout.strip(),
-            "1",
-        )
 
         database = "review_agent_partial"
         psql(f"DROP DATABASE IF EXISTS {database};", database="postgres")
         psql(f"CREATE DATABASE {database};", database="postgres")
         try:
-            source = MIGRATION.read_text(encoding="utf-8")
-            marker = "INSERT INTO review_agent.schema_migrations (version) VALUES (1);"
-            self.assertEqual(source.count(marker), 1)
-            late_failure = source.replace(
-                marker,
-                "SELECT 1 / 0;\n\n" + marker,
-            )
+            late_failure = f"BEGIN;\n{source}\nSELECT 1 / 0;\nCOMMIT;"
             failed = psql(
                 late_failure,
                 check=False,
@@ -982,13 +1527,6 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                     """
                     SELECT coalesce(to_regnamespace('review_agent')::text, '');
                     """,
-                    database=database,
-                ).stdout.strip(),
-                "",
-            )
-            self.assertEqual(
-                psql(
-                    "SELECT coalesce(to_regclass('review_agent.schema_migrations')::text, '');",
                     database=database,
                 ).stdout.strip(),
                 "",

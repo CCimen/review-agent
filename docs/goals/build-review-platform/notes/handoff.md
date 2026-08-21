@@ -4,10 +4,10 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
 ## Current direction
 
-- Work in `/Users/ccimen/Documents/ChatGPT/Review Agent` on `main`; direct commits and pushes are authorized.
-- T016 is complete at `6baa7a8ef93fe18c2b4dfba02b459ef502358620`: the canonical Python bundle now runs in GitHub Actions and public/control documentation states the approved clean PostgreSQL replacement without claiming it is deployed.
-- Live Python bundle run `32478702720` and Publish documentation run `32478702712` are green; the peer gate finished green at score 8.
-- T017 is active and read-only: audit T016, map the current persistence behavior, and freeze one narrow PostgreSQL schema and transaction-boundary slice.
+- Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits and pushes to `CCimen/review-agent` `main` are authorized.
+- `state.yaml` is authoritative for the active task and current revision. Do not infer active work from this handoff when they disagree.
+- The initial PostgreSQL schema exists but has no runtime writer or authoritative data. The active tranche corrects its first-write contract, then adds the checksum-verifying migration runner as a separate slice.
+- The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
 
 ## Execution boundary
 
@@ -18,16 +18,19 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   state. `goal.md` owns the no-legacy and recovery constraints; `docs/ROADMAP.md`
   owns the public sequence.
 - Keep jobs, leases, and the outbox as later separate slices.
-- The next slice defines the PostgreSQL schema/transaction boundary and behavior
-  invariants only. Runtime/configuration/Compose switching and SQLite deletion
-  follow later; do not add an importer, compatibility path, or SQLite rollback.
-- Publication, trusted project context and policy, scanners/Codex Security,
-  GitHub App, policy overlays, and feedback remain deferred.
+- The current slice amends `001_initial.sql` because no authoritative PostgreSQL
+  data exists. It does not add runtime/configuration/Compose switching,
+  migration-runner code, an importer, a compatibility path, or SQLite rollback.
+- The following slice owns migration checksums, advisory locking, transaction
+  control, and ledger insertion. Runtime operations wait for that slice.
+- The later runtime-adapter slice must create the validated, versioned, and
+  hashed `review_subjects.resolved_config` aggregate before its first subject
+  insert; all three fields are deliberately required and have no default.
+- Publication module splitting, jobs, outbox, trusted project context and
+  policy, scanners/Codex Security, and GitHub App work remain deferred.
 
 ## Continuity
 
-- Successor task: `01a023e2-c60a-77b3-9857-23bb2fc3d6f4`.
-- Previous task: `01a023ae-4213-7071-8cc7-50048392fe97`.
-- Read `goal.md`, `state.yaml`, repository instructions, both approved plans,
-  and the external review recorded by T015. Verify clean `main == origin/main`,
-  then execute only the active read-only audit.
+- Read `goal.md`, `state.yaml`, `notes/handoff.md`, repository instructions, and
+  the active task's exact source paths. Verify the recorded revision and live
+  branch before editing.

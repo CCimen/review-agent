@@ -1,11 +1,4 @@
-BEGIN;
-
 CREATE SCHEMA review_agent;
-
-CREATE TABLE review_agent.schema_migrations (
-    version SMALLINT PRIMARY KEY,
-    applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
 
 CREATE TABLE review_agent.repositories (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -18,17 +11,19 @@ CREATE TABLE review_agent.repositories (
     updated_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT repositories_provider_identity_uk
         UNIQUE (provider, provider_repository_id),
-    CONSTRAINT repositories_provider_full_name_uk
-        UNIQUE (provider, full_name),
     CONSTRAINT repositories_provider_ck
         CHECK (provider ~ '^[a-z][a-z0-9_-]*$'),
     CONSTRAINT repositories_provider_repository_id_ck
         CHECK (provider_repository_id > 0),
     CONSTRAINT repositories_names_ck
         CHECK (
-            owner <> '' AND name <> '' AND full_name = owner || '/' || name
+            btrim(owner) <> '' AND btrim(name) <> ''
+            AND full_name = owner || '/' || name
         )
 );
+
+CREATE UNIQUE INDEX repositories_provider_full_name_ci_idx
+    ON review_agent.repositories (provider, lower(full_name));
 
 CREATE TABLE review_agent.pull_requests (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -50,6 +45,7 @@ CREATE TABLE review_agent.review_subjects (
     base_sha TEXT NOT NULL,
     head_sha TEXT NOT NULL,
     policy_revision TEXT NOT NULL,
+    resolved_config_schema_version SMALLINT NOT NULL,
     resolved_config JSONB NOT NULL,
     resolved_config_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
@@ -58,7 +54,7 @@ CREATE TABLE review_agent.review_subjects (
     CONSTRAINT review_subjects_identity_uk
         UNIQUE (
             pull_request_id, base_sha, head_sha, policy_revision,
-            resolved_config_hash
+            resolved_config_schema_version, resolved_config_hash
         ),
     CONSTRAINT review_subjects_pull_request_identity_uk
         UNIQUE (id, pull_request_id),
@@ -66,18 +62,22 @@ CREATE TABLE review_agent.review_subjects (
         CHECK (
             base_sha ~ '^[0-9a-f]{40,64}$'
             AND head_sha ~ '^[0-9a-f]{40,64}$'
-            AND resolved_config_hash ~ '^[0-9a-f]{40,64}$'
+            AND resolved_config_hash ~ '^[0-9a-f]{64}$'
         ),
     CONSTRAINT review_subjects_policy_revision_ck
         CHECK (policy_revision <> ''),
     CONSTRAINT review_subjects_resolved_config_ck
-        CHECK (jsonb_typeof(resolved_config) = 'object')
+        CHECK (
+            resolved_config_schema_version > 0
+            AND jsonb_typeof(resolved_config) = 'object'
+        )
 );
 
 CREATE TABLE review_agent.review_runs (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     pull_request_id BIGINT NOT NULL,
     review_subject_id BIGINT NOT NULL,
+    request_key TEXT NOT NULL,
     trigger_comment_id BIGINT,
     trigger_user TEXT,
     status TEXT NOT NULL,
@@ -98,6 +98,9 @@ CREATE TABLE review_agent.review_runs (
         REFERENCES review_agent.review_subjects(id, pull_request_id),
     CONSTRAINT review_runs_pull_request_identity_uk
         UNIQUE (id, pull_request_id),
+    CONSTRAINT review_runs_request_key_uk UNIQUE (request_key),
+    CONSTRAINT review_runs_request_key_ck
+        CHECK (btrim(request_key) <> '' AND char_length(request_key) <= 500),
     CONSTRAINT review_runs_trigger_comment_id_ck
         CHECK (trigger_comment_id IS NULL OR trigger_comment_id > 0),
     CONSTRAINT review_runs_findings_count_ck
@@ -109,7 +112,12 @@ CREATE TABLE review_agent.review_runs (
     CONSTRAINT review_runs_failure_status_ck
         CHECK (
             (failure_status_comment_id IS NULL AND failure_status_posted_at IS NULL)
-            OR (failure_status_comment_id IS NOT NULL AND failure_status_posted_at IS NOT NULL)
+            OR (
+                failure_status_comment_id IS NOT NULL
+                AND failure_status_posted_at IS NOT NULL
+                AND status IN ('failed', 'superseded')
+                AND failure_status_posted_at >= completed_at
+            )
         ),
     CONSTRAINT review_runs_lifecycle_ck
         CHECK (
@@ -120,16 +128,37 @@ CREATE TABLE review_agent.review_runs (
                     'rendering', 'publishing'
                 )
                 AND completed_at IS NULL
+                AND failure_code IS NULL
             )
             OR (
-                status = 'generated'
+                status = 'completed'
                 AND phase = 'posted'
                 AND completed_at IS NOT NULL
+                AND failure_code IS NULL
             )
             OR (
                 status = 'failed'
                 AND phase = 'failed'
                 AND completed_at IS NOT NULL
+                AND failure_code IS NOT NULL
+                AND btrim(failure_code) <> ''
+            )
+            OR (
+                status = 'superseded'
+                AND phase = 'superseded'
+                AND completed_at IS NOT NULL
+                AND failure_code = 'snapshot_superseded'
+            )
+        ),
+    CONSTRAINT review_runs_timestamps_ck
+        CHECK (
+            last_heartbeat_at >= started_at
+            AND (
+                completed_at IS NULL
+                OR (
+                    completed_at >= started_at
+                    AND last_heartbeat_at <= completed_at
+                )
             )
         )
 );
@@ -156,8 +185,8 @@ CREATE TABLE review_agent.review_run_files (
     review_mode TEXT NOT NULL DEFAULT 'normal',
     diff_state TEXT NOT NULL DEFAULT 'unseen',
     unavailable_reason TEXT,
-    first_accessed_at TIMESTAMPTZ NOT NULL,
-    last_accessed_at TIMESTAMPTZ NOT NULL,
+    registered_at TIMESTAMPTZ NOT NULL,
+    diff_observed_at TIMESTAMPTZ,
     CONSTRAINT review_run_files_run_fk
         FOREIGN KEY (review_run_id) REFERENCES review_agent.review_runs(id),
     CONSTRAINT review_run_files_run_path_uk UNIQUE (review_run_id, path),
@@ -179,7 +208,17 @@ CREATE TABLE review_agent.review_run_files (
             )
         ),
     CONSTRAINT review_run_files_diff_state_ck
-        CHECK (diff_state IN ('unseen', 'complete', 'truncated', 'unavailable')),
+        CHECK (
+            diff_state IN ('unseen', 'complete', 'truncated', 'unavailable')
+            AND (
+                (diff_state = 'unseen' AND diff_observed_at IS NULL)
+                OR (
+                    diff_state <> 'unseen'
+                    AND diff_observed_at IS NOT NULL
+                    AND diff_observed_at >= registered_at
+                )
+            )
+        ),
     CONSTRAINT review_run_files_unavailable_reason_ck
         CHECK (
             (
@@ -217,17 +256,22 @@ CREATE TABLE review_agent.coach_runs (
     source_event_set_id TEXT NOT NULL,
     source_snapshot_id TEXT,
     proposal_set_id TEXT NOT NULL,
-    decision TEXT NOT NULL,
     events_considered INTEGER NOT NULL,
-    candidates_count INTEGER NOT NULL,
     artifact_dir TEXT,
     recorded_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT coach_runs_repository_fk
         FOREIGN KEY (repository_id) REFERENCES review_agent.repositories(id),
-    CONSTRAINT coach_runs_decision_ck
-        CHECK (decision IN ('propose', 'no_change')),
+    CONSTRAINT coach_runs_identifiers_ck
+        CHECK (
+            source_event_set_id ~ '^sha256:[0-9a-f]{64}$'
+            AND (
+                source_snapshot_id IS NULL
+                OR source_snapshot_id ~ '^sha256:[0-9a-f]{64}$'
+            )
+            AND proposal_set_id ~ '^sha256:[0-9a-f]{64}$'
+        ),
     CONSTRAINT coach_runs_counts_ck
-        CHECK (events_considered >= 0 AND candidates_count >= 0)
+        CHECK (events_considered >= 0)
 );
 
 CREATE INDEX coach_runs_repository_recorded_idx
@@ -235,37 +279,29 @@ CREATE INDEX coach_runs_repository_recorded_idx
 
 CREATE TABLE review_agent.coach_candidates (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    repository_id BIGINT,
+    coach_run_id BIGINT NOT NULL,
     candidate_key TEXT NOT NULL,
-    proposal_set_id TEXT NOT NULL,
-    source_event_set_id TEXT NOT NULL,
     target_owner TEXT NOT NULL,
     suggested_route TEXT NOT NULL,
     event_type TEXT NOT NULL,
     independent_episode_count INTEGER NOT NULL,
-    evidence_event_ids JSONB NOT NULL,
+    evidence_event_ids TEXT[] NOT NULL,
     evidence_events_total INTEGER NOT NULL,
-    first_seen_at TIMESTAMPTZ NOT NULL,
-    last_seen_at TIMESTAMPTZ NOT NULL,
-    seen_count INTEGER NOT NULL DEFAULT 1,
-    CONSTRAINT coach_candidates_repository_fk
-        FOREIGN KEY (repository_id) REFERENCES review_agent.repositories(id),
-    CONSTRAINT coach_candidates_scope_key_uk
-        UNIQUE NULLS NOT DISTINCT (repository_id, candidate_key),
+    CONSTRAINT coach_candidates_run_fk
+        FOREIGN KEY (coach_run_id) REFERENCES review_agent.coach_runs(id),
+    CONSTRAINT coach_candidates_run_key_uk
+        UNIQUE (coach_run_id, candidate_key),
     CONSTRAINT coach_candidates_counts_ck
         CHECK (
             independent_episode_count >= 1
-            AND evidence_events_total >= 0
-            AND seen_count >= 1
+            AND evidence_events_total >= cardinality(evidence_event_ids)
         ),
     CONSTRAINT coach_candidates_evidence_ck
-        CHECK (jsonb_typeof(evidence_event_ids) = 'array')
+        CHECK (
+            cardinality(evidence_event_ids) > 0
+            AND array_position(evidence_event_ids, NULL) IS NULL
+        )
 );
-
-CREATE INDEX coach_candidates_repository_seen_idx
-    ON review_agent.coach_candidates (
-        repository_id, last_seen_at DESC, candidate_key
-    );
 
 CREATE TABLE review_agent.finding_identities (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -277,7 +313,6 @@ CREATE TABLE review_agent.finding_identities (
     anchor TEXT NOT NULL,
     first_seen_at TIMESTAMPTZ NOT NULL,
     last_seen_at TIMESTAMPTZ NOT NULL,
-    occurrences INTEGER NOT NULL DEFAULT 1,
     CONSTRAINT finding_identities_repository_fk
         FOREIGN KEY (repository_id) REFERENCES review_agent.repositories(id),
     CONSTRAINT finding_identities_repository_fingerprint_uk
@@ -295,8 +330,7 @@ CREATE TABLE review_agent.finding_identities (
             AND position(chr(92) in path) = 0
             AND path !~ '(^|/)\.\.?(/|$)'
         ),
-    CONSTRAINT finding_identities_anchor_ck CHECK (anchor <> ''),
-    CONSTRAINT finding_identities_occurrences_ck CHECK (occurrences >= 1)
+    CONSTRAINT finding_identities_anchor_ck CHECK (anchor <> '')
 );
 
 CREATE INDEX finding_identities_repository_path_idx
@@ -321,7 +355,6 @@ CREATE TABLE review_agent.finding_occurrences (
     disproof_checks TEXT NOT NULL,
     impact TEXT NOT NULL,
     smallest_fix TEXT NOT NULL,
-    introduced_by_diff BOOLEAN NOT NULL,
     observed_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT finding_occurrences_run_pull_request_fk
         FOREIGN KEY (review_run_id, pull_request_id)
@@ -337,8 +370,8 @@ CREATE TABLE review_agent.finding_occurrences (
     CONSTRAINT finding_occurrences_identity_uk UNIQUE (id, finding_id),
     CONSTRAINT finding_occurrences_review_run_identity_uk
         UNIQUE (id, review_run_id),
-    CONSTRAINT finding_occurrences_pull_request_identity_uk
-        UNIQUE (id, pull_request_id),
+    CONSTRAINT finding_occurrences_provenance_uk
+        UNIQUE (id, review_run_id, finding_id, pull_request_id),
     CONSTRAINT finding_occurrences_line_ck CHECK (line > 0),
     CONSTRAINT finding_occurrences_title_ck CHECK (title <> ''),
     CONSTRAINT finding_occurrences_severity_ck
@@ -351,23 +384,16 @@ CREATE TABLE review_agent.finding_occurrences (
             )
         ),
     CONSTRAINT finding_occurrences_score_ck
-        CHECK (
-            publication_score <= 10
-            AND (
-                (severity IN ('Critical', 'High') AND publication_score >= 8)
-                OR (severity IN ('Medium', 'Low') AND publication_score >= 7)
-            )
-        ),
+        CHECK (publication_score >= 0 AND publication_score <= 10),
     CONSTRAINT finding_occurrences_confidence_ck
-        CHECK (confidence >= 0.8500 AND confidence <= 1.0000),
+        CHECK (confidence >= 0.0000 AND confidence <= 1.0000),
     CONSTRAINT finding_occurrences_context_hash_ck
         CHECK (context_hash ~ '^[0-9a-f]{40,64}$'),
     CONSTRAINT finding_occurrences_evidence_ck
         CHECK (
             evidence <> '' AND disproof_checks <> '' AND impact <> ''
             AND smallest_fix <> ''
-        ),
-    CONSTRAINT finding_occurrences_introduced_ck CHECK (introduced_by_diff)
+        )
 );
 
 CREATE INDEX finding_occurrences_finding_seen_idx
@@ -390,7 +416,8 @@ CREATE TABLE review_agent.finding_suggestions (
         CHECK (start_line > 0 AND end_line >= start_line),
     CONSTRAINT finding_suggestions_expected_hash_ck
         CHECK (expected_hash ~ '^[0-9a-f]{64}$'),
-    CONSTRAINT finding_suggestions_key_ck CHECK (suggestion_key <> '')
+    CONSTRAINT finding_suggestions_key_ck
+        CHECK (suggestion_key ~ '^sha256:[0-9a-f]{64}$')
 );
 
 CREATE INDEX finding_suggestions_key_idx
@@ -472,11 +499,25 @@ CREATE TABLE review_agent.verification_runs (
         CHECK (mode IN ('shadow', 'advise', 'gate')),
     CONSTRAINT verification_runs_status_ck
         CHECK (status IN ('skipped', 'unavailable', 'running', 'completed', 'failed')),
-    CONSTRAINT verification_runs_completed_ck
+    CONSTRAINT verification_runs_bundle_hash_ck
+        CHECK (bundle_hash IS NULL OR bundle_hash ~ '^sha256:[0-9a-f]{64}$'),
+    CONSTRAINT verification_runs_lifecycle_ck
         CHECK (
-            (status = 'running' AND completed_at IS NULL)
-            OR (status <> 'running' AND completed_at IS NOT NULL)
-        )
+            (
+                status = 'running' AND completed_at IS NULL
+                AND failure_code IS NULL
+            )
+            OR (
+                status IN ('skipped', 'completed') AND completed_at IS NOT NULL
+                AND failure_code IS NULL
+            )
+            OR (
+                status IN ('unavailable', 'failed') AND completed_at IS NOT NULL
+                AND failure_code IS NOT NULL AND btrim(failure_code) <> ''
+            )
+        ),
+    CONSTRAINT verification_runs_timestamps_ck
+        CHECK (completed_at IS NULL OR completed_at >= started_at)
 );
 
 CREATE INDEX verification_runs_review_run_idx
@@ -498,6 +539,8 @@ CREATE TABLE review_agent.candidate_verifications (
     CONSTRAINT candidate_verifications_occurrence_review_run_fk
         FOREIGN KEY (finding_occurrence_id, review_run_id)
         REFERENCES review_agent.finding_occurrences(id, review_run_id),
+    CONSTRAINT candidate_verifications_attempt_occurrence_uk
+        UNIQUE (verification_run_id, finding_occurrence_id),
     CONSTRAINT candidate_verifications_verdict_ck
         CHECK (verdict IN ('confirmed', 'refuted', 'needs_more_evidence')),
     CONSTRAINT candidate_verifications_confidence_ck
@@ -573,6 +616,7 @@ CREATE TABLE review_agent.publications (
     review_number INTEGER NOT NULL,
     publication_key TEXT NOT NULL,
     rendered_markdown TEXT NOT NULL,
+    rendered_blocks_schema_version SMALLINT NOT NULL,
     rendered_blocks JSONB NOT NULL,
     rendered_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'generated',
@@ -595,6 +639,8 @@ CREATE TABLE review_agent.publications (
         UNIQUE (pull_request_id, review_number),
     CONSTRAINT publications_pull_request_identity_uk
         UNIQUE (id, pull_request_id),
+    CONSTRAINT publications_run_identity_uk
+        UNIQUE (id, review_run_id, pull_request_id),
     CONSTRAINT publications_key_uk UNIQUE (publication_key),
     CONSTRAINT publications_superseded_by_pull_request_fk
         FOREIGN KEY (superseded_by_publication_id, pull_request_id)
@@ -603,7 +649,10 @@ CREATE TABLE review_agent.publications (
     CONSTRAINT publications_key_ck
         CHECK (publication_key ~ '^sha256:[0-9a-f]{64}$'),
     CONSTRAINT publications_blocks_ck
-        CHECK (jsonb_typeof(rendered_blocks) = 'array'),
+        CHECK (
+            rendered_blocks_schema_version > 0
+            AND jsonb_typeof(rendered_blocks) = 'array'
+        ),
     CONSTRAINT publications_rendered_hash_ck
         CHECK (rendered_hash ~ '^[0-9a-f]{64}$'),
     CONSTRAINT publications_status_ck
@@ -621,17 +670,34 @@ CREATE TABLE review_agent.publications (
                 AND failure_code IS NULL
             )
             OR (
-                status = 'posted' AND posted_at IS NOT NULL
+                status = 'posted' AND posting_started_at IS NOT NULL
+                AND posted_at IS NOT NULL
                 AND publish_failed_at IS NULL AND failure_code IS NULL
             )
             OR (
-                status = 'publish_failed' AND publish_failed_at IS NOT NULL
+                status = 'publish_failed' AND posting_started_at IS NOT NULL
+                AND publish_failed_at IS NOT NULL
                 AND posted_at IS NULL AND failure_code IS NOT NULL
                 AND btrim(failure_code) <> ''
             )
             OR (
-                status = 'stale' AND publish_failed_at IS NOT NULL
+                status = 'stale' AND posting_started_at IS NOT NULL
+                AND posted_at IS NULL AND publish_failed_at IS NOT NULL
                 AND failure_code IS NOT NULL AND btrim(failure_code) <> ''
+            )
+        ),
+    CONSTRAINT publications_timestamps_ck
+        CHECK (
+            (posting_started_at IS NULL OR posting_started_at >= generated_at)
+            AND (posted_at IS NULL OR posted_at >= posting_started_at)
+            AND (
+                publish_failed_at IS NULL
+                OR publish_failed_at >= posting_started_at
+            )
+            AND (superseded_at IS NULL OR superseded_at >= posted_at)
+            AND (
+                supersession_rendered_at IS NULL
+                OR supersession_rendered_at >= superseded_at
             )
         ),
     CONSTRAINT publications_supersession_ck
@@ -645,6 +711,7 @@ CREATE TABLE review_agent.publications (
             OR (
                 superseded_at IS NOT NULL
                 AND superseded_by_publication_id IS NOT NULL
+                AND status = 'posted'
                 AND superseded_by_publication_id <> id
                 AND (
                     supersession_failure_code IS NULL
@@ -664,7 +731,9 @@ CREATE TABLE review_agent.publication_parts (
     part_type TEXT NOT NULL,
     part_number INTEGER NOT NULL,
     external_id BIGINT,
-    body_hash TEXT NOT NULL,
+    payload_schema_version SMALLINT NOT NULL,
+    payload JSONB NOT NULL,
+    payload_hash TEXT NOT NULL,
     status TEXT NOT NULL,
     posting_started_at TIMESTAMPTZ,
     posted_at TIMESTAMPTZ,
@@ -679,8 +748,13 @@ CREATE TABLE review_agent.publication_parts (
     CONSTRAINT publication_parts_number_ck CHECK (part_number > 0),
     CONSTRAINT publication_parts_external_id_ck
         CHECK (external_id IS NULL OR external_id > 0),
-    CONSTRAINT publication_parts_body_hash_ck
-        CHECK (body_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT publication_parts_payload_ck
+        CHECK (
+            payload_schema_version > 0
+            AND jsonb_typeof(payload) = 'object'
+            AND octet_length(payload::text) <= 131072
+            AND payload_hash ~ '^[0-9a-f]{64}$'
+        ),
     CONSTRAINT publication_parts_status_ck
         CHECK (status IN ('pending', 'posting', 'posted', 'publish_failed', 'stale')),
     CONSTRAINT publication_parts_state_ck
@@ -697,61 +771,93 @@ CREATE TABLE review_agent.publication_parts (
             )
             OR (
                 status = 'posted' AND external_id IS NOT NULL
-                AND posted_at IS NOT NULL AND failure_at IS NULL
+                AND posting_started_at IS NOT NULL AND posted_at IS NOT NULL
+                AND failure_at IS NULL
                 AND failure_code IS NULL
             )
             OR (
-                status = 'publish_failed' AND posted_at IS NULL
+                status = 'publish_failed' AND posting_started_at IS NOT NULL
+                AND posted_at IS NULL
                 AND failure_at IS NOT NULL AND failure_code IS NOT NULL
                 AND btrim(failure_code) <> ''
             )
             OR (
-                status = 'stale' AND failure_at IS NOT NULL
+                status = 'stale' AND posting_started_at IS NOT NULL
+                AND posted_at IS NULL AND failure_at IS NOT NULL
                 AND failure_code IS NOT NULL AND btrim(failure_code) <> ''
             )
+        ),
+    CONSTRAINT publication_parts_timestamps_ck
+        CHECK (
+            (posted_at IS NULL OR posted_at >= posting_started_at)
+            AND (failure_at IS NULL OR failure_at >= posting_started_at)
         )
 );
+
+COMMENT ON COLUMN review_agent.publication_parts.payload IS
+    'Structured delivery input; 128 KiB is a storage guard and the publication planner enforces provider limits';
+COMMENT ON COLUMN review_agent.publication_parts.payload_hash IS
+    'SHA-256 of the UTF-8 RFC 8785 canonical JSON representation of payload';
 
 CREATE TABLE review_agent.publication_findings (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     publication_id BIGINT NOT NULL,
+    publication_review_run_id BIGINT NOT NULL,
     pull_request_id BIGINT NOT NULL,
     finding_id BIGINT NOT NULL,
-    finding_occurrence_id BIGINT,
+    source_finding_occurrence_id BIGINT NOT NULL,
+    source_review_run_id BIGINT NOT NULL,
     local_reference TEXT NOT NULL,
-    context_hash TEXT,
-    status TEXT NOT NULL DEFAULT 'current',
-    CONSTRAINT publication_findings_publication_pull_request_fk
-        FOREIGN KEY (publication_id, pull_request_id)
-        REFERENCES review_agent.publications(id, pull_request_id),
+    outcome TEXT NOT NULL,
+    outcome_evidence TEXT,
+    CONSTRAINT publication_findings_publication_run_fk
+        FOREIGN KEY (
+            publication_id, publication_review_run_id, pull_request_id
+        )
+        REFERENCES review_agent.publications(id, review_run_id, pull_request_id),
     CONSTRAINT publication_findings_pull_request_mapping_fk
         FOREIGN KEY (pull_request_id, finding_id, local_reference)
         REFERENCES review_agent.pull_request_finding_references(
             pull_request_id, finding_id, local_reference
         ),
-    CONSTRAINT publication_findings_occurrence_finding_fk
-        FOREIGN KEY (finding_occurrence_id, finding_id)
-        REFERENCES review_agent.finding_occurrences(id, finding_id),
-    CONSTRAINT publication_findings_occurrence_pull_request_fk
-        FOREIGN KEY (finding_occurrence_id, pull_request_id)
-        REFERENCES review_agent.finding_occurrences(id, pull_request_id),
+    CONSTRAINT publication_findings_source_occurrence_fk
+        FOREIGN KEY (
+            source_finding_occurrence_id, source_review_run_id, finding_id,
+            pull_request_id
+        )
+        REFERENCES review_agent.finding_occurrences(
+            id, review_run_id, finding_id, pull_request_id
+        ),
     CONSTRAINT publication_findings_reference_uk
         UNIQUE (publication_id, local_reference),
     CONSTRAINT publication_findings_finding_uk
         UNIQUE (publication_id, finding_id),
     CONSTRAINT publication_findings_local_reference_ck
         CHECK (local_reference ~ '^F[1-9][0-9]*$'),
-    CONSTRAINT publication_findings_context_hash_ck
-        CHECK (context_hash IS NULL OR context_hash ~ '^[0-9a-f]{40,64}$'),
-    CONSTRAINT publication_findings_status_ck
-        CHECK (status IN ('current', 'resolved'))
+    CONSTRAINT publication_findings_outcome_ck
+        CHECK (
+            outcome IN (
+                'current', 'resolved', 'invalidated', 'suppressed', 'not_checked'
+            )
+            AND (
+                (
+                    outcome = 'current'
+                    AND publication_review_run_id = source_review_run_id
+                    AND outcome_evidence IS NULL
+                )
+                OR (
+                    outcome <> 'current'
+                    AND outcome_evidence IS NOT NULL
+                    AND btrim(outcome_evidence) <> ''
+                )
+            )
+        )
 );
 
 CREATE TABLE review_agent.review_quality_feedback (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     pull_request_id BIGINT NOT NULL,
     publication_id BIGINT NOT NULL,
-    head_sha TEXT NOT NULL,
     local_reference TEXT,
     category TEXT NOT NULL,
     reason TEXT,
@@ -771,8 +877,6 @@ CREATE TABLE review_agent.review_quality_feedback (
         REFERENCES review_agent.publication_findings(
             publication_id, local_reference
         ),
-    CONSTRAINT review_quality_feedback_head_sha_ck
-        CHECK (head_sha ~ '^[0-9a-f]{40,64}$'),
     CONSTRAINT review_quality_feedback_local_reference_ck
         CHECK (local_reference IS NULL OR local_reference ~ '^F[1-9][0-9]*$'),
     CONSTRAINT review_quality_feedback_category_ck
@@ -814,13 +918,11 @@ CREATE TABLE review_agent.decision_audit (
     CONSTRAINT decision_audit_decision_fk
         FOREIGN KEY (finding_decision_id)
         REFERENCES review_agent.finding_decisions(id),
+    CONSTRAINT decision_audit_decision_uk UNIQUE (finding_decision_id),
+    CONSTRAINT decision_audit_source_comment_uk UNIQUE (source_comment_id),
     CONSTRAINT decision_audit_actor_ck CHECK (actor_user_id <> ''),
     CONSTRAINT decision_audit_allowlist_version_ck
         CHECK (allowlist_version ~ '^sha256:[0-9a-f]{64}$'),
     CONSTRAINT decision_audit_source_comment_id_ck
         CHECK (source_comment_id > 0)
 );
-
-INSERT INTO review_agent.schema_migrations (version) VALUES (1);
-
-COMMIT;

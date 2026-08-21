@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Extract bounded live-review GitHub reads into one concrete client without changing behavior."
+  tranche: "Extract review-run lifecycle and coverage coordination into one concrete application owner without changing behavior."
   status: active
 
 rules:
@@ -30,15 +30,15 @@ continuity:
   rotate_after_completed_write_tasks: 2
   rotate_after_hours: 6
   rotate_when_slow: true
-  current_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
-  previous_thread_id: null
-  rotation_count: 0
-  completed_write_tasks_in_thread: 3
+  current_thread_id: "successor-pending"
+  previous_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
+  rotation_count: 1
+  completed_write_tasks_in_thread: 0
   handoff_note: notes/handoff.md
-  last_handoff_at: null
-  last_verified_revision: "c59b6ac55af527de3b3a283747cb05ce9dbde755"
+  last_handoff_at: "2026-08-21T09:35:43Z"
+  last_verified_revision: "3c1072bd09b0a1e09eb1bb95edac323429ba4a77"
 
-active_task: T007
+active_task: T008
 
 tasks:
   - id: T001
@@ -296,7 +296,7 @@ tasks:
   - id: T007
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Extract bounded live-review GitHub reads behind one concrete GitHubReadClient without changing observable behavior."
     constraints:
@@ -316,7 +316,7 @@ tasks:
       - docs/goals/build-review-platform/**
     verify:
       - "Run source-control, changed-file pager, diff fallback, tool validation, and run-tool tests"
-      - "Confirm tools.py no longer imports or directly uses urllib"
+      - "Confirm tools.py no longer imports or uses urllib.request or urllib.error; urllib.parse remains for endpoint encoding"
       - "pyright -p ."
       - "./scripts/check_bundle.sh"
       - "git diff --check"
@@ -326,6 +326,53 @@ tasks:
       - "Any public error, output, retry, byte limit, or diff/file fallback behavior changes."
       - "The slice needs publisher, feedback, persistence, or deployment files."
       - "Tests require a broad rewrite or focused verification fails twice for a non-mechanical reason."
+    receipt:
+      result: done
+      note: "notes/T007-github-read-client-implementation.md"
+      summary: "Moved bounded GitHub GET, retry, status, byte-limit, JSON, and response-lifetime ownership into one concrete client while preserving the tool-domain boundary."
+      commit: "3c1072bd09b0a1e09eb1bb95edac323429ba4a77"
+      evidence:
+        - "87 focused tests passed with ResourceWarnings promoted to errors"
+        - "Strict Pyright and the 469-test bundle passed"
+        - "Resumed Codex peer gate green at score 8 with no findings"
+        - "Read-only Judge accepted the slice as behavior-preserving"
+      spawned_tasks:
+        - T008
+  - id: T008
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Extract review-run lifecycle and coverage coordination from tools.py into one concrete review_run_application.py module without changing tool behavior."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Use typed run-subject, result, and terminal contracts; do not expose an Any-based application interface."
+      - "Reuse memory_runs.py and memory_coverage.py through the existing memory_db facade without changing persistence owners."
+      - "Keep input validation, GitHub invocation, public JSON/errors, and failure-status publication in tools.py."
+      - "Allow at most one narrow pull-loader callback; do not add a provider port, DI framework, cache, or pass-through wrappers."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/review_run_application.py
+      - bootstrap/plugins/review_agent_tools/tools.py
+      - tests/test_review_run_application.py
+      - tests/test_run_tools.py
+      - tests/test_tools_validation.py
+      - tests/test_pr_diff_fallback.py
+      - tests/test_memory_module_boundaries.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Run review_run_application, run_tools, tools_validation, pr_diff_fallback, review_runs, and memory_module_boundaries tests with ResourceWarnings as errors"
+      - "Confirm tools.py no longer directly calls the moved run and coverage facade operations"
+      - "Confirm review_run_application.py imports no source_control, review_publisher, settings, urllib, schemas, or JSON serializer"
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate the Goal Maker board"
+      - "Run one skeptical Codex peer gate with score >= 8"
+    stop_if:
+      - "The slice needs edits to persistence owners or facade, publisher, feedback, source_control, schemas, deployment, or public contracts."
+      - "The slice needs multiple collaborator callbacks, a generic port or DI layer, or finding, delivery, or publication extraction."
+      - "Pre-network rejection, one-time terminalization, phase, or coverage behavior cannot remain focused-testable."
+      - "Focused verification fails twice or the change grows beyond one ownership extraction."
     receipt: null
   - id: T999
     type: judge
@@ -348,11 +395,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-c59b6ac"
+  dirty_fingerprint: "control-files-only-after-3c1072b"
   last_verification:
     result: pass
-    task: T006
+    task: T007
     commands:
-      - "Eight warning paths and 170 affected tests with ResourceWarnings enabled"
-      - "Strict Pyright and 468-test bundle with ResourceWarnings promoted to errors"
-      - "Codex peer gate green at score 8"
+      - "87 focused tests with ResourceWarnings promoted to errors"
+      - "Strict Pyright and 469-test bundle"
+      - "Resumed Codex peer gate green at score 8"
+      - "Read-only Judge accepted T007"

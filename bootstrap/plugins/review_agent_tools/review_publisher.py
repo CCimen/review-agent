@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 import json
-import os
 import sqlite3
 import time
 import urllib.error
@@ -16,6 +15,7 @@ from typing import Any, Literal, Protocol, cast
 try:
     from . import failure_codes, memory_publications, memory_runs, memory_suggestions
     from .memory_validation import ReviewMemoryError, isoformat, utc_now
+    from .settings import ReviewAgentSettings, SettingsError
     from .review_renderer import (
         ReviewBlock,
         review_blocks_from_json,
@@ -29,6 +29,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
     import memory_runs  # type: ignore[no-redef]
     import memory_suggestions  # type: ignore[no-redef]
     from memory_validation import ReviewMemoryError, isoformat, utc_now
+    from settings import ReviewAgentSettings, SettingsError
     from review_renderer import (  # type: ignore[no-redef]
         ReviewBlock,
         review_blocks_from_json,
@@ -53,7 +54,6 @@ _AMBIGUOUS_REVIEW_CREATE_CODES = frozenset(
         "github_bad_review_response",
     }
 )
-DEFAULT_MAX_COMMENT_BYTES = 60_000
 _SUGGESTION_RECOVERY_SCAN_PAGES = 10
 _HISTORICAL_TRUNCATION_NOTICE = (
     "_Historical details were shortened to fit GitHub comment limits; "
@@ -582,22 +582,17 @@ class GitHubIssueCommentGateway:
 
 
 def _max_comment_bytes() -> int:
-    raw = os.environ.get("REVIEW_AGENT_PUBLISH_MAX_BYTES", "").strip()
-    if not raw:
-        return DEFAULT_MAX_COMMENT_BYTES
     try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ReviewMemoryError(
-            "REVIEW_AGENT_PUBLISH_MAX_BYTES must be an integer"
-        ) from exc
-    return max(1_000, min(value, 65_000))
+        return ReviewAgentSettings.from_environment().publish_max_bytes
+    except SettingsError as exc:
+        raise ReviewMemoryError(str(exc)) from exc
 
 
 def _default_gateway() -> GitHubIssueCommentGateway:
+    settings = ReviewAgentSettings.from_environment()
     return GitHubIssueCommentGateway(
-        os.environ.get("REVIEW_AGENT_PUBLISH_GH_TOKEN", "").strip(),
-        read_token=os.environ.get("GITHUB_READ_TOKEN", "").strip(),
+        settings.github_publish_token,
+        read_token=settings.github_read_token,
     )
 
 

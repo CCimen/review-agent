@@ -6,7 +6,6 @@ import base64
 from contextlib import closing
 import hashlib
 import json
-import os
 import re
 import sqlite3
 import time
@@ -22,6 +21,7 @@ from . import (
     memory_db,
     memory_suggestions,
     review_publisher,
+    settings,
 )
 
 _API_ROOT = "https://api.github.com"
@@ -96,11 +96,7 @@ def _repository_name(raw: Any) -> str:
 
 def _allowlisted_repository(raw: Any) -> str:
     repository = _repository_name(raw)
-    allowed = {
-        item.strip().lower()
-        for item in os.environ.get("REVIEW_AGENT_ALLOWED_REPOSITORIES", "").split(",")
-        if item.strip()
-    }
+    allowed = settings.ReviewAgentSettings.from_environment().allowed_repositories
     if not allowed:
         raise ToolInputError(
             "REVIEW_AGENT_ALLOWED_REPOSITORIES is empty; deny by default"
@@ -175,7 +171,7 @@ def _request(
         "User-Agent": "Hermes-PR-Review/2.0",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    token = os.environ.get("GITHUB_READ_TOKEN", "").strip()
+    token = settings.ReviewAgentSettings.from_environment().github_read_token
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(

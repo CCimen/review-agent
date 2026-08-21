@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import sqlite3
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -45,6 +44,7 @@ try:
         review_blocks_to_json,
         review_markdown_from_blocks,
     )
+    from .settings import ReviewAgentSettings
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
     import memory_suggestions  # type: ignore[no-redef]
     from memory_decisions import active_suppression
@@ -81,6 +81,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
         review_blocks_to_json,
         review_markdown_from_blocks,
     )
+    from settings import ReviewAgentSettings
 
 
 ClosedFindingVerdict = Literal["resolved", "invalidated", "suppressed"]
@@ -589,12 +590,7 @@ def _finding_payload(
 
 
 def _feedback_enabled() -> bool:
-    return os.environ.get("REVIEW_AGENT_FEEDBACK_ENABLED", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return ReviewAgentSettings.from_environment().feedback_enabled
 
 
 def _closed_payload(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +17,7 @@ try:
         parse_time,
         utc_now,
     )
+    from .settings import ReviewAgentSettings
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
     from memory_validation import (
         HASH_RE,
@@ -29,8 +29,8 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
         parse_time,
         utc_now,
     )
+    from settings import ReviewAgentSettings
 
-DEFAULT_DB_NAME = "review_memory.sqlite3"
 SCHEMA_VERSION = 15
 OBSERVATION_BACKFILL_VERSION = 3
 REQUIRED_TABLES = frozenset(
@@ -59,11 +59,7 @@ REQUIRED_TABLES = frozenset(
 
 
 def database_path(explicit: str | None = None) -> Path:
-    raw = explicit or os.environ.get("REVIEW_AGENT_DB")
-    if raw:
-        return Path(raw).expanduser()
-    hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
-    return hermes_home / "review-memory" / DEFAULT_DB_NAME
+    return ReviewAgentSettings.from_environment().database_path(explicit)
 
 
 def connect(explicit: str | None = None) -> sqlite3.Connection:

@@ -1332,6 +1332,25 @@ class ToolValidationTests(unittest.TestCase):
         self.assertEqual(data, b'{"ok":true}')
         self.assertFalse(truncated)
 
+    def test_request_uses_only_a_non_blank_read_token(self):
+        authorizations = []
+
+        def open_request(request, timeout):
+            del timeout
+            authorizations.append(request.get_header("Authorization"))
+            return _FakeResponse()
+
+        for token in (" read-token ", " "):
+            with (
+                patch.dict(os.environ, {"GITHUB_READ_TOKEN": token}, clear=False),
+                patch("urllib.request.urlopen", open_request),
+            ):
+                tools._request(
+                    "/repos/sundsvallskommun/example-repository/pulls/1"
+                )
+
+        self.assertEqual(authorizations, ["Bearer read-token", None])
+
     def test_request_does_not_retry_4xx(self):
         with patch("urllib.request.urlopen", side_effect=self._http_error(404)) as opener:
             with self.assertRaises(tools.NotFoundError):

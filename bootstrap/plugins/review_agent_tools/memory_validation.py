@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import datetime, timezone
 from typing import Any, Literal, get_args
 
-DEFAULT_POLICY_REVISION = "policy-v1"
+try:
+    from .settings import ReviewAgentSettings, SettingsError
+except ImportError:  # pragma: no cover - supports direct module imports in tests.
+    from settings import ReviewAgentSettings, SettingsError
+
 SEVERITY_ORDER = ("Critical", "High", "Medium", "Low")
 SEVERITY_PRIORITY = {severity: index for index, severity in enumerate(SEVERITY_ORDER)}
 SEVERITY_SCORE_GATES = {
@@ -106,10 +109,10 @@ def parse_time(value: str | None) -> datetime | None:
 
 
 def current_policy_revision(explicit: str | None = None) -> str:
-    value = explicit or os.environ.get(
-        "REVIEW_AGENT_POLICY_REVISION", DEFAULT_POLICY_REVISION
-    )
-    return clean_text(value, field="policy_revision", maximum=120)
+    try:
+        return ReviewAgentSettings.from_environment().policy_revision(explicit)
+    except SettingsError as exc:
+        raise ReviewMemoryError(str(exc)) from exc
 
 
 def clean_text(value: Any, *, field: str, maximum: int, required: bool = True) -> str:

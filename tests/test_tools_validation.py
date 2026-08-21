@@ -1,38 +1,25 @@
 from __future__ import annotations
 
-import email.message
 import json
 import os
 import sys
 import tempfile
 import unittest
-import urllib.error
 from contextlib import closing
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import memory_db, review_publisher, schemas, tools  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    memory_db,
+    review_publisher,
+    schemas,
+    source_control,
+    tools,
+)
 import review_agent_tools  # noqa: E402
-
-
-class _FakeResponse:
-    """Minimal context-manager stand-in for urlopen's response object."""
-
-    def __init__(self, body: bytes = b"{}", headers: dict | None = None):
-        self._body = body
-        self.headers = headers or {}
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def read(self, _n: int = -1) -> bytes:
-        return self._body
 
 
 class _FakeRegistry:
@@ -1311,10 +1298,7 @@ class ToolValidationTests(unittest.TestCase):
         reader.assert_called_once_with("contributor/platform-fork", "backend/app.py", "a" * 40)
         self.assertEqual(result["source_repository"], "contributor/platform-fork")
 
-    # --- read-failure fix: transport retry, stable not-found, path/side contract ---
-
-    def _http_error(self, code: int):
-        return urllib.error.HTTPError("https://api.github.com/x", code, "err", email.message.Message(), None)
+    # --- stable not-found and path/side contract ---
 
     def _pull(self):
         return {
@@ -1322,56 +1306,12 @@ class ToolValidationTests(unittest.TestCase):
             "base": {"sha": "b" * 40, "repo": {"full_name": "sundsvallskommun/example-repository"}},
         }
 
-    def test_request_retries_transient_5xx_then_succeeds(self):
-        transient = self._http_error(502)
-        with (
-            patch.object(tools.time, "sleep"),
-            patch(
-                "urllib.request.urlopen",
-                side_effect=[transient, _FakeResponse(b'{"ok":true}')],
-            ) as opener,
-        ):
-            data, truncated, _ = tools._request("/repos/sundsvallskommun/example-repository/pulls/1")
-        self.assertEqual(opener.call_count, 2)
-        self.assertEqual(data, b'{"ok":true}')
-        self.assertFalse(truncated)
-        self.assertTrue(transient.closed)
-
-    def test_request_uses_only_a_non_blank_read_token(self):
-        authorizations = []
-
-        def open_request(request, timeout):
-            del timeout
-            authorizations.append(request.get_header("Authorization"))
-            return _FakeResponse()
-
-        for token in (" read-token ", " "):
-            with (
-                patch.dict(os.environ, {"GITHUB_READ_TOKEN": token}, clear=False),
-                patch("urllib.request.urlopen", open_request),
-            ):
-                tools._request(
-                    "/repos/sundsvallskommun/example-repository/pulls/1"
-                )
-
-        self.assertEqual(authorizations, ["Bearer read-token", None])
-
-    def test_request_does_not_retry_4xx(self):
-        terminal = self._http_error(404)
-        with patch("urllib.request.urlopen", side_effect=terminal) as opener:
-            with self.assertRaises(tools.NotFoundError):
-                tools._request("/repos/sundsvallskommun/example-repository/pulls/1")
-        self.assertEqual(opener.call_count, 1)
-        self.assertTrue(terminal.closed)
-
-    def test_request_does_not_retry_generic_urlerror(self):
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")) as opener:
-            with self.assertRaises(tools.ToolInputError):
-                tools._request("/repos/sundsvallskommun/example-repository/pulls/1")
-        self.assertEqual(opener.call_count, 1)
-
     def test_file_not_found_message_is_stable_and_pathless(self):
-        with patch.object(tools, "_request_json", side_effect=tools.NotFoundError("not found")):
+        client = Mock()
+        client.request_json.side_effect = source_control.GitHubReadError(
+            "not_found", "not found"
+        )
+        with patch.object(tools, "_github_read_client", return_value=client):
             with self.assertRaises(tools.ToolInputError) as ctx:
                 tools._file_at_revision("sundsvallskommun/example-repository", "backend/guessed/path.py", "a" * 40)
         message = str(ctx.exception)

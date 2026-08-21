@@ -6,12 +6,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 PLUGINS = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGINS))
 
-from review_agent_tools import changed_files, memory_db, tools  # noqa: E402
+from review_agent_tools import changed_files, memory_db, source_control, tools  # noqa: E402
 
 
 def _cf(**over: object) -> dict[str, object]:
@@ -103,15 +103,14 @@ class PrDiffFallbackTests(unittest.TestCase):
             args["path"] = path
         if max_chars is not None:
             args["max_chars"] = max_chars
+        client = Mock()
+        client.request.side_effect = source_control.GitHubReadError(
+            "diff_unavailable",
+            "GitHub could not render this diff; inspect smaller files instead",
+        )
         with (
             patch.object(tools, "_pr", return_value=_pull()),
-            patch.object(
-                tools,
-                "_request",
-                side_effect=tools.DiffUnavailableError(
-                    "GitHub could not render this diff; inspect smaller files instead"
-                ),
-            ),
+            patch.object(tools, "_github_read_client", return_value=client),
             patch.object(tools, "_changed_file_index", return_value=index),
         ):
             return json.loads(tools.pr_diff(args))

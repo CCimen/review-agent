@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Audit the fixed Sundsvall profile bundle and select the next non-deferred maintainability slice."
+  tranche: "Remove broad persistence-facade dependencies from the typed review application modules."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-21T10:34:29Z"
   last_verified_revision: "a4b9ed462f392e6d010fd52d25044f1145f010f3"
 
-active_task: T013
+active_task: T014
 
 tasks:
   - id: T001
@@ -550,7 +550,7 @@ tasks:
   - id: T013
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the fixed Sundsvall profile-bundle extraction and select the next non-deferred maintainability-first owner task."
     inputs:
@@ -566,6 +566,52 @@ tasks:
       - "T012 complete | not complete"
       - "Missing evidence or direct blockers"
       - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
+    receipt:
+      result: done
+      decision: "T012 is complete; proceed with one bounded persistence-facade dependency cleanup."
+      summary: "Verified the byte-identical profile moves, unchanged installer contract, documentation truth, focused coverage, full validation, and peer gate; selected direct reuse of existing persistence owners over deeper schema work."
+      evidence:
+        - "Main and origin/main were clean at 1c7d656ad0457f0b712a55905dbc2c8d0bec3d06"
+        - "Six profile assets retained identical Git blobs and installed destinations"
+        - "40 focused tests, documentation checks, strict Pyright, and the 489-test bundle passed"
+        - "No obsolete scattered source paths remain outside historical goal receipts"
+      spawned_tasks:
+        - T014
+  - id: T014
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Replace the broad memory_db compatibility-facade dependencies in the run and finding application modules with direct use of their existing persistence owners without changing observable behavior."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Reuse memory_schema, memory_runs, memory_coverage, memory_findings, memory_validation, and memory_suggestions directly."
+      - "Preserve connection count and order, transactions, exceptions, and public tool behavior."
+      - "Keep memory_db.py intact as the compatibility facade and add no production module, port, interface, helper, or dependency."
+      - "Keep publication, trusted project context/policy overlays, scanners/Codex Security, PostgreSQL, jobs, GitHub App, and feedback deferred."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/review_run_application.py
+      - bootstrap/plugins/review_agent_tools/review_finding_application.py
+      - tests/test_memory_module_boundaries.py
+      - tests/test_review_run_application.py
+      - tests/test_review_finding_application.py
+      - tests/test_run_tools.py
+      - tests/test_tools_validation.py
+      - docs/goals/build-review-platform/state.yaml
+    verify:
+      - "PYTHONDONTWRITEBYTECODE=1 PYTHONWARNINGS=error::ResourceWarning python3 -m unittest tests.test_memory_module_boundaries tests.test_review_run_application tests.test_review_finding_application tests.test_run_tools tests.test_tools_validation tests.test_pr_diff_fallback tests.test_review_suggestions"
+      - "Confirm both application modules contain no memory_db import or reference"
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate the Goal Maker board"
+      - "Run one skeptical gpt-5.6-sol xhigh Codex peer gate with score >= 8"
+    stop_if:
+      - "Direct ownership requires changing any persistence-owner module or memory_db.py."
+      - "Connection count or order, transactions, exception types or messages, or public tool behavior changes."
+      - "The slice requires a new port, adapter, protocol, callback, helper module, dependency, or schema change."
+      - "Files outside allowed_files are needed."
+      - "Focused verification fails twice for a non-mechanical reason."
     receipt: null
   - id: T999
     type: judge

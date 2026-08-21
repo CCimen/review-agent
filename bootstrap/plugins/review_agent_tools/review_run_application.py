@@ -7,7 +7,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar
 
-from . import failure_codes, memory_db
+from . import failure_codes, memory_coverage, memory_runs, memory_schema
 from .memory_coverage import FileIndexSummary, RunFileLookup, RunFilePage
 from .memory_runs import RunPhase
 
@@ -109,8 +109,8 @@ class DiffExposure:
 
 def start_run(request: RunRequest) -> RunStart:
     """Start one exact review subject or return the active duplicate."""
-    with closing(memory_db.connect_existing()) as connection:
-        run = memory_db.start_run(
+    with closing(memory_schema.connect_existing()) as connection:
+        run = memory_runs.start_run(
             connection,
             request.repository,
             request.pr_number,
@@ -142,7 +142,7 @@ def _ensure_active(
     *,
     expected_head_sha: str | None = None,
 ) -> Mapping[str, object]:
-    run = memory_db.get_run(connection, subject.run_id)
+    run = memory_runs.get_run(connection, subject.run_id)
     if run is None:
         raise ReviewRunError("run_id does not match a recorded review run")
     if (
@@ -168,7 +168,7 @@ def _advance_phase(
     subject: RunSubject,
     phase: RunPhase,
 ) -> None:
-    updated = memory_db.update_run_phase(
+    updated = memory_runs.update_run_phase(
         connection,
         subject.run_id,
         phase,
@@ -183,7 +183,7 @@ def _advance_phase(
 
 def advance_phase(subject: RunSubject, phase: RunPhase) -> None:
     """Heartbeat an active run at one known application phase."""
-    with closing(memory_db.connect_existing()) as connection:
+    with closing(memory_schema.connect_existing()) as connection:
         _advance_phase(connection, subject, phase)
 
 
@@ -195,21 +195,21 @@ def load_snapshot(
     expected_head_sha: str | None = None,
 ) -> SnapshotResult[PullPayload]:
     """Load and heartbeat one exact snapshot, with DB-only terminal reuse."""
-    with closing(memory_db.connect_existing()) as connection:
+    with closing(memory_schema.connect_existing()) as connection:
         _ensure_active(
             connection,
             subject,
             expected_head_sha=expected_head_sha,
         )
     pull = pull_loader()
-    with closing(memory_db.connect_existing()) as connection:
+    with closing(memory_schema.connect_existing()) as connection:
         _ensure_active(
             connection,
             subject,
             expected_head_sha=expected_head_sha,
         )
         try:
-            run = memory_db.validate_run_snapshot(
+            run = memory_runs.validate_run_snapshot(
                 connection,
                 subject.run_id,
                 repository=subject.repository,
@@ -217,8 +217,8 @@ def load_snapshot(
                 base_sha=pull.base_sha,
                 head_sha=pull.head_sha,
             )
-        except memory_db.ReviewSnapshotChangedError:
-            completed = memory_db.complete_run(
+        except memory_runs.ReviewSnapshotChangedError:
+            completed = memory_runs.complete_run(
                 connection,
                 subject.run_id,
                 repository=subject.repository,
@@ -251,8 +251,8 @@ def fail_run(
     findings_count: int | None = None,
 ) -> bool:
     """Terminalize one active run without owning failure-status publication."""
-    with closing(memory_db.connect_existing()) as connection:
-        completed = memory_db.complete_run(
+    with closing(memory_schema.connect_existing()) as connection:
+        completed = memory_runs.complete_run(
             connection,
             subject.run_id,
             repository=subject.repository,
@@ -271,8 +271,8 @@ def register_changed_files(
     changed_files_reported: int,
 ) -> FileIndexSummary:
     """Register the immutable changed-file inventory and return its compact index."""
-    with closing(memory_db.connect_existing()) as connection:
-        memory_db.register_changed_files(
+    with closing(memory_schema.connect_existing()) as connection:
+        memory_coverage.register_changed_files(
             connection,
             run_id=subject.run_id,
             repository=subject.repository,
@@ -281,7 +281,7 @@ def register_changed_files(
             changed_files_reported=changed_files_reported,
             registration_complete=len(files) >= changed_files_reported,
         )
-        return memory_db.file_index_summary(connection, run_id=subject.run_id)
+        return memory_coverage.file_index_summary(connection, run_id=subject.run_id)
 
 
 def load_changed_file_page(
@@ -299,8 +299,8 @@ def load_changed_file_page(
         phase="collecting_diff",
         pull_loader=pull_loader,
     )
-    with closing(memory_db.connect_existing()) as connection:
-        return memory_db.list_run_files(
+    with closing(memory_schema.connect_existing()) as connection:
+        return memory_coverage.list_run_files(
             connection,
             run_id=subject.run_id,
             repository=subject.repository,
@@ -324,8 +324,8 @@ def load_file_context(
         phase="reviewing",
         pull_loader=pull_loader,
     )
-    with closing(memory_db.connect_existing()) as connection:
-        run_file = memory_db.lookup_run_file(
+    with closing(memory_schema.connect_existing()) as connection:
+        run_file = memory_coverage.lookup_run_file(
             connection,
             run_id=subject.run_id,
             repository=subject.repository,
@@ -346,9 +346,9 @@ def record_diff_result(
     phase: RunPhase = "reviewing",
 ) -> None:
     """Record one diff exposure result and advance the owning run phase."""
-    with closing(memory_db.connect_existing()) as connection:
+    with closing(memory_schema.connect_existing()) as connection:
         if exposure.unavailable_paths:
-            memory_db.record_diff_exposure(
+            memory_coverage.record_diff_exposure(
                 connection,
                 run_id=subject.run_id,
                 repository=subject.repository,
@@ -358,7 +358,7 @@ def record_diff_result(
                 unavailable_reason=exposure.unavailable_reason,
             )
         if exposure.exposed_paths:
-            memory_db.record_diff_exposure(
+            memory_coverage.record_diff_exposure(
                 connection,
                 run_id=subject.run_id,
                 repository=subject.repository,
@@ -367,7 +367,7 @@ def record_diff_result(
                 truncated=False,
             )
         if exposure.truncated_paths:
-            memory_db.record_diff_exposure(
+            memory_coverage.record_diff_exposure(
                 connection,
                 run_id=subject.run_id,
                 repository=subject.repository,
@@ -392,8 +392,8 @@ def record_source_read(
     end_line = start_line + line_count - 1
     if line_count == 0:
         return end_line
-    with closing(memory_db.connect_existing()) as connection:
-        memory_db.record_file_range(
+    with closing(memory_schema.connect_existing()) as connection:
+        memory_coverage.record_file_range(
             connection,
             run_id=subject.run_id,
             repository=subject.repository,

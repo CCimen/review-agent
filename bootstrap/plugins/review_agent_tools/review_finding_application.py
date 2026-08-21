@@ -9,7 +9,12 @@ import re
 import sqlite3
 from typing import TypedDict, cast
 
-from . import memory_db, memory_suggestions
+from . import (
+    memory_findings,
+    memory_schema,
+    memory_suggestions,
+    memory_validation,
+)
 
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
@@ -62,8 +67,8 @@ class FindingRecordResult:
 
 def load_context(query: FindingContextQuery) -> FindingMemoryContext:
     """Load bounded historical context for one repository and optional pull request."""
-    with closing(memory_db.connect_existing()) as connection:
-        context = memory_db.memory_context(
+    with closing(memory_schema.connect_existing()) as connection:
+        context = memory_findings.memory_context(
             connection,
             query.repository,
             query.paths,
@@ -96,7 +101,7 @@ def _suggestion_rank(
     except (TypeError, ValueError):
         publication_score = 0
     return (
-        int(memory_db.SEVERITY_PRIORITY.get(severity, 99)),
+        int(memory_validation.SEVERITY_PRIORITY.get(severity, 99)),
         -publication_score,
         str(finding.get("rule_id", "")),
         index,
@@ -114,7 +119,7 @@ def _ranges_overlap(
 
 
 def _clear_suggestions(recorded: Sequence[RecordedFinding]) -> None:
-    with closing(memory_db.connect_existing()) as connection, connection:
+    with closing(memory_schema.connect_existing()) as connection, connection:
         for item in recorded:
             memory_suggestions.replace_observation_suggestion(
                 connection,
@@ -127,7 +132,7 @@ def _store_suggestions(
     recorded: Sequence[RecordedFinding],
     selected: Mapping[int, memory_suggestions.ValidatedSuggestion],
 ) -> None:
-    with closing(memory_db.connect_existing()) as connection, connection:
+    with closing(memory_schema.connect_existing()) as connection, connection:
         for item in recorded:
             memory_suggestions.replace_observation_suggestion(
                 connection,
@@ -174,11 +179,11 @@ def _record_optional_suggestions(
             )
             for index in requested
         }
-        with closing(memory_db.connect_existing()) as connection:
+        with closing(memory_schema.connect_existing()) as connection:
             canonical_by_key = memory_suggestions.canonical_suggestions(
                 connection, key_by_index.values()
             )
-    except (memory_db.ReviewMemoryError, sqlite3.Error):
+    except (memory_validation.ReviewMemoryError, sqlite3.Error):
         return 0, {index: "suggestion_storage_failed" for index in requested}
 
     head_files: dict[str, str | None] = {}
@@ -251,7 +256,7 @@ def _record_optional_suggestions(
                 patch=changed_file.patch,
                 head_text=head_text,
             )
-        except memory_db.ReviewMemoryError:
+        except memory_validation.ReviewMemoryError:
             statuses[index] = "suggestion_validation_failed"
             continue
         if validation.suggestion is None:
@@ -266,7 +271,7 @@ def _record_optional_suggestions(
 
     try:
         _store_suggestions(recorded, selected)
-    except (memory_db.ReviewMemoryError, sqlite3.Error):
+    except (memory_validation.ReviewMemoryError, sqlite3.Error):
         for index in requested:
             statuses[index] = "suggestion_storage_failed"
         return 0, statuses
@@ -282,11 +287,11 @@ def record_findings(
 ) -> FindingRecordResult:
     """Persist findings and replace their optional same-head atomic suggestions."""
     changed_by_path = {
-        memory_db.normalize_path(item.path): item for item in changed_files
+        memory_validation.normalize_path(item.path): item for item in changed_files
     }
     context_hashes: dict[str, str] = {}
     for finding in findings:
-        path = memory_db.normalize_path(str(finding.get("path", "")))
+        path = memory_validation.normalize_path(str(finding.get("path", "")))
         changed_file = changed_by_path.get(path)
         if changed_file is None:
             raise ReviewFindingError(
@@ -300,8 +305,8 @@ def record_findings(
             else subject.head_sha
         )
 
-    with closing(memory_db.connect_existing()) as connection:
-        raw_recorded = memory_db.record_findings(
+    with closing(memory_schema.connect_existing()) as connection:
+        raw_recorded = memory_findings.record_findings(
             connection,
             subject.repository,
             subject.pr_number,

@@ -1141,7 +1141,9 @@ class ToolValidationTests(unittest.TestCase):
             "base": {"sha": "b" * 40},
             "changed_files": 1,
         }
-        original_update = memory_db.update_run_phase
+        original_update = (
+            tools.review_run_application.memory_runs.update_run_phase
+        )
 
         def supersede_before_publish(connection, candidate_run_id, phase, **kwargs):
             if phase == "publishing":
@@ -1171,7 +1173,7 @@ class ToolValidationTests(unittest.TestCase):
                 },
             ),
             patch.object(
-                memory_db,
+                tools.review_run_application.memory_runs,
                 "update_run_phase",
                 side_effect=supersede_before_publish,
             ),

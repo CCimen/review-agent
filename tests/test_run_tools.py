@@ -175,8 +175,8 @@ class RunToolTests(unittest.TestCase):
         with (
             patch.object(tools, "_pr", return_value=pull),
             patch.object(
-                memory_db,
-                "update_run_phase",
+                tools.review_run_application,
+                "advance_phase",
                 side_effect=memory_db.ReviewMemoryError("phase update failed"),
             ),
         ):
@@ -218,7 +218,7 @@ class RunToolTests(unittest.TestCase):
             patch.object(tools, "_pr", return_value=pull),
             patch.object(tools, "_changed_files", return_value=changed_files),
             patch.object(
-                memory_db,
+                tools.review_run_application,
                 "register_changed_files",
                 side_effect=memory_db.ReviewMemoryError("registration failed"),
             ),

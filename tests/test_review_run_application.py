@@ -117,7 +117,7 @@ class ReviewRunApplicationTests(unittest.TestCase):
 
     def test_snapshot_load_uses_two_bounded_database_connections(self) -> None:
         subject = self.start_run()
-        original_connect = memory_db.connect_existing
+        original_connect = review_run_application.memory_schema.connect_existing
         connection_count = 0
 
         def counted_connect(path: str | None = None):
@@ -126,7 +126,7 @@ class ReviewRunApplicationTests(unittest.TestCase):
             return original_connect(path)
 
         with patch.object(
-            review_run_application.memory_db,
+            review_run_application.memory_schema,
             "connect_existing",
             side_effect=counted_connect,
         ):

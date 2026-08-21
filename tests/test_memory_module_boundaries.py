@@ -17,6 +17,7 @@ OWNER_MODULES = [
     "feedback_commands",
     "memory_validation",
     "memory_schema",
+    "memory_coverage",
     "memory_migration",
     "memory_identity",
     "memory_decisions",
@@ -38,7 +39,31 @@ OFFLINE_OPERATOR_MODULES = {
 }
 
 
+def _imports_memory_db_facade(source: str) -> bool:
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported = {alias.name for alias in node.names}
+            if imported & {"memory_db", "review_agent_tools.memory_db"}:
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            imported = {alias.name for alias in node.names}
+            if (
+                node.module in {None, "review_agent_tools"}
+                and "memory_db" in imported
+            ):
+                return True
+            if node.module in {"memory_db", "review_agent_tools.memory_db"}:
+                return True
+    return False
+
+
 class MemoryModuleBoundaryTests(unittest.TestCase):
+    def test_memory_db_facade_import_detection_covers_relative_and_package_imports(self):
+        self.assertTrue(_imports_memory_db_facade("from . import memory_db"))
+        self.assertTrue(
+            _imports_memory_db_facade("from review_agent_tools import memory_db")
+        )
+
     def test_owner_modules_import_without_facade_cycles(self):
         for module in OWNER_MODULES:
             with self.subTest(module=module):
@@ -48,21 +73,16 @@ class MemoryModuleBoundaryTests(unittest.TestCase):
         for module in OWNER_MODULES:
             with self.subTest(module=module):
                 source = (PLUGIN / f"{module}.py").read_text(encoding="utf-8")
-                tree = ast.parse(source)
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.Import):
-                        imported = {alias.name for alias in node.names}
-                        self.assertNotIn("memory_db", imported)
-                        self.assertNotIn("review_agent_tools.memory_db", imported)
-                    elif isinstance(node, ast.ImportFrom):
-                        imported = {alias.name for alias in node.names}
-                        if node.level == 1 and node.module is None:
-                            self.assertNotIn("memory_db", imported)
-                        self.assertNotEqual(node.module, "memory_db")
-                        self.assertNotEqual(node.module, "review_agent_tools.memory_db")
-                        self.assertFalse(
-                            node.level == 1 and node.module == "memory_db"
-                        )
+                self.assertFalse(_imports_memory_db_facade(source))
+
+    def test_review_application_modules_do_not_import_memory_db_facade(self):
+        for module in (
+            "review_run_application",
+            "review_finding_application",
+        ):
+            with self.subTest(module=module):
+                source = (PLUGIN / f"{module}.py").read_text(encoding="utf-8")
+                self.assertFalse(_imports_memory_db_facade(source))
 
     def test_public_plugin_does_not_import_offline_learning_modules(self):
         for path in sorted(PLUGIN.glob("*.py")):

@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "b5753c9"
 
-active_task: T010
+active_task: T011
 
 tasks:
   - id: T000
@@ -558,7 +558,7 @@ tasks:
   - id: T010
     type: scout
     assignee: Scout
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Map reusable frontend review conventions from Sundsvalls kommun's maintained starter and shared-component repositories for a later policy/profile slice."
     inputs:
@@ -574,7 +574,62 @@ tasks:
       - "Verified reusable conventions"
       - "Repository-specific details to exclude"
       - "Candidate policy-bundle inputs"
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T010-frontend-conventions.md"
+      summary: "Verified conditional frontend review inputs from pinned maintained sources without adding framework assumptions to the generic baseline."
+      evidence:
+        - "web-app-starter eb2e817d5ac350df2a7204642c059a87fb64b77a on develop"
+        - "web-shared-components e5214095a3ae66803f9df134d908124786d73710 on main"
+        - "Existing design-system reuse, generated-contract ownership, strict typing, repository-owned gates, core styling ownership, curated exports, and Storybook accessibility"
+      exclusions:
+        - "Framework/router/backend/monorepo shape and current dependency pins"
+        - "Authentication, localization, deployment, and release details"
+        - "Storybook or shared-component package rules outside repositories that contain those owners"
+      spawned_tasks: []
+  - id: T011
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Remove the final retired product identity from visible examples and behavior-neutral test fixtures, and delete the unowned speculative code-graph proposal."
+    constraints:
+      - "The PM implements and verifies all changes directly."
+      - "Subagents may provide read-only research or review only."
+      - "Use neutral example repositories, actors, paths, and copy while preserving case-normalization, escaping, pagination, publication, and isolation semantics."
+      - "Delete the optional graph proposal rather than generalizing an unowned future integration into product guidance."
+      - "Do not change runtime code, schemas, review behavior, policy rules, thresholds, topology, or add compatibility text."
+      - "Update existing exact-output contracts only where the neutral example changes; add no fixture matrix or branding-only test."
+    allowed_files:
+      - examples/comments/example-review.md
+      - examples/optional/code-review-graph.md
+      - tests/test_changed_files_pager.py
+      - tests/test_docs_contract.py
+      - tests/test_failure_status.py
+      - tests/test_feedback_ingestion.py
+      - tests/test_memory_db.py
+      - tests/test_memory_stats.py
+      - tests/test_pr_file_large.py
+      - tests/test_review_publisher.py
+      - tests/test_review_renderer.py
+      - tests/test_review_runs.py
+      - tests/test_review_suggestions.py
+      - tests/test_run_tools.py
+    expected_output:
+      - "One repository-neutral published review example"
+      - "No tracked active product/source/docs/examples/tests reference to the retired identity"
+      - "No speculative code-graph integration guidance without an owner"
+      - "Green affected behavior tests and bundle validation"
+    verify:
+      - "Focused tests for every affected test module."
+      - "Case-insensitive tracked-file scan confirms no retired identity outside archival goal receipts."
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+    stop_if:
+      - "A fixture replacement changes repository parsing, case-normalization, escaping, pagination, publication, or isolation behavior."
+      - "Removing the optional graph proposal breaks a referenced product or operator contract."
+      - "A focused verification fails twice for a non-mechanical reason."
   - id: T999
     type: judge
     assignee: Judge
@@ -597,12 +652,11 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "T009-receipt-uncommitted"
+  dirty_fingerprint: "T010-receipt-uncommitted"
   last_verification:
     result: pass
-    task: T009
+    task: T010
     commands:
-      - "./scripts/check_bundle.sh"
-      - "pyright -p ."
-      - "focused coach, learning, replay, export, and verification tests"
-      - "private learning semantic identity and inherited-product-story scan"
+      - "Pinned-source clone and revision verification"
+      - "Targeted source-path inspection against both maintained repositories"
+      - "Explicit separation of reusable conventions from repository-specific details"

@@ -13,11 +13,11 @@ architecture tranches without weakening the proven review contract.
 
 ## Current Tranche
 
-Establish the PostgreSQL migration safety gate. First run the existing full
-Python bundle in GitHub Actions and refresh current-versus-planned documentation.
-Then freeze one narrow persistence and transaction contract, define migration
-invariants, and move canonical review state to one PostgreSQL database per
-environment as a clean runtime replacement.
+Audit the new full Python GitHub Actions gate and current-versus-planned
+documentation. Then freeze one narrow PostgreSQL schema and transaction boundary
+with observable behavior and integration invariants. Runtime/configuration and
+Compose switching, followed by SQLite deletion, remain later implementation
+slices.
 
 ## Approved Sequencing Input
 

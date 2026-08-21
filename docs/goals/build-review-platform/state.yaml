@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Establish full Python CI and refresh PostgreSQL migration sequencing truth."
+  tranche: "Audit full Python CI and freeze the PostgreSQL schema and transaction boundary."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   rotation_count: 2
-  completed_write_tasks_in_thread: 2
+  completed_write_tasks_in_thread: 3
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-21T10:34:29Z"
-  last_verified_revision: "094e78ad67fd2fff3807a0d36af9a8313bcad9dc"
+  last_verified_revision: "6baa7a8ef93fe18c2b4dfba02b459ef502358620"
 
-active_task: T016
+active_task: T017
 
 tasks:
   - id: T001
@@ -659,7 +659,7 @@ tasks:
   - id: T016
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Run the canonical full Python bundle in GitHub Actions and refresh stale public and control sequencing so PostgreSQL is the approved next platform target."
     constraints:
@@ -696,6 +696,44 @@ tasks:
       - "The workflow needs secrets, write permissions, deployment changes, or unpinned actions."
       - "The slice enters SQL, schema, Compose, settings, application runtime, replacement, or deletion implementation."
       - "A focused or live workflow failure repeats twice for a non-mechanical reason."
+    receipt:
+      result: done
+      summary: "Added a least-privilege GitHub Actions adapter for the canonical Python bundle and refreshed public and control truth to describe the current disposable SQLite runtime and the approved clean PostgreSQL replacement without claiming it is deployed."
+      commit: "6baa7a8ef93fe18c2b4dfba02b459ef502358620"
+      evidence:
+        - "Behavior-first workflow and roadmap contracts passed with 25 focused tests"
+        - "Python 3.11 strict Pyright and the 493-test canonical bundle passed locally"
+        - "Node 24 documentation type-check, production build, route checks, public documentation checks, Goal Maker validation, YAML parsing, and diff checks passed"
+        - "Skeptical gpt-5.6-sol xhigh peer session review-agent-t016-python-ci-readiness finished green at score 8"
+        - "GitHub Python bundle run 32478702720 and Publish documentation run 32478702712 completed successfully"
+        - "Owner-authorized scope correction removed importer, SQLite reconciliation, compatibility, and SQLite rollback language because no production or user data exists"
+      spawned_tasks:
+        - T017
+  - id: T017
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Audit the full Python CI and current-versus-target documentation, then freeze the smallest complete PostgreSQL schema and transaction-boundary slice from current behavior and source evidence."
+    inputs:
+      - "T016 receipt and implementation revision 6baa7a8ef93fe18c2b4dfba02b459ef502358620"
+      - "GitHub Python bundle run 32478702720 and Publish documentation run 32478702712"
+      - "/Users/ccimen/Downloads/sundsvall-review-agent-maintainability-first-plan.md"
+      - "/Users/ccimen/Downloads/sundsvall-general-review-agent-refactor-plan(2)(1).md"
+      - "Current persistence owners, schema, transactions, Compose, settings, and behavior tests"
+    constraints:
+      - "Read-only; do not implement."
+      - "Verify the live CI and documentation claims before selecting the next task."
+      - "Define only the PostgreSQL schema and transaction boundary plus observable behavior and integration invariants; runtime/configuration/Compose switch and SQLite deletion belong to a later slice."
+      - "Use one PostgreSQL database per environment and do not design an importer, dual backend, compatibility layer, permanent dual writes, per-repository databases, SQLite rollback, or preservation of SQLite IDs, schema versions, or local test data."
+      - "Do not add speculative review_kind or security fields."
+      - "Keep jobs, leases, and the outbox as later separate slices."
+      - "Keep publication, trusted project context/policy overlays, scanners/Codex Security, GitHub App, and feedback deferred."
+    expected_output:
+      - "T016 complete | not complete"
+      - "Canonical PostgreSQL schema and transaction owner map"
+      - "Observable behavior and integration invariants"
+      - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
     receipt: null
   - id: T999
     type: judge
@@ -718,12 +756,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-094e78a"
+  dirty_fingerprint: "control-files-only-after-6baa7a8"
   last_verification:
     result: pass
-    task: T014
+    task: T016
     commands:
-      - "110 focused tests with ResourceWarnings promoted to errors"
-      - "Strict Pyright and 491-test bundle"
-      - "Replay policy, YAML validation, zero-facade search, and diff checks"
+      - "25 focused workflow and public documentation contract tests"
+      - "Python 3.11 strict Pyright and 493-test canonical bundle"
+      - "Node 24 documentation type-check, production build, route checks, documentation checks, Goal Maker validation, YAML parsing, and diff checks"
       - "Skeptical gpt-5.6-sol xhigh peer gate green at score 8"
+      - "Live Python bundle run 32478702720 and Publish documentation run 32478702712 green"

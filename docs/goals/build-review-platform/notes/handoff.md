@@ -5,9 +5,9 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 ## Current direction
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Review Agent` on `main`; direct commits and pushes are authorized.
-- T014 is complete at `094e78ad67fd2fff3807a0d36af9a8313bcad9dc`: the run and finding application modules use their concrete persistence owners directly.
-- T015 audited T014 and the external review. The application ownership is green; full Python CI is missing, and public sequencing is stale.
-- T016 is active: add one read-only GitHub Actions adapter for `scripts/check_bundle.sh` and refresh current PostgreSQL migration sequencing without changing runtime behavior.
+- T016 is complete at `6baa7a8ef93fe18c2b4dfba02b459ef502358620`: the canonical Python bundle now runs in GitHub Actions and public/control documentation states the approved clean PostgreSQL replacement without claiming it is deployed.
+- Live Python bundle run `32478702720` and Publish documentation run `32478702712` are green; the peer gate finished green at score 8.
+- T017 is active and read-only: audit T016, map the current persistence behavior, and freeze one narrow PostgreSQL schema and transaction-boundary slice.
 
 ## Execution boundary
 
@@ -18,6 +18,9 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   state. `goal.md` owns the no-legacy and recovery constraints; `docs/ROADMAP.md`
   owns the public sequence.
 - Keep jobs, leases, and the outbox as later separate slices.
+- The next slice defines the PostgreSQL schema/transaction boundary and behavior
+  invariants only. Runtime/configuration/Compose switching and SQLite deletion
+  follow later; do not add an importer, compatibility path, or SQLite rollback.
 - Publication, trusted project context and policy, scanners/Codex Security,
   GitHub App, policy overlays, and feedback remain deferred.
 
@@ -27,4 +30,4 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - Previous task: `01a023ae-4213-7071-8cc7-50048392fe97`.
 - Read `goal.md`, `state.yaml`, repository instructions, both approved plans,
   and the external review recorded by T015. Verify clean `main == origin/main`,
-  then execute only the active task.
+  then execute only the active read-only audit.

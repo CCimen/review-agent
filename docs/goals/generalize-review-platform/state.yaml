@@ -33,12 +33,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 3
+  completed_write_tasks_in_thread: 4
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "66ee154"
+  last_verified_revision: "411921e"
 
-active_task: T006
+active_task: T007
 
 tasks:
   - id: T000
@@ -343,7 +343,7 @@ tasks:
   - id: T006
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Replace Eneo-branded webhook paths and their deployment/workflow/operator references with generic review-agent paths in one explicit public-contract slice."
     constraints:
@@ -366,6 +366,60 @@ tasks:
       - "git diff --check"
     stop_if:
       - "A route change requires retaining an alias, migrating a live deployment, or changing authentication/payload behavior."
+      - "A focused verification fails twice for a non-mechanical reason."
+    receipt:
+      result: done
+      summary: "Replaced the Eneo review and feedback webhook paths, trigger identity, deployment examples, and operator clients with one generic contract; made the status helper configurable, truthful about workflow outcomes, and bounded."
+      revision: "411921e"
+      changed_files:
+        - "Hermes review route and feedback bridge default path"
+        - "GitHub trigger workflow, Compose fallback labels, operations documentation, and README ownership"
+        - "Smoke and status operator scripts plus focused route/status tests"
+      commands:
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest -v affected route/workflow/status/docs modules"
+          status: pass
+          result: "48 tests"
+        - cmd: "pyright -p ."
+          status: pass
+          result: "0 errors and 0 warnings"
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          result: "460 tests, two replay fixtures, strict Pyright, and YAML"
+        - cmd: "docker compose config --quiet with a complete generic configuration"
+          status: pass
+        - cmd: "retired webhook path and trigger identity scan outside archival goal receipts"
+          status: pass
+          result: "no matches"
+        - cmd: "codex-peer-loop commit gate"
+          status: pass
+          result: "green, 9/10, no blockers after verified status and contract-test corrections"
+        - cmd: "git push origin main"
+          status: pass
+  - id: T007
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Replace the Eneo-branded hidden publication, suggestion, review-metadata, and failure-status marker protocol with one review-agent protocol across every reader, writer, example, and affected test."
+    constraints:
+      - "The PM implements and verifies all production changes directly."
+      - "Subagents may provide read-only research or review only."
+      - "Change all coupled marker readers and writers atomically; do not retain dual readers, aliases, migrations, or compatibility markers."
+      - "This new repository has no production Eneo comments or persisted deployment to migrate; incompatibility with old Eneo comment supersession is intentional."
+      - "Do not change visible finding copy, ordering, scoring, suggestion eligibility, publication semantics, persistence schema, routes, environment names, policy behavior, or topology."
+      - "Update existing marker behavior tests proportionally; add no marker matrix."
+    expected_output:
+      - "One review-agent hidden marker protocol for canonical publications, suggestions, review metadata, and failure statuses"
+      - "No Eneo marker string outside archival goal receipts"
+      - "Green focused publisher/suggestion/failure-status tests and bundle validation"
+    verify:
+      - "Focused review publisher, suggestion, failure-status, renderer, and memory tests."
+      - "rg confirms no Eneo marker string remains outside archival goal receipts."
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+    stop_if:
+      - "A marker change requires a persisted-data migration, dual-read compatibility, or visible review behavior change."
       - "A focused verification fails twice for a non-mechanical reason."
   - id: T010
     type: scout
@@ -409,12 +463,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "T005-receipt-uncommitted"
+  dirty_fingerprint: "T006-receipt-uncommitted"
   last_verification:
     result: pass
-    task: T005
+    task: T006
     commands:
       - "./scripts/check_bundle.sh"
       - "pyright -p ."
-      - "Docker Compose positive and required-variable negative checks"
-      - "tracked-file ENEO_* scan outside archival goal receipts"
+      - "Docker Compose generic configuration check"
+      - "retired webhook path and trigger identity scan outside archival goal receipts"

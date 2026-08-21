@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Extract review-run lifecycle and coverage coordination into one concrete application owner without changing behavior."
+  tranche: "Audit the review-run application extraction and select the next maintainability-first owner slice."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   previous_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
   rotation_count: 1
-  completed_write_tasks_in_thread: 0
+  completed_write_tasks_in_thread: 1
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-21T09:35:43Z"
-  last_verified_revision: "3c1072bd09b0a1e09eb1bb95edac323429ba4a77"
+  last_verified_revision: "43afb8de991ea87995580cb6c18290d404800568"
 
-active_task: T008
+active_task: T009
 
 tasks:
   - id: T001
@@ -341,7 +341,7 @@ tasks:
   - id: T008
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Extract review-run lifecycle and coverage coordination from tools.py into one concrete review_run_application.py module without changing tool behavior."
     constraints:
@@ -373,6 +373,38 @@ tasks:
       - "The slice needs multiple collaborator callbacks, a generic port or DI layer, or finding, delivery, or publication extraction."
       - "Pre-network rejection, one-time terminalization, phase, or coverage behavior cannot remain focused-testable."
       - "Focused verification fails twice or the change grows beyond one ownership extraction."
+    receipt:
+      result: done
+      note: "notes/T008-review-run-application.md"
+      summary: "Moved exact-snapshot run lifecycle and objective coverage coordination into one typed application owner while preserving tool, persistence, and publication behavior."
+      commit: "43afb8de991ea87995580cb6c18290d404800568"
+      evidence:
+        - "111 focused tests passed with ResourceWarnings promoted to errors"
+        - "Strict Pyright and the 477-test bundle passed"
+        - "Codex peer gate iteration 3 green at score 8 with no findings"
+        - "Initial phase failure recovery permits immediate retry with a new run ID"
+      spawned_tasks:
+        - T009
+  - id: T009
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Audit the delivered review-run application slice and select the next maintainability-first owner task."
+    inputs:
+      - "T008 receipt and implementation note"
+      - "Published revision 43afb8de991ea87995580cb6c18290d404800568"
+      - "/Users/ccimen/Downloads/sundsvall-review-agent-maintainability-first-plan.md"
+      - "/Users/ccimen/Downloads/sundsvall-general-review-agent-refactor-plan(2)(1).md"
+    constraints:
+      - "Read-only; do not implement."
+      - "Audit behavior preservation, canonical ownership, connection locality, and proportional tests."
+      - "Choose the next task from current source evidence, not the proposed directory tree alone."
+      - "Keep scanners/Codex Security, PostgreSQL, jobs, GitHub App, policy overlays, feedback, and unrelated publication work deferred."
+    expected_output:
+      - "T008 complete | not complete"
+      - "Missing evidence or direct blockers"
+      - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
     receipt: null
   - id: T999
     type: judge
@@ -395,12 +427,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-3c1072b"
+  dirty_fingerprint: "control-files-only-after-43afb8d"
   last_verification:
     result: pass
-    task: T007
+    task: T008
     commands:
-      - "87 focused tests with ResourceWarnings promoted to errors"
-      - "Strict Pyright and 469-test bundle"
-      - "Resumed Codex peer gate green at score 8"
-      - "Read-only Judge accepted T007"
+      - "111 focused tests with ResourceWarnings promoted to errors"
+      - "Strict Pyright and 477-test bundle"
+      - "Codex peer gate iteration 3 green at score 8"
+      - "Initial phase failure recovery test passed"

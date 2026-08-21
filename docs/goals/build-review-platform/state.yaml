@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Add the typed PostgreSQL runtime foundation without application writes."
+  tranche: "Runtime foundation complete; registry and review-run operations are queued but not started."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   rotation_count: 2
-  completed_write_tasks_in_thread: 6
+  completed_write_tasks_in_thread: 7
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-21T18:44:53Z"
-  last_verified_revision: "5ef159baabe11df78e2ed854c12631eaef266b79"
+  last_handoff_at: "2026-08-21T19:13:21Z"
+  last_verified_revision: "0dafdf636e270f1f2c3b6e5d696ce99e9837a37d"
 
-active_task: T022
+active_task: null
 
 tasks:
   - id: T001
@@ -968,7 +968,7 @@ tasks:
   - id: T022
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add typed PostgreSQL configuration, an explicitly opened bounded pool, readiness and pool metrics, and a pending-migration health check without application writes."
     constraints:
@@ -1013,6 +1013,38 @@ tasks:
       - "The implementation needs an application persistence operation, runtime/Compose cutover, or SQLite changes."
       - "A pool lifecycle cannot be owned explicitly by the future process startup boundary."
       - "The slice requires a generic backend interface, service locator, or configurable timeout framework."
+    receipt:
+      result: done
+      decision: "The read-only PostgreSQL runtime foundation is verified; queue the first cohesive registry and review-run operations without starting them."
+      note: "notes/T022-postgresql-runtime-foundation.md"
+      summary: "Added typed TCP database configuration, an explicit bounded pool, fixed connection safeguards, fail-closed readiness, advisory-lock-aware migration health, and current pool gauges without application persistence writes."
+      implementation_revision: "0dafdf636e270f1f2c3b6e5d696ce99e9837a37d"
+      evidence:
+        - "Thirty PostgreSQL 17 tests passed, including unavailable, pending, drift, lock-contention, database-ahead, lifecycle, session-invariant, and metrics behavior."
+        - "Strict Pyright, the 526-test bundle, final runtime image build/import, documentation build, Goal Maker validation, and diff hygiene passed."
+        - "Claude Opus/high session review-agent-t022-runtime-foundation finished green at score 8 on iteration 2 after two verified blockers were corrected."
+        - "Live Python bundle run 32517163480 and Publish documentation run 32517163559 succeeded; the hosted roadmap publishes the read-only runtime foundation."
+      spawned_tasks:
+        - T023
+  - id: T023
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: high
+    objective: "Add cohesive PostgreSQL repository, pull-request, immutable subject, and review-run operations behind the existing application owner."
+    constraints:
+      - "Do not begin until the repository owner resumes work after the T022 stop boundary."
+      - "Use operation-level functions with explicit short transactions; do not create one repository class per table or a generic persistence port."
+      - "Acquire the bounded provider repository ID before opening a database transaction; no GitHub or model call may hold a pool connection."
+      - "Canonicalize, validate, version, and hash resolved_config before the first review_subject insert."
+      - "Preserve request idempotency, concurrent single-active-run authority, immutable subjects, and explicit run transitions."
+      - "Before adding startup retry behavior, distinguish transient migration readiness from fatal drift or invariant failure with typed state rather than message matching."
+      - "Keep SQLite runtime behavior unchanged until the controlled cutover slice."
+    expected_output:
+      - "Typed registry and review-run operations against PostgreSQL 17"
+      - "Behavior proof for rename identity, repository isolation, request idempotency, concurrent start, immutable subjects, and invalid transitions"
+      - "No connection held during external calls"
+      - "One reviewable implementation commit and live CI receipt"
   - id: T999
     type: judge
     assignee: Judge
@@ -1037,10 +1069,10 @@ checks:
   dirty_fingerprint: "control-files-only-after-32fc5de"
   last_verification:
     result: pass
-    task: T021
+    task: T022
     commands:
-      - "23 real PostgreSQL 17 schema and migration-runner tests"
-      - "Python 3.11 strict Pyright and 518-test canonical bundle"
-      - "Pinned runtime image build/import, Node 24 documentation type-check/build, route checks, Goal Maker validation, YAML parsing, and diff checks"
-      - "Resumable skeptical peer gate green at score 8 with no remaining findings"
-      - "Live Python bundle run 32514751272 and Publish documentation run 32514751286 green"
+      - "30 real PostgreSQL 17 schema, migration, and runtime-foundation tests"
+      - "Python 3.11 strict Pyright and 526-test canonical bundle"
+      - "Pinned final runtime image build/import, Node 24 documentation type-check/build, route checks, Goal Maker validation, YAML parsing, and diff checks"
+      - "Claude Opus/high peer session green at score 8 on iteration 2 with no remaining blockers"
+      - "Live Python bundle run 32517163480 and Publish documentation run 32517163559 green"

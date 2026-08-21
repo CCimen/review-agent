@@ -6,11 +6,11 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits and pushes to `CCimen/review-agent` `main` are authorized.
 - `state.yaml` is authoritative for the active task and current revision. Do not infer active work from this handoff when they disagree.
-- The corrected PostgreSQL first-write contract and authoritative migration
-  runner are live at `5ef159b`; there is still no PostgreSQL application writer
-  or authoritative data. The active slice now adds the read-only runtime
-  foundation: typed DSN, bounded pool lifecycle, readiness, metrics, and
-  migration health.
+- The corrected PostgreSQL first-write contract, migration runner, and read-only
+  runtime foundation are live at `0dafdf6`; there is still no PostgreSQL
+  application writer or authoritative data.
+- The repository owner requested a stop after T022. T023 is queued but not
+  active; do not begin it until the owner resumes work.
 - The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
 
 ## Execution boundary
@@ -24,10 +24,12 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - Keep jobs, leases, and the outbox as later separate slices.
 - The migration runner owns discovery and checksums, one PostgreSQL advisory
   lock, transaction control, ledger insertion, and database-ahead recovery.
-- The current slice deepens the typed settings and migration owners and adds one
-  concrete PostgreSQL runtime module. It must not add application persistence
-  operations, configuration/Compose switching, an importer, a compatibility
-  path, or SQLite rollback.
+- The runtime foundation owns the typed TCP DSN, explicit one-shot bounded pool,
+  connection safeguards, readiness, migration health, and current pool gauges.
+  It has no application operation or process startup consumer.
+- Before a future consumer retries `PostgreSQLNotReady`, add a typed distinction
+  between transient pending/concurrent migration and fatal drift/invariant
+  failure. Do not branch on error-message text.
 - The later runtime-adapter slice must create the validated, versioned, and
   hashed `review_subjects.resolved_config` aggregate before its first subject
   insert; all three fields are deliberately required and have no default.

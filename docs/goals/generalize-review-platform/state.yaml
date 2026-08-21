@@ -33,12 +33,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 7
+  completed_write_tasks_in_thread: 8
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "b5753c9"
+  last_verified_revision: "b797ebf"
 
-active_task: T011
+active_task: T999
 
 tasks:
   - id: T000
@@ -590,22 +590,26 @@ tasks:
   - id: T011
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Remove the final retired product identity from visible examples and behavior-neutral test fixtures, and delete the unowned speculative code-graph proposal."
     constraints:
       - "The PM implements and verifies all changes directly."
       - "Subagents may provide read-only research or review only."
       - "Use neutral example repositories, actors, paths, and copy while preserving case-normalization, escaping, pagination, publication, and isolation semantics."
+      - "Replace inherited tenant/document example narratives with generic authorization/resource-scope examples, but keep generic tenant-risk detection available for repositories that use it."
       - "Delete the optional graph proposal rather than generalizing an unowned future integration into product guidance."
       - "Do not change runtime code, schemas, review behavior, policy rules, thresholds, topology, or add compatibility text."
       - "Update existing exact-output contracts only where the neutral example changes; add no fixture matrix or branding-only test."
     allowed_files:
+      - bootstrap/plugins/review_agent_tools/review_renderer.py
+      - docs/OPERATIONS.md
       - examples/comments/example-review.md
       - examples/optional/code-review-graph.md
       - tests/test_changed_files_pager.py
       - tests/test_docs_contract.py
       - tests/test_failure_status.py
+      - tests/test_feedback_bridge.py
       - tests/test_feedback_ingestion.py
       - tests/test_memory_db.py
       - tests/test_memory_stats.py
@@ -615,6 +619,7 @@ tasks:
       - tests/test_review_runs.py
       - tests/test_review_suggestions.py
       - tests/test_run_tools.py
+      - tests/test_tools_validation.py
     expected_output:
       - "One repository-neutral published review example"
       - "No tracked active product/source/docs/examples/tests reference to the retired identity"
@@ -630,10 +635,39 @@ tasks:
       - "A fixture replacement changes repository parsing, case-normalization, escaping, pagination, publication, or isolation behavior."
       - "Removing the optional graph proposal breaks a referenced product or operator contract."
       - "A focused verification fails twice for a non-mechanical reason."
+    receipt:
+      result: done
+      summary: "Removed the final inherited identity from active examples and test data, replaced the remaining platform-owned tenancy assumption with generic data-isolation copy, preserved generic tenant-risk detection, and deleted the unowned speculative graph proposal."
+      revision: "b797ebf"
+      changed_files:
+        - "Canonical fix-brief renderer and published review example"
+        - "Neutral operator and behavior-test fixtures across repository, actor, authorization, publication, escaping, pagination, feedback, and lifecycle contracts"
+        - "Deleted optional code-graph proposal"
+      commands:
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest -v all 14 affected behavior modules"
+          status: pass
+          result: "325 tests"
+        - cmd: "renderer-copy red-green contract"
+          status: pass
+          result: "failed on the inherited tenancy sentence, then passed with generic data-isolation copy"
+        - cmd: "case-insensitive active tracked-file retired-identity scan"
+          status: pass
+          result: "no matches outside archival goal receipts"
+        - cmd: "pyright -p ."
+          status: pass
+          result: "0 errors and 0 warnings"
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          result: "461 tests, strict Pyright, YAML, and explicit no-historical-replay skip"
+        - cmd: "codex-peer-loop commit gate"
+          status: pass
+          result: "green, 8/10, after preserving one generic multitenancy risk test and correcting two inconsistent fixture phrases"
+        - cmd: "git push origin main"
+          status: pass
   - id: T999
     type: judge
     assignee: Judge
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Audit whether the generic identity/configuration slice satisfies the current tranche."
     inputs:
@@ -652,11 +686,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "T010-receipt-uncommitted"
+  dirty_fingerprint: "T011-receipt-uncommitted"
   last_verification:
     result: pass
-    task: T010
+    task: T011
     commands:
-      - "Pinned-source clone and revision verification"
-      - "Targeted source-path inspection against both maintained repositories"
-      - "Explicit separation of reusable conventions from repository-specific details"
+      - "./scripts/check_bundle.sh"
+      - "pyright -p ."
+      - "325 focused affected behavior tests"
+      - "case-insensitive active tracked-file retired-identity scan"
+      - "codex-peer-loop green at 8/10"

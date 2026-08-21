@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Close demonstrated SQLite and HTTP response lifetime leaks without changing behavior."
+  tranche: "Extract bounded live-review GitHub reads into one concrete client without changing behavior."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 2
+  completed_write_tasks_in_thread: 3
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "c34eb827179eff1faf8b8c728070cc75a6b8e90e"
+  last_verified_revision: "c59b6ac55af527de3b3a283747cb05ce9dbde755"
 
-active_task: T006
+active_task: T007
 
 tasks:
   - id: T001
@@ -255,7 +255,7 @@ tasks:
   - id: T006
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Close the observed SQLite connection and HTTP-error resource warnings in one separate behavior-preserving cleanup."
     constraints:
@@ -282,6 +282,50 @@ tasks:
       - "Database transaction or readiness behavior changes."
       - "The fix touches feedback architecture or needs files outside the allowed scope."
       - "A focused warning persists twice after a non-mechanical correction."
+    receipt:
+      result: done
+      note: "notes/T006-resource-lifetime-implementation.md"
+      summary: "Closed demonstrated SQLite and HTTPError resources at their local owners without changing readiness, retry, fallback, or public error behavior."
+      commit: "c59b6ac55af527de3b3a283747cb05ce9dbde755"
+      evidence:
+        - "Eight warning paths and 170 affected tests passed with no ResourceWarning output"
+        - "Strict Pyright and the 468-test bundle passed with ResourceWarnings promoted to errors"
+        - "Codex peer gate green at score 8 with no blockers"
+      spawned_tasks:
+        - T007
+  - id: T007
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Extract bounded live-review GitHub reads behind one concrete GitHubReadClient without changing observable behavior."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Reuse the existing changed-files pagination callback rather than copying it."
+      - "Keep tool handlers responsible for validation, lifecycle, persistence, coverage, and public JSON."
+      - "Do not create a generic provider port, dependency-injection framework, third-party HTTP dependency, or global client cache."
+      - "Do not touch publisher, feedback, persistence, project context, security integrations, or target infrastructure."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/source_control.py
+      - bootstrap/plugins/review_agent_tools/tools.py
+      - tests/test_source_control.py
+      - tests/test_changed_files_pager.py
+      - tests/test_pr_diff_fallback.py
+      - tests/test_tools_validation.py
+      - tests/test_run_tools.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Run source-control, changed-file pager, diff fallback, tool validation, and run-tool tests"
+      - "Confirm tools.py no longer imports or directly uses urllib"
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate the Goal Maker board"
+      - "Run one skeptical Codex peer gate with score >= 8"
+    stop_if:
+      - "Any public error, output, retry, byte limit, or diff/file fallback behavior changes."
+      - "The slice needs publisher, feedback, persistence, or deployment files."
+      - "Tests require a broad rewrite or focused verification fails twice for a non-mechanical reason."
     receipt: null
   - id: T999
     type: judge
@@ -304,12 +348,11 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-c34eb82"
+  dirty_fingerprint: "control-files-only-after-c59b6ac"
   last_verification:
     result: pass
-    task: T005
+    task: T006
     commands:
-      - "170 focused settings and consumer tests"
-      - "Strict Pyright and 467-test bundle"
-      - "Direct top-level import fallback smoke check"
-      - "Codex peer gate green at score 9"
+      - "Eight warning paths and 170 affected tests with ResourceWarnings enabled"
+      - "Strict Pyright and 468-test bundle with ResourceWarnings promoted to errors"
+      - "Codex peer gate green at score 8"

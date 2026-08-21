@@ -27,4 +27,4 @@ The first peer pass found that rejected candidates could bypass the successful-s
 
 ## Delivery
 
-Commit `19f73db15f2b5f8bb786e16c9cfcfcbcf5bc44bb` was pushed to `main`.
+Commit `19f73db6b51dfd52a7c6df6e9c77f9a6de5f21b9` was pushed to `main`.

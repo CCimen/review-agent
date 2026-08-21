@@ -36,7 +36,7 @@ continuity:
   completed_write_tasks_in_thread: 2
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-21T09:35:43Z"
-  last_verified_revision: "19f73db15f2b5f8bb786e16c9cfcfcbcf5bc44bb"
+  last_verified_revision: "19f73db6b51dfd52a7c6df6e9c77f9a6de5f21b9"
 
 active_task: T011
 
@@ -454,7 +454,7 @@ tasks:
       result: done
       note: "notes/T010-finding-memory-application.md"
       summary: "Moved historical context lookup, trusted finding persistence, and bounded optional suggestion selection into one typed application owner while preserving the tool and persistence contracts."
-      commit: "19f73db15f2b5f8bb786e16c9cfcfcbcf5bc44bb"
+      commit: "19f73db6b51dfd52a7c6df6e9c77f9a6de5f21b9"
       evidence:
         - "155 focused tests passed with ResourceWarnings promoted to errors"
         - "Strict Pyright and the 486-test bundle passed"
@@ -470,7 +470,7 @@ tasks:
     objective: "Audit the delivered finding-memory application slice and select the next maintainability-first owner task."
     inputs:
       - "T010 receipt and implementation note"
-      - "Published revision 19f73db15f2b5f8bb786e16c9cfcfcbcf5bc44bb"
+      - "Published revision 19f73db6b51dfd52a7c6df6e9c77f9a6de5f21b9"
       - "/Users/ccimen/Downloads/sundsvall-review-agent-maintainability-first-plan.md"
       - "/Users/ccimen/Downloads/sundsvall-general-review-agent-refactor-plan(2)(1).md"
     constraints:

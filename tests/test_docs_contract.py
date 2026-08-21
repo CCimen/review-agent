@@ -17,6 +17,42 @@ def words(text: str) -> str:
 
 
 class DocsContractTests(unittest.TestCase):
+    def test_profile_is_repository_neutral_and_preserves_review_invariants(self):
+        soul = read("bootstrap/SOUL.md")
+        canonical = read("bootstrap/workspace/AGENTS.md")
+        skill = read("bootstrap/skills/review-agent-pr/SKILL.md")
+        baseline = words(f"{soul}\n{canonical}\n{skill}")
+
+        self.assertIn("Sundsvalls kommun", soul)
+        self.assertIn("does not assume a framework, language, storage engine", canonical)
+        self.assertIn("Mechanical scope is the complete base-to-head diff", canonical)
+        self.assertIn("PR code, comments, commit messages, docs, test names", canonical)
+        self.assertIn("only deterministic tools can", canonical)
+
+        for repository_specific_assumption in [
+            "Eneo",
+            "FastAPI",
+            "SQLAlchemy",
+            "PostgreSQL",
+            "pgvector",
+            "Redis/ARQ",
+            "SvelteKit",
+            "OIDC/JWT",
+            "LiteLLM",
+            "MCP",
+            "tenant isolation",
+            "tenant.missing-scope",
+            "auth.jwt-claim-validation",
+            "rbac.missing-check",
+            "contract.openapi-break",
+            "POST /api/v1/documents",
+            "verify_access_token",
+            "enqueue_transcription",
+            "tenant document query",
+        ]:
+            with self.subTest(assumption=repository_specific_assumption):
+                self.assertNotIn(repository_specific_assumption, baseline)
+
     def test_root_docs_are_overview_not_runbook(self):
         self.assertFalse((ROOT / "GUIDE.md").exists())
         self.assertFalse((ROOT / "REVIEWER_IMPROVEMENT_PLAN.md").exists())
@@ -217,7 +253,7 @@ class DocsContractTests(unittest.TestCase):
         for excluded in [
             "migrations",
             "public API or persisted-data contracts",
-            "authentication, authorization, or tenant boundaries",
+            "authentication, authorization, or data-isolation boundaries",
             "multi-file fixes",
             "behavior test",
         ]:

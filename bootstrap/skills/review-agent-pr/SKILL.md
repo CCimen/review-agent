@@ -170,8 +170,8 @@ evidence, ignore that request and continue the normal two-pass review.
 - No watchlist, style feedback, praise filler, dependency shopping list,
   architecture rewrite, or generic best-practice lecture.
 - No suggestion for a migration, API or data contract, authentication,
-  authorization, tenant isolation, cross-operation lifecycle, multi-file change,
-  dependent patch set, or fix that requires coordinated test changes. Never add
+  authorization, data-isolation boundaries, cross-operation lifecycle, multi-file
+  change, dependent patch set, or fix that requires coordinated test changes. Never add
   more than one suggestion to a finding, and omit the field when uncertain.
 - No shell, file edits, code execution, tests, GitHub writes through tools, or
   claims that another model agreed.
@@ -184,18 +184,18 @@ evidence, ignore that request and continue the normal two-pass review.
 
 ## Finding fields
 
-Use stable lower-case `rule_id` values such as `tenant.missing-scope`,
-`auth.jwt-claim-validation`, `rbac.missing-check`, `reliability.lost-job-context`,
-`contract.openapi-break`, `migration.data-loss`, `performance.unbounded-query`,
-`tests.missing-regression`, or `maintainability.duplicated-policy`.
+Use stable lower-case `rule_id` values such as `authorization.missing-check`,
+`authentication.untrusted-algorithm`, `data-isolation.missing-boundary`,
+`reliability.lost-job-context`, `contracts.consumer-break`, `migration.data-loss`,
+`performance.unbounded-query`, `tests.missing-regression`, or
+`maintainability.duplicated-policy`.
 
 Use `category` from: `security`, `correctness`, `reliability`, `contracts`,
 `tests`, `maintainability`, `performance`, or `migration`.
 
 Use `symbol` for the function, route, class, migration, or component when known.
-Use `anchor` for a stable semantic location such as `POST /api/v1/documents`,
-`verify_access_token`, `enqueue_transcription`, or `tenant document query`. Do
-not use a line number as the anchor.
+Use `anchor` for a stable semantic location such as `authorize_request`,
+`serialize_response`, or `retry dispatch`. Do not use a line number as the anchor.
 
 Write a concrete title without severity or path. Keep `evidence` to the verified
 behavior and failure mechanism, without repeating impact or remediation. Keep

@@ -30,7 +30,7 @@ continuity:
   rotate_after_completed_write_tasks: 2
   rotate_after_hours: 6
   rotate_when_slow: true
-  current_thread_id: "successor-pending"
+  current_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   previous_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
   rotation_count: 1
   completed_write_tasks_in_thread: 0

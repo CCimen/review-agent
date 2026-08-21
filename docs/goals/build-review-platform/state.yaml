@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Audit full Python CI and freeze the PostgreSQL schema and transaction boundary."
+  tranche: "Audit the PostgreSQL runtime ownership and freeze the first cohesive persistence slice."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   rotation_count: 2
-  completed_write_tasks_in_thread: 3
+  completed_write_tasks_in_thread: 4
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-21T10:34:29Z"
-  last_verified_revision: "6baa7a8ef93fe18c2b4dfba02b459ef502358620"
+  last_verified_revision: "32fc5ded06b367c8ea0aaf0308744c64b785a74f"
 
-active_task: T018
+active_task: T019
 
 tasks:
   - id: T001
@@ -752,7 +752,7 @@ tasks:
   - id: T018
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add the forward-only PostgreSQL initial schema and real PostgreSQL contract tests without changing the current runtime."
     constraints:
@@ -803,11 +803,24 @@ tasks:
       - "The schema cannot represent current publication, feedback, verification, and coach behavior without changing observable behavior."
       - "A real pinned PostgreSQL test cannot run locally and in CI."
       - "Scope expands beyond DDL, its guarded test harness, CI wiring, and receipt."
-    receipt: null
+    receipt:
+      result: done
+      decision: "T018 is complete; pause implementation while the owner obtains an external architecture and roadmap review before the first PostgreSQL runtime slice."
+      summary: "Added the canonical forward-only multi-repository PostgreSQL schema, normalized file-read coverage, real PostgreSQL contract tests, CI integration, public milestone documentation, and recovery-before-cutover ordering without changing the active SQLite runtime."
+      implementation_revision: "32fc5ded06b367c8ea0aaf0308744c64b785a74f"
+      evidence:
+        - "The migration defines the current review, finding, publication, feedback, verification, coaching, and audit lifecycles without projects, jobs, outbox, roles, scanners, or runtime adapter machinery."
+        - "The real PostgreSQL 17 harness passed 12 tests, including repository isolation, composite-parent fences, normalized coverage, lifecycle failures, migration atomicity, and empty native deletion suggestions."
+        - "The strict canonical bundle passed 506 tests; container-only PostgreSQL tests were separately executed rather than counted as local skips."
+        - "Public docs contract, TypeScript type-check, Docusaurus build, route validation, Goal Maker validation, YAML parsing, and diff checks passed."
+        - "Skeptical gpt-5.6-sol xhigh peer session review-agent-t018-corrected-final was green at score 8 with no remaining findings."
+        - "Live Python bundle run 32492965527 and Publish documentation run 32492965461 completed successfully for the implementation revision."
+      spawned_tasks:
+        - T019
   - id: T019
     type: judge
     assignee: Judge
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Audit the initial PostgreSQL schema and freeze the first cohesive runtime-owner persistence slice before any PostgreSQL write."
     inputs:
@@ -851,13 +864,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-6baa7a8"
+  dirty_fingerprint: "control-files-only-after-32fc5de"
   last_verification:
     result: pass
-    task: T016
+    task: T018
     commands:
-      - "25 focused workflow and public documentation contract tests"
-      - "Python 3.11 strict Pyright and 493-test canonical bundle"
+      - "12 real PostgreSQL 17 schema-contract tests"
+      - "Python 3.11 strict Pyright and 506-test canonical bundle"
       - "Node 24 documentation type-check, production build, route checks, documentation checks, Goal Maker validation, YAML parsing, and diff checks"
-      - "Skeptical gpt-5.6-sol xhigh peer gate green at score 8"
-      - "Live Python bundle run 32478702720 and Publish documentation run 32478702712 green"
+      - "Skeptical gpt-5.6-sol xhigh peer gate green at score 8 with no remaining findings"
+      - "Live Python bundle run 32492965527 and Publish documentation run 32492965461 green"

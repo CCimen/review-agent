@@ -35,7 +35,7 @@ def run_input(
     candidates: tuple[memory_db.CoachCandidateInput, ...] = (candidate(),),
 ) -> memory_db.CoachRunInput:
     return memory_db.CoachRunInput(
-        repository="eneo-ai/eneo",
+        repository="example-org/example-repository",
         source_event_set_id=sha256_id("a"),
         source_snapshot_id=sha256_id("b"),
         proposal_set_id=sha256_id("c"),
@@ -91,9 +91,11 @@ class MemoryCoachTests(unittest.TestCase):
             self.connection, run_input(), now=second_time
         )
 
-        runs = memory_db.list_coach_runs(self.connection, repository="eneo-ai/eneo")
+        runs = memory_db.list_coach_runs(
+            self.connection, repository="example-org/example-repository"
+        )
         candidates = memory_db.list_coach_candidates(
-            self.connection, repository="eneo-ai/eneo"
+            self.connection, repository="example-org/example-repository"
         )
 
         self.assertEqual([run.id for run in runs], [second.id, first.id])
@@ -142,7 +144,7 @@ class MemoryCoachTests(unittest.TestCase):
             memory_db.record_coach_run(
                 self.connection,
                 memory_db.CoachRunInput(
-                    repository="eneo-ai/eneo",
+                    repository="example-org/example-repository",
                     source_event_set_id=sha256_id("a"),
                     source_snapshot_id=sha256_id("b"),
                     proposal_set_id="not-a-sha256-id",
@@ -157,7 +159,7 @@ class MemoryCoachTests(unittest.TestCase):
             memory_db.record_coach_run(
                 self.connection,
                 memory_db.CoachRunInput(
-                    repository="eneo-ai/eneo",
+                    repository="example-org/example-repository",
                     source_event_set_id="not-a-sha256-id",
                     source_snapshot_id=sha256_id("b"),
                     proposal_set_id=sha256_id("c"),
@@ -180,7 +182,7 @@ class MemoryCoachTests(unittest.TestCase):
                 INSERT INTO coach_runs (
                     repository, source_event_set_id, proposal_set_id, decision,
                     events_considered, candidates_count, recorded_at
-                ) VALUES ('eneo-ai/eneo', ?, ?, 'junk', 0, 0, '2026-06-24T00:00:00Z')
+                ) VALUES ('example-org/example-repository', ?, ?, 'junk', 0, 0, '2026-06-24T00:00:00Z')
                 """,
                 (sha256_id("d"), sha256_id("e")),
             )

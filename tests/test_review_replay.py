@@ -15,19 +15,19 @@ VALID_FIXTURE = """{
   "schema_version": 1,
   "id": "unit-fixture",
   "source": {
-    "repository": "eneo-ai/eneo",
-    "pull_request": 240,
-    "base_sha": "43edef11a5959162e98ba2fc9d06b2ccf940cf65",
-    "head_sha": "518cc8a235777527177a9097e5a6be191771cf83",
+    "repository": "example-org/example-repository",
+    "pull_request": 17,
+    "base_sha": "1111111111111111111111111111111111111111",
+    "head_sha": "2222222222222222222222222222222222222222",
     "trust": "human_confirmed"
   },
   "model_expectations": {
     "mode": "advisory",
     "required_root_causes": [
       {
-        "rule_id": "migration.ambiguous-model-resolution",
+        "rule_id": "reliability.stale-publication",
         "severity": {"highest_allowed": "High", "lowest_allowed": "High"},
-        "semantic_claim": "tenant mapping ignores provider identity"
+        "semantic_claim": "publication ignores a changed review snapshot"
       }
     ],
     "forbidden_root_causes": []
@@ -45,16 +45,10 @@ VALID_FIXTURE = """{
 
 
 class ReplayValidationTests(unittest.TestCase):
-    def test_repository_fixture_is_valid(self) -> None:
-        results = validate_replay_path(ROOT / "review-learning" / "replay")
+    def test_repository_ships_no_placeholder_replay_evidence(self) -> None:
+        fixtures = tuple((ROOT / "review-learning" / "replay").glob("*.json"))
 
-        self.assertEqual(
-            {result.fixture_id for result in results},
-            {
-                "pr-240-ambiguous-model-resolution",
-                "pr-638-lock-free-skill-preflight",
-            },
-        )
+        self.assertEqual(fixtures, ())
 
     def test_unknown_key_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -86,7 +80,7 @@ class ReplayValidationTests(unittest.TestCase):
             path = Path(temp) / "fixture.json"
             path.write_text(
                 VALID_FIXTURE.replace(
-                    '"base_sha": "43edef11a5959162e98ba2fc9d06b2ccf940cf65",',
+                    '"base_sha": "1111111111111111111111111111111111111111",',
                     "",
                 ),
                 encoding="utf-8",

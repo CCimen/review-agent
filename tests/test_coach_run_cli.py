@@ -19,36 +19,36 @@ import memory_db  # noqa: E402
 
 def seed_false_positives(db_path: Path) -> None:
     finding = {
-        "rule_id": "tenant.selector-scope",
+        "rule_id": "correctness.selector-context",
         "category": "correctness",
-        "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+        "path": "src/catalog/record_selector.py",
         "line": 42,
-        "symbol": "select_model",
-        "anchor": "select_model",
-        "title": "Tenant scope claim was wrong",
+        "symbol": "select_record",
+        "anchor": "select_record",
+        "title": "Selector context claim was wrong",
         "severity": "Medium",
         "publication_score": 7,
         "confidence": 0.9,
-        "evidence": "The reviewer assumed the selector ignores tenant scope.",
+        "evidence": "The reviewer assumed the selector ignores verified context.",
         "disproof_checks": "Checked the selector, but not its caller arguments.",
-        "impact": "The wrong model could be selected.",
-        "smallest_fix": "Bind the tenant in the selector.",
+        "impact": "The wrong record could be selected.",
+        "smallest_fix": "Bind verified context in the selector.",
         "introduced_by_diff": True,
     }
     with closing(memory_db.connect(str(db_path))) as connection:
-        for offset, pr_number in enumerate((240, 241), start=1):
+        for offset, pr_number in enumerate((17, 18), start=1):
             head_sha = f"{offset}" * 40
             base_sha = f"{offset + 2}" * 40
             run = memory_db.start_run(
                 connection,
-                "eneo-ai/eneo",
+                "example-org/example-repository",
                 pr_number,
                 base_sha=base_sha,
                 head_sha=head_sha,
             )
             recorded = memory_db.record_findings(
                 connection,
-                "eneo-ai/eneo",
+                "example-org/example-repository",
                 pr_number,
                 head_sha,
                 [finding],
@@ -84,7 +84,7 @@ class CoachRunCliTests(unittest.TestCase):
                     "--output-dir",
                     str(output_dir),
                     "--repo",
-                    "eneo-ai/eneo",
+                    "example-org/example-repository",
                 ],
                 cwd=ROOT,
                 check=True,
@@ -103,9 +103,11 @@ class CoachRunCliTests(unittest.TestCase):
                 self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
 
             with closing(memory_db.connect(str(db_path))) as connection:
-                runs = memory_db.list_coach_runs(connection, repository="eneo-ai/eneo")
+                runs = memory_db.list_coach_runs(
+                    connection, repository="example-org/example-repository"
+                )
                 candidates = memory_db.list_coach_candidates(
-                    connection, repository="eneo-ai/eneo"
+                    connection, repository="example-org/example-repository"
                 )
 
             self.assertEqual(len(runs), 1)

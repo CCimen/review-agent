@@ -22,20 +22,20 @@ def state_with_signals(reason: str = "Human confirmed this was wrong.") -> dict[
         "finding_observations": [
             {
                 "id": 11,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 240,
+                "repository": "example-org/example-repository",
+                "pr_number": 17,
                 "head_sha": "a" * 40,
                 "fingerprint": "abcdef1234567890",
-                "title": "All-tenant migration can choose the wrong model row",
-                "path": "backend/src/intric/sysadmin/sysadmin_router.py",
-                "evidence": "The reviewer assumed the default selector ignores tenant scope.",
+                "title": "Bulk migration can choose the wrong catalog record",
+                "path": "src/catalog/record_selector.py",
+                "evidence": "The reviewer assumed the selector ignores verified context.",
                 "disproof_checks": "Checked the selector, but not its caller arguments.",
             }
         ],
         "pr_finding_references": [
             {
-                "repository": "eneo-ai/eneo",
-                "pr_number": 240,
+                "repository": "example-org/example-repository",
+                "pr_number": 17,
                 "fingerprint": "abcdef1234567890",
                 "local_reference": "F1",
             }
@@ -61,11 +61,11 @@ def state_with_signals(reason: str = "Human confirmed this was wrong.") -> dict[
         "review_quality_feedback": [
             {
                 "id": 7,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 240,
+                "repository": "example-org/example-repository",
+                "pr_number": 17,
                 "local_reference": "F2",
                 "category": "missed_issue",
-                "reason": "Reviewer missed a tenant-boundary issue.",
+                "reason": "Reviewer missed an authorization-boundary issue.",
                 "actor_login": "carol",
                 "source_comment_url": "https://github.test/comment/7",
             }
@@ -77,7 +77,7 @@ class CoachExportTests(unittest.TestCase):
     def test_coach_export_is_incremental_and_allowlisted(self) -> None:
         payload = build_coach_export(
             state_with_signals(),
-            repository="eneo-ai/eneo",
+            repository="example-org/example-repository",
             after_decision_id=1,
             after_feedback_id=0,
         )
@@ -101,7 +101,7 @@ class CoachExportTests(unittest.TestCase):
         self.assertEqual(decision_event["source"]["observation_id"], 11)
         self.assertEqual(
             decision_event["reviewer_evidence_untrusted"],
-            "The reviewer assumed the default selector ignores tenant scope.",
+            "The reviewer assumed the selector ignores verified context.",
         )
         self.assertEqual(
             decision_event["reviewer_disproof_checks_untrusted"],
@@ -160,8 +160,12 @@ class CoachExportTests(unittest.TestCase):
             }
         )
 
-        first = build_coach_export(first_state, repository="eneo-ai/eneo")
-        second = build_coach_export(second_state, repository="eneo-ai/eneo")
+        first = build_coach_export(
+            first_state, repository="example-org/example-repository"
+        )
+        second = build_coach_export(
+            second_state, repository="example-org/example-repository"
+        )
 
         self.assertEqual(first["cursor"]["max_decision_id"], 2)
         self.assertEqual(second["cursor"]["max_decision_id"], 99)

@@ -1,12 +1,12 @@
-# Eneo reviewer learning pipeline
+# Review-agent learning pipeline
 
 This directory is for private, human-governed reviewer improvement work. It is
 not installed into the public webhook reviewer and it is not a policy source.
 
-The public `eneo-reviewer` profile stays locked down: `bootstrap/config.yaml`
+The public review-agent profile stays locked down: `bootstrap/config.yaml`
 disables local file access, shell/code execution, session search, web, memory
 writes, skill writes, and delegation. The reviewer writes bounded SQLite
-observations through the Eneo plugin. A private `eneo-review-coach` workflow may
+observations through the review plugin. A private review-coach workflow may
 read exported observations, propose improvements, and produce normal Git
 changes for humans to review.
 
@@ -18,7 +18,7 @@ only bounded private coach artifacts:
 ```bash
 review-agent-memory --db /opt/data/review-memory/review_memory.sqlite3 \
   coach-run \
-  --repo eneo-ai/eneo \
+  --repo Sundsvallskommun/example-repository \
   --output-dir /opt/data/review-memory/coach-run
 ```
 
@@ -44,7 +44,7 @@ Then generate a private candidate report from that export:
 ```bash
 review-agent-memory learning-report \
   --export /opt/data/review-memory/export.json \
-  --repo eneo-ai/eneo \
+  --repo Sundsvallskommun/example-repository \
   --output /opt/data/review-memory/learning-candidates.md
 ```
 
@@ -59,7 +59,7 @@ feeding raw exports or Markdown to an LLM:
 ```bash
 review-agent-memory coach-export \
   --export /opt/data/review-memory/export.json \
-  --repo eneo-ai/eneo \
+  --repo Sundsvallskommun/example-repository \
   --after-decision-id 0 \
   --after-feedback-id 0 \
   --output /opt/data/review-memory/coach-export.json
@@ -115,12 +115,14 @@ review-agent-memory validate-replay review-learning/replay
 
 Replay fixtures are strict JSON files. This keeps validation on the standard
 library path and fails loudly instead of silently accepting a partial YAML parse.
-Fixture validation checks structure only. Before marking a lesson
+The generic baseline intentionally ships without historical fixtures, so the
+bundle check reports a skip until one is added. Direct validation of an empty
+fixture directory still fails loudly. Fixture validation checks structure only.
+Before marking a lesson
 `replay-tested`, run the current reviewer policy blind against the exact
 historical base/head and retain a scrubbed, bounded execution receipt under
-`review-learning/reports/`. The PR 638 receipt demonstrates this distinction:
-the reviewer omitted the disproved lock claim while still returning unrelated
-findings from that historical snapshot.
+`review-learning/reports/`. A receipt must distinguish the expected replay claim
+from unrelated findings returned from the same historical snapshot.
 
 The report reads explicit human decisions and any populated
 `review_quality_feedback` rows. Empty review-quality sections mean no allowlisted

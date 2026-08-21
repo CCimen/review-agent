@@ -28,20 +28,20 @@ class VerificationExportTests(unittest.TestCase):
         self.db_path = str(Path(self.temp.name) / "memory.sqlite3")
         self.connection = memory_db.connect(self.db_path)
         self.finding = {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
-            "path": "backend/api/documents.py",
+            "path": "src/api/resources.py",
             "line": 42,
-            "symbol": "create_document",
-            "anchor": "POST /v1/documents",
-            "title": "Document creation omits tenant scope",
+            "symbol": "create_resource",
+            "anchor": "create resource",
+            "title": "Write operation omits authorization context",
             "severity": "High",
             "publication_score": 9,
             "confidence": 0.93,
-            "evidence": "The changed query writes a caller-controlled tenant id.",
+            "evidence": "The changed operation writes a caller-controlled scope identifier.",
             "disproof_checks": "Checked the dependency and repository layer.",
-            "impact": "Cross-tenant write.",
-            "smallest_fix": "Bind tenant_id from context.",
+            "impact": "A user can write outside the authorized scope.",
+            "smallest_fix": "Bind scope from verified request context.",
             "introduced_by_diff": True,
         }
 
@@ -52,7 +52,7 @@ class VerificationExportTests(unittest.TestCase):
     def generate_review(self) -> int:
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha="b" * 40,
             head_sha="a" * 40,
@@ -61,31 +61,31 @@ class VerificationExportTests(unittest.TestCase):
         memory_db.register_changed_files(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            files=[{"path": "backend/api/documents.py", "status": "modified"}],
+            files=[{"path": "src/api/resources.py", "status": "modified"}],
         )
         memory_db.record_diff_exposure(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            paths=["backend/api/documents.py"],
+            paths=["src/api/resources.py"],
             truncated=False,
         )
         memory_db.record_findings(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             [self.finding],
             review_run_id=run_id,
             base_sha="b" * 40,
-            context_hashes={"backend/api/documents.py": "d" * 40},
+            context_hashes={"src/api/resources.py": "d" * 40},
         )
         publication = memory_db.finalize_review(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             review_run_id=run_id,
@@ -93,7 +93,7 @@ class VerificationExportTests(unittest.TestCase):
         memory_db.complete_run(
             self.connection,
             run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             status="generated",
             findings_count=int(publication["findings_count"]),
@@ -143,7 +143,7 @@ class VerificationExportTests(unittest.TestCase):
                 category, reason, actor_user_id, actor_login, author_association,
                 source_comment_id, source_comment_url, created_at
             ) VALUES (
-                'eneo/platform', 17, 1, ?, 'F1', 'scope_confusion',
+                'example-org/example-repository', 17, 1, ?, 'F1', 'scope_confusion',
                 'reviewed inherited branch work', '123', 'alice',
                 'MEMBER', 999, 'https://github.test/private/comment', '2026-06-26T00:00:00Z'
             )
@@ -170,7 +170,7 @@ class VerificationExportTests(unittest.TestCase):
     def test_export_requires_a_generated_run_with_a_publication(self) -> None:
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha="b" * 40,
             head_sha="a" * 40,
@@ -190,7 +190,7 @@ class VerificationExportTests(unittest.TestCase):
     def test_export_source_requires_a_publication(self) -> None:
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha="b" * 40,
             head_sha="a" * 40,
@@ -199,7 +199,7 @@ class VerificationExportTests(unittest.TestCase):
         memory_db.complete_run(
             self.connection,
             run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             status="generated",
             findings_count=0,

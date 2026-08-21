@@ -19,21 +19,21 @@ def memory_export() -> dict[str, object]:
         "finding_observations": [
             {
                 "id": 11,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 240,
+                "repository": "example-org/example-repository",
+                "pr_number": 17,
                 "head_sha": "a" * 40,
                 "fingerprint": "abcdef1234567890",
-                "title": "Tenant scope claim was wrong",
-                "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+                "title": "Selector context claim was wrong",
+                "path": "src/catalog/record_selector.py",
             },
             {
                 "id": 22,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 241,
+                "repository": "example-org/example-repository",
+                "pr_number": 18,
                 "head_sha": "b" * 40,
                 "fingerprint": "abcdef1234567890",
-                "title": "Tenant scope claim was wrong",
-                "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+                "title": "Selector context claim was wrong",
+                "path": "src/catalog/record_selector.py",
             },
         ],
         "pr_finding_references": [],
@@ -43,14 +43,14 @@ def memory_export() -> dict[str, object]:
                 "fingerprint": "abcdef1234567890",
                 "observation_id": 11,
                 "decision": "false_positive",
-                "reason": "Existing guard disproves this in PR 240.",
+                "reason": "Existing guard disproves this in PR 17.",
             },
             {
                 "id": 2,
                 "fingerprint": "abcdef1234567890",
                 "observation_id": 22,
                 "decision": "false_positive",
-                "reason": "Existing guard disproves this in PR 241.",
+                "reason": "Existing guard disproves this in PR 18.",
             },
         ],
         "review_quality_feedback": [],
@@ -66,7 +66,7 @@ class CoachRunArtifactTests(unittest.TestCase):
             artifacts = build_coach_run_artifacts(
                 state=memory_export(),
                 output_dir=output_dir,
-                repository="eneo-ai/eneo",
+                repository="example-org/example-repository",
             )
 
             self.assertEqual(artifacts.bundle.decision, "propose")

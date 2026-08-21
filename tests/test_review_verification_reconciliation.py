@@ -17,20 +17,20 @@ class VerificationReconciliationTests(unittest.TestCase):
         self.db_path = str(Path(self.temp.name) / "memory.sqlite3")
         self.connection = memory_db.connect(self.db_path)
         self.finding = {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
-            "path": "backend/api/documents.py",
+            "path": "src/api/resources.py",
             "line": 42,
-            "symbol": "create_document",
-            "anchor": "POST /v1/documents:create",
-            "title": "Document creation omits tenant scope",
+            "symbol": "create_resource",
+            "anchor": "create resource",
+            "title": "Write operation omits authorization context",
             "severity": "High",
             "publication_score": 9,
             "confidence": 0.93,
-            "evidence": "The changed query writes a caller-controlled tenant identifier.",
+            "evidence": "The changed operation writes a caller-controlled scope identifier.",
             "disproof_checks": "Checked the dependency and repository layer.",
-            "impact": "A user can write into another tenant.",
-            "smallest_fix": "Bind tenant_id from the verified request context.",
+            "impact": "A user can write outside the authorized scope.",
+            "smallest_fix": "Bind scope from the verified request context.",
             "introduced_by_diff": True,
         }
 
@@ -41,7 +41,7 @@ class VerificationReconciliationTests(unittest.TestCase):
     def start_run(self, *, head_sha: str = "a" * 40) -> int:
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha="b" * 40,
             head_sha=head_sha,
@@ -53,7 +53,7 @@ class VerificationReconciliationTests(unittest.TestCase):
     ) -> dict[str, object]:
         return memory_db.record_findings(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha,
             [self.finding],
@@ -71,7 +71,7 @@ class VerificationReconciliationTests(unittest.TestCase):
     ) -> dict[str, object]:
         return memory_db.finalize_review(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha,
             review_run_id=run_id,
@@ -104,7 +104,7 @@ class VerificationReconciliationTests(unittest.TestCase):
             observation_id=int(recorded["observation_id"]),
             verdict="refuted",
             confidence=0.91,
-            counter_evidence="The route always binds tenant_id from request context.",
+            counter_evidence="The route always binds scope from verified request context.",
         )
 
         publication = self.finalize(run_id)
@@ -129,14 +129,14 @@ class VerificationReconciliationTests(unittest.TestCase):
             observation_id=int(recorded["observation_id"]),
             verdict="refuted",
             confidence=0.91,
-            counter_evidence="The route always binds tenant_id from request context.",
+            counter_evidence="The route always binds scope from verified request context.",
         )
         memory_db.record_candidate_reconciliation(
             self.connection,
             review_run_id=run_id,
             observation_id=int(recorded["observation_id"]),
             final_decision="drop",
-            reason="Codex verified the request-scoped tenant guard.",
+            reason="Codex verified the request-scoped authorization guard.",
             verification_run_id=int(verifier["id"]),
         )
 
@@ -168,7 +168,7 @@ class VerificationReconciliationTests(unittest.TestCase):
         memory_db.complete_run(
             self.connection,
             first_run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             findings_count=1,
         )
@@ -223,14 +223,14 @@ class VerificationReconciliationTests(unittest.TestCase):
         memory_db.complete_run(
             self.connection,
             second_run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             findings_count=0,
         )
         context = memory_db.memory_context(
             self.connection,
-            "eneo/platform",
-            ["backend/api/documents.py"],
+            "example-org/example-repository",
+            ["src/api/resources.py"],
             pr_number=17,
         )
         self.assertEqual(context["repeat_review_findings"], [])
@@ -287,7 +287,7 @@ class VerificationReconciliationTests(unittest.TestCase):
         publication = self.finalize(run_id)
         publications = memory_db.list_publications(
             self.connection,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
         )
 

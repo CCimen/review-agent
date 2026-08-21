@@ -41,7 +41,7 @@ def coach_export(events: list[dict[str, object]]) -> dict[str, object]:
         "snapshot_id": "sha256:snapshot",
         "event_set_id": "sha256:events",
         "schema_version": COACH_SCHEMA_VERSION,
-        "repository_untrusted": "eneo-ai/eneo",
+        "repository_untrusted": "example-org/example-repository",
         "cursor": {"after_decision_id": 0, "after_feedback_id": 0},
         "events": events,
     }
@@ -53,43 +53,43 @@ def learning_state() -> dict[str, object]:
         "finding_observations": [
             {
                 "id": 11,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 240,
+                "repository": "example-org/example-repository",
+                "pr_number": 17,
                 "head_sha": "a" * 40,
                 "fingerprint": "abcdef1234567890",
-                "title": "Tenant scope claim was wrong",
-                "path": "backend/src/intric/sysadmin/sysadmin_router.py",
-                "evidence": "The reviewer assumed the selector ignores tenant scope.",
+                "title": "Selector context claim was wrong",
+                "path": "src/catalog/record_selector.py",
+                "evidence": "The reviewer assumed the selector ignores verified context.",
                 "disproof_checks": "Checked the selector, but not its caller arguments.",
             },
             {
                 "id": 22,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 241,
+                "repository": "example-org/example-repository",
+                "pr_number": 18,
                 "head_sha": "b" * 40,
                 "fingerprint": "abcdef1234567890",
-                "title": "Tenant scope claim was wrong",
-                "path": "backend/src/intric/sysadmin/sysadmin_router.py",
-                "evidence": "The reviewer assumed the selector ignores tenant scope.",
+                "title": "Selector context claim was wrong",
+                "path": "src/catalog/record_selector.py",
+                "evidence": "The reviewer assumed the selector ignores verified context.",
                 "disproof_checks": "Checked the selector, but not its caller arguments.",
             },
             {
                 "id": 33,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 242,
+                "repository": "example-org/example-repository",
+                "pr_number": 19,
                 "head_sha": "c" * 40,
                 "fingerprint": "1111222233334444",
                 "title": "Finding was resolved",
-                "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+                "path": "src/catalog/record_selector.py",
             },
             {
                 "id": 44,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 243,
+                "repository": "example-org/example-repository",
+                "pr_number": 20,
                 "head_sha": "d" * 40,
                 "fingerprint": "9999000011112222",
                 "title": "Incomplete false positive",
-                "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+                "path": "src/catalog/record_selector.py",
             },
         ],
         "pr_finding_references": [],
@@ -99,14 +99,14 @@ def learning_state() -> dict[str, object]:
                 "fingerprint": "abcdef1234567890",
                 "observation_id": 11,
                 "decision": "false_positive",
-                "reason": "Existing guard disproves this in PR 240.",
+                "reason": "Existing guard disproves this in PR 17.",
             },
             {
                 "id": 2,
                 "fingerprint": "abcdef1234567890",
                 "observation_id": 22,
                 "decision": "false_positive",
-                "reason": "Existing guard disproves this in PR 241.",
+                "reason": "Existing guard disproves this in PR 18.",
             },
             {
                 "id": 3,
@@ -126,8 +126,8 @@ def learning_state() -> dict[str, object]:
         "review_quality_feedback": [
             {
                 "id": 7,
-                "repository": "eneo-ai/eneo",
-                "pr_number": 240,
+                "repository": "example-org/example-repository",
+                "pr_number": 17,
                 "local_reference": "F7",
                 "category": "unclear",
                 "reason": "The review was hard to act on.",
@@ -148,15 +148,15 @@ def maximal_proposal_bundle():
     return build_proposal(
         coach_export(
             [
-                event("decision:1", observation_id=11, pr_number=240),
-                event("decision:2", observation_id=22, pr_number=241),
+                event("decision:1", observation_id=11, pr_number=17),
+                event("decision:2", observation_id=22, pr_number=18),
                 event(
                     "decision:3",
                     event_type="accepted_risk",
                     route="exact_decision",
                     observation_id=33,
                     fingerprint="1111222233334444",
-                    pr_number=242,
+                    pr_number=19,
                 ),
                 event(
                     "decision:4",
@@ -165,7 +165,7 @@ def maximal_proposal_bundle():
                     group="positive_pattern",
                     observation_id=44,
                     fingerprint="5555666677778888",
-                    pr_number=243,
+                    pr_number=20,
                 ),
             ]
         )
@@ -180,7 +180,7 @@ def event(
     group: str = "decision_candidate",
     observation_id: int | None = 1,
     fingerprint: str = "abcdef1234567890",
-    pr_number: int = 240,
+    pr_number: int = 17,
 ) -> dict[str, object]:
     return {
         "event_id": event_id,
@@ -191,13 +191,13 @@ def event(
         "promotion_eligible": True,
         "missing_evidence": [],
         "human_reason_untrusted": "Reviewer marked this as a false positive.",
-        "reviewer_title_untrusted": "Tenant scope claim was wrong",
-        "reviewer_evidence_untrusted": "The reviewer assumed the selector ignores tenant scope.",
+        "reviewer_title_untrusted": "Selector context claim was wrong",
+        "reviewer_evidence_untrusted": "The reviewer assumed the selector ignores verified context.",
         "reviewer_disproof_checks_untrusted": "Checked the selector, but not its caller arguments.",
         "next_step_untrusted": "Add replay before changing policy.",
         "related_event_ids": [event_id],
         "source": {
-            "repository_untrusted": "eneo-ai/eneo",
+            "repository_untrusted": "example-org/example-repository",
             "pr_number": pr_number,
             "fingerprint": fingerprint,
             "observation_id": observation_id,
@@ -217,7 +217,7 @@ class CoachProposalTests(unittest.TestCase):
     def test_emitted_learning_and_coach_vocabularies_build_proposals(self) -> None:
         payload = build_coach_export(
             learning_state(),
-            repository="eneo-ai/eneo",
+            repository="example-org/example-repository",
             include_incomplete=True,
         )
         events = payload["events"]
@@ -265,8 +265,8 @@ class CoachProposalTests(unittest.TestCase):
         bundle = proposal_json(
             coach_export(
                 [
-                    event("decision:1", observation_id=11, pr_number=240),
-                    event("decision:2", observation_id=22, pr_number=241),
+                    event("decision:1", observation_id=11, pr_number=17),
+                    event("decision:2", observation_id=22, pr_number=18),
                 ]
             )
         )
@@ -282,7 +282,7 @@ class CoachProposalTests(unittest.TestCase):
         first_evidence = candidate["evidence"][0]
         self.assertEqual(
             first_evidence["reviewer_evidence_untrusted"],
-            "The reviewer assumed the selector ignores tenant scope.",
+            "The reviewer assumed the selector ignores verified context.",
         )
         self.assertEqual(
             first_evidence["reviewer_disproof_checks_untrusted"],
@@ -293,8 +293,8 @@ class CoachProposalTests(unittest.TestCase):
             build_proposal(
                 coach_export(
                     [
-                        event("decision:1", observation_id=11, pr_number=240),
-                        event("decision:2", observation_id=22, pr_number=241),
+                        event("decision:1", observation_id=11, pr_number=17),
+                        event("decision:2", observation_id=22, pr_number=18),
                     ]
                 )
             )
@@ -346,14 +346,14 @@ class CoachProposalTests(unittest.TestCase):
                         event_type="accepted_risk",
                         route="exact_decision",
                         observation_id=99,
-                        pr_number=240,
+                        pr_number=17,
                     ),
                     event(
                         "decision:10",
                         event_type="accepted_risk",
                         route="exact_decision",
                         observation_id=100,
-                        pr_number=241,
+                        pr_number=18,
                     ),
                 ]
             )
@@ -456,7 +456,7 @@ class CoachProposalTests(unittest.TestCase):
                     event(
                         f"decision:{index}",
                         observation_id=index,
-                        pr_number=240 + index,
+                        pr_number=17 + index,
                     )
                     for index in range(1, 8)
                 ]
@@ -522,7 +522,7 @@ class CoachProposalTests(unittest.TestCase):
             proposal_json(coach_export([bad_title]))
 
         bad_pr = event("decision:2")
-        bad_pr["source"]["pr_number"] = "240"
+        bad_pr["source"]["pr_number"] = "17"
         with self.assertRaisesRegex(ValueError, "pr_number must be an integer"):
             proposal_json(coach_export([bad_pr]))
 
@@ -574,14 +574,14 @@ class CoachProposalTests(unittest.TestCase):
 
     def test_proposal_set_id_is_stable_for_equivalent_evidence(self) -> None:
         events = [
-            event("decision:1", observation_id=11, pr_number=240),
-            event("decision:2", observation_id=22, pr_number=241),
+            event("decision:1", observation_id=11, pr_number=17),
+            event("decision:2", observation_id=22, pr_number=18),
         ]
         first = proposal_json(coach_export(events))
         second_export = coach_export(
             [
-                event("decision:1", observation_id=11, pr_number=240),
-                event("decision:2", observation_id=22, pr_number=241),
+                event("decision:1", observation_id=11, pr_number=17),
+                event("decision:2", observation_id=22, pr_number=18),
             ]
         )
         second_export["snapshot_id"] = "sha256:different-snapshot"
@@ -719,8 +719,8 @@ class CoachProposalTests(unittest.TestCase):
                         load_proposal_bundle(path)
 
     def test_proposal_parser_round_trips_null_optional_evidence_fields(self) -> None:
-        first = event("decision:1", observation_id=11, pr_number=240)
-        second = event("decision:2", observation_id=22, pr_number=241)
+        first = event("decision:1", observation_id=11, pr_number=17)
+        second = event("decision:2", observation_id=22, pr_number=18)
         first["source"]["pr_number"] = None
         first["source"]["observation_id"] = None
         second["source"]["pr_number"] = None
@@ -775,8 +775,8 @@ class CoachProposalTests(unittest.TestCase):
                 json.dumps(
                     coach_export(
                         [
-                            event("decision:1", observation_id=11, pr_number=240),
-                            event("decision:2", observation_id=22, pr_number=241),
+                            event("decision:1", observation_id=11, pr_number=17),
+                            event("decision:2", observation_id=22, pr_number=18),
                         ]
                     )
                 ),

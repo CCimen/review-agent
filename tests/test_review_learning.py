@@ -45,11 +45,11 @@ def state_with(
 def finding(**overrides: object) -> dict[str, object]:
     base: dict[str, object] = {
         "fingerprint": "abcdef1234567890",
-        "repository": "eneo-ai/eneo",
-        "pr_number": 240,
-        "rule_id": "migration.model-identity",
-        "title": "All-tenant migration can choose the wrong model row",
-        "path": "backend/src/intric/sysadmin/sysadmin_router.py",
+        "repository": "example-org/example-repository",
+        "pr_number": 17,
+        "rule_id": "migration.record-identity",
+        "title": "Bulk migration can choose the wrong catalog record",
+        "path": "src/catalog/record_selector.py",
         "severity": "High",
         "category": "security",
     }
@@ -71,8 +71,8 @@ def observation(**overrides: object) -> dict[str, object]:
 
 def reference(**overrides: object) -> dict[str, object]:
     base: dict[str, object] = {
-        "repository": "eneo-ai/eneo",
-        "pr_number": 240,
+        "repository": "example-org/example-repository",
+        "pr_number": 17,
         "fingerprint": "abcdef1234567890",
         "local_reference": "F1",
     }
@@ -91,11 +91,11 @@ class ReviewLearningReportTests(unittest.TestCase):
                         "fingerprint": "abcdef1234567890",
                         "observation_id": 1,
                         "decision": "false_positive",
-                        "reason": "Repository is already tenant-scoped before this query.",
+                        "reason": "Repository already applies verified scope before this query.",
                     }
                 ],
             ),
-            repository="eneo-ai/eneo",
+            repository="example-org/example-repository",
         )
 
         self.assertEqual(len(report.decision_candidates), 1)
@@ -107,7 +107,7 @@ class ReviewLearningReportTests(unittest.TestCase):
         self.assertEqual(candidate.local_reference, "F1")
         markdown = render_markdown(report)
         self.assertIn("## Decision candidates", markdown)
-        self.assertIn("D1: All-tenant migration", markdown)
+        self.assertIn("D1: Bulk migration", markdown)
         self.assertIn("false_positive", markdown)
 
     def test_resolved_decision_is_positive_pattern_not_policy_candidate(self) -> None:
@@ -143,11 +143,11 @@ class ReviewLearningReportTests(unittest.TestCase):
                 ],
                 feedback=[
                     {
-                        "repository": "eneo-ai/eneo",
-                        "pr_number": 240,
+                        "repository": "example-org/example-repository",
+                        "pr_number": 17,
                         "local_reference": "F2",
                         "category": "missed_issue",
-                        "reason": "The review missed a tenant-boundary regression.",
+                        "reason": "The review missed an authorization-boundary regression.",
                     }
                 ],
             )
@@ -330,8 +330,8 @@ class ReviewLearningReportTests(unittest.TestCase):
                 ],
                 feedback=[
                     {
-                        "repository": "eneo-ai/eneo",
-                        "pr_number": 240,
+                        "repository": "example-org/example-repository",
+                        "pr_number": 17,
                         "category": "too_many_widgets",
                         "reason": "",
                     }
@@ -389,32 +389,32 @@ class ReviewLearningReportTests(unittest.TestCase):
             connection = memory_db.connect(str(Path(temp) / "memory.sqlite3"))
             try:
                 finding_payload = {
-                    "rule_id": "tenant.missing-scope",
+                    "rule_id": "authorization.missing-context",
                     "category": "security",
-                    "path": "backend/api/documents.py",
+                    "path": "src/api/resources.py",
                     "line": 42,
-                    "symbol": "create_document",
-                    "anchor": "POST /v1/documents",
-                    "title": "Document creation omits tenant scope",
+                    "symbol": "create_resource",
+                    "anchor": "create resource",
+                    "title": "Write operation omits authorization context",
                     "severity": "High",
                     "publication_score": 9,
                     "confidence": 0.93,
-                    "evidence": "Tenant guard is missing.",
+                    "evidence": "The authorization guard is missing.",
                     "disproof_checks": "Checked repository construction.",
-                    "impact": "Cross-tenant write.",
-                    "smallest_fix": "Bind tenant_id from context.",
+                    "impact": "A user can write outside the authorized scope.",
+                    "smallest_fix": "Bind scope from verified request context.",
                     "introduced_by_diff": True,
                 }
                 first_run = memory_db.start_run(
                     connection,
-                    "eneo-ai/eneo",
+                    "example-org/example-repository",
                     17,
                     base_sha="b" * 40,
                     head_sha="a" * 40,
                 )
                 first = memory_db.record_findings(
                     connection,
-                    "eneo-ai/eneo",
+                    "example-org/example-repository",
                     17,
                     "a" * 40,
                     [finding_payload],
@@ -426,20 +426,20 @@ class ReviewLearningReportTests(unittest.TestCase):
                     connection,
                     first["fingerprint"],
                     "false_positive",
-                    "Existing repository constructor binds tenant scope.",
+                    "Existing repository constructor binds verified scope.",
                     "github:alice",
                     latest=True,
                 )
                 second_run = memory_db.start_run(
                     connection,
-                    "eneo-ai/eneo",
+                    "example-org/example-repository",
                     99,
                     base_sha="a" * 40,
                     head_sha="b" * 40,
                 )
                 memory_db.record_findings(
                     connection,
-                    "eneo-ai/eneo",
+                    "example-org/example-repository",
                     99,
                     "b" * 40,
                     [finding_payload],
@@ -459,8 +459,8 @@ class ReviewLearningReportTests(unittest.TestCase):
         assert candidate.provenance is not None
         self.assertEqual(candidate.provenance.observation_id, first["observation_id"])
         markdown = render_markdown(report)
-        self.assertIn("eneo-ai/eneo #17", markdown)
-        self.assertNotIn("eneo-ai/eneo #99", markdown)
+        self.assertIn("example-org/example-repository #17", markdown)
+        self.assertNotIn("example-org/example-repository #99", markdown)
 
 
 if __name__ == "__main__":

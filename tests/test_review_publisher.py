@@ -1263,6 +1263,13 @@ class ReviewPublisherTests(unittest.TestCase):
         self,
     ) -> None:
         authorizations: list[str] = []
+        read_error = urllib.error.HTTPError(
+            "https://api.github.com/x",
+            403,
+            "Resource not accessible by personal access token",
+            {},
+            None,
+        )
 
         def fake_urlopen(
             request: urllib.request.Request, timeout: int
@@ -1271,13 +1278,7 @@ class ReviewPublisherTests(unittest.TestCase):
             authorization = request.get_header("Authorization", "")
             authorizations.append(authorization)
             if authorization == "Bearer read-token":
-                raise urllib.error.HTTPError(
-                    request.full_url,
-                    403,
-                    "Resource not accessible by personal access token",
-                    {},
-                    None,
-                )
+                raise read_error
             return FakeHTTPResponse(
                 {
                     "state": "open",
@@ -1295,6 +1296,7 @@ class ReviewPublisherTests(unittest.TestCase):
 
         self.assertEqual(pull.state, "open")
         self.assertEqual(authorizations, ["Bearer read-token", "Bearer write-token"])
+        self.assertTrue(read_error.closed)
 
     def test_http_gateway_reports_endpoint_specific_write_403(self) -> None:
         def fake_urlopen(
@@ -1475,6 +1477,13 @@ class ReviewPublisherTests(unittest.TestCase):
 
     def test_http_gateway_does_not_retry_non_idempotent_review_post(self) -> None:
         attempts = 0
+        terminal = urllib.error.HTTPError(
+            "https://api.github.com/x",
+            502,
+            "ambiguous gateway failure",
+            {},
+            None,
+        )
 
         def fake_urlopen(
             request: urllib.request.Request, timeout: int
@@ -1482,13 +1491,7 @@ class ReviewPublisherTests(unittest.TestCase):
             nonlocal attempts
             del timeout
             attempts += 1
-            raise urllib.error.HTTPError(
-                request.full_url,
-                502,
-                "ambiguous gateway failure",
-                {},
-                None,
-            )
+            raise terminal
 
         gateway = review_publisher.GitHubIssueCommentGateway("write-token")
         with mock.patch("urllib.request.urlopen", fake_urlopen):
@@ -1513,6 +1516,7 @@ class ReviewPublisherTests(unittest.TestCase):
             error.exception.code,
             "github_http_502_create_pull_request_review",
         )
+        self.assertTrue(terminal.closed)
 
     def test_http_gateway_preserves_review_operation_on_url_error(self) -> None:
         attempts = 0
@@ -1612,18 +1616,19 @@ class ReviewPublisherTests(unittest.TestCase):
             (422, "github_http_422_create_pull_request_review"),
         ):
             with self.subTest(status=status):
+                terminal = urllib.error.HTTPError(
+                    "https://api.github.com/x",
+                    status,
+                    "review creation failed",
+                    {},
+                    None,
+                )
 
                 def fake_urlopen(
                     request: urllib.request.Request, timeout: int
                 ) -> FakeHTTPResponse:
                     del timeout
-                    raise urllib.error.HTTPError(
-                        request.full_url,
-                        status,
-                        "review creation failed",
-                        {},
-                        None,
-                    )
+                    raise terminal
 
                 gateway = review_publisher.GitHubIssueCommentGateway("write-token")
                 with mock.patch("urllib.request.urlopen", fake_urlopen):
@@ -1647,6 +1652,7 @@ class ReviewPublisherTests(unittest.TestCase):
                             ],
                         )
                 self.assertEqual(error.exception.code, expected_code)
+                self.assertTrue(terminal.closed)
 
 
 if __name__ == "__main__":

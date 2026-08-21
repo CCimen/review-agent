@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
 
@@ -376,7 +377,7 @@ class ReviewRunsTests(unittest.TestCase):
 
     def test_runs_cli_reports_schema_mismatch_without_traceback(self):
         self.connection.close()
-        with sqlite3.connect(str(self.db_path)) as connection:
+        with closing(sqlite3.connect(str(self.db_path))) as connection:
             connection.execute("PRAGMA user_version = 6")
 
         completed = subprocess.run(

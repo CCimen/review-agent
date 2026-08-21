@@ -190,6 +190,7 @@ def _request(
                 }
                 return data, truncated, response_headers
         except urllib.error.HTTPError as exc:
+            exc.close()
             if exc.code in _RETRYABLE_STATUS and attempt + 1 < _MAX_ATTEMPTS:
                 time.sleep(0.5 * (attempt + 1))
                 continue

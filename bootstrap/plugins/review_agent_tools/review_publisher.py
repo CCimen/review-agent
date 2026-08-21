@@ -343,6 +343,7 @@ class GitHubIssueCommentGateway:
                 with urllib.request.urlopen(request, timeout=30) as response:
                     data = response.read(max_bytes + 1)
             except urllib.error.HTTPError as exc:
+                exc.close()
                 if (
                     method in _RETRYABLE_METHODS
                     and exc.code in _RETRYABLE_STATUS

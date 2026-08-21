@@ -1323,14 +1323,19 @@ class ToolValidationTests(unittest.TestCase):
         }
 
     def test_request_retries_transient_5xx_then_succeeds(self):
+        transient = self._http_error(502)
         with (
             patch.object(tools.time, "sleep"),
-            patch("urllib.request.urlopen", side_effect=[self._http_error(502), _FakeResponse(b'{"ok":true}')]) as opener,
+            patch(
+                "urllib.request.urlopen",
+                side_effect=[transient, _FakeResponse(b'{"ok":true}')],
+            ) as opener,
         ):
             data, truncated, _ = tools._request("/repos/sundsvallskommun/example-repository/pulls/1")
         self.assertEqual(opener.call_count, 2)
         self.assertEqual(data, b'{"ok":true}')
         self.assertFalse(truncated)
+        self.assertTrue(transient.closed)
 
     def test_request_uses_only_a_non_blank_read_token(self):
         authorizations = []
@@ -1352,10 +1357,12 @@ class ToolValidationTests(unittest.TestCase):
         self.assertEqual(authorizations, ["Bearer read-token", None])
 
     def test_request_does_not_retry_4xx(self):
-        with patch("urllib.request.urlopen", side_effect=self._http_error(404)) as opener:
+        terminal = self._http_error(404)
+        with patch("urllib.request.urlopen", side_effect=terminal) as opener:
             with self.assertRaises(tools.NotFoundError):
                 tools._request("/repos/sundsvallskommun/example-repository/pulls/1")
         self.assertEqual(opener.call_count, 1)
+        self.assertTrue(terminal.closed)
 
     def test_request_does_not_retry_generic_urlerror(self):
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")) as opener:

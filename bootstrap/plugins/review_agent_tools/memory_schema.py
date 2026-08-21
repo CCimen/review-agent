@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -123,7 +124,7 @@ def verify_schema(connection: sqlite3.Connection) -> None:
 
 def verify_database_ready(explicit: str | None = None) -> dict[str, object]:
     path = database_path(explicit)
-    with connect_existing(explicit) as connection:
+    with closing(connect_existing(explicit)) as connection:
         connection.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()
         connection.execute("BEGIN IMMEDIATE")
         connection.rollback()

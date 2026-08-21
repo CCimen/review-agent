@@ -47,6 +47,15 @@ class ReviewMemoryTests(unittest.TestCase):
         self.connection.close()
         self.temp.cleanup()
 
+    def test_database_readiness_closes_its_connection(self):
+        owned = memory_schema.connect_existing(self.db)
+        with patch.object(memory_schema, "connect_existing", return_value=owned):
+            readiness = memory_schema.verify_database_ready(self.db)
+
+        self.assertEqual(readiness["schema_version"], memory_schema.SCHEMA_VERSION)
+        with self.assertRaises(sqlite3.ProgrammingError):
+            owned.execute("SELECT 1")
+
     def run_for(
         self,
         *,

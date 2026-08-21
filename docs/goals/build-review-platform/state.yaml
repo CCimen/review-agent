@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Consolidate the fixed Sundsvall Hermes profile into one canonical source bundle."
+  tranche: "Audit the fixed Sundsvall profile bundle and select the next non-deferred maintainability slice."
   status: active
 
 rules:
@@ -27,18 +27,18 @@ agents:
 continuity:
   rotate_threads: true
   rotation_authorized_by: "Repository owner: continue without stopping and use read-only subagents where useful."
-  rotate_after_completed_write_tasks: 2
+  rotate_after_completed_write_tasks: 4
   rotate_after_hours: 6
   rotate_when_slow: true
   current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   rotation_count: 2
-  completed_write_tasks_in_thread: 0
+  completed_write_tasks_in_thread: 1
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-21T10:34:29Z"
-  last_verified_revision: "19f73db6b51dfd52a7c6df6e9c77f9a6de5f21b9"
+  last_verified_revision: "a4b9ed462f392e6d010fd52d25044f1145f010f3"
 
-active_task: T012
+active_task: T013
 
 tasks:
   - id: T001
@@ -496,7 +496,7 @@ tasks:
   - id: T012
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Consolidate the existing managed Hermes identity, review contract, and review skills into one fixed bootstrap/profiles/sundsvall-standard/ source bundle without changing installed behavior."
     constraints:
@@ -535,6 +535,37 @@ tasks:
       - "Installed paths, config precedence, preserve/force behavior, plugin enablement, database initialization, model, or tool permissions change."
       - "The slice requires a profile selector, manifest/schema, compatibility alias, runtime plugin change, Compose/workflow change, or files beyond the allowed scope."
       - "Focused verification fails twice for a non-mechanical reason."
+    receipt:
+      result: done
+      summary: "Moved the fixed identity, review contract, and two review skills byte-for-byte into one Sundsvall profile source bundle while preserving installed destinations and installer behavior."
+      commit: "a4b9ed462f392e6d010fd52d25044f1145f010f3"
+      evidence:
+        - "Six profile assets are 100% renames with byte-identical base-revision blobs"
+        - "Installer coverage passed for repeat install, preserve/force flags, config merge, plugin copy, and skip-enable behavior"
+        - "40 focused tests, strict Pyright, docs checks, and the 489-test bundle passed"
+        - "Skeptical gpt-5.6-sol xhigh peer gate green at score 8 with no findings"
+        - "Owner-authorized scope correction updated only stale paths in review-learning/README.md and THIRD_PARTY_NOTICES.md"
+      spawned_tasks:
+        - T013
+  - id: T013
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Audit the fixed Sundsvall profile-bundle extraction and select the next non-deferred maintainability-first owner task."
+    inputs:
+      - "T012 receipt and implementation revision a4b9ed462f392e6d010fd52d25044f1145f010f3"
+      - "/Users/ccimen/Downloads/sundsvall-review-agent-maintainability-first-plan.md"
+      - "/Users/ccimen/Downloads/sundsvall-general-review-agent-refactor-plan(2)(1).md"
+    constraints:
+      - "Read-only; do not implement."
+      - "Audit byte identity, installed destinations, installer flags, canonical source ownership, documentation truth, and proportional tests."
+      - "Select the next task from current source evidence, not the proposed directory tree alone."
+      - "Keep publication, trusted project context/policy overlays, scanners/Codex Security, PostgreSQL, jobs, GitHub App, and feedback deferred."
+    expected_output:
+      - "T012 complete | not complete"
+      - "Missing evidence or direct blockers"
+      - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
     receipt: null
   - id: T999
     type: judge
@@ -557,12 +588,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-19f73db"
+  dirty_fingerprint: "control-files-only-after-a4b9ed4"
   last_verification:
     result: pass
-    task: T011
+    task: T012
     commands:
-      - "155 focused tests with ResourceWarnings promoted to errors"
-      - "Strict Pyright and 486-test bundle"
-      - "Goal Maker validation and git diff check"
-      - "Read-only owner, invariant, and deferred-scope audit"
+      - "40 focused tests with ResourceWarnings promoted to errors"
+      - "Documentation contract and strict Pyright"
+      - "489-test bundle, replay policy, and YAML validation"
+      - "Six byte-identical asset comparisons and obsolete-path search"
+      - "Skeptical gpt-5.6-sol xhigh peer gate green at score 8"

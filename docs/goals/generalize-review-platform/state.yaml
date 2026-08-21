@@ -33,12 +33,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 6
+  completed_write_tasks_in_thread: 7
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "99332e6"
+  last_verified_revision: "b5753c9"
 
-active_task: T009
+active_task: T010
 
 tasks:
   - id: T000
@@ -503,7 +503,7 @@ tasks:
   - id: T009
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Remove remaining Eneo identity from private learning and coach tools, documentation headings, and replay fixtures while preserving the replay validator and human-governed learning behavior."
     constraints:
@@ -526,10 +526,39 @@ tasks:
       - "The cleanup requires a learning-governance, promotion-threshold, public/private-boundary, database-schema, or runtime-review behavior change."
       - "A neutral fixture cannot preserve the current structural replay validator contract without inventing new behavior."
       - "A focused verification fails twice for a non-mechanical reason."
+    receipt:
+      result: done
+      summary: "Removed inherited Eneo product stories and historical replay evidence from the private learning surface, kept the structural validator strict, and made the bundle report an honest skip until human-confirmed replay evidence exists."
+      revision: "b5753c9"
+      changed_files:
+        - "Private learning documentation and neutral coach/verification test narratives"
+        - "Replay evidence inventory and historical Eneo report removal"
+        - "Bundle handling for an intentionally empty historical replay inventory"
+      commands:
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest -v focused coach, learning, replay, export, and verification modules"
+          status: pass
+          result: "80 tests"
+        - cmd: "direct replay validator against an empty temporary directory"
+          status: pass
+          result: "remains fail-closed; no synthetic evidence was added"
+        - cmd: "private learning semantic identity and inherited-product-story scan"
+          status: pass
+          result: "no matches in the scoped active surface"
+        - cmd: "pyright -p ."
+          status: pass
+          result: "0 errors and 0 warnings"
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          result: "461 tests, explicit no-historical-fixture skip, strict Pyright, and YAML"
+        - cmd: "codex-peer-loop commit gate"
+          status: pass
+          result: "green, 9/10, after removing disguised inherited stories and synthetic human-confirmed evidence"
+        - cmd: "git push origin main"
+          status: pass
   - id: T010
     type: scout
     assignee: Scout
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Map reusable frontend review conventions from Sundsvalls kommun's maintained starter and shared-component repositories for a later policy/profile slice."
     inputs:
@@ -568,12 +597,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "T008-receipt-uncommitted"
+  dirty_fingerprint: "T009-receipt-uncommitted"
   last_verification:
     result: pass
-    task: T008
+    task: T009
     commands:
       - "./scripts/check_bundle.sh"
       - "pyright -p ."
-      - "focused documentation-contract tests"
-      - "retired profile, stack, and procedural-example scans"
+      - "focused coach, learning, replay, export, and verification tests"
+      - "private learning semantic identity and inherited-product-story scan"

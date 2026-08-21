@@ -1,4 +1,15 @@
+---
+sidebar_label: Operations
+slug: /operations
+title: Operations
+status: current
+last_verified: 2026-08-21
+---
+
 # Operations
+
+> **Current** — These instructions describe the current PAT, GitHub Actions,
+> Docker/Dokploy, and SQLite deployment.
 
 This document owns setup, configuration, deployment, recovery, and operator
 commands for the Hermes GitHub PR review agent.
@@ -426,12 +437,12 @@ or repository text, so scrub them before committing or sharing.
 
 ## Updating And Validation
 
-`HERMES_IMAGE` is pinned to the Hermes 0.20.0 release tag and its immutable
+`HERMES_IMAGE` is pinned to the Hermes v2026.8.3 release tag and its immutable
 multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency
 bump. Never replace this with the moving `latest` or `main` tag.
 
-Hermes 0.20.0 supports GPT-5.6 throughout its model configuration and picker.
+Hermes v2026.8.3 supports the managed GPT-5.6 model configuration used here.
 The managed profile still configures `gpt-5.6-sol` directly so deployment does
 not depend on an interactive picker. A controlled review after deployment is
 the final proof that the subscription is entitled to the model and the OAuth

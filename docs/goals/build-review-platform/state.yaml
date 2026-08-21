@@ -1,0 +1,227 @@
+# Goal Maker v2 state.yaml
+# Board truth lives here. goal.md is the editable charter; notes/ holds long receipts only.
+
+version: 2
+
+goal:
+  title: "Build the Sundsvall review platform"
+  slug: "build-review-platform"
+  kind: open_ended
+  tranche: "Ship and audit the Docusaurus GitHub Pages documentation site, then select the first maintainability-first architecture slice."
+  status: active
+
+rules:
+  pm_owns_state: true
+  one_active_task: true
+  max_write_workers: 1
+  no_implementation_without_worker_or_pm_task: true
+  no_completion_without_judge_or_pm_audit: true
+  planning_is_not_completion: true
+  queued_required_worker_blocks_completion: true
+
+agents:
+  scout: installed
+  worker: installed
+  judge: installed
+
+continuity:
+  rotate_threads: true
+  rotation_authorized_by: "Repository owner: continue without stopping and use read-only subagents where useful."
+  rotate_after_completed_write_tasks: 2
+  rotate_after_hours: 6
+  rotate_when_slow: true
+  current_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
+  previous_thread_id: null
+  rotation_count: 0
+  completed_write_tasks_in_thread: 0
+  handoff_note: notes/handoff.md
+  last_handoff_at: null
+  last_verified_revision: "854fd7a3990e1a4e2d2a3ca2e9a813bb082d282d"
+
+active_task: T003
+
+tasks:
+  - id: T001
+    type: scout
+    assignee: Scout
+    status: done
+    reasoning_hint: high
+    objective: "Map the current documentation, product truth, Sundsvall visual evidence, Docusaurus/GitHub Pages integration, and the smallest complete documentation-site slice."
+    inputs:
+      - README.md
+      - docs/OPERATIONS.md
+      - docs/SECURITY.md
+      - review-learning/README.md
+      - bootstrap/SOUL.md
+      - bootstrap/workspace/AGENTS.md
+      - bootstrap/skills/review-agent-pr/SKILL.md
+      - docs/goals/generalize-review-platform/notes/T010-frontend-conventions.md
+      - /Users/ccimen/Downloads/sundsvall-review-agent-maintainability-first-plan.md
+      - /Users/ccimen/Downloads/sundsvall-general-review-agent-refactor-plan(2)(1).md
+    constraints:
+      - "Read-only. Subagents must not edit files."
+      - "Separate current behavior from target architecture and roadmap."
+      - "Do not make a repository-local SOUL.md the project customization mechanism."
+      - "Treat maintained Sundsvall frontend sources as examples, not universal truth."
+      - "Security scanner and Codex Security integration are deferred."
+    expected_output:
+      - "Canonical content-owner map"
+      - "Information architecture and current-versus-target distinctions"
+      - "Docusaurus and GitHub Pages integration constraints"
+      - "Visual direction evidence and accessibility requirements"
+      - "Exact PM implementation scope, validation, and stop conditions"
+    receipt:
+      result: done
+      note: "notes/T001-documentation-site-map.md"
+      summary: "Mapped one truthful Docusaurus/Pages slice with canonical Markdown ownership, current onboarding, roadmap separation, and evidence-backed Sundsvall Read-mode accessibility."
+      evidence:
+        - "Current capability and content-owner map with exact runtime/document paths"
+        - "Docusaurus 3.10.2 and GitHub Pages official deployment contracts"
+        - "Pinned Sundsvall frontend/theme examples and accessibility tokens"
+      spawned_tasks:
+        - T002
+  - id: T002
+    type: judge
+    assignee: Judge
+    status: done
+    reasoning_hint: high
+    objective: "Challenge the documentation research and freeze one complete, reviewable Docusaurus implementation slice."
+    inputs:
+      - "T001 receipt"
+      - "Current clean main revision"
+    constraints:
+      - "Read-only; do not implement."
+      - "Prefer canonical Markdown reuse over duplicated documentation."
+      - "Reject speculative product capabilities presented as current behavior."
+      - "Reject a second general web application or an unmaintained third-party theme."
+    expected_output:
+      - "Decision"
+      - "Information architecture"
+      - "Exact PM objective and allowed files"
+      - "Validation commands"
+      - "Stop conditions and explicit non-goals"
+    receipt:
+      result: done
+      decision: "Proceed with the bounded Docusaurus documentation implementation."
+      note: "notes/T002-documentation-slice-decision.md"
+      summary: "Approved one static Docusaurus 3.10.2 site with explicit public Markdown reuse, a small Read-mode visual layer, and no runtime or deferred-integration changes."
+      evidence:
+        - "Current-versus-roadmap capability check against README, Operations, Security, and workflow contracts"
+        - "Exact public information architecture and publication boundary"
+        - "Responsive, keyboard, contrast, and reduced-motion acceptance criteria"
+      spawned_tasks:
+        - T003
+  - id: T003
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Implement the Docusaurus documentation site selected by T002, verify it visually and technically, then commit and push it to main."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Use Docusaurus with a small custom Sundsvall visual layer and GitHub's artifact-based Pages workflow."
+      - "Keep docs content canonical and avoid copying the same operational truth into several files."
+      - "Use proportional build, link, accessibility, responsive, and content checks."
+    allowed_files:
+      - PRODUCT.md
+      - DESIGN.md
+      - .gitignore
+      - README.md
+      - docs/GETTING_STARTED.md
+      - docs/HOW_REVIEWS_WORK.md
+      - docs/BEHAVIOR_OWNERSHIP.md
+      - docs/FAQ.md
+      - docs/ROADMAP.md
+      - docs/OPERATIONS.md
+      - docs/SECURITY.md
+      - examples/comments/example-review.md
+      - tests/test_docs_contract.py
+      - scripts/check_docs.py
+      - website/**
+      - .github/workflows/docs-check.yml
+      - .github/workflows/docs-pages.yml
+      - docs/goals/build-review-platform/**
+    verify:
+      - "npm --prefix website ci"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py"
+      - "Confirm exact Docusaurus 3.10.2 pins and immutable workflow action SHAs."
+      - "Confirm only the homepage and nine allowlisted documents are published."
+      - "Inspect 375 x 812 and 1440 x 900 layouts in light/dark modes and keyboard-test navigation and focus."
+      - "Run the Impeccable detector once."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate the Goal Maker board."
+      - "Run one skeptical Codex peer gate with score >= 8."
+    stop_if:
+      - "The implementation needs unpublished credentials or private content."
+      - "GitHub Pages requires an owner setting that cannot be configured from the repository; complete all repository work and report the exact setting."
+      - "A current-versus-target capability is ambiguous after source inspection."
+      - "A focused validation fails twice for a non-mechanical reason."
+    receipt: null
+  - id: T004
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "Audit the published documentation tranche and select the next maintainability-first architecture slice."
+    inputs:
+      - "T003 receipt"
+      - "Published main revision"
+      - "Rendered desktop and mobile evidence"
+      - "Approved refactor plans"
+    constraints:
+      - "Read-only; do not implement."
+      - "Reject completion if the site misstates current capability, lacks essential onboarding, or has material accessibility/responsive defects."
+      - "Select architecture work by current ownership evidence, not by the proposed directory tree alone."
+    expected_output:
+      - "Documentation tranche complete | not complete"
+      - "Missing evidence or direct fixes"
+      - "Exact next maintainability PM task with allowed files, verification, and stop conditions"
+    receipt: null
+  - id: T005
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: high
+    objective: "Execute the first maintainability-first architecture slice selected by T004."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Preserve review behavior and the locked-down trust contract."
+      - "Do not start PostgreSQL, GitHub App, Slack, or deferred security integrations before the maintainability gate."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "Need files outside the selected owner-level scope."
+      - "Behavior or migration semantics are ambiguous."
+      - "A focused verification fails twice for a non-mechanical reason."
+    receipt: null
+  - id: T999
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: xhigh
+    objective: "Audit the full platform goal against the approved plans and direct owner decisions."
+    inputs:
+      - "All tranche receipts"
+      - "Current published revision"
+      - "Current runtime and deployment evidence"
+    constraints:
+      - "Read-only; do not implement."
+      - "Do not silently narrow success to completed early tranches."
+      - "Security integrations are excluded while the explicit deferral remains active."
+    expected_output:
+      - "complete | not_complete"
+      - "Requirement-by-requirement evidence"
+      - "Missing work or explicit external blockers"
+    receipt: null
+
+checks:
+  dirty_fingerprint: "control-files-only-at-854fd7a"
+  last_verification:
+    result: pass
+    task: T001
+    commands:
+      - "git status --short --branch before board creation"
+      - "Previous genericization tranche verified at 854fd7a"

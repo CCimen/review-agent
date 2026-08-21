@@ -6,3 +6,6 @@ __pycache__/
 *.sqlite3-shm
 *.sqlite3-wal
 .DS_Store
+website/node_modules/
+website/.docusaurus/
+website/build/

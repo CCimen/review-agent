@@ -1,4 +1,15 @@
+---
+sidebar_label: Security model
+slug: /security
+title: Security model
+status: current
+last_verified: 2026-08-21
+---
+
 # Security Model
+
+> **Current** — This trust model describes the live general reviewer. Planned
+> analyzers and deferred security integrations do not change these boundaries.
 
 This reviewer is an advisory code-review agent with narrow tools. It is useful
 because it combines LLM reasoning with deterministic boundaries, not because the
@@ -137,6 +148,14 @@ event metadata for human-reviewed workflows. Coach evidence includes the
 reviewer's original claim and disproof checks alongside the human reason so the
 mistake can be evaluated in context. The public webhook reviewer does not read
 those exports.
+
+## Public Documentation Boundary
+
+The GitHub Pages site is static public documentation. It receives no reviewer
+credentials, webhook payloads, SQLite data, unpublished findings, private source
+excerpts, feedback reasons, model sessions, or production access details. Its
+Docusaurus configuration publishes an explicit Markdown allowlist; goal boards,
+runtime profile files, and private learning artifacts are excluded.
 
 ## Non-Goals
 

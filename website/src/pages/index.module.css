@@ -1,0 +1,249 @@
+.main {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 5.5rem 2rem 6rem;
+}
+
+.intro {
+  align-items: start;
+  display: grid;
+  gap: 4rem;
+  grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 0.75fr);
+}
+
+.introCopy {
+  max-width: 48rem;
+}
+
+.status {
+  color: var(--review-agent-accent-text);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0 0 1rem;
+  text-transform: uppercase;
+}
+
+.title {
+  font-size: clamp(2.75rem, 6vw, 5rem);
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.summary {
+  color: var(--ifm-color-emphasis-700);
+  font-size: clamp(1.125rem, 2vw, 1.35rem);
+  line-height: 1.55;
+  margin: 1.75rem 0 0;
+  max-width: 42rem;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin-top: 2rem;
+}
+
+.primaryAction,
+.secondaryAction {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 700;
+  min-height: 44px;
+  text-underline-offset: 0.24em;
+}
+
+.primaryAction {
+  background: var(--ifm-color-primary);
+  border-radius: 0.55rem;
+  color: var(--review-agent-button-text);
+  padding: 0.65rem 1rem;
+  text-decoration: none;
+}
+
+.primaryAction:hover {
+  background: var(--ifm-color-primary-dark);
+  color: var(--review-agent-button-text);
+  text-decoration: none;
+}
+
+.trustNote {
+  background: var(--review-agent-accent-surface);
+  border-radius: 0.75rem;
+  color: var(--ifm-font-color-base);
+  padding: 1.5rem;
+}
+
+.trustNote strong {
+  color: var(--review-agent-accent-text);
+  display: block;
+  font-size: 0.875rem;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.trustNote p {
+  margin: 0;
+}
+
+.lifecycleSection,
+.entrySection,
+.boundariesSection,
+.statusSection {
+  margin-top: 6rem;
+}
+
+.lifecycleSection h2,
+.entrySection h2,
+.statusSection h2 {
+  font-size: clamp(1.65rem, 3vw, 2.25rem);
+  letter-spacing: -0.025em;
+  margin-bottom: 1.75rem;
+}
+
+.lifecycle {
+  display: grid;
+  gap: 0;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lifecycle li {
+  border-top: 2px solid var(--ifm-color-primary);
+  padding: 1.25rem 1.5rem 0 0;
+}
+
+.lifecycle li:not(:last-child) {
+  margin-right: 0.35rem;
+}
+
+.lifecycle span {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.lifecycle small {
+  color: var(--ifm-color-emphasis-700);
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  margin-top: 0.4rem;
+}
+
+.entryList {
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+}
+
+.entry {
+  align-items: baseline;
+  border-top: 1px solid var(--ifm-toc-border-color);
+  color: var(--ifm-font-color-base);
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: minmax(13rem, 0.6fr) 1fr;
+  min-height: 72px;
+  padding: 1.4rem 0;
+  text-decoration: none;
+}
+
+.entry:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+.entry span {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.entry p {
+  color: var(--ifm-color-emphasis-700);
+  margin: 0;
+  max-width: 48rem;
+}
+
+.boundariesSection {
+  border-top: 1px solid var(--ifm-toc-border-color);
+  display: grid;
+  gap: 4rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-top: 3rem;
+}
+
+.boundariesSection h2 {
+  font-size: clamp(1.65rem, 3vw, 2.25rem);
+  letter-spacing: -0.025em;
+  margin-bottom: 1rem;
+}
+
+.boundariesSection ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.boundariesSection li + li {
+  margin-top: 0.65rem;
+}
+
+.divided {
+  border-top: 1px solid var(--ifm-toc-border-color);
+  display: grid;
+  gap: 4rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-top: 3rem;
+}
+
+.statusSection h2 {
+  margin-bottom: 0.9rem;
+}
+
+.statusSection p {
+  color: var(--ifm-color-emphasis-700);
+  max-width: 40rem;
+}
+
+@media (max-width: 760px) {
+  .main {
+    padding: 3.5rem 1.25rem 4rem;
+  }
+
+  .intro,
+  .boundariesSection,
+  .divided {
+    gap: 2.5rem;
+    grid-template-columns: 1fr;
+  }
+
+  .title {
+    font-size: clamp(2.4rem, 12vw, 3.5rem);
+  }
+
+  .lifecycleSection,
+  .entrySection,
+  .boundariesSection,
+  .statusSection {
+    margin-top: 4rem;
+  }
+
+  .lifecycle {
+    grid-template-columns: 1fr;
+  }
+
+  .lifecycle li {
+    margin: 0 0 1.4rem;
+    padding-top: 0.8rem;
+  }
+
+  .entry {
+    gap: 0.4rem;
+    grid-template-columns: 1fr;
+  }
+}

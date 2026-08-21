@@ -1,3 +1,16 @@
+---
+sidebar_label: Example review
+slug: /example-review
+title: Example review
+status: current
+last_verified: 2026-08-21
+---
+
+# Example review
+
+> **Current** — This sanitized example shows the current deterministic review
+> shape.
+
 ## AI code & security review
 
 There is 1 current finding: 1 Medium (P2).

@@ -57,10 +57,10 @@ class DocsContractTests(unittest.TestCase):
         self.assertFalse((ROOT / "REVIEWER_IMPROVEMENT_PLAN.md").exists())
 
         readme = read("README.md")
-        self.assertIn("# Hermes GitHub PR review agent", readme)
+        self.assertIn("# Sundsvall Review Agent", readme)
         self.assertIn("engine", readme)
         self.assertIn("profile", readme)
-        self.assertIn("not supported compatibility contracts", readme)
+        self.assertIn("documentation site", readme)
         self.assertIn("docs/OPERATIONS.md", readme)
         self.assertIn("docs/SECURITY.md", readme)
 

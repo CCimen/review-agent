@@ -1,0 +1,193 @@
+:root {
+  --ifm-color-primary: #005595;
+  --ifm-color-primary-dark: #004c85;
+  --ifm-color-primary-darker: #00477d;
+  --ifm-color-primary-darkest: #003b67;
+  --ifm-color-primary-light: #1267a5;
+  --ifm-color-primary-lighter: #2775ae;
+  --ifm-color-primary-lightest: #4b8fc0;
+  --ifm-background-color: #fff;
+  --ifm-background-surface-color: #fafafa;
+  --ifm-font-color-base: #1f1f25;
+  --ifm-font-family-base: Arial, Helvetica, system-ui, sans-serif;
+  --ifm-heading-font-family: Arial, Helvetica, system-ui, sans-serif;
+  --ifm-heading-font-weight: 700;
+  --ifm-line-height-base: 1.55;
+  --ifm-code-font-size: 0.9rem;
+  --ifm-global-radius: 0.55rem;
+  --ifm-navbar-height: 4rem;
+  --ifm-toc-border-color: #d8d8dd;
+  --review-agent-accent-surface: #f0f5f9;
+  --review-agent-accent-text: #004c85;
+  --review-agent-button-text: #fff;
+  --review-agent-focus: #0c8ced;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #69b3e7;
+  --ifm-color-primary-dark: #4da4df;
+  --ifm-color-primary-darker: #3f9cdb;
+  --ifm-color-primary-darkest: #247fbc;
+  --ifm-color-primary-light: #85c2eb;
+  --ifm-color-primary-lighter: #93caee;
+  --ifm-color-primary-lightest: #c2e2f6;
+  --ifm-background-color: #18181c;
+  --ifm-background-surface-color: #202026;
+  --ifm-font-color-base: #f5f5f6;
+  --ifm-toc-border-color: #414149;
+  --review-agent-accent-surface: #202e38;
+  --review-agent-accent-text: #a9d5f2;
+  --review-agent-button-text: #1f1f25;
+  --review-agent-focus: #69b3e7;
+}
+
+html {
+  scroll-behavior: smooth;
+  scrollbar-color: var(--ifm-color-emphasis-500) var(--ifm-background-surface-color);
+}
+
+body {
+  caret-color: var(--ifm-color-primary);
+}
+
+::selection {
+  background: var(--review-agent-accent-surface);
+  color: var(--ifm-font-color-base);
+}
+
+:focus-visible {
+  outline: 3px solid var(--review-agent-focus);
+  outline-offset: 3px;
+}
+
+a {
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.2em;
+}
+
+.navbar {
+  border-bottom: 1px solid var(--ifm-toc-border-color);
+  box-shadow: none;
+}
+
+.navbar__title {
+  letter-spacing: -0.02em;
+}
+
+.navbar__link {
+  align-items: center;
+  display: inline-flex;
+  min-height: 40px;
+}
+
+.navbar__toggle,
+.navbar__items--right .clean-btn {
+  min-height: 40px;
+  min-width: 40px;
+}
+
+.navbar__link--active,
+.menu__link--active {
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.35em;
+}
+
+.theme-doc-markdown {
+  max-width: 72ch;
+}
+
+.theme-doc-markdown > h1:first-child {
+  font-size: clamp(2.35rem, 5vw, 3.75rem);
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  margin-bottom: 1.5rem;
+  text-wrap: balance;
+}
+
+.theme-doc-markdown h2 {
+  letter-spacing: -0.025em;
+  margin-top: 3.25rem;
+}
+
+.theme-doc-markdown h3 {
+  margin-top: 2.25rem;
+}
+
+.theme-doc-markdown p,
+.theme-doc-markdown li {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.theme-doc-markdown blockquote {
+  background: var(--review-agent-accent-surface);
+  border: 0;
+  border-radius: 0.75rem;
+  color: var(--ifm-font-color-base);
+  margin: 1.5rem 0 2rem;
+  padding: 1rem 1.25rem;
+}
+
+.theme-doc-markdown blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.theme-doc-markdown table {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.theme-code-block,
+pre {
+  border-radius: 0.75rem;
+}
+
+.theme-doc-sidebar-container {
+  background: var(--ifm-background-surface-color);
+}
+
+.menu__link {
+  border-radius: 0.4rem;
+  min-height: 40px;
+}
+
+.pagination-nav__link {
+  border-color: var(--ifm-toc-border-color);
+  border-radius: 0.75rem;
+}
+
+.footer--light {
+  background: var(--ifm-background-surface-color);
+  border-top: 1px solid var(--ifm-toc-border-color);
+  color: var(--ifm-font-color-base);
+}
+
+.footer__link-item,
+.footer__title {
+  color: var(--ifm-font-color-base);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 996px) {
+  .navbar__title {
+    font-size: 1rem;
+  }
+}

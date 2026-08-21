@@ -1,4 +1,15 @@
-# Hermes GitHub PR review agent
+---
+sidebar_label: Repository overview
+slug: /overview
+title: Repository overview
+status: current
+last_verified: 2026-08-21
+---
+
+# Sundsvall Review Agent
+
+> **Current** — This page describes the reviewer available in this repository
+> today.
 
 This repository packages a locked-down Hermes + Codex reviewer for GitHub pull
 requests. A trusted developer comments `/review`, GitHub Actions sends a signed
@@ -12,9 +23,9 @@ tooling. Organization and repository policy belongs in the review profile:
 `bootstrap/SOUL.md`,
 `bootstrap/workspace/AGENTS.md`, and `bootstrap/skills/review-agent-pr/SKILL.md`.
 
-Remaining source-baseline identifiers are being removed directly in bounded
-mechanical changes. They are not supported compatibility contracts for this new
-platform.
+Read the published [documentation site](https://ccimen.github.io/review-agent/)
+for onboarding, behavior ownership, the trust model, operations, FAQ, and the
+current architecture roadmap.
 
 ## What It Does
 

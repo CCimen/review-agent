@@ -1,0 +1,75 @@
+---
+sidebar_label: How reviews work
+slug: /how-reviews-work
+title: How reviews work
+description: The trusted path from a review request to deterministic GitHub publication.
+status: current
+last_verified: 2026-08-21
+---
+
+# How reviews work
+
+> **Current** — This page describes the live request, review, persistence, and
+> publication path. The GitHub App and durable job architecture are planned
+> work.
+
+The reviewer separates model reasoning from authorization, state transitions,
+and GitHub writes. The model can investigate and propose findings; deterministic
+code decides what snapshot is valid and how stored results reach GitHub.
+
+```mermaid
+flowchart LR
+    A[Request] --> B[Authorize]
+    B --> C[Read exact snapshot]
+    C --> D[Review and challenge]
+    D --> E[Record findings]
+    E --> F[Recheck snapshot]
+    F --> G[Publish]
+    G --> H[Feedback and re-review]
+```
+
+## Request and authorize
+
+A trusted developer posts `/review` on a pull request. The repository-owned
+GitHub Actions workflow checks the username allowlist and trusted GitHub
+association before sending a minimal HMAC-signed webhook. The runtime then
+checks its own exact repository allowlist.
+
+## Pin the subject
+
+The review begins against one base SHA and one head SHA. Bounded tools read PR
+metadata, the changed-file list, diffs, and selected file content for that
+snapshot. Repository content is evidence, not policy, and cannot change the
+reviewer's instructions or tool permissions.
+
+## Review in two passes
+
+The first pass looks for plausible correctness, security, reliability, and
+maintainability problems introduced or worsened by the pull request. The second
+pass tries to disprove each candidate with surrounding code, tests, invariants,
+and changed behavior. Only independent findings that survive the evidence and
+severity gates are recorded.
+
+Coverage remains explicit. If a file, range, or concern could not be checked,
+the reviewer reports that limitation instead of implying complete review.
+
+## Publish deterministically
+
+Before writing, plugin code verifies that the pull request still has the exact
+reviewed head SHA. It renders stored findings into a stable summary and splits
+large output predictably. Optional GitHub suggestions are published only when
+their range and current content still match and each patch is local and safe to
+apply independently.
+
+The model has no arbitrary GitHub mutation tool. Publication uses the dedicated
+publisher token through a narrow gateway.
+
+## Learn from explicit feedback
+
+Allowlisted maintainers can report false positives, scope problems, and missed
+issues. Feedback is durable evidence for operators; it does not automatically
+rewrite policy or suppress future findings. Private coach and verification
+workflows remain outside the live review path and cannot gate a pull request.
+
+Read [Security](./SECURITY.md) for the trust boundaries and
+[Operations](./OPERATIONS.md) for lifecycle states and recovery commands.

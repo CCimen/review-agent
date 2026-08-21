@@ -1,0 +1,55 @@
+name: Documentation check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/docs-check.yml'
+      - '.github/workflows/docs-pages.yml'
+      - 'README.md'
+      - 'docs/GETTING_STARTED.md'
+      - 'docs/HOW_REVIEWS_WORK.md'
+      - 'docs/BEHAVIOR_OWNERSHIP.md'
+      - 'docs/FAQ.md'
+      - 'docs/ROADMAP.md'
+      - 'docs/OPERATIONS.md'
+      - 'docs/SECURITY.md'
+      - 'examples/comments/example-review.md'
+      - 'scripts/check_docs.py'
+      - 'website/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix website ci
+
+      - name: Validate public documentation
+        run: python3 scripts/check_docs.py
+
+      - name: Type-check the site
+        run: npm --prefix website run typecheck
+
+      - name: Build the site
+        run: npm --prefix website run build
+
+      - name: Verify published routes
+        run: python3 scripts/check_docs.py --build-dir website/build

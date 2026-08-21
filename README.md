@@ -20,8 +20,8 @@ GitHub suggested changes.
 The reusable part is the review engine: webhook routing, bounded GitHub reads,
 SQLite finding memory, human feedback, deterministic publication, and operational
 tooling. Organization and repository policy belongs in the review profile:
-`bootstrap/SOUL.md`,
-`bootstrap/workspace/AGENTS.md`, and `bootstrap/skills/review-agent-pr/SKILL.md`.
+`bootstrap/profiles/sundsvall-standard/SOUL.md`,
+`bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md`, and `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md`.
 
 Read the published [documentation site](https://ccimen.github.io/review-agent/)
 for onboarding, behavior ownership, the trust model, operations, FAQ, and the
@@ -95,9 +95,9 @@ gate pull requests.
 | GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
 | Review memory | `review_memory_data` SQLite volume | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
 | Publication | `review_agent_deliver` | Verifies snapshot and writes deterministic PR comments. |
-| Reviewer identity | `bootstrap/SOUL.md` | Tone, evidence posture, and identity. |
-| Review contract | `bootstrap/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
-| Review procedure | `bootstrap/skills/review-agent-pr/SKILL.md` | Two-pass PR review procedure. |
+| Reviewer identity | `bootstrap/profiles/sundsvall-standard/SOUL.md` | Tone, evidence posture, and identity. |
+| Review contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
+| Review procedure | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | Two-pass PR review procedure. |
 | Example output | `examples/comments/example-review.md` | Single example of the rendered review shape. |
 | Visible review copy | `bootstrap/plugins/review_agent_tools/review_identity.py` | Centralized profile-facing title, continuation, fix-brief, and feedback messages. |
 

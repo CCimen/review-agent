@@ -19,9 +19,9 @@ conditionals or copying policy into runtime code.
 
 | Concern | Current owner | Change it when |
 | --- | --- | --- |
-| Identity, tone, and evidence posture | `bootstrap/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
-| Review rules and visible contract | `bootstrap/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
-| Review procedure and tool sequence | `bootstrap/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
+| Identity, tone, and evidence posture | `bootstrap/profiles/sundsvall-standard/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
+| Review rules and visible contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
+| Review procedure and tool sequence | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
 | Model, toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
 | Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |
 | Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |

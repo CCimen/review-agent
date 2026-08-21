@@ -514,6 +514,8 @@ tasks:
       - bootstrap/profiles/sundsvall-standard/**
       - README.md
       - docs/BEHAVIOR_OWNERSHIP.md
+      - review-learning/README.md
+      - THIRD_PARTY_NOTICES.md
       - tests/test_profile_bundle.py
       - tests/test_docs_contract.py
       - docs/goals/build-review-platform/**

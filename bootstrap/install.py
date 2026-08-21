@@ -19,6 +19,7 @@ except ImportError as exc:  # Hermes ships PyYAML; fail clearly on unexpected im
     raise SystemExit("PyYAML is required in the Hermes image") from exc
 
 SOURCE = Path(__file__).resolve().parent
+PROFILE_SOURCE = SOURCE / "profiles" / "sundsvall-standard"
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/opt/data")).resolve()
 
 
@@ -95,7 +96,7 @@ def main() -> int:
     if not soul_target.exists() or not args.preserve_soul:
         if soul_target.exists():
             shutil.copy2(soul_target, HERMES_HOME / "SOUL.md.before-review-agent")
-        shutil.copy2(SOURCE / "SOUL.md", soul_target)
+        shutil.copy2(PROFILE_SOURCE / "SOUL.md", soul_target)
 
     agents_target = HERMES_HOME / "workspace" / "AGENTS.md"
     if not agents_target.exists() or args.force_agents:
@@ -103,12 +104,16 @@ def main() -> int:
             shutil.copy2(
                 agents_target, agents_target.with_suffix(".md.before-review-agent")
             )
-        shutil.copy2(SOURCE / "workspace" / "AGENTS.md", agents_target)
+        shutil.copy2(PROFILE_SOURCE / "workspace" / "AGENTS.md", agents_target)
 
     copy_managed_tree(
-        SOURCE / "skills" / "review-agent-pr", HERMES_HOME / "skills" / "review-agent-pr"
+        PROFILE_SOURCE / "skills" / "review-agent-pr",
+        HERMES_HOME / "skills" / "review-agent-pr",
     )
-    copy_managed_tree(SOURCE / "skills" / "ponytail", HERMES_HOME / "skills" / "ponytail")
+    copy_managed_tree(
+        PROFILE_SOURCE / "skills" / "ponytail",
+        HERMES_HOME / "skills" / "ponytail",
+    )
     copy_managed_tree(
         SOURCE / "plugins" / "review_agent_tools",
         HERMES_HOME / "plugins" / "review_agent_tools",

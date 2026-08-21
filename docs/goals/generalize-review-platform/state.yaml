@@ -7,8 +7,8 @@ goal:
   title: "Generalize the pull-request review platform"
   slug: "generalize-review-platform"
   kind: open_ended
-  tranche: "Map Eneo coupling, implement the first clean-break generic identity/configuration slice without review behavior change, verify it, and audit it."
-  status: active
+  tranche: "Completed the clean-break generic identity tranche and audited the published result before persistence or deployment redesign."
+  status: done
 
 rules:
   pm_owns_state: true
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "b797ebf"
 
-active_task: T999
+active_task: null
 
 tasks:
   - id: T000
@@ -667,7 +667,7 @@ tasks:
   - id: T999
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit whether the generic identity/configuration slice satisfies the current tranche."
     inputs:
@@ -683,16 +683,35 @@ tasks:
       - "complete | not_complete"
       - "Missing evidence"
       - "Next task if not complete"
-    receipt: null
+    receipt:
+      result: complete
+      decision: complete
+      summary: "Approved completion of the clean-break genericization tranche with no required implementation queued and no missing acceptance evidence."
+      verified_revision: "c4e4c647bc8611f085c31a4df3224f43c0cca173"
+      evidence:
+        - "Clean main equals origin/main; origin is the only remote and points to CCimen/review-agent."
+        - "No active tracked source, runtime, documentation, example, test, filename, environment, route, marker, tool, or policy contract references the retired identity; the archival coupling note is explicitly superseded."
+        - "Runtime namespace, environment contract, webhook paths, publication markers, profile, learning surface, examples, and fixtures use generic review-agent and Sundsvall ownership without aliases."
+        - "Locked-down tools, exact base/head snapshots, coverage honesty, human-governed feedback, stale-head protection, and deterministic publication remain behavior-tested."
+        - "Frontend research is pinned example evidence for a later opt-in overlay, not baseline policy."
+        - "Fresh strict Pyright, 461-test bundle, YAML, generic Compose rendering, state checker, remote audit, and clean diff checks passed."
+      missing_findings: []
+      next_allowed_task: null
+      deferred:
+        - "PostgreSQL and job/outbox redesign"
+        - "GitHub App installation-token architecture"
+        - "Policy resolution and versioned repository overlays"
+        - "Scanner, Slack, and broader platform phases"
 
 checks:
-  dirty_fingerprint: "T011-receipt-uncommitted"
+  dirty_fingerprint: "clean-at-c4e4c64"
   last_verification:
     result: pass
-    task: T011
+    task: T999
     commands:
       - "./scripts/check_bundle.sh"
       - "pyright -p ."
-      - "325 focused affected behavior tests"
-      - "case-insensitive active tracked-file retired-identity scan"
-      - "codex-peer-loop green at 8/10"
+      - "generic-only docker compose config --quiet"
+      - "case-insensitive active tracked path/content/runtime-contract scans"
+      - "origin/main equality and single-remote audit"
+      - "Goal Maker state checker"

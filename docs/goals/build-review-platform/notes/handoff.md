@@ -6,7 +6,9 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits and pushes to `CCimen/review-agent` `main` are authorized.
 - `state.yaml` is authoritative for the active task and current revision. Do not infer active work from this handoff when they disagree.
-- The initial PostgreSQL schema exists but has no runtime writer or authoritative data. The active tranche corrects its first-write contract, then adds the checksum-verifying migration runner as a separate slice.
+- The corrected PostgreSQL first-write contract is live at `5d0fbc5`; it has no
+  runtime writer or authoritative data. The active slice now adds the separately
+  owned checksum-verifying migration runner.
 - The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
 
 ## Execution boundary
@@ -18,11 +20,10 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   state. `goal.md` owns the no-legacy and recovery constraints; `docs/ROADMAP.md`
   owns the public sequence.
 - Keep jobs, leases, and the outbox as later separate slices.
-- The current slice amends `001_initial.sql` because no authoritative PostgreSQL
-  data exists. It does not add runtime/configuration/Compose switching,
-  migration-runner code, an importer, a compatibility path, or SQLite rollback.
-- The following slice owns migration checksums, advisory locking, transaction
-  control, and ledger insertion. Runtime operations wait for that slice.
+- The current slice owns migration discovery and checksums, one PostgreSQL
+  advisory lock, transaction control, and ledger insertion. It does not add
+  runtime persistence operations, configuration/Compose switching, an importer,
+  a compatibility path, or SQLite rollback.
 - The later runtime-adapter slice must create the validated, versioned, and
   hashed `review_subjects.resolved_config` aggregate before its first subject
   insert; all three fields are deliberately required and have no default.

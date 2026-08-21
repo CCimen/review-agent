@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   rotation_count: 2
-  completed_write_tasks_in_thread: 4
+  completed_write_tasks_in_thread: 5
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-21T10:34:29Z"
-  last_verified_revision: "32fc5ded06b367c8ea0aaf0308744c64b785a74f"
+  last_handoff_at: "2026-08-21T18:11:17Z"
+  last_verified_revision: "5d0fbc55df91100de35750ea1506e383373414f6"
 
-active_task: T020
+active_task: T021
 
 tasks:
   - id: T001
@@ -857,7 +857,7 @@ tasks:
   - id: T020
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Correct and freeze the empty PostgreSQL initial schema as a reliable first-write contract without adding runtime code."
     constraints:
@@ -895,19 +895,60 @@ tasks:
       - "The slice requires runtime, settings, Dockerfile, Compose, or memory_* changes."
       - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
       - "Scope expands into the migration runner or runtime adapter."
-    receipt: null
+    receipt:
+      result: done
+      decision: "The empty PostgreSQL schema is frozen as the reliable first-write contract; proceed to the separately owned migration runner."
+      summary: "Corrected finding identity scope, request idempotency, migration ownership, lifecycle truth, run-owned coaching evidence, exact bounded publication payloads and provenance, aggregate versions, and audit uniqueness before any authoritative PostgreSQL write."
+      implementation_revision: "5d0fbc55df91100de35750ea1506e383373414f6"
+      evidence:
+        - "The initial SQL no longer owns transaction framing or its migration ledger; T021 owns both atomically with checksums and one advisory lock."
+        - "Seventeen PostgreSQL 17 behavior tests passed, including producer-derived allowlist audit identity, rollback ownership, request idempotency, exact provenance, lifecycle failures, payload bounds, and run-scoped coaching."
+        - "The strict bundle passed 511 tests with 17 container-only skips; strict Pyright, replay, YAML, public docs, Docusaurus typecheck/build, route checks, Goal Maker validation, and diff hygiene passed."
+        - "Claude Opus/high session review-agent-t020-claude-contract converged green at score 8 after three passes; one rule-ID concern was disproved against the canonical normalizer."
+        - "Codex gpt-5.6-sol/xhigh session review-agent-t020-first-write-contract converged green at score 8 after three passes with no remaining findings."
+        - "Live Python bundle run 32511726273 and Publish documentation run 32511726260 completed successfully; https://ccimen.github.io/review-agent/docs/roadmap serves the corrected milestone."
+      spawned_tasks:
+        - T021
   - id: T021
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Add the checksum-verifying, advisory-locked PostgreSQL migration runner after the corrected schema contract is published."
     constraints:
       - "Keep migration application, ledger insertion, advisory locking, and rollback in one canonical runner."
       - "Use synchronous psycopg 3 and no ORM or generic migration framework."
       - "Do not start runtime persistence operations or Compose cutover."
-    allowed_files: []
-    verify: []
+    allowed_files:
+      - requirements.txt
+      - Dockerfile
+      - .github/workflows/ci.yml
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/__init__.py
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/runner.py
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/001_initial.sql
+      - scripts/check_postgres_schema.sh
+      - tests/test_postgres_migrations.py
+      - tests/test_postgres_schema.py
+      - tests/test_ci_workflow.py
+      - tests/test_dockerfile_tools.py
+      - docs/ROADMAP.md
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+    verify:
+      - "Prove checksum mismatch, concurrent startup, failed-migration rollback, and idempotent re-entry against PostgreSQL 17."
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_ci_workflow tests.test_dockerfile_tools"
+      - "./scripts/check_bundle.sh"
+      - "Build the pinned runtime image once after dependency wiring is stable."
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "git diff --check"
+      - "Validate Goal Maker state"
+      - "Run one skeptical gpt-5.6-sol xhigh Codex peer gate with score >= 8 before commit"
+      - "After push, verify Python bundle and documentation publication workflows"
     stop_if:
       - "T020 is not committed, pushed, and green in live CI."
       - "The implementation needs runtime persistence or deployment cutover changes."

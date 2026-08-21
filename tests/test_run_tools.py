@@ -170,6 +170,36 @@ class RunToolTests(unittest.TestCase):
         self.assertEqual(retry["status"], "running")
         self.assertNotEqual(retry["run_id"], failed_run["id"])
 
+    def test_begin_phase_failure_does_not_block_immediate_retry(self):
+        pull = self.pull_with_repositories()
+        with (
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(
+                memory_db,
+                "update_run_phase",
+                side_effect=memory_db.ReviewMemoryError("phase update failed"),
+            ),
+        ):
+            failed = self.call(
+                tools.review_begin,
+                {"repository": "sundsvallskommun/example-repository", "pr_number": 503},
+            )
+
+        self.assertEqual(failed["error"], "phase update failed")
+        with closing(memory_db.connect()) as connection:
+            runs = memory_db.list_runs(
+                connection,
+                repository="sundsvallskommun/example-repository",
+            )
+        failed_run = next(run for run in runs if run["pr_number"] == 503)
+        self.assertEqual(failed_run["status"], "failed")
+        self.assertEqual(failed_run["failure_code"], "review_failed")
+
+        retry = self.begin(pr=503)
+
+        self.assertEqual(retry["status"], "running")
+        self.assertNotEqual(retry["run_id"], failed_run["id"])
+
     def test_begin_marks_registration_failure_terminal(self):
         pull = self.pull_with_repositories()
         changed_files = [

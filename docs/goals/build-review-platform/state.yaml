@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Extract finding-memory coordination from the tool adapter into one typed application owner."
+  tranche: "Audit the finding-memory application extraction and select the next maintainability-first owner slice."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   previous_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
   rotation_count: 1
-  completed_write_tasks_in_thread: 1
+  completed_write_tasks_in_thread: 2
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-21T09:35:43Z"
-  last_verified_revision: "43afb8de991ea87995580cb6c18290d404800568"
+  last_verified_revision: "19f73db15f2b5f8bb786e16c9cfcfcbcf5bc44bb"
 
-active_task: T010
+active_task: T011
 
 tasks:
   - id: T001
@@ -420,7 +420,7 @@ tasks:
   - id: T010
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Extract historical finding-context lookup, finding recording, and optional atomic-suggestion selection from tools.py into one typed review_finding_application.py owner."
     constraints:
@@ -450,6 +450,38 @@ tasks:
       - "The slice requires edits to persistence/schema owners, publisher, feedback, source_control, deployment, or project-context code."
       - "The application interface requires Any, multiple collaborator callbacks, a generic port, DI framework, analyzer runtime, or pass-through wrappers."
       - "Focused verification fails twice for a non-mechanical reason or the change grows beyond finding-memory ownership."
+    receipt:
+      result: done
+      note: "notes/T010-finding-memory-application.md"
+      summary: "Moved historical context lookup, trusted finding persistence, and bounded optional suggestion selection into one typed application owner while preserving the tool and persistence contracts."
+      commit: "19f73db15f2b5f8bb786e16c9cfcfcbcf5bc44bb"
+      evidence:
+        - "155 focused tests passed with ResourceWarnings promoted to errors"
+        - "Strict Pyright and the 486-test bundle passed"
+        - "Distinct head-file reads and cached contents are bounded at twelve even when every candidate is rejected"
+        - "Codex peer gate iteration 2 green at score 8 with no remaining findings"
+      spawned_tasks:
+        - T011
+  - id: T011
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Audit the delivered finding-memory application slice and select the next maintainability-first owner task."
+    inputs:
+      - "T010 receipt and implementation note"
+      - "Published revision 19f73db15f2b5f8bb786e16c9cfcfcbcf5bc44bb"
+      - "/Users/ccimen/Downloads/sundsvall-review-agent-maintainability-first-plan.md"
+      - "/Users/ccimen/Downloads/sundsvall-general-review-agent-refactor-plan(2)(1).md"
+    constraints:
+      - "Read-only; do not implement."
+      - "Audit behavior preservation, canonical ownership, connection locality, suggestion invariants, and bounded GitHub head-file reads."
+      - "Choose the next task from current source evidence, not the proposed directory tree alone."
+      - "Keep scanners/Codex Security, PostgreSQL, jobs, GitHub App, policy overlays, feedback, and unrelated work deferred."
+    expected_output:
+      - "T010 complete | not complete"
+      - "Missing evidence or direct blockers"
+      - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
     receipt: null
   - id: T999
     type: judge
@@ -472,12 +504,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-2ab8f52"
+  dirty_fingerprint: "control-files-only-after-19f73db"
   last_verification:
     result: pass
-    task: T009
+    task: T010
     commands:
-      - "111 focused tests with ResourceWarnings promoted to errors"
-      - "Strict Pyright, git diff check, and clean main/origin verification"
-      - "Review-run application boundary and connection-locality audit"
-      - "Goal Maker board validation"
+      - "155 focused tests with ResourceWarnings promoted to errors"
+      - "Strict Pyright and 486-test bundle"
+      - "Codex peer gate iteration 2 green at score 8"
+      - "Distinct rejection-heavy head-file read limit test passed"

@@ -580,9 +580,9 @@ class ToolValidationTests(unittest.TestCase):
         }
         finding = dict(
             self.finding,
-            rule_id="tenant.missing-scope",
+            rule_id="authorization.missing-context",
             category="security",
-            title="Tenant scope omitted",
+            title="Authorization context omitted",
             suggestion={
                 "start_line": 10,
                 "end_line": 10,

@@ -30,7 +30,7 @@ class FakeGitHub:
         self.next_comment_id = 1000
 
     def current_user_login(self):
-        return "eneo-ai-bot"
+        return "review-agent-bot"
 
     def get_pull_request(self, repository, pr_number):
         del repository, pr_number
@@ -50,7 +50,7 @@ class FakeGitHub:
         return review_publisher.IssueComment(
             comment_id=comment_id,
             body=body,
-            author_login="eneo-ai-bot",
+            author_login="review-agent-bot",
         )
 
     def create_issue_comment(self, repository, issue_number, body):
@@ -60,7 +60,7 @@ class FakeGitHub:
         return review_publisher.IssueComment(
             comment_id=self.next_comment_id,
             body=body,
-            author_login="eneo-ai-bot",
+            author_login="review-agent-bot",
         )
 
     def delete_issue_comment(self, repository, comment_id):
@@ -474,20 +474,20 @@ class RunToolTests(unittest.TestCase):
 
     def finding(self):
         return {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
             "path": "backend/api.py",
             "line": 42,
             "symbol": "handler",
             "anchor": "POST /api",
-            "title": "Tenant scope omitted",
+            "title": "Authorization context omitted",
             "severity": "High",
             "publication_score": 9,
             "confidence": 0.9,
             "evidence": "Concrete evidence.",
             "disproof_checks": "Checked the guard.",
-            "impact": "Cross-tenant write.",
-            "smallest_fix": "Bind tenant from context.",
+            "impact": "Cross-scope write.",
+            "smallest_fix": "Derive resource scope from verified context.",
             "introduced_by_diff": True,
         }
 

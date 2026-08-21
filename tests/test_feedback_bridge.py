@@ -78,20 +78,20 @@ class FeedbackBridgeTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.temp.name) / "memory.sqlite3")
         self.finding = {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
-            "path": "backend/api/documents.py",
+            "path": "src/api/resources.py",
             "line": 42,
-            "symbol": "create_document",
-            "anchor": "POST /v1/documents",
-            "title": "Document creation omits tenant scope",
+            "symbol": "update_resource",
+            "anchor": "PUT /v1/resources/{resource_id}",
+            "title": "Resource update omits authorization context",
             "severity": "High",
             "publication_score": 9,
             "confidence": 0.93,
-            "evidence": "The changed query writes a caller-controlled tenant id.",
+            "evidence": "The changed query writes a caller-controlled resource scope.",
             "disproof_checks": "Checked the dependency and repository layer.",
-            "impact": "Cross-tenant write.",
-            "smallest_fix": "Bind tenant_id from context.",
+            "impact": "Cross-scope write.",
+            "smallest_fix": "Bind resource_scope_id from context.",
             "introduced_by_diff": True,
         }
         with closing(memory_db.connect(self.db)) as connection:
@@ -262,7 +262,7 @@ class FeedbackBridgeTests(unittest.TestCase):
 
     def test_false_positive_records_and_confirms_with_success_reaction_only(self) -> None:
         github = FakeGitHub(
-            body="/review false-positive F1 because the repository scopes tenant_id."
+            body="/review false-positive F1 because the repository scopes resource_scope_id."
         )
 
         response = feedback_bridge.process_feedback(
@@ -343,7 +343,7 @@ class FeedbackBridgeTests(unittest.TestCase):
 
     def test_angle_brackets_in_real_reason_are_allowed(self) -> None:
         github = FakeGitHub(
-            body="/review false-positive F1 because the List<T> wrapper enforces tenant scope."
+            body="/review false-positive F1 because the List<T> wrapper enforces resource scope."
         )
 
         response = feedback_bridge.process_feedback(
@@ -376,7 +376,7 @@ class FeedbackBridgeTests(unittest.TestCase):
 
     def test_recorded_feedback_is_not_rolled_back_when_confirmation_fails(self) -> None:
         github = FakeGitHub(
-            body="/review false-positive F1 because the repository scopes tenant_id.",
+            body="/review false-positive F1 because the repository scopes resource_scope_id.",
             fail_reaction=True,
         )
 

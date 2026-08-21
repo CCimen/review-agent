@@ -26,7 +26,7 @@ class FileAtRevisionLargeFileTests(unittest.TestCase):
         contents = self._contents(encoding="base64", content=base64.b64encode(raw).decode(), size=len(raw))
         with patch.object(tools, "_request_json", side_effect=[contents]), \
              patch.object(tools, "_request") as raw_get:
-            result = tools._file_at_revision("eneo/platform", "backend/a.py", "a" * 40)
+            result = tools._file_at_revision("example-org/example-repository", "backend/a.py", "a" * 40)
         self.assertEqual(result, raw)
         raw_get.assert_not_called()  # no blob fetch for a small (<=1 MB) file
 
@@ -35,7 +35,7 @@ class FileAtRevisionLargeFileTests(unittest.TestCase):
         contents = self._contents(encoding="none", content="", size=1_103_743, sha="b" * 40)
         with patch.object(tools, "_request_json", side_effect=[contents]), \
              patch.object(tools, "_request", return_value=(raw, False, {})) as raw_get:
-            result = tools._file_at_revision("eneo/platform", "frontend/schema.d.ts", "a" * 40)
+            result = tools._file_at_revision("example-org/example-repository", "frontend/schema.d.ts", "a" * 40)
         self.assertEqual(result, raw)
         self.assertEqual(raw_get.call_count, 1)
         self.assertIn("git/blobs/" + "b" * 40, raw_get.call_args.args[0])
@@ -46,7 +46,7 @@ class FileAtRevisionLargeFileTests(unittest.TestCase):
         with patch.object(tools, "_request_json", side_effect=[contents]), \
              patch.object(tools, "_request") as raw_get:
             with self.assertRaises(tools.ToolInputError) as ctx:
-                tools._file_at_revision("eneo/platform", "data/huge.json", "a" * 40)
+                tools._file_at_revision("example-org/example-repository", "data/huge.json", "a" * 40)
         self.assertIn("review_agent_pr_diff", str(ctx.exception))
         raw_get.assert_not_called()  # cap checked before any blob fetch
 
@@ -56,7 +56,7 @@ class FileAtRevisionLargeFileTests(unittest.TestCase):
         with patch.object(tools, "_request_json", side_effect=[contents]), \
              patch.object(tools, "_request", return_value=(b"x" * 4096, True, {})):
             with self.assertRaises(tools.ToolInputError) as ctx:
-                tools._file_at_revision("eneo/platform", "frontend/big.d.ts", "a" * 40)
+                tools._file_at_revision("example-org/example-repository", "frontend/big.d.ts", "a" * 40)
         self.assertIn("review_agent_pr_diff", str(ctx.exception))
 
     def test_non_regular_file_is_rejected(self):
@@ -64,7 +64,7 @@ class FileAtRevisionLargeFileTests(unittest.TestCase):
         with patch.object(tools, "_request_json", side_effect=[contents]), \
              patch.object(tools, "_request") as raw_get:
             with self.assertRaises(tools.ToolInputError) as ctx:
-                tools._file_at_revision("eneo/platform", "backend", "a" * 40)
+                tools._file_at_revision("example-org/example-repository", "backend", "a" * 40)
         self.assertIn("not a regular file", str(ctx.exception))
         raw_get.assert_not_called()
 

@@ -50,7 +50,7 @@ class FakeGitHub:
         *,
         base_sha: str = "b" * 40,
         head_sha: str = "a" * 40,
-        bot_login: str = "eneo-ai-bot",
+        bot_login: str = "review-agent-bot",
         comments: list[review_publisher.IssueComment] | None = None,
         review_comments: list[review_publisher.PullRequestReviewComment] | None = None,
     ) -> None:
@@ -271,20 +271,20 @@ class ReviewPublisherTests(unittest.TestCase):
             str(Path(self.temp.name) / "memory.sqlite3")
         )
         self.finding = {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
-            "path": "backend/api/documents.py",
+            "path": "src/api/resources.py",
             "line": 42,
-            "symbol": "create_document",
-            "anchor": "POST /v1/documents",
-            "title": "Document creation omits tenant scope",
+            "symbol": "update_resource",
+            "anchor": "PUT /v1/resources/{resource_id}",
+            "title": "Resource update omits authorization context",
             "severity": "High",
             "publication_score": 9,
             "confidence": 0.93,
-            "evidence": "The changed query writes a caller-controlled tenant id.",
+            "evidence": "The changed query writes a caller-controlled resource scope.",
             "disproof_checks": "Checked the dependency and repository layer.",
-            "impact": "Cross-tenant write.",
-            "smallest_fix": "Bind tenant_id from context.",
+            "impact": "Cross-scope write.",
+            "smallest_fix": "Bind resource_scope_id from context.",
             "introduced_by_diff": True,
         }
 
@@ -343,14 +343,14 @@ class ReviewPublisherTests(unittest.TestCase):
         )
         run = memory_db.start_run(
             connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha=base_sha,
             head_sha=head_sha,
         )
         recorded = memory_db.record_findings(
             connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha,
             [finding],
@@ -366,7 +366,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 "expected_hash": hashlib.sha256(b"unsafe = True").hexdigest(),
                 "replacement_text": "unsafe = False",
                 "suggestion_key": memory_suggestions.suggestion_key(
-                    "eneo/platform",
+                    "example-org/example-repository",
                     17,
                     head_sha,
                     str(recorded["fingerprint"]),
@@ -380,7 +380,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 )
         publication = memory_db.finalize_review(
             connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha,
             review_run_id=int(run["id"]),
@@ -407,7 +407,7 @@ class ReviewPublisherTests(unittest.TestCase):
         self.assertEqual(rows[1]["delivery_status"], "generated")
         self.assertIsNone(rows[1]["superseded_at"])
         current = memory_db.resolve_current_review_state(
-            self.connection, repository="eneo/platform", pr_number=17
+            self.connection, repository="example-org/example-repository", pr_number=17
         )
         self.assertEqual(current.publication_id, int(first["publication_id"]))
         self.assertEqual(int(second_run["id"]), int(second["review_run_id"]))
@@ -423,7 +423,7 @@ class ReviewPublisherTests(unittest.TestCase):
 
         rerun = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha="b" * 40,
             head_sha="a" * 40,
@@ -433,7 +433,7 @@ class ReviewPublisherTests(unittest.TestCase):
         self.assertNotEqual(rerun["id"], first_run["id"])
         runs = self.connection.execute(
             "SELECT id, status FROM review_runs WHERE repository = ? AND pr_number = ? ORDER BY id",
-            ("eneo/platform", 17),
+            ("example-org/example-repository", 17),
         ).fetchall()
         self.assertEqual([row["status"] for row in runs], ["generated", "running"])
 
@@ -479,7 +479,7 @@ class ReviewPublisherTests(unittest.TestCase):
         self.assertEqual(len(github.created_reviews), 1)
         self.assertEqual(len(github.created), 1)
         repository, number, commit_id, review_body, comments = github.created_reviews[0]
-        self.assertEqual((repository, number), ("eneo/platform", 17))
+        self.assertEqual((repository, number), ("example-org/example-repository", 17))
         self.assertEqual(commit_id, "a" * 40)
         self.assertIn("Optional atomic patches", review_body)
         self.assertIn("Applying a patch does not itself mark", review_body)
@@ -521,14 +521,14 @@ class ReviewPublisherTests(unittest.TestCase):
         )
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha="b" * 40,
             head_sha="a" * 40,
         )
         recorded = memory_db.record_findings(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             [first, second],
@@ -548,7 +548,7 @@ class ReviewPublisherTests(unittest.TestCase):
                     "expected_hash": hashlib.sha256(b"value = 1").hexdigest(),
                     "replacement_text": replacement,
                     "suggestion_key": memory_suggestions.suggestion_key(
-                        "eneo/platform",
+                        "example-org/example-repository",
                         17,
                         "a" * 40,
                         str(observation["fingerprint"]),
@@ -561,7 +561,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 )
         publication = memory_db.finalize_review(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             review_run_id=int(run["id"]),
@@ -627,7 +627,7 @@ class ReviewPublisherTests(unittest.TestCase):
             comment_id=77,
             review_id=88,
             body=review_publisher._inline_suggestion_body(stored),
-            author_login="eneo-ai-bot",
+            author_login="review-agent-bot",
             path=stored["path"],
             commit_id="a" * 40,
             line=stored["end_line"],
@@ -800,7 +800,7 @@ class ReviewPublisherTests(unittest.TestCase):
             review_renderer.ReviewBlock(
                 kind="header",
                 markdown=(
-                    "## Eneo AI code & security review\n\nStored pre-rename review."
+                    "## Legacy AI code & security review\n\nStored pre-rename review."
                 ),
             )
         ]
@@ -890,7 +890,7 @@ class ReviewPublisherTests(unittest.TestCase):
         self.assertEqual(result["delivery_status"], "stale")
         self.assertEqual(result["failure_code"], "base_sha_changed")
         current = memory_db.resolve_current_review_state(
-            self.connection, repository="eneo/platform", pr_number=17
+            self.connection, repository="example-org/example-repository", pr_number=17
         )
         self.assertEqual(current.publication_id, int(first["publication_id"]))
 
@@ -1091,7 +1091,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 review_publisher.IssueComment(
                     comment_id=comment_id,
                     body=part.body,
-                    author_login="eneo-ai-bot",
+                    author_login="review-agent-bot",
                 )
                 for comment_id, part in zip(original_ids, split_parts, strict=True)
             ]
@@ -1197,7 +1197,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 review_publisher.IssueComment(
                     comment_id=88,
                     body=f"{publication['markdown']}\n<!-- {marker} -->",
-                    author_login="eneo-ai-bot",
+                    author_login="review-agent-bot",
                 )
             ]
         )
@@ -1243,7 +1243,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 {
                     "id": 123,
                     "body": "review",
-                    "user": {"login": "eneo-ai-bot"},
+                    "user": {"login": "review-agent-bot"},
                 }
             )
 
@@ -1251,8 +1251,8 @@ class ReviewPublisherTests(unittest.TestCase):
             "write-token", read_token="read-token"
         )
         with mock.patch("urllib.request.urlopen", fake_urlopen):
-            gateway.get_pull_request("eneo-ai/eneo", 240)
-            gateway.create_issue_comment("eneo-ai/eneo", 240, "review")
+            gateway.get_pull_request("example-org/example-repository", 240)
+            gateway.create_issue_comment("example-org/example-repository", 240, "review")
 
         self.assertEqual(seen[0][0], "GET")
         self.assertEqual(seen[0][2], "Bearer read-token")
@@ -1291,7 +1291,7 @@ class ReviewPublisherTests(unittest.TestCase):
             "write-token", read_token="read-token"
         )
         with mock.patch("urllib.request.urlopen", fake_urlopen):
-            pull = gateway.get_pull_request("eneo-ai/eneo", 240)
+            pull = gateway.get_pull_request("example-org/example-repository", 240)
 
         self.assertEqual(pull.state, "open")
         self.assertEqual(authorizations, ["Bearer read-token", "Bearer write-token"])
@@ -1312,7 +1312,7 @@ class ReviewPublisherTests(unittest.TestCase):
         gateway = review_publisher.GitHubIssueCommentGateway("write-token")
         with mock.patch("urllib.request.urlopen", fake_urlopen):
             with self.assertRaises(review_publisher.GitHubPublicationError) as error:
-                gateway.create_issue_comment("eneo-ai/eneo", 240, "review")
+                gateway.create_issue_comment("example-org/example-repository", 240, "review")
 
         self.assertEqual(error.exception.code, "github_403_create_issue_comment")
 
@@ -1340,7 +1340,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 {
                     "id": 81,
                     "body": review_body,
-                    "user": {"login": "eneo-ai-bot"},
+                    "user": {"login": "review-agent-bot"},
                     "commit_id": head_sha,
                     "state": "COMMENTED",
                 }
@@ -1366,7 +1366,7 @@ class ReviewPublisherTests(unittest.TestCase):
 
         with mock.patch("urllib.request.urlopen", fake_urlopen):
             review = gateway.create_pull_request_review(
-                "eneo-ai/eneo",
+                "example-org/example-repository",
                 240,
                 commit_id=head_sha,
                 body=review_body,
@@ -1378,7 +1378,7 @@ class ReviewPublisherTests(unittest.TestCase):
             review_publisher.PullRequestReview(
                 review_id=81,
                 body=review_body,
-                author_login="eneo-ai-bot",
+                author_login="review-agent-bot",
                 commit_id=head_sha,
                 state="COMMENTED",
             ),
@@ -1387,7 +1387,7 @@ class ReviewPublisherTests(unittest.TestCase):
             seen[0][:3],
             (
                 "POST",
-                "https://api.github.com/repos/eneo-ai/eneo/pulls/240/reviews",
+                "https://api.github.com/repos/example-org/example-repository/pulls/240/reviews",
                 "Bearer write-token",
             ),
         )
@@ -1428,7 +1428,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 "id": comment_id,
                 "pull_request_review_id": 81,
                 "body": f"F1\n<!-- suggestion={comment_id} -->",
-                "user": {"login": "eneo-ai-bot"},
+                "user": {"login": "review-agent-bot"},
                 "path": "backend/api.py",
                 "commit_id": head_sha,
                 "line": None if outdated else 42,
@@ -1455,7 +1455,7 @@ class ReviewPublisherTests(unittest.TestCase):
         )
         with mock.patch("urllib.request.urlopen", fake_urlopen):
             comments = gateway.list_pull_request_review_comments(
-                "eneo-ai/eneo", 240, max_pages=2
+                "example-org/example-repository", 240, max_pages=2
             )
 
         self.assertEqual(len(comments), 101)
@@ -1466,9 +1466,9 @@ class ReviewPublisherTests(unittest.TestCase):
         self.assertEqual(
             urls,
             [
-                "https://api.github.com/repos/eneo-ai/eneo/pulls/240/comments"
+                "https://api.github.com/repos/example-org/example-repository/pulls/240/comments"
                 "?per_page=100&page=1&sort=created&direction=desc",
-                "https://api.github.com/repos/eneo-ai/eneo/pulls/240/comments"
+                "https://api.github.com/repos/example-org/example-repository/pulls/240/comments"
                 "?per_page=100&page=2&sort=created&direction=desc",
             ],
         )
@@ -1494,7 +1494,7 @@ class ReviewPublisherTests(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", fake_urlopen):
             with self.assertRaises(review_publisher.GitHubPublicationError) as error:
                 gateway.create_pull_request_review(
-                    "eneo-ai/eneo",
+                    "example-org/example-repository",
                     240,
                     commit_id="a" * 40,
                     body="Optional atomic fix.",
@@ -1529,7 +1529,7 @@ class ReviewPublisherTests(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", fake_urlopen):
             with self.assertRaises(review_publisher.GitHubPublicationError) as error:
                 gateway.create_pull_request_review(
-                    "eneo-ai/eneo",
+                    "example-org/example-repository",
                     240,
                     commit_id="a" * 40,
                     body="Optional atomic fix.",
@@ -1552,7 +1552,7 @@ class ReviewPublisherTests(unittest.TestCase):
         response = {
             "id": True,
             "body": "Optional atomic fix.",
-            "user": {"login": "eneo-ai-bot"},
+            "user": {"login": "review-agent-bot"},
             "commit_id": head_sha,
             "state": "COMMENTED",
         }
@@ -1563,7 +1563,7 @@ class ReviewPublisherTests(unittest.TestCase):
         ):
             with self.assertRaises(review_publisher.GitHubPublicationError) as error:
                 gateway.create_pull_request_review(
-                    "eneo-ai/eneo",
+                    "example-org/example-repository",
                     240,
                     commit_id=head_sha,
                     body="Optional atomic fix.",
@@ -1600,7 +1600,7 @@ class ReviewPublisherTests(unittest.TestCase):
             "urllib.request.urlopen", return_value=FakeHTTPResponse(response)
         ):
             with self.assertRaises(review_publisher.GitHubPublicationError) as error:
-                gateway.list_pull_request_review_comments("eneo-ai/eneo", 240)
+                gateway.list_pull_request_review_comments("example-org/example-repository", 240)
 
         self.assertEqual(error.exception.code, "github_bad_review_comments_response")
 
@@ -1631,7 +1631,7 @@ class ReviewPublisherTests(unittest.TestCase):
                         review_publisher.GitHubPublicationError
                     ) as error:
                         gateway.create_pull_request_review(
-                            "eneo-ai/eneo",
+                            "example-org/example-repository",
                             240,
                             commit_id=head_sha,
                             body="Optional atomic fix.",

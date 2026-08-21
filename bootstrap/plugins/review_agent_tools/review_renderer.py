@@ -664,7 +664,7 @@ def render_fix_brief(
                 "- Flag scope drift and restore to "
                 "base only with developer approval."
             ),
-            "- Do not weaken validation, authorization, tenant isolation, or error handling.",
+            "- Do not weaken validation, authorization, data isolation, or error handling.",
             "",
             "Completion:",
             "- Add or update behavior tests that prove each demonstrated failure path is closed.",

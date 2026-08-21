@@ -25,20 +25,20 @@ class ReviewMemoryTests(unittest.TestCase):
         self.feedback_env.start()
         self._runs: dict[tuple[int, str, str], int] = {}
         self.finding = {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
-            "path": "backend/api/documents.py",
+            "path": "src/api/resources.py",
             "line": 42,
-            "symbol": "create_document",
-            "anchor": "POST /v1/documents:create",
-            "title": "Document creation omits tenant scope",
+            "symbol": "update_resource",
+            "anchor": "PUT /v1/resources/{resource_id}",
+            "title": "Resource update omits authorization context",
             "severity": "Critical",
             "publication_score": 9,
             "confidence": 0.93,
-            "evidence": "The changed query writes a caller-controlled tenant identifier.",
-            "disproof_checks": "Checked the dependency and repository layer; neither binds tenant_id.",
-            "impact": "A municipality user can write into another municipality's tenant.",
-            "smallest_fix": "Bind tenant_id from the verified request context.",
+            "evidence": "The changed query writes a caller-controlled resource-scope identifier.",
+            "disproof_checks": "Checked the dependency and repository layer; neither binds resource_scope_id.",
+            "impact": "A caller can write outside its authorized scope.",
+            "smallest_fix": "Bind resource_scope_id from the verified request context.",
             "introduced_by_diff": True,
         }
 
@@ -65,7 +65,7 @@ class ReviewMemoryTests(unittest.TestCase):
                 return run_id
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             pr_number,
             base_sha=base_sha,
             head_sha=head_sha,
@@ -79,7 +79,7 @@ class ReviewMemoryTests(unittest.TestCase):
             )
             run = memory_db.start_run(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 pr_number,
                 base_sha=base_sha,
                 head_sha=head_sha,
@@ -99,7 +99,7 @@ class ReviewMemoryTests(unittest.TestCase):
     ):
         return memory_db.record_findings(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             pr_number,
             head_sha,
             findings,
@@ -124,7 +124,7 @@ class ReviewMemoryTests(unittest.TestCase):
     ):
         return memory_db.finalize_review(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             pr_number,
             head_sha,
             review_run_id=self.run_for(
@@ -147,7 +147,7 @@ class ReviewMemoryTests(unittest.TestCase):
         finding.update(overrides)
         return memory_db.record_findings(
             self.connection,
-            "Eneo/Platform",
+            "Example-Org/Example-Repository",
             pr_number,
             head_sha,
             [finding],
@@ -201,7 +201,7 @@ class ReviewMemoryTests(unittest.TestCase):
             self.connection,
             fingerprint,
             "false_positive",
-            "PostgreSQL RLS enforces tenant scope for this application role.",
+            "The data-access policy enforces resource scope for this application role.",
             "github:alice",
             expires_days=180,
             latest=True,
@@ -272,7 +272,7 @@ class ReviewMemoryTests(unittest.TestCase):
             latest=True,
         )
         context = memory_db.memory_context(
-            self.connection, "eneo/platform", ["backend/api/documents.py"]
+            self.connection, "example-org/example-repository", ["src/api/resources.py"]
         )
         self.assertEqual(len(context["historical_suppressions"]), 1)
         self.assertEqual(
@@ -282,7 +282,7 @@ class ReviewMemoryTests(unittest.TestCase):
     def test_context_returns_unsuppressed_recent_finding_for_reexamination(self):
         result = self.record()
         context = memory_db.memory_context(
-            self.connection, "eneo/platform", ["backend/api/documents.py"], pr_number=17
+            self.connection, "example-org/example-repository", ["src/api/resources.py"], pr_number=17
         )
         self.assertEqual(context["historical_suppressions"], [])
         recent = context["recent_findings"]
@@ -299,9 +299,9 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertNotIn("evidence", repeat)
         self.assertEqual(
             repeat["prior_claim"],
-            "The changed query writes a caller-controlled tenant identifier.",
+            "The changed query writes a caller-controlled resource-scope identifier.",
         )
-        self.assertIn("neither binds tenant_id", repeat["prior_disproof_checks"])
+        self.assertIn("neither binds resource_scope_id", repeat["prior_disproof_checks"])
 
     def test_context_separates_same_pr_repeat_findings_from_cross_pr_history(self):
         same_pr = self.record()
@@ -311,10 +311,10 @@ class ReviewMemoryTests(unittest.TestCase):
             category="tests",
             severity="Medium",
             publication_score=7,
-            anchor="document regression test",
+            anchor="resource regression test",
         )
         context = memory_db.memory_context(
-            self.connection, "eneo/platform", ["backend/api/documents.py"], pr_number=17
+            self.connection, "example-org/example-repository", ["src/api/resources.py"], pr_number=17
         )
         self.assertEqual(
             {item["fingerprint"] for item in context["recent_findings"]},
@@ -332,7 +332,7 @@ class ReviewMemoryTests(unittest.TestCase):
 
         context = memory_db.memory_context(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             ["frontend/new-path.ts"],
             pr_number=17,
         )
@@ -356,7 +356,7 @@ class ReviewMemoryTests(unittest.TestCase):
 
         next_context = memory_db.memory_context(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             ["frontend/new-path.ts"],
             pr_number=17,
         )
@@ -368,7 +368,7 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertEqual(same_pr["fingerprint"], other_pr["fingerprint"])
 
         context = memory_db.memory_context(
-            self.connection, "eneo/platform", ["backend/api/documents.py"], pr_number=17
+            self.connection, "example-org/example-repository", ["src/api/resources.py"], pr_number=17
         )
 
         self.assertEqual(len(context["repeat_review_findings"]), 1)
@@ -380,7 +380,7 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertNotIn("evidence", repeat)
         self.assertEqual(
             repeat["prior_claim"],
-            "The changed query writes a caller-controlled tenant identifier.",
+            "The changed query writes a caller-controlled resource-scope identifier.",
         )
         self.assertEqual(repeat["previous_head"], "a" * 40)
 
@@ -394,15 +394,15 @@ class ReviewMemoryTests(unittest.TestCase):
             self.finding,
             rule_id="tests.missing-regression",
             category="tests",
-            path="backend/api/test_documents.py",
+            path="src/api/test_resources.py",
             line=80,
-            anchor="test_create_document",
-            title="Regression test misses tenant failure path",
+            anchor="test_update_resource",
+            title="Regression test misses authorization failure path",
             severity="Medium",
             publication_score=7,
-            evidence="The changed test covers success but not the rejected cross-tenant path.",
-            impact="A future tenant-scope regression can ship without a failing test.",
-            smallest_fix="Add a focused test that asserts cross-tenant creation is rejected.",
+            evidence="The changed test covers success but not the rejected cross-scope update.",
+            impact="A future authorization-scope regression can ship without a failing test.",
+            smallest_fix="Add a focused test that asserts cross-scope update is rejected.",
         )
         recorded = self.record_many(
             [self.finding, second],
@@ -421,8 +421,8 @@ class ReviewMemoryTests(unittest.TestCase):
             "There are 2 current findings: 1 Critical (P0) and 1 Medium (P2).",
             markdown,
         )
-        self.assertIn("### F1 · Critical (P0): Document creation omits tenant scope", markdown)
-        self.assertIn("### F2 · Medium (P2): Regression test misses tenant failure path", markdown)
+        self.assertIn("### F1 · Critical (P0): Resource update omits authorization context", markdown)
+        self.assertIn("### F2 · Medium (P2): Regression test misses authorization failure path", markdown)
         self.assertIn("**Impact:**", markdown)
         self.assertIn("**Smallest safe fix:**", markdown)
         self.assertNotIn("**Reviewer checks:**", markdown)
@@ -454,16 +454,16 @@ class ReviewMemoryTests(unittest.TestCase):
             severity="High",
             publication_score=8,
             title="First high issue",
-            rule_id="tenant.first-high",
-            anchor="POST /v1/documents:first",
+            rule_id="authorization.first-high",
+            anchor="PUT /v1/resources/{resource_id}:first",
         )
         second = dict(
             self.finding,
             severity="High",
             publication_score=8,
             title="Second high issue",
-            rule_id="tenant.second-high",
-            anchor="POST /v1/documents:second",
+            rule_id="authorization.second-high",
+            anchor="PUT /v1/resources/{resource_id}:second",
         )
         self.record_many(
             [first, second],
@@ -656,7 +656,7 @@ class ReviewMemoryTests(unittest.TestCase):
             source.execute("PRAGMA wal_checkpoint(FULL)")
             memory_db.start_run(
                 source,
-                "eneo/platform",
+                "example-org/example-repository",
                 17,
                 trigger_comment_id=123,
                 trigger_user="github:alice",
@@ -681,7 +681,7 @@ class ReviewMemoryTests(unittest.TestCase):
     def test_review_run_coverage_tracks_diff_and_source_reads(self):
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha="a" * 40,
         )
@@ -689,10 +689,10 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.register_changed_files(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             files=[
-                {"path": "backend/api/documents.py", "status": "modified"},
+                {"path": "src/api/resources.py", "status": "modified"},
                 {"path": "frontend/app/routes/page.svelte", "status": "added"},
             ],
         )
@@ -706,10 +706,10 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.record_diff_exposure(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             paths=[
-                "backend/api/documents.py",
+                "src/api/resources.py",
                 "frontend/app/routes/page.svelte",
             ],
             truncated=False,
@@ -717,9 +717,9 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.record_file_range(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            path="backend/api/documents.py",
+            path="src/api/resources.py",
             side="head",
             start_line=10,
             end_line=25,
@@ -739,7 +739,7 @@ class ReviewMemoryTests(unittest.TestCase):
     def test_context_only_read_does_not_make_changed_coverage_incomplete(self):
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha="a" * 40,
         )
@@ -747,22 +747,22 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.register_changed_files(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            files=[{"path": "backend/api/documents.py", "status": "modified"}],
+            files=[{"path": "src/api/resources.py", "status": "modified"}],
         )
         memory_db.record_diff_exposure(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            paths=["backend/api/documents.py"],
+            paths=["src/api/resources.py"],
             truncated=False,
         )
         memory_db.record_file_range(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             path="backend/auth.py",
             side="head",
@@ -780,7 +780,7 @@ class ReviewMemoryTests(unittest.TestCase):
     def test_complete_diff_read_clears_prior_truncated_state(self):
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha="a" * 40,
         )
@@ -788,24 +788,24 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.register_changed_files(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            files=[{"path": "backend/api/documents.py", "status": "modified"}],
+            files=[{"path": "src/api/resources.py", "status": "modified"}],
         )
         memory_db.record_diff_exposure(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            paths=["backend/api/documents.py"],
+            paths=["src/api/resources.py"],
             truncated=True,
         )
         memory_db.record_diff_exposure(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            paths=["backend/api/documents.py"],
+            paths=["src/api/resources.py"],
             truncated=False,
         )
 
@@ -818,7 +818,7 @@ class ReviewMemoryTests(unittest.TestCase):
     def test_partial_changed_file_registration_keeps_coverage_incomplete(self):
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha="a" * 40,
         )
@@ -826,18 +826,18 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.register_changed_files(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            files=[{"path": "backend/api/documents.py", "status": "modified"}],
+            files=[{"path": "src/api/resources.py", "status": "modified"}],
             changed_files_reported=2,
             registration_complete=False,
         )
         memory_db.record_diff_exposure(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
-            paths=["backend/api/documents.py"],
+            paths=["src/api/resources.py"],
             truncated=False,
         )
 
@@ -851,7 +851,7 @@ class ReviewMemoryTests(unittest.TestCase):
     def test_run_file_lookup_owns_status_and_previous_path(self):
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha="a" * 40,
         )
@@ -859,7 +859,7 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.register_changed_files(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             files=[
                 {
@@ -873,14 +873,14 @@ class ReviewMemoryTests(unittest.TestCase):
         found = memory_db.lookup_run_file(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             path="backend/new_name.py",
         )
         absent = memory_db.lookup_run_file(
             self.connection,
             run_id=run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             path="backend/context.py",
         )
@@ -894,7 +894,7 @@ class ReviewMemoryTests(unittest.TestCase):
     def test_completed_or_failed_runs_cannot_receive_coverage_writes(self):
         completed_run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             head_sha="a" * 40,
         )
@@ -902,7 +902,7 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.complete_run(
             self.connection,
             completed_run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             status="generated",
             findings_count=0,
@@ -912,18 +912,18 @@ class ReviewMemoryTests(unittest.TestCase):
             memory_db.record_diff_exposure(
                 self.connection,
                 run_id=completed_run_id,
-                repository="eneo/platform",
+                repository="example-org/example-repository",
                 pr_number=17,
-                paths=["backend/api/documents.py"],
+                paths=["src/api/resources.py"],
                 truncated=False,
             )
         with self.assertRaises(memory_db.ReviewMemoryError):
             memory_db.record_file_range(
                 self.connection,
                 run_id=completed_run_id,
-                repository="eneo/platform",
+                repository="example-org/example-repository",
                 pr_number=17,
-                path="backend/api/documents.py",
+                path="src/api/resources.py",
                 side="head",
                 start_line=1,
                 end_line=2,
@@ -931,7 +931,7 @@ class ReviewMemoryTests(unittest.TestCase):
 
         failed_run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             18,
             head_sha="b" * 40,
         )
@@ -939,7 +939,7 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.complete_run(
             self.connection,
             failed_run_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=18,
             status="failed",
             failure_code="test_failure",
@@ -949,22 +949,22 @@ class ReviewMemoryTests(unittest.TestCase):
             memory_db.register_changed_files(
                 self.connection,
                 run_id=failed_run_id,
-                repository="eneo/platform",
+                repository="example-org/example-repository",
                 pr_number=18,
-                files=[{"path": "backend/api/documents.py", "status": "modified"}],
+                files=[{"path": "src/api/resources.py", "status": "modified"}],
             )
 
     def test_run_scoped_finalize_excludes_observations_from_failed_run(self):
         first_run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha="b" * 40,
             head_sha="a" * 40,
         )
         memory_db.record_findings(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             [self.finding],
@@ -975,14 +975,14 @@ class ReviewMemoryTests(unittest.TestCase):
         memory_db.complete_run(
             self.connection,
             int(first_run["id"]),
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             status="failed",
             failure_code="test_failure",
         )
         second_run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             base_sha="b" * 40,
             head_sha="a" * 40,
@@ -1000,7 +1000,7 @@ class ReviewMemoryTests(unittest.TestCase):
         )
         memory_db.record_findings(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             [other],
@@ -1011,14 +1011,14 @@ class ReviewMemoryTests(unittest.TestCase):
 
         result = memory_db.finalize_review(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             review_run_id=int(second_run["id"]),
         )
 
         self.assertIn("Response contract drops required field", result["markdown"])
-        self.assertNotIn("Document creation omits tenant scope", result["markdown"])
+        self.assertNotIn("Resource update omits authorization context", result["markdown"])
 
     def test_finalize_review_omits_feedback_help_when_disabled(self):
         self.record()
@@ -1035,10 +1035,10 @@ class ReviewMemoryTests(unittest.TestCase):
             self.finding,
             rule_id="tests.missing-regression",
             category="tests",
-            path="backend/api/test_documents.py",
+            path="src/api/test_resources.py",
             line=80,
-            anchor="test_create_document",
-            title="Regression test misses tenant failure path",
+            anchor="test_update_resource",
+            title="Regression test misses authorization failure path",
             severity="Medium",
             publication_score=7,
         )
@@ -1066,11 +1066,11 @@ class ReviewMemoryTests(unittest.TestCase):
             result["markdown"],
         )
         self.assertIn(
-            "### F2 · Medium (P2): Regression test misses tenant failure path",
+            "### F2 · Medium (P2): Regression test misses authorization failure path",
             result["markdown"],
         )
         self.assertNotIn(
-            "### F1 · Critical (P0): Document creation omits tenant scope",
+            "### F1 · Critical (P0): Resource update omits authorization context",
             result["markdown"],
         )
         self.assertNotIn("F1 - Critical (P0) - security", result["markdown"])
@@ -1082,10 +1082,10 @@ class ReviewMemoryTests(unittest.TestCase):
             self.finding,
             rule_id="tests.missing-regression",
             category="tests",
-            path="backend/api/test_documents.py",
+            path="src/api/test_resources.py",
             line=80,
-            anchor="test_create_document",
-            title="Regression test misses tenant failure path",
+            anchor="test_update_resource",
+            title="Regression test misses authorization failure path",
             severity="Medium",
             publication_score=7,
         )
@@ -1106,7 +1106,7 @@ class ReviewMemoryTests(unittest.TestCase):
                 {
                     "local_reference": "F1",
                     "verdict": "resolved",
-                    "evidence": "Tenant scope is now bound from the verified request.",
+                    "evidence": "Resource scope is now bound from the verified request.",
                 },
                 {"local_reference": "F2", "verdict": "still_present"},
             ],
@@ -1130,7 +1130,7 @@ class ReviewMemoryTests(unittest.TestCase):
         self.publish(result)
         context = memory_db.memory_context(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             [first["path"], second["path"]],
             pr_number=17,
         )
@@ -1145,10 +1145,10 @@ class ReviewMemoryTests(unittest.TestCase):
             self.finding,
             rule_id="tests.missing-regression",
             category="tests",
-            path="backend/api/test_documents.py",
+            path="src/api/test_resources.py",
             line=80,
-            anchor="test_create_document",
-            title="Regression test misses tenant failure path",
+            anchor="test_update_resource",
+            title="Regression test misses authorization failure path",
             severity="Medium",
             publication_score=7,
         )
@@ -1170,7 +1170,7 @@ class ReviewMemoryTests(unittest.TestCase):
                     {
                         "local_reference": "F1",
                         "verdict": "resolved",
-                        "evidence": "Tenant scope is now bound from the request.",
+                        "evidence": "Resource scope is now bound from the request.",
                     },
                     {"local_reference": "F2", "verdict": "still_present"},
                 ],
@@ -1304,7 +1304,7 @@ class ReviewMemoryTests(unittest.TestCase):
             self.connection,
             recorded["fingerprint"],
             "false_positive",
-            "The tenant guard exists in an unchanged dependency.",
+            "The authorization guard exists in an unchanged dependency.",
             "github:alice",
             expires_days=180,
             latest=True,
@@ -1325,7 +1325,7 @@ class ReviewMemoryTests(unittest.TestCase):
             self.connection,
             recorded["fingerprint"],
             "false_positive",
-            "The tenant guard exists in an unchanged dependency.",
+            "The authorization guard exists in an unchanged dependency.",
             "github:alice",
             expires_days=180,
             latest=True,
@@ -1374,10 +1374,10 @@ class ReviewMemoryTests(unittest.TestCase):
             self.finding,
             rule_id="tests.missing-regression",
             category="tests",
-            path="backend/api/test_documents.py",
+            path="src/api/test_resources.py",
             line=80,
-            anchor="test_create_document",
-            title="Regression test misses tenant failure path",
+            anchor="test_update_resource",
+            title="Regression test misses authorization failure path",
             severity="Medium",
             publication_score=7,
         )
@@ -1388,7 +1388,7 @@ class ReviewMemoryTests(unittest.TestCase):
         self.publish(self.finalize())
         context = memory_db.memory_context(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             [second["path"]],
             pr_number=17,
         )
@@ -1417,10 +1417,10 @@ class ReviewMemoryTests(unittest.TestCase):
             self.finding,
             rule_id="tests.missing-regression",
             category="tests",
-            path="backend/api/test_documents.py",
+            path="src/api/test_resources.py",
             line=80,
-            anchor="test_create_document",
-            title="Regression test misses tenant failure path",
+            anchor="test_update_resource",
+            title="Regression test misses authorization failure path",
             severity="Medium",
             publication_score=7,
         )
@@ -1464,7 +1464,7 @@ class ReviewMemoryTests(unittest.TestCase):
         self.publish(result)
         context = memory_db.memory_context(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             [first["path"]],
             pr_number=17,
         )
@@ -1480,7 +1480,7 @@ class ReviewMemoryTests(unittest.TestCase):
                 {
                     "local_reference": "F1",
                     "verdict": "resolved",
-                    "evidence": "The worker now uses the tenant-scoped lookup.",
+                    "evidence": "The worker now uses the scope-checked lookup.",
                 }
             ],
         )
@@ -1514,7 +1514,7 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertIn("F1 returned", result["markdown"])
         self.assertNotIn("F1 is new", result["markdown"])
         self.assertIn(
-            "### F1 · Critical (P0): Document creation omits tenant scope",
+            "### F1 · Critical (P0): Resource update omits authorization context",
             result["markdown"],
         )
 
@@ -1522,10 +1522,10 @@ class ReviewMemoryTests(unittest.TestCase):
         malicious = dict(
             self.finding,
             path="backend/api/docu]ments.py",
-            title="Break </details> <!-- hidden --> ``` fence @eneo-ai/security",
+            title="Break </details> <!-- hidden --> ``` fence @example-org/security",
             evidence=(
                 "![pixel](https://evil.invalid/p.gif) [click](https://evil.invalid) "
-                "@eneo-ai/security plus ```fence."
+                "@example-org/security plus ```fence."
             ),
             impact="# heading > quote </details> <!-- hidden -->.",
             smallest_fix=(
@@ -1546,7 +1546,7 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertIn("&lt;/details&gt;", rendered_prose)
         self.assertIn("&lt;\\!-- hidden --&gt;", rendered_prose)
         self.assertIn(
-            "[`backend/api/docu%5Dments.py:42`](https://github.com/eneo/platform/blob/"
+            "[`backend/api/docu%5Dments.py:42`](https://github.com/example-org/example-repository/blob/"
             + "a" * 40
             + "/backend/api/docu%5Dments.py#L42)",
             rendered_prose,
@@ -1555,10 +1555,10 @@ class ReviewMemoryTests(unittest.TestCase):
         self.assertNotIn("```fence", rendered_prose)
         self.assertNotIn("![pixel](", rendered_prose)
         self.assertNotIn("[click](", rendered_prose)
-        self.assertNotIn("@eneo-ai/security", rendered_prose)
+        self.assertNotIn("@example-org/security", rendered_prose)
         self.assertNotIn("https://evil.invalid", rendered_prose)
         self.assertNotIn("www.evil.invalid", rendered_prose)
-        self.assertIn("&#64;eneo-ai/security", rendered_prose)
+        self.assertIn("&#64;example-org/security", rendered_prose)
         self.assertIn("https:&#8203;//evil.invalid", rendered_prose)
         self.assertIn("www&#8203;.evil.invalid", rendered_prose)
         self.assertEqual(result["markdown"].count("```"), 8)
@@ -1591,7 +1591,7 @@ class ReviewMemoryTests(unittest.TestCase):
         )
         context = memory_db.memory_context(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             [item["path"] for item in findings],
             pr_number=17,
         )
@@ -1641,8 +1641,8 @@ class ReviewMemoryTests(unittest.TestCase):
 
         context = memory_db.memory_context(
             self.connection,
-            "eneo/platform",
-            ["backend/api/documents.py"],
+            "example-org/example-repository",
+            ["src/api/resources.py"],
             pr_number=17,
         )
 
@@ -1663,7 +1663,7 @@ class ReviewMemoryTests(unittest.TestCase):
         with self.assertRaises(memory_db.ReviewMemoryError):
             memory_db.record_findings(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 17,
                 "b" * 40,
                 findings,
@@ -1719,7 +1719,7 @@ class ReviewMemoryTests(unittest.TestCase):
             "resolved",
             "Fixed with a regression test.",
             "github:alice",
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             local_reference="F1",
         )
@@ -1731,7 +1731,7 @@ class ReviewMemoryTests(unittest.TestCase):
         with self.assertRaises(memory_db.ReviewMemoryError):
             memory_db.record_findings(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 1,
                 "b" * 40,
                 [weak],
@@ -1749,7 +1749,7 @@ class ReviewMemoryTests(unittest.TestCase):
         with self.assertRaises(memory_db.ReviewMemoryError):
             memory_db.record_findings(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 1,
                 "b" * 40,
                 [weak],
@@ -1793,7 +1793,7 @@ class ReviewMemoryTests(unittest.TestCase):
         with self.assertRaises(memory_db.ReviewMemoryError):
             memory_db.record_findings(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 1,
                 "b" * 40,
                 [dict(low, publication_score=6)],
@@ -1985,8 +1985,8 @@ class ReviewMemoryTests(unittest.TestCase):
             """
         )
         fingerprint = memory_db.compute_fingerprint(
-            "eneo/platform", "tenant.missing-scope", "backend/api/documents.py",
-            "create_document", "POST /v1/documents:create",
+            "example-org/example-repository", "authorization.missing-context", "src/api/resources.py",
+            "update_resource", "PUT /v1/resources/{resource_id}",
         )
         raw.execute(
             """
@@ -1995,9 +1995,9 @@ class ReviewMemoryTests(unittest.TestCase):
                 severity, category, publication_score, confidence, context_hash, pr_number,
                 head_sha, evidence, disproof_checks, impact, smallest_fix,
                 introduced_by_diff, first_seen_at, last_seen_at, occurrences
-            ) VALUES (?, 'eneo/platform', 'tenant.missing-scope', 'backend/api/documents.py',
-                42, 'create_document', 'POST /v1/documents:create',
-                'Document creation omits tenant scope', 'High', 'security', 9, 0.93,
+            ) VALUES (?, 'example-org/example-repository', 'authorization.missing-context', 'src/api/resources.py',
+                42, 'update_resource', 'PUT /v1/resources/{resource_id}',
+                'Resource update omits authorization context', 'High', 'security', 9, 0.93,
                 ?, 17, ?, 'evidence', 'checks', 'impact', 'fix', 1, ?, ?, 1)
             """,
             (fingerprint, "d" * 40, "a" * 40, created, created),
@@ -2027,7 +2027,7 @@ class ReviewMemoryTests(unittest.TestCase):
             INSERT INTO review_comment_links (
                 review_comment_id, repository, pr_number, fingerprint, context_hash,
                 head_sha, created_at
-            ) VALUES (111, 'eneo/platform', 17, ?, ?, ?, ?)
+            ) VALUES (111, 'example-org/example-repository', 17, ?, ?, ?, ?)
             """,
             (fingerprint, "d" * 40, "a" * 40, created),
         )
@@ -2076,14 +2076,14 @@ class ReviewMemoryTests(unittest.TestCase):
         )
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             18,
             base_sha="a" * 40,
             head_sha="b" * 40,
         )
         memory_db.record_findings(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             18,
             "b" * 40,
             [medium],
@@ -2097,11 +2097,11 @@ class ReviewMemoryTests(unittest.TestCase):
         db = str(Path(self.temp.name) / "backfill.sqlite3")
         created = memory_db.isoformat()
         fingerprint = memory_db.compute_fingerprint(
-            "eneo/platform",
-            "tenant.missing-scope",
-            "backend/api/documents.py",
-            "create_document",
-            "POST /v1/documents:create",
+            "example-org/example-repository",
+            "authorization.missing-context",
+            "src/api/resources.py",
+            "update_resource",
+            "PUT /v1/resources/{resource_id}",
         )
         raw = sqlite3.connect(db)
         raw.executescript(
@@ -2140,9 +2140,9 @@ class ReviewMemoryTests(unittest.TestCase):
                 severity, category, publication_score, confidence, context_hash, pr_number,
                 head_sha, evidence, disproof_checks, impact, smallest_fix,
                 introduced_by_diff, first_seen_at, last_seen_at, occurrences
-            ) VALUES (?, 'eneo/platform', 'tenant.missing-scope', 'backend/api/documents.py',
-                42, 'create_document', 'POST /v1/documents:create',
-                'Document creation omits tenant scope', 'High', 'security', 9, 0.93,
+            ) VALUES (?, 'example-org/example-repository', 'authorization.missing-context', 'src/api/resources.py',
+                42, 'update_resource', 'PUT /v1/resources/{resource_id}',
+                'Resource update omits authorization context', 'High', 'security', 9, 0.93,
                 ?, 17, ?, 'evidence', 'checks', 'impact', 'fix', 1, ?, ?, 1)
             """,
             (fingerprint, "d" * 40, "a" * 40, created, created),
@@ -2179,7 +2179,7 @@ class ReviewMemoryTests(unittest.TestCase):
         with self.assertRaises(memory_db.ReviewMemoryError):
             memory_db.record_findings(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 1,
                 "c" * 40,
                 [invalid],
@@ -2196,7 +2196,7 @@ class ReviewMemoryTests(unittest.TestCase):
         with self.assertRaises(memory_db.ReviewMemoryError):
             memory_db.record_findings(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 1,
                 "not-a-sha",
                 [self.finding],
@@ -2214,7 +2214,7 @@ class ReviewMemoryTests(unittest.TestCase):
         with self.assertRaises(memory_db.ReviewMemoryError):
             memory_db.record_findings(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 1,
                 "b" * 40,
                 [invalid],
@@ -2233,7 +2233,7 @@ class ReviewMemoryTests(unittest.TestCase):
             self.connection,
             result["fingerprint"],
             "false_positive",
-            "PostgreSQL RLS enforces tenant scope for this application role.",
+            "The data-access policy enforces resource scope for this application role.",
             "github:alice",
             expires_days=180,
             latest=True,

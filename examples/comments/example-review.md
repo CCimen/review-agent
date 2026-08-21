@@ -9,7 +9,7 @@ changed paths. Additional source context was read from 1 changed path and 1
 supporting file.</sub>
 
 ### F1 · Medium (P2): Retry delay uses milliseconds as seconds
-[`backend/src/intric/jobs/retry.py:87`](https://github.com/eneo-ai/eneo/blob/a1b2c3d4e5f678901234567890abcdef12345678/backend/src/intric/jobs/retry.py#L87) · correctness
+[`src/jobs/retry.py:87`](https://github.com/example-org/example-repository/blob/a1b2c3d4e5f678901234567890abcdef12345678/src/jobs/retry.py#L87) · correctness
 
 The new retry setting is named and documented in milliseconds, but the changed
 scheduler call passes it directly to an API that waits in seconds. A configured
@@ -24,7 +24,7 @@ boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
 > [!TIP]
 > **1 optional GitHub suggestion ready to apply · 0 findings need coordinated implementation**
 >
-> Open [Files changed](https://github.com/eneo-ai/eneo/pull/123/files) to inspect
+> Open [Files changed](https://github.com/example-org/example-repository/pull/123/files) to inspect
 > each patch in context. Apply a patch individually, or batch only the selected
 > atomic patches into one commit. Run CI, push any remaining fixes, then post
 > `/review` as a new top-level PR comment. Applying a patch does not resolve its
@@ -44,7 +44,7 @@ Fix every current finding on the latest PR head with the smallest safe,
 behavior-tested change.
 
 Review basis:
-eneo-ai/eneo PR #123 at commit a1b2c3d.
+example-org/example-repository PR #123 at commit a1b2c3d.
 Changed-file diff context: complete for all registered changed paths.
 
 Before changing code:
@@ -58,7 +58,7 @@ Before changing code:
 Findings:
 
 F1 - Medium (P2) - correctness
-Location: backend/src/intric/jobs/retry.py:87
+Location: src/jobs/retry.py:87
 Fix path: Candidate for an optional atomic GitHub suggestion; otherwise use this brief.
 Problem: Retry delay uses milliseconds as seconds
 Observed behavior: The changed scheduler call passes a millisecond setting to an
@@ -72,7 +72,7 @@ Constraints:
   parallel path.
 - Avoid unrelated refactoring.
 - Flag scope drift and restore to base only with developer approval.
-- Do not weaken validation, authorization, tenant isolation, or error handling.
+- Do not weaken validation, authorization, data isolation, or error handling.
 
 Completion:
 - Add or update behavior tests that prove each demonstrated failure path is closed.

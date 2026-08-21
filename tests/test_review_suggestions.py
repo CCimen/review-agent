@@ -14,7 +14,7 @@ from review_agent_tools import memory_db, memory_suggestions  # noqa: E402
 
 
 class SuggestionValidationTests(unittest.TestCase):
-    repository = "eneo/platform"
+    repository = "example-org/example-repository"
     pr_number = 17
     head_sha = "a" * 40
     fingerprint = "f" * 64
@@ -168,13 +168,13 @@ class SuggestionValidationTests(unittest.TestCase):
     def test_high_risk_finding_metadata_is_ineligible(self) -> None:
         self.assertEqual(
             memory_suggestions.suggestion_eligibility_rejection(
-                rule_id="tenant.missing-scope",
+                rule_id="multitenancy.missing-resource-scope",
                 category="correctness",
-                path="src/service.py",
-                symbol="load_document",
-                anchor="worker lookup",
+                path="src/resources.py",
+                symbol="load_resource",
+                anchor="resource lookup",
                 title="Tenant boundary is bypassed",
-                evidence="The worker performs a global lookup.",
+                evidence="The resource lookup is not scoped to the current tenant.",
                 impact="Cross-account access is possible.",
                 smallest_fix="Scope the lookup.",
             ),
@@ -218,7 +218,7 @@ class SuggestionPersistenceTests(unittest.TestCase):
         self.connection = memory_db.connect(
             str(Path(self.temp.name) / "review-memory.sqlite3")
         )
-        self.repository = "eneo/platform"
+        self.repository = "example-org/example-repository"
         self.pr_number = 17
         self.base_sha = "b" * 40
         self.head_sha = "a" * 40

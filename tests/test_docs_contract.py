@@ -30,7 +30,6 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("only deterministic tools can", canonical)
 
         for repository_specific_assumption in [
-            "Eneo",
             "FastAPI",
             "SQLAlchemy",
             "PostgreSQL",
@@ -93,8 +92,8 @@ class DocsContractTests(unittest.TestCase):
         canonical = read("bootstrap/workspace/AGENTS.md")
         example = read("examples/comments/example-review.md")
         metadata = (
-            "[`backend/src/intric/jobs/retry.py:87`](https://github.com/eneo-ai/eneo/blob/"
-            "a1b2c3d4e5f678901234567890abcdef12345678/backend/src/intric/jobs/retry.py#L87) · correctness"
+            "[`src/jobs/retry.py:87`](https://github.com/example-org/example-repository/blob/"
+            "a1b2c3d4e5f678901234567890abcdef12345678/src/jobs/retry.py#L87) · correctness"
         )
         heading = "### F1 · Medium (P2): Retry delay uses milliseconds as seconds"
 
@@ -140,7 +139,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("One line per F reference: fixed, skipped, or blocked", body)
         self.assertIn("Flag scope drift and restore to base only with developer approval", body)
         self.assertIn(
-            "Do not weaken validation, authorization, tenant isolation, or error handling",
+            "Do not weaken validation, authorization, data isolation, or error handling",
             body,
         )
         self.assertIn("must post /review as a new top-level PR comment", body)
@@ -301,7 +300,6 @@ class DocsContractTests(unittest.TestCase):
         ]:
             with self.subTest(body=body[:30]):
                 self.assertNotIn("quiet footer", body)
-                self.assertNotIn("<sub>Eneo two-pass review", body)
         self.assertIn("Keep machine identifiers out of the developer reading path", canonical)
         self.assertIn("hidden metadata", canonical)
         self.assertIn("only in hidden review metadata", tools)

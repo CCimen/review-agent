@@ -58,7 +58,7 @@ class ChangedFilePagerTests(unittest.TestCase):
     def test_enumerates_all_pages_past_300(self):
         master = _files(350)
         result = changed_files.enumerate_changed_files(
-            _fake_request(master), "eneo-ai/eneo", 309, reported=350
+            _fake_request(master), "example-org/example-repository", 309, reported=350
         )
         self.assertEqual(len(result.files), 350)
         self.assertEqual(
@@ -71,7 +71,7 @@ class ChangedFilePagerTests(unittest.TestCase):
         master = _files(200)
         request = _fake_request(master, truncate_on={(100, 2)})
         result = changed_files.enumerate_changed_files(
-            request, "eneo-ai/eneo", 309, reported=200
+            request, "example-org/example-repository", 309, reported=200
         )
         # Exact 1..N in order: no gaps, no duplicates, after the per_page change.
         self.assertEqual(
@@ -86,7 +86,7 @@ class ChangedFilePagerTests(unittest.TestCase):
         full_overflow = {(per_page, 1) for per_page in (100, 50, 25, 10, 5, 2)}
         request = _fake_request(master, truncate_on=full_overflow | {(1, 2)})
         result = changed_files.enumerate_changed_files(
-            request, "eneo-ai/eneo", 309, reported=3
+            request, "example-org/example-repository", 309, reported=3
         )
         # The overflowed middle file is skipped, not faked or duplicated.
         self.assertEqual(
@@ -101,7 +101,7 @@ class ChangedFilePagerTests(unittest.TestCase):
         # with no truncation: the index must be honestly incomplete, not complete.
         master = _files(3)
         result = changed_files.enumerate_changed_files(
-            _fake_request(master), "eneo-ai/eneo", 309, reported=5
+            _fake_request(master), "example-org/example-repository", 309, reported=5
         )
         self.assertEqual(result.registered, 3)
         self.assertEqual(result.index_state, "incomplete")
@@ -119,7 +119,7 @@ class ChangedFilePagerTests(unittest.TestCase):
             }
         ]
         result = changed_files.enumerate_changed_files(
-            _fake_request(master), "eneo-ai/eneo", 309, reported=1
+            _fake_request(master), "example-org/example-repository", 309, reported=1
         )
         self.assertEqual(result.files[0]["patch_state"], "rename_only")
         self.assertEqual(result.files[0]["previous_path"], "src/old_name.py")
@@ -146,7 +146,7 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
         with patch.object(
             tools, "_request", side_effect=self._request_stub(master)
         ):
-            files = tools._changed_files("eneo-ai/eneo", 309)
+            files = tools._changed_files("example-org/example-repository", 309)
         self.assertEqual(len(files), 350)
         # Stable downstream contract: path + trusted context hash fields preserved.
         self.assertEqual(files[0]["path"], "src/file_0000.py")
@@ -170,7 +170,7 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
         with patch.object(
             tools, "_request", side_effect=self._request_stub(master)
         ):
-            files = tools._changed_files("eneo-ai/eneo", 309)
+            files = tools._changed_files("example-org/example-repository", 309)
         self.assertEqual(len(files[0]["previous_path"]), 500)
 
     def test_changed_files_patch_hash_fallback_when_no_blob_sha(self):
@@ -190,7 +190,7 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
         with patch.object(
             tools, "_request", side_effect=self._request_stub(master)
         ):
-            files = tools._changed_files("eneo-ai/eneo", 309)
+            files = tools._changed_files("example-org/example-repository", 309)
         self.assertEqual(files[0]["context_hash_source"], "patch")
         import hashlib
 

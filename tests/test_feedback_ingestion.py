@@ -18,20 +18,20 @@ class FeedbackIngestionTests(unittest.TestCase):
         self.connection = memory_db.connect(str(Path(self.temp.name) / "memory.sqlite3"))
         self._runs: dict[tuple[int, str, str], int] = {}
         self.finding = {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
-            "path": "backend/api/documents.py",
+            "path": "src/api/resources.py",
             "line": 42,
-            "symbol": "create_document",
-            "anchor": "POST /v1/documents",
-            "title": "Document creation omits tenant scope",
+            "symbol": "update_resource",
+            "anchor": "PUT /v1/resources/{resource_id}",
+            "title": "Resource update omits authorization context",
             "severity": "High",
             "publication_score": 9,
             "confidence": 0.93,
-            "evidence": "The changed query writes a caller-controlled tenant id.",
+            "evidence": "The changed query writes a caller-controlled resource scope.",
             "disproof_checks": "Checked the dependency and repository layer.",
-            "impact": "Cross-tenant write.",
-            "smallest_fix": "Bind tenant_id from context.",
+            "impact": "Cross-scope write.",
+            "smallest_fix": "Bind resource_scope_id from context.",
             "introduced_by_diff": True,
         }
 
@@ -51,7 +51,7 @@ class FeedbackIngestionTests(unittest.TestCase):
         payload = findings if findings is not None else [dict(self.finding)]
         return memory_db.record_findings(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             pr_number,
             head_sha,
             payload,
@@ -82,7 +82,7 @@ class FeedbackIngestionTests(unittest.TestCase):
                 return run_id
         run = memory_db.start_run(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             pr_number,
             base_sha=base_sha,
             head_sha=head_sha,
@@ -96,7 +96,7 @@ class FeedbackIngestionTests(unittest.TestCase):
             )
             run = memory_db.start_run(
                 self.connection,
-                "eneo/platform",
+                "example-org/example-repository",
                 pr_number,
                 base_sha=base_sha,
                 head_sha=head_sha,
@@ -115,7 +115,7 @@ class FeedbackIngestionTests(unittest.TestCase):
     ) -> dict[str, object]:
         result = memory_db.finalize_review(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             pr_number,
             head_sha,
             review_run_id=self.run_for(
@@ -156,14 +156,14 @@ class FeedbackIngestionTests(unittest.TestCase):
         return memory_db.record_review_feedback_comment(
             self.connection,
             event_id=event_id,
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             body=body,
             actor_user_id=actor_user_id,
             actor_login="alice",
             author_association="OWNER",
             source_comment_id=source_comment_id,
-            source_comment_url=f"https://github.test/eneo/platform/pull/17#issuecomment-{source_comment_id}",
+            source_comment_url=f"https://github.test/example-org/example-repository/pull/17#issuecomment-{source_comment_id}",
             allowed_actor_ids=allowlist,
         )
 
@@ -186,14 +186,14 @@ class FeedbackIngestionTests(unittest.TestCase):
         self.record()
         generated = memory_db.finalize_review(
             self.connection,
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             review_run_id=self.run_for(),
         )
 
         first = self.feedback(
-            "/review false-positive F1 because the repository scopes tenant_id."
+            "/review false-positive F1 because the repository scopes resource_scope_id."
         )
         self.assertEqual(first.status, "no_mapping")
 
@@ -204,7 +204,7 @@ class FeedbackIngestionTests(unittest.TestCase):
             failure_code="body_too_large",
         )
         second = self.feedback(
-            "/review false-positive F1 because the repository scopes tenant_id.",
+            "/review false-positive F1 because the repository scopes resource_scope_id.",
             event_id="github:issue-comment:501",
             source_comment_id=501,
         )
@@ -286,10 +286,10 @@ class FeedbackIngestionTests(unittest.TestCase):
 
     def test_parser_strips_optional_leading_because_from_reasons(self) -> None:
         finding = memory_db.parse_review_feedback_command(
-            "@review false-positive F1 because The repository scopes tenant_id."
+            "@review false-positive F1 because The repository scopes resource_scope_id."
         )
         missed = memory_db.parse_review_feedback_command(
-            "/review feedback missed because backend/api/documents.py lacks rollback coverage."
+            "/review feedback missed because src/api/resources.py lacks rollback coverage."
         )
         scoped = memory_db.parse_review_feedback_command(
             "/review feedback scope F1 because This change is inherited branch noise."
@@ -301,10 +301,10 @@ class FeedbackIngestionTests(unittest.TestCase):
         assert finding is not None
         assert missed is not None
         assert scoped is not None
-        self.assertEqual(finding.reason, "The repository scopes tenant_id.")
+        self.assertEqual(finding.reason, "The repository scopes resource_scope_id.")
         self.assertEqual(
             missed.reason,
-            "backend/api/documents.py lacks rollback coverage.",
+            "src/api/resources.py lacks rollback coverage.",
         )
         self.assertEqual(scoped.reason, "This change is inherited branch noise.")
         self.assertEqual(scoped.local_reference, "F1")
@@ -318,11 +318,11 @@ class FeedbackIngestionTests(unittest.TestCase):
                 command = template.command
                 command = command.replace(
                     memory_db.FALSE_POSITIVE_PLACEHOLDER,
-                    "the repository binds tenant_id before the query",
+                    "the repository binds resource_scope_id before the query",
                 )
                 command = command.replace(
                     memory_db.MISSED_ISSUE_PLACEHOLDER,
-                    "the review missed backend/api/documents.py rollback behavior",
+                    "the review missed src/api/resources.py rollback behavior",
                 )
                 command = command.replace(
                     memory_db.SCOPE_CONFUSION_PLACEHOLDER,
@@ -431,10 +431,10 @@ class FeedbackIngestionTests(unittest.TestCase):
             self.finding,
             rule_id="tests.missing-regression",
             category="tests",
-            path="backend/api/test_documents.py",
+            path="src/api/test_resources.py",
             line=80,
-            anchor="test_create_document",
-            title="Regression test misses tenant failure path",
+            anchor="test_update_resource",
+            title="Regression test misses authorization failure path",
             severity="Medium",
             publication_score=7,
         )

@@ -293,7 +293,7 @@ review-agent-memory decide <fingerprint> false_positive \
   --pr <number> \
   --local-reference F2 \
   --actor "github:alice" \
-  --reason "The tenant-scoped repository binds tenant_id before this query." \
+  --reason "The scope-checked repository binds resource_scope_id before this query." \
   --expires-days 180
 
 review-agent-memory decide <fingerprint> resolved \

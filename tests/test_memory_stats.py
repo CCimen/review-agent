@@ -29,7 +29,7 @@ class ReviewStatsTests(unittest.TestCase):
 
     def _finding(self, **over):
         base = {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
             "path": "backend/a.py",
             "line": 10,
@@ -51,7 +51,7 @@ class ReviewStatsTests(unittest.TestCase):
     def _record(
         self,
         *,
-        repo="eneo/platform",
+        repo="example-org/example-repository",
         context_hash="d" * 40,
         head_sha="a" * 40,
         **over,
@@ -90,7 +90,7 @@ class ReviewStatsTests(unittest.TestCase):
         )[0]
 
     def test_empty_db_returns_zeros(self):
-        stats = memory_db.compute_stats(self.connection, repository="eneo/platform")
+        stats = memory_db.compute_stats(self.connection, repository="example-org/example-repository")
         self.assertEqual(stats["findings_total"], 0)
         self.assertEqual(stats["findings_without_decision"], 0)
         self.assertEqual(stats["active_suppressions"], 0)
@@ -104,7 +104,7 @@ class ReviewStatsTests(unittest.TestCase):
     def test_counts_by_severity_and_category(self):
         self._record(path="backend/a.py", anchor="A", severity="Critical", category="security")
         self._record(path="backend/b.py", anchor="B", severity="High", category="performance")
-        stats = memory_db.compute_stats(self.connection, repository="eneo/platform")
+        stats = memory_db.compute_stats(self.connection, repository="example-org/example-repository")
         self.assertEqual(stats["findings_total"], 2)
         self.assertEqual(
             stats["findings_by_severity"],
@@ -131,13 +131,13 @@ class ReviewStatsTests(unittest.TestCase):
             ) VALUES (?, 1, ?, ?, 'reason', 'user:1', ?)
             """,
             (
-                ("eneo/platform", "a" * 40, "scope_confusion", now),
+                ("example-org/example-repository", "a" * 40, "scope_confusion", now),
                 ("other/repo", "b" * 40, "missed_issue", now),
             ),
         )
         self.connection.commit()
 
-        stats = memory_db.compute_stats(self.connection, repository="eneo/platform")
+        stats = memory_db.compute_stats(self.connection, repository="example-org/example-repository")
 
         self.assertEqual(stats["findings_by_rule"], {"tests.scope-drift": 2})
         self.assertEqual(stats["quality_feedback_by_category"]["scope_confusion"], 1)
@@ -145,7 +145,7 @@ class ReviewStatsTests(unittest.TestCase):
 
     def test_human_stats_caps_rule_list_without_truncating_serialized_stats(self):
         stats = {
-            "repository": "eneo/platform",
+            "repository": "example-org/example-repository",
             "generated_at": "2026-08-05T00:00:00Z",
             "findings_total": 17,
             "findings_without_decision": 17,
@@ -180,7 +180,7 @@ class ReviewStatsTests(unittest.TestCase):
             expires_days=180,
             latest=True,
         )
-        stats = memory_db.compute_stats(self.connection, repository="eneo/platform")
+        stats = memory_db.compute_stats(self.connection, repository="example-org/example-repository")
         self.assertEqual(stats["active_suppressions"], 1)
         self.assertEqual(stats["latest_decision_by_type"]["false_positive"], 1)
         self.assertEqual(stats["findings_without_decision"], 0)
@@ -193,7 +193,7 @@ class ReviewStatsTests(unittest.TestCase):
             latest=True,
         )
         future = memory_db.utc_now() + timedelta(days=2)
-        stats = memory_db.compute_stats(self.connection, repository="eneo/platform", now=future)
+        stats = memory_db.compute_stats(self.connection, repository="example-org/example-repository", now=future)
         self.assertEqual(stats["active_suppressions"], 0)
         # the decision record still exists; it is simply no longer active.
         self.assertEqual(stats["latest_decision_by_type"]["accepted_risk"], 1)
@@ -207,7 +207,7 @@ class ReviewStatsTests(unittest.TestCase):
         )
         # The file changes -> the same fingerprint now has a different trusted context hash.
         self._record(context_hash="e" * 40)
-        stats = memory_db.compute_stats(self.connection, repository="eneo/platform")
+        stats = memory_db.compute_stats(self.connection, repository="example-org/example-repository")
         self.assertEqual(stats["active_suppressions"], 0)
 
     def test_resolved_and_reopen_are_not_suppressive(self):
@@ -216,7 +216,7 @@ class ReviewStatsTests(unittest.TestCase):
             self.connection, result["fingerprint"], "resolved", "fixed in #2", "github:alice",
             latest=True,
         )
-        stats = memory_db.compute_stats(self.connection, repository="eneo/platform")
+        stats = memory_db.compute_stats(self.connection, repository="example-org/example-repository")
         self.assertEqual(stats["active_suppressions"], 0)
         self.assertEqual(stats["latest_decision_by_type"]["resolved"], 1)
 
@@ -228,19 +228,19 @@ class ReviewStatsTests(unittest.TestCase):
             latest=True,
         )
         within = memory_db.compute_stats(
-            self.connection, repository="eneo/platform", expiring_within_days=30
+            self.connection, repository="example-org/example-repository", expiring_within_days=30
         )
         self.assertEqual(within["active_suppressions"], 1)
         self.assertEqual(within["active_suppressions_nearing_expiry"], 1)
         outside = memory_db.compute_stats(
-            self.connection, repository="eneo/platform", expiring_within_days=5
+            self.connection, repository="example-org/example-repository", expiring_within_days=5
         )
         self.assertEqual(outside["active_suppressions_nearing_expiry"], 0)
 
     def test_repo_scopes_all_counts(self):
-        self._record(repo="eneo/platform", path="backend/a.py", anchor="A")
+        self._record(repo="example-org/example-repository", path="backend/a.py", anchor="A")
         self._record(repo="other/repo", path="backend/b.py", anchor="B")
-        scoped = memory_db.compute_stats(self.connection, repository="eneo/platform")
+        scoped = memory_db.compute_stats(self.connection, repository="example-org/example-repository")
         self.assertEqual(scoped["findings_total"], 1)
         unscoped = memory_db.compute_stats(self.connection)
         self.assertEqual(unscoped["findings_total"], 2)
@@ -254,7 +254,7 @@ class ReviewStatsTests(unittest.TestCase):
         )
         # A later commit still contains the same finding after the human decision.
         self._record(context_hash="d" * 40, head_sha="b" * 40)
-        stats = memory_db.compute_stats(self.connection, repository="eneo/platform")
+        stats = memory_db.compute_stats(self.connection, repository="example-org/example-repository")
         self.assertEqual(stats["repeats_after_decision_approx"], 1)
 
 

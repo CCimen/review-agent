@@ -190,7 +190,7 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_visible_finding_omits_internal_disproof_checks(self) -> None:
         rendered = review_renderer.render_review_markdown(
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
             findings=[
@@ -223,7 +223,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
         rendered = review_renderer.render_fix_brief(
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             [self.finding(evidence=long_evidence)],
@@ -241,7 +241,7 @@ class ReviewRendererTests(unittest.TestCase):
         self,
     ) -> None:
         rendered = review_renderer.render_fix_brief(
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             [self.finding()],
@@ -259,11 +259,16 @@ class ReviewRendererTests(unittest.TestCase):
         )
         self.assertIn("restore to base", scope_rule)
         self.assertIn("developer approval", scope_rule)
+        self.assertIn(
+            "Do not weaken validation, authorization, data isolation, or error handling.",
+            constraints,
+        )
+        self.assertNotIn("tenant isolation", constraints)
         self.assertIn("Files changed and why.", report)
 
     def test_fix_brief_keeps_untrusted_fields_on_their_labeled_lines(self) -> None:
         rendered = review_renderer.render_fix_brief(
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             "a" * 40,
             [
@@ -299,7 +304,7 @@ class ReviewRendererTests(unittest.TestCase):
         ]
 
         rendered = review_renderer.render_review_markdown(
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
             findings=findings,
@@ -336,7 +341,7 @@ class ReviewRendererTests(unittest.TestCase):
         ]
 
         rendered = review_renderer.render_review_markdown(
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
             findings=findings,
@@ -355,7 +360,7 @@ class ReviewRendererTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "[Files changed](https://github.com/eneo/platform/pull/17/files)",
+            "[Files changed](https://github.com/example-org/example-repository/pull/17/files)",
             rendered,
         )
         self.assertIn("batch only the selected atomic patches", rendered)
@@ -365,7 +370,7 @@ class ReviewRendererTests(unittest.TestCase):
         suggestion_blocks = [
             block
             for block in review_renderer.render_review(
-                repository="eneo/platform",
+                repository="example-org/example-repository",
                 pr_number=17,
                 head_sha="a" * 40,
                 findings=findings,
@@ -391,7 +396,7 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_atomic_suggestion_tip_reports_zero_coordinated_findings(self) -> None:
         tip = review_renderer.render_suggestion_tip(
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             [self.finding(suggestion_available=True)],
         )
@@ -404,7 +409,7 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_suggestion_tip_keeps_incomplete_review_actions_visible(self) -> None:
         tip = review_renderer.render_suggestion_tip(
-            "eneo/platform",
+            "example-org/example-repository",
             17,
             [self.finding(suggestion_available=True)],
             review_incomplete=True,
@@ -418,7 +423,7 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_fix_brief_preserves_incomplete_and_not_rechecked_context(self) -> None:
         rendered = review_renderer.render_review_markdown(
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
             findings=[self.finding()],
@@ -444,7 +449,7 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_inconclusive_review_never_uses_clean_result_sentence(self) -> None:
         rendered = review_renderer.render_review_markdown(
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
             findings=[],
@@ -457,7 +462,7 @@ class ReviewRendererTests(unittest.TestCase):
                 {
                     "local_reference": "F1",
                     "fingerprint": "a" * 64,
-                    "title": "Prior tenant finding",
+                    "title": "Prior authorization finding",
                 }
             ],
             coverage=self.coverage(state="incomplete", changed_paths_with_diff=2),
@@ -477,7 +482,7 @@ class ReviewRendererTests(unittest.TestCase):
         self,
     ) -> None:
         rendered = review_renderer.render_review_markdown(
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
             findings=[],
@@ -497,14 +502,14 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_model_prose_is_literal_and_mentions_are_neutralized(self) -> None:
         rendered = review_renderer.render_review_markdown(
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
             findings=[
                 self.finding(
-                    title="Ping @eneo-ai/security [link](https://evil.invalid)",
+                    title="Ping @example-org/security [link](https://evil.invalid)",
                     evidence=(
-                        "![pixel](https://evil.invalid/p.gif) @eneo-ai/security "
+                        "![pixel](https://evil.invalid/p.gif) @example-org/security "
                         "\u202evisually-reordered"
                     ),
                     impact="# heading > quote",
@@ -522,17 +527,17 @@ class ReviewRendererTests(unittest.TestCase):
 
         self.assertNotIn("![pixel](", visible)
         self.assertNotIn("[link](", visible)
-        self.assertNotIn("@eneo-ai/security", visible)
+        self.assertNotIn("@example-org/security", visible)
         self.assertNotIn("https://evil.invalid", visible)
         self.assertNotIn("www.evil.invalid", visible)
-        self.assertIn("&#64;eneo-ai/security", visible)
+        self.assertIn("&#64;example-org/security", visible)
         self.assertIn("https:&#8203;//evil.invalid", visible)
         self.assertIn("www&#8203;.evil.invalid", visible)
         self.assertNotIn("\u202e", visible)
 
     def test_source_link_handles_closing_bracket_in_git_path(self) -> None:
         link = review_renderer.source_link(
-            "eneo/platform",
+            "example-org/example-repository",
             "a" * 40,
             "docs/a]b (draft).md",
             7,
@@ -573,7 +578,7 @@ class ReviewRendererTests(unittest.TestCase):
 
     def test_review_number_heading_does_not_autolink_github_issue(self) -> None:
         rendered = review_renderer.render_review_markdown(
-            repository="eneo/platform",
+            repository="example-org/example-repository",
             pr_number=17,
             head_sha="a" * 40,
             findings=[],

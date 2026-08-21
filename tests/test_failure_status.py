@@ -17,7 +17,7 @@ from review_agent_tools import memory_db, review_publisher  # noqa: E402
 class FakeGateway:
     """Records create/update/delete calls so idempotency can be asserted."""
 
-    def __init__(self, *, login: str = "eneo-ai-bot", comments=None):
+    def __init__(self, *, login: str = "review-agent-bot", comments=None):
         self.login = login
         self._comments: list[review_publisher.IssueComment] = list(comments or [])
         self.created: list[tuple[int, str]] = []
@@ -156,12 +156,12 @@ class FailureStatusTests(unittest.TestCase):
         marker = review_publisher._failure_status_marker(run_id, "a" * 40)
         fillers = [
             review_publisher.IssueComment(
-                comment_id=i, body=f"chatter {i}", author_login="eneo-ai-bot"
+                comment_id=i, body=f"chatter {i}", author_login="review-agent-bot"
             )
             for i in range(304)
         ]
         marker_comment = review_publisher.IssueComment(
-            comment_id=9999, body=f"earlier status\n{marker}\n", author_login="eneo-ai-bot"
+            comment_id=9999, body=f"earlier status\n{marker}\n", author_login="review-agent-bot"
         )
         fake = FakeGateway(comments=fillers + [marker_comment])
         with closing(memory_db.connect_existing(self.db)) as conn:
@@ -259,7 +259,7 @@ class FailureStatusTests(unittest.TestCase):
         # successful retry never leaves a stale failure comment.
         marker = review_publisher._failure_status_marker(123, "a" * 40)
         orphan = review_publisher.IssueComment(
-            comment_id=4242, body=f"status\n{marker}\n", author_login="eneo-ai-bot"
+            comment_id=4242, body=f"status\n{marker}\n", author_login="review-agent-bot"
         )
         fake = FakeGateway(comments=[orphan])
         with closing(memory_db.connect_existing(self.db)) as conn:
@@ -270,20 +270,20 @@ class FailureStatusTests(unittest.TestCase):
 
     def _finding(self) -> dict[str, object]:
         return {
-            "rule_id": "tenant.missing-scope",
+            "rule_id": "authorization.missing-context",
             "category": "security",
             "path": "backend/changed.py",
             "line": 10,
             "symbol": "handler",
-            "anchor": "POST /documents",
-            "title": "Tenant scope omitted",
+            "anchor": "PUT /resources/{resource_id}",
+            "title": "Authorization context omitted",
             "severity": "Critical",
             "publication_score": 9,
             "confidence": 0.9,
             "evidence": "Concrete evidence.",
             "disproof_checks": "Checked the guard.",
-            "impact": "Cross-tenant write.",
-            "smallest_fix": "Bind tenant from context.",
+            "impact": "Cross-scope write.",
+            "smallest_fix": "Derive resource scope from verified context.",
             "introduced_by_diff": True,
         }
 

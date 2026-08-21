@@ -33,12 +33,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 4
+  completed_write_tasks_in_thread: 5
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "411921e"
+  last_verified_revision: "906b639"
 
-active_task: T007
+active_task: T008
 
 tasks:
   - id: T000
@@ -398,7 +398,7 @@ tasks:
   - id: T007
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Replace the Eneo-branded hidden publication, suggestion, review-metadata, and failure-status marker protocol with one review-agent protocol across every reader, writer, example, and affected test."
     constraints:
@@ -421,6 +421,75 @@ tasks:
     stop_if:
       - "A marker change requires a persisted-data migration, dual-read compatibility, or visible review behavior change."
       - "A focused verification fails twice for a non-mechanical reason."
+    receipt:
+      result: done
+      summary: "Replaced all four hidden Eneo comment-marker protocols with their review-agent equivalents in the existing canonical owners, without aliases, migrations, or visible review changes."
+      revision: "906b639"
+      changed_files:
+        - "Canonical publication, suggestion, review-metadata, and failure-status marker owners"
+        - "Affected publisher, suggestion, failure-status, renderer, and memory tests"
+        - "Published review example"
+      commands:
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest tests.test_review_publisher tests.test_review_suggestions tests.test_failure_status tests.test_memory_db"
+          status: pass
+          result: "120 tests"
+        - cmd: "pyright -p ."
+          status: pass
+          result: "0 errors and 0 warnings"
+        - cmd: "retired Eneo marker scan outside archival goal receipts"
+          status: pass
+          result: "no matches"
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          result: "460 tests, two replay fixtures, strict Pyright, and YAML"
+        - cmd: "codex-peer-loop commit gate"
+          status: pass
+          result: "green, 9/10, no findings after the exact diff resolved the initial evidence blocker"
+        - cmd: "git push origin main"
+          status: pass
+  - id: T008
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Replace the Eneo-specific agent profile and repository-stack assumptions with one generic Sundsvalls kommun baseline policy, while preserving the review platform's fixed trust, snapshot, coverage, feedback, stale-head, and deterministic-publication rules."
+    constraints:
+      - "The PM implements and verifies all production changes directly."
+      - "Subagents may provide read-only research or review only."
+      - "Keep universal reviewer invariants in the baseline profile; move repository-stack, tenant, identity-provider, credential, retrieval, and MCP assumptions out of the organization-wide baseline instead of generalizing them into vague prose."
+      - "Do not add repository-name conditionals, speculative policy-bundle loaders, compatibility text, deployment topology, schema changes, or new runtime abstractions."
+      - "Do not weaken the untrusted-content boundary, exact base/head subject, bounded read coverage, human-governed feedback, stale-head protection, or deterministic publication path."
+      - "Use the approved refactor plan as sequencing input; maintained Sundsvall frontend repositories remain examples for a later read-only policy-bundle task, not baseline truth."
+    expected_output:
+      - "Generic organization-wide SOUL and baseline AGENTS policy with no Eneo identity or repository-stack assumptions"
+      - "Universal security and review invariants preserved in their existing owners"
+      - "Focused documentation-contract proof and green bundle validation"
+    verify:
+      - "Focused documentation-contract tests for fixed reviewer invariants and generic baseline policy."
+      - "rg confirms no Eneo identity remains in the active profile or baseline policy."
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+    stop_if:
+      - "The change requires choosing a concrete repository-specific policy-bundle format or runtime loader."
+      - "A fixed security, snapshot, coverage, feedback, stale-head, or deterministic-publication invariant becomes ambiguous."
+      - "A focused verification fails twice for a non-mechanical reason."
+  - id: T009
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: default
+    objective: "Remove remaining Eneo identity from private learning and coach tools, documentation headings, and replay fixtures while preserving the replay validator and human-governed learning behavior."
+    constraints:
+      - "The PM implements and verifies all production changes directly."
+      - "Subagents may provide read-only research or review only."
+      - "Replace historical Eneo replay data with a minimal neutral fixture set; do not add fixture volume or broaden replay semantics."
+      - "Do not change learning governance, promotion thresholds, private/public boundaries, database schema, or runtime review behavior."
+    expected_output:
+      - "Generic private learning and coach surface"
+      - "Neutral replay fixtures and no Eneo historical report"
+      - "Green replay and bundle validation"
+    receipt: null
   - id: T010
     type: scout
     assignee: Scout
@@ -463,12 +532,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "T006-receipt-uncommitted"
+  dirty_fingerprint: "T007-receipt-uncommitted"
   last_verification:
     result: pass
-    task: T006
+    task: T007
     commands:
       - "./scripts/check_bundle.sh"
       - "pyright -p ."
-      - "Docker Compose generic configuration check"
-      - "retired webhook path and trigger identity scan outside archival goal receipts"
+      - "focused publisher, suggestion, failure-status, renderer, and memory tests"
+      - "retired Eneo marker scan outside archival goal receipts"

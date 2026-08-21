@@ -13,7 +13,11 @@ import urllib.request
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", required=True, help="Full /webhooks/eneo-review URL")
+    parser.add_argument(
+        "--url",
+        required=True,
+        help="Full /webhooks/review-agent URL",
+    )
     parser.add_argument("--secret", required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--pr", required=True, type=int)

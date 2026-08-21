@@ -80,7 +80,7 @@ gate pull requests.
 
 | Area | Owner | Notes |
 | --- | --- | --- |
-| Webhook transport | `compose.yaml`, `examples/github/ai-review-request.yml` | Authenticates review and feedback requests before Hermes runs. |
+| Webhook transport | `bootstrap/config.yaml`, `compose.yaml`, `examples/github/ai-review-request.yml` | Registers the review route and authenticates review and feedback requests before Hermes runs. |
 | GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
 | Review memory | `review_memory_data` SQLite volume | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
 | Publication | `review_agent_deliver` | Verifies snapshot and writes deterministic PR comments. |

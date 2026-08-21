@@ -56,10 +56,10 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
       # Fallback ONLY if the Dokploy Domains UI fails to route after deploy:
-      # - "traefik.http.routers.eneo-review.rule=Host(`eneo-security.sundsvall.dev`)"
-      # - "traefik.http.routers.eneo-review.entrypoints=websecure"
-      # - "traefik.http.routers.eneo-review.tls.certResolver=letsencrypt"
-      # - "traefik.http.services.eneo-review.loadbalancer.server.port=8644"
+      # - "traefik.http.routers.review-agent.rule=Host(`review.example.org`)"
+      # - "traefik.http.routers.review-agent.entrypoints=websecure"
+      # - "traefik.http.routers.review-agent.tls.certResolver=letsencrypt"
+      # - "traefik.http.services.review-agent.loadbalancer.server.port=8644"
     volumes:
       - hermes_review_data:/opt/data
       - review_memory_data:/opt/data/review-memory

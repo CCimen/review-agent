@@ -48,10 +48,32 @@ class TimeoutOpener:
 
 
 class FeedbackWorkflowTests(unittest.TestCase):
+    def test_review_webhook_route_uses_generic_identity_everywhere(self) -> None:
+        config = (ROOT / "bootstrap/config.yaml").read_text(encoding="utf-8")
+        operations = (ROOT / "docs/OPERATIONS.md").read_text(encoding="utf-8")
+        smoke_script = (ROOT / "scripts/smoke_webhook.py").read_text(
+            encoding="utf-8"
+        )
+
+        route_config = config.split("      routes:\n", 1)[1].split(
+            "services:\n", 1
+        )[0]
+        route_names = [
+            line.strip().removesuffix(":")
+            for line in route_config.splitlines()
+            if line.startswith("        ") and not line.startswith("          ")
+        ]
+        self.assertEqual(route_names, ["review-agent"])
+        self.assertIn(
+            "HERMES_REVIEW_URL=https://review.example.org/webhooks/review-agent",
+            operations,
+        )
+        self.assertIn("/webhooks/review-agent", smoke_script)
+
     def test_checked_in_dispatch_script_is_valid_python(self) -> None:
         workflow = workflow_source()
 
-        self.assertIn("Contract: eneo-ai-review-trigger/v3.1", workflow)
+        self.assertIn("Contract: review-agent-trigger/v3.1", workflow)
         compile(dispatch_script(workflow), "ai-review-request.yml", "exec")
 
     def test_workflow_routes_exact_review_and_feedback_commands(self) -> None:
@@ -62,7 +84,7 @@ class FeedbackWorkflowTests(unittest.TestCase):
         self.assertIn('delivery_id = f"{event[\'comment\'][\'id\']}:feedback"', workflow)
         self.assertIn('event["comment"]["user"].get("type") == "Bot"', workflow)
         self.assertIn(
-            'ignore("comment does not match the exact Eneo review command grammar")',
+            'ignore("comment does not match the exact review command grammar")',
             workflow,
         )
         self.assertNotIn("trigger!r", workflow)
@@ -88,7 +110,7 @@ class FeedbackWorkflowTests(unittest.TestCase):
                 "author_association": "OWNER",
                 "user": {"login": "alice", "type": "User"},
             },
-            "repository": {"full_name": "eneo/platform"},
+            "repository": {"full_name": "example-org/example-repository"},
             "issue": {"number": 17},
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -119,7 +141,7 @@ class FeedbackWorkflowTests(unittest.TestCase):
                 )
 
         self.assertEqual(
-            str(raised.exception), "Eneo review webhook could not be reached"
+            str(raised.exception), "Review agent review webhook could not be reached"
         )
 
     def test_secrets_are_scoped_to_dispatch_and_acknowledgement_is_non_blocking(self) -> None:

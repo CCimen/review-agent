@@ -58,7 +58,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
 Reaction = Literal["+1", "confused"]
 
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
-DEFAULT_PATH = "/webhooks/eneo-review-feedback"
+DEFAULT_PATH = "/webhooks/review-agent-feedback"
 DEFAULT_PORT = 8645
 MAX_BODY_BYTES = 64 * 1024
 GITHUB_API = "https://api.github.com"

@@ -168,6 +168,12 @@ class FeedbackBridgeTests(unittest.TestCase):
         self.assertFalse(feedback_bridge.verify_signature(body + b" ", signature, "secret"))
         self.assertFalse(feedback_bridge.verify_signature(body, "bad", "secret"))
 
+    def test_feedback_uses_generic_review_agent_webhook_path(self) -> None:
+        self.assertEqual(
+            feedback_bridge.DEFAULT_PATH,
+            "/webhooks/review-agent-feedback",
+        )
+
     def test_config_requires_write_capable_github_token(self) -> None:
         environment = {
             "REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET": "secret",

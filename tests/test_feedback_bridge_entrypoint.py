@@ -75,7 +75,7 @@ class FeedbackBridgeEntrypointTests(unittest.TestCase):
                 (package / "__init__.py").write_text("", encoding="utf-8")
                 (package / "feedback_bridge.py").write_text(
                     f"MARKER = {marker!r}\n"
-                    "DEFAULT_PATH = '/webhooks/eneo-review-feedback'\n"
+                    "DEFAULT_PATH = '/webhooks/review-agent-feedback'\n"
                     "DEFAULT_PORT = 8645\n"
                     "MAX_BODY_BYTES = 65536\n"
                     "class BridgeError(Exception): pass\n"

@@ -45,7 +45,7 @@ Set these values in the Dokploy Compose environment:
 | `TZ` | no | `Europe/Stockholm` | Container timezone. |
 | `WEBHOOK_ENABLED` | yes | `true` | Enables Hermes webhook mode. |
 | `WEBHOOK_PORT` | yes | `8644` | Review webhook port. |
-| `WEBHOOK_SECRET` | yes | none | HMAC secret for `/webhooks/eneo-review`. |
+| `WEBHOOK_SECRET` | yes | none | HMAC secret for `/webhooks/review-agent`. |
 | `REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET` | yes | none | Different HMAC secret for feedback. |
 | `GITHUB_READ_TOKEN` | yes | none | Read token described above. |
 | `REVIEW_AGENT_PUBLISH_GH_TOKEN` | yes | none | Publisher token described above. |
@@ -144,9 +144,9 @@ Copy `examples/github/ai-review-request.yml` to the reviewed repository as:
 Create these Actions secrets:
 
 ```text
-HERMES_REVIEW_URL=https://review.example.org/webhooks/eneo-review
+HERMES_REVIEW_URL=https://review.example.org/webhooks/review-agent
 HERMES_WEBHOOK_SECRET=<same value as WEBHOOK_SECRET>
-HERMES_REVIEW_FEEDBACK_URL=https://review-feedback.example.org/webhooks/eneo-review-feedback
+HERMES_REVIEW_FEEDBACK_URL=https://review-feedback.example.org/webhooks/review-agent-feedback
 HERMES_REVIEW_FEEDBACK_SECRET=<same value as REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET>
 ```
 

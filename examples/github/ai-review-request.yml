@@ -1,6 +1,6 @@
-name: Request Eneo AI review
-# Contract: eneo-ai-review-trigger/v3.1
-# Canonical source: eneo-ai-bot/eneo-security-review-infra/examples/github/ai-review-request.yml
+name: Request AI review
+# Contract: review-agent-trigger/v3.1
+# Canonical source: CCimen/review-agent/examples/github/ai-review-request.yml
 
 on:
   issue_comment:
@@ -13,7 +13,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: eneo-ai-review-${{ github.event.repository.full_name }}-${{ github.event.issue.number }}
+  group: review-agent-${{ github.event.repository.full_name }}-${{ github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
@@ -92,7 +92,7 @@ jobs:
 
           mode = parse_review_command(trigger)
           if mode is None:
-              ignore("comment does not match the exact Eneo review command grammar")
+              ignore("comment does not match the exact review command grammar")
 
           if mode == "review":
               webhook_url = os.environ.get("HERMES_REVIEW_URL", "").strip()
@@ -131,7 +131,7 @@ jobs:
               method="POST",
               headers={
                   "Content-Type": "application/json",
-                  "User-Agent": "Eneo-AI-Review-Trigger/3.1",
+                  "User-Agent": "Review-Agent-Trigger/3.1",
                   "X-GitHub-Event": "issue_comment",
                   # Stable across retries so Hermes cannot start a duplicate run.
                   "X-GitHub-Delivery": delivery_id,
@@ -143,15 +143,15 @@ jobs:
               opener = urllib.request.build_opener(NoRedirectHandler())
               with opener.open(request, timeout=60) as response:
                   response.read(4096)
-                  print(f"Eneo {mode} webhook accepted the request: HTTP {response.status}")
+                  print(f"Review agent {mode} webhook accepted the request: HTTP {response.status}")
           except urllib.error.HTTPError as error:
               raise SystemExit(
-                  f"Eneo {mode} webhook rejected the request: HTTP {error.code}"
+                  f"Review agent {mode} webhook rejected the request: HTTP {error.code}"
               ) from None
           except urllib.error.URLError:
-              raise SystemExit(f"Eneo {mode} webhook could not be reached") from None
+              raise SystemExit(f"Review agent {mode} webhook could not be reached") from None
           except TimeoutError:
-              raise SystemExit(f"Eneo {mode} webhook could not be reached") from None
+              raise SystemExit(f"Review agent {mode} webhook could not be reached") from None
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("dispatched=true\n")

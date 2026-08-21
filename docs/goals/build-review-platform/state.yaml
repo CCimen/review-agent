@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Audit the review-run application extraction and select the next maintainability-first owner slice."
+  tranche: "Extract finding-memory coordination from the tool adapter into one typed application owner."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-21T09:35:43Z"
   last_verified_revision: "43afb8de991ea87995580cb6c18290d404800568"
 
-active_task: T009
+active_task: T010
 
 tasks:
   - id: T001
@@ -388,7 +388,7 @@ tasks:
   - id: T009
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the delivered review-run application slice and select the next maintainability-first owner task."
     inputs:
@@ -405,6 +405,51 @@ tasks:
       - "T008 complete | not complete"
       - "Missing evidence or direct blockers"
       - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
+    receipt:
+      result: done
+      decision: "T008 is complete and behavior-preserving; proceed with finding-memory application ownership."
+      note: "notes/T009-review-run-application-audit.md"
+      summary: "Verified one run lifecycle and coverage owner, bounded database connections, preserved public behavior, and selected finding-memory coordination as the next maintainability slice."
+      evidence:
+        - "111 focused tests passed with ResourceWarnings promoted to errors"
+        - "Strict Pyright, git diff check, clean main, and Goal Maker board validation passed"
+        - "No direct moved run or coverage facade calls remain in tools.py"
+        - "No deferred platform or integration scope entered T008"
+      spawned_tasks:
+        - T010
+  - id: T010
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Extract historical finding-context lookup, finding recording, and optional atomic-suggestion selection from tools.py into one typed review_finding_application.py owner."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Keep GitHub reads and public JSON/error serialization in tools.py."
+      - "Preserve persistence, suggestion eligibility, ranking, caps, canonical reuse, suppression, context-hash fallback, and head-read behavior."
+      - "Do not add generic ports, a DI framework, analyzer runtime, pass-through wrappers, or multiple collaborator callbacks."
+      - "Keep scanners/Codex Security, PostgreSQL, jobs, GitHub App, policy overlays, feedback, publication, profiles, and trusted project context deferred."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/review_finding_application.py
+      - bootstrap/plugins/review_agent_tools/tools.py
+      - tests/test_review_finding_application.py
+      - tests/test_tools_validation.py
+      - tests/test_memory_module_boundaries.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Run review_finding_application, tools_validation, run_tools, review_suggestions, memory_db, and memory_module_boundaries tests with ResourceWarnings as errors"
+      - "Confirm tools.py no longer imports sqlite3 or memory_suggestions and directly calls neither memory_db.memory_context nor memory_db.record_findings"
+      - "Confirm review_finding_application.py imports no source_control, review_publisher, settings, schemas, urllib, or JSON serializer"
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate the Goal Maker board"
+      - "Run one skeptical gpt-5.6-sol xhigh Codex peer gate with score >= 8"
+    stop_if:
+      - "Public tool JSON, errors, suggestion behavior, context-hash fallback, or head-read count changes."
+      - "The slice requires edits to persistence/schema owners, publisher, feedback, source_control, deployment, or project-context code."
+      - "The application interface requires Any, multiple collaborator callbacks, a generic port, DI framework, analyzer runtime, or pass-through wrappers."
+      - "Focused verification fails twice for a non-mechanical reason or the change grows beyond finding-memory ownership."
     receipt: null
   - id: T999
     type: judge
@@ -427,12 +472,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-43afb8d"
+  dirty_fingerprint: "control-files-only-after-2ab8f52"
   last_verification:
     result: pass
-    task: T008
+    task: T009
     commands:
       - "111 focused tests with ResourceWarnings promoted to errors"
-      - "Strict Pyright and 477-test bundle"
-      - "Codex peer gate iteration 3 green at score 8"
-      - "Initial phase failure recovery test passed"
+      - "Strict Pyright, git diff check, and clean main/origin verification"
+      - "Review-run application boundary and connection-locality audit"
+      - "Goal Maker board validation"

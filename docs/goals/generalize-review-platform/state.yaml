@@ -33,12 +33,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 5
+  completed_write_tasks_in_thread: 6
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "906b639"
+  last_verified_revision: "99332e6"
 
-active_task: T008
+active_task: T009
 
 tasks:
   - id: T000
@@ -450,7 +450,7 @@ tasks:
   - id: T008
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Replace the Eneo-specific agent profile and repository-stack assumptions with one generic Sundsvalls kommun baseline policy, while preserving the review platform's fixed trust, snapshot, coverage, feedback, stale-head, and deterministic-publication rules."
     constraints:
@@ -474,10 +474,36 @@ tasks:
       - "The change requires choosing a concrete repository-specific policy-bundle format or runtime loader."
       - "A fixed security, snapshot, coverage, feedback, stale-head, or deterministic-publication invariant becomes ambiguous."
       - "A focused verification fails twice for a non-mechanical reason."
+    receipt:
+      result: done
+      summary: "Replaced the Eneo project profile and stack-specific assumptions with a repository-neutral Sundsvall baseline across all three deployed profile owners, while preserving the fixed review and trust contract."
+      revision: "99332e6"
+      changed_files:
+        - "Reviewer voice and organization-wide policy owners"
+        - "Loaded pull-request procedure and Ponytail integration note"
+        - "Focused documentation-contract test"
+      commands:
+        - cmd: "PYTHONPATH=bootstrap/plugins python3 -m unittest tests.test_docs_contract"
+          status: pass
+          result: "23 tests"
+        - cmd: "retired profile, stack, and procedural-example scans"
+          status: pass
+          result: "no matches in the managed profile owners"
+        - cmd: "pyright -p ."
+          status: pass
+          result: "0 errors and 0 warnings"
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          result: "461 tests, two replay fixtures, strict Pyright, and YAML"
+        - cmd: "codex-peer-loop commit gate"
+          status: pass
+          result: "green, 8/10, after adding the omitted live skill owner and neutralizing its repository-specific examples"
+        - cmd: "git push origin main"
+          status: pass
   - id: T009
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: default
     objective: "Remove remaining Eneo identity from private learning and coach tools, documentation headings, and replay fixtures while preserving the replay validator and human-governed learning behavior."
     constraints:
@@ -489,7 +515,17 @@ tasks:
       - "Generic private learning and coach surface"
       - "Neutral replay fixtures and no Eneo historical report"
       - "Green replay and bundle validation"
-    receipt: null
+    verify:
+      - "Focused coach, learning, export, replay, and structural replay tests."
+      - "review-agent-memory validate-replay succeeds on the neutral fixture set."
+      - "rg confirms no Eneo identity remains in active private learning code, documentation, replay fixtures, or reports."
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+    stop_if:
+      - "The cleanup requires a learning-governance, promotion-threshold, public/private-boundary, database-schema, or runtime-review behavior change."
+      - "A neutral fixture cannot preserve the current structural replay validator contract without inventing new behavior."
+      - "A focused verification fails twice for a non-mechanical reason."
   - id: T010
     type: scout
     assignee: Scout
@@ -532,12 +568,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "T007-receipt-uncommitted"
+  dirty_fingerprint: "T008-receipt-uncommitted"
   last_verification:
     result: pass
-    task: T007
+    task: T008
     commands:
       - "./scripts/check_bundle.sh"
       - "pyright -p ."
-      - "focused publisher, suggestion, failure-status, renderer, and memory tests"
-      - "retired Eneo marker scan outside archival goal receipts"
+      - "focused documentation-contract tests"
+      - "retired profile, stack, and procedural-example scans"

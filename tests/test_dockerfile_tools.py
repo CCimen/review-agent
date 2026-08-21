@@ -113,6 +113,21 @@ class DockerfileToolsTests(unittest.TestCase):
             dockerfile,
         )
 
+    def test_container_installs_the_pinned_postgresql_driver(self) -> None:
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+        self.assertEqual(requirements, "psycopg[binary]==3.3.4\n")
+        self.assertIn(
+            "COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt",
+            dockerfile,
+        )
+        self.assertIn(
+            "uv pip install --no-cache --python /opt/hermes/.venv/bin/python \\\n"
+            "        --requirement /opt/review-agent-requirements.txt",
+            dockerfile,
+        )
+
     def test_docker_build_context_excludes_python_bytecode(self) -> None:
         dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
 

@@ -63,6 +63,7 @@ concurrency:
         self.assertEqual(
             run_commands,
             [
+                "python3 -m pip install --disable-pip-version-check --requirement requirements.txt",
                 "npm install --global pyright@1.1.408",
                 "./scripts/check_postgres_schema.sh",
                 "./scripts/check_bundle.sh",
@@ -76,7 +77,7 @@ concurrency:
         ):
             self.assertNotIn(duplicated_command, source)
 
-    def test_postgresql_contract_uses_one_pinned_unexposed_real_database(self):
+    def test_postgresql_contract_uses_one_pinned_loopback_only_database(self):
         source = POSTGRES_CHECK.read_text(encoding="utf-8")
         image = (
             "postgres:17.10-bookworm@"
@@ -90,8 +91,10 @@ concurrency:
         self.assertIn("docker rm --force", source)
         self.assertIn("trap ", source)
         self.assertIn('REVIEW_AGENT_POSTGRES_CONTAINER="$CONTAINER"', source)
-        self.assertIn("python3 -m unittest tests.test_postgres_schema", source)
-        self.assertNotRegex(source, r"(?m)(?:--publish(?:=|\s)|-p(?:\s|[0-9]))")
+        self.assertIn("tests.test_postgres_schema tests.test_postgres_migrations", source)
+        self.assertIn("--publish 127.0.0.1::5432", source)
+        self.assertNotIn("0.0.0.0", source)
+        self.assertNotRegex(source, r"127\.0\.0\.1:[0-9]+:5432")
 
 
 class MigrationReadinessDocumentationTests(unittest.TestCase):
@@ -118,7 +121,7 @@ class MigrationReadinessDocumentationTests(unittest.TestCase):
             "initial PostgreSQL schema",
             "real PostgreSQL",
             "active reviewer still uses SQLite",
-            "migration runner and runtime owner",
+            "checksum-verifying migration runner",
             "provider repository ID acquisition",
             "runtime configuration and Compose",
             "Delete the SQLite application persistence",

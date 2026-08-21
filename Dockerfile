@@ -2,8 +2,11 @@ ARG HERMES_IMAGE=nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456b
 FROM ${HERMES_IMAGE}
 
 USER root
+COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl gh \
+    && uv pip install --no-cache --python /opt/hermes/.venv/bin/python \
+        --requirement /opt/review-agent-requirements.txt \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/

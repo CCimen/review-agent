@@ -1,4 +1,4 @@
-CREATE SCHEMA review_agent;
+CREATE SCHEMA IF NOT EXISTS review_agent;
 
 CREATE TABLE review_agent.repositories (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

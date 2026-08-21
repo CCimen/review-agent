@@ -33,6 +33,9 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Install Python dependencies
+        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt
+
       - name: Install Pyright
         run: npm install --global pyright@1.1.408
 

@@ -21,7 +21,8 @@ behavior documented in the repository and verified by the shipped bundle.
 - One shared reviewer per environment with an exact repository allowlist.
 - Trusted GitHub Actions request workflow and HMAC-signed webhooks.
 - Full Python bundle CI for pull requests and changes to `main`.
-- A corrected first-write PostgreSQL schema and real PostgreSQL CI contract.
+- A corrected first-write PostgreSQL schema, checksum-verifying migration
+  runner, and real PostgreSQL CI contract.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -48,19 +49,17 @@ Four gates protect the first authoritative PostgreSQL write:
   ID. This remains part of the finding runtime slice.
 - **Request idempotency:** the schema now requires one globally unique durable
   request key for each review command.
-- **Checksum migration ownership:** the next slice adds one advisory-locked
-  runner that verifies migration checksums and owns the migration transaction
-  and ledger insertion.
+- **Checksum migration ownership:** one advisory-locked runner verifies exact
+  migration checksums and owns the migration transaction and ledger insertion.
 - **Publication provenance:** the schema now records every current, resolved,
   invalidated, suppressed, and not-checked outcome with its exact source
   occurrence and review run.
 
 The remaining milestones are:
 
-1. Add the checksum-verifying migration runner and runtime owner, then the
-   bounded provider repository ID acquisition, pull-request, subject, run, and
-   coverage operations. No network or model call may hold a database
-   connection.
+1. Add the runtime owner, then the bounded provider repository ID acquisition,
+   pull-request, subject, run, and coverage operations. No network or model
+   call may hold a database connection.
 2. Port stable repository-scoped finding identity and governance, followed by
    exact publication payload delivery and feedback transactions.
 3. Define the initial PostgreSQL replacement recovery path before switching.

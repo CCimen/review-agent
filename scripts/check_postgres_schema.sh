@@ -16,6 +16,7 @@ docker run \
     --detach \
     --rm \
     --name "$CONTAINER" \
+    --publish 127.0.0.1::5432 \
     --env POSTGRES_PASSWORD=postgres \
     --env POSTGRES_DB=review_agent_test \
     "$POSTGRES_IMAGE" >/dev/null
@@ -39,8 +40,17 @@ do
     sleep 1
 done
 
+docker exec "$CONTAINER" \
+    createdb --username=postgres review_agent_migration_test
+HOST_PORT=$(docker port "$CONTAINER" 5432/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')
+if [ -z "$HOST_PORT" ]; then
+    printf '%s\n' "PostgreSQL loopback port was not assigned." >&2
+    exit 1
+fi
+
 PYTHONDONTWRITEBYTECODE=1 \
 REVIEW_AGENT_POSTGRES_CONTAINER="$CONTAINER" \
-    python3 -m unittest tests.test_postgres_schema
+REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/review_agent_migration_test" \
+    python3 -m unittest tests.test_postgres_schema tests.test_postgres_migrations
 
 printf '%s\n' "PostgreSQL schema contract passed."

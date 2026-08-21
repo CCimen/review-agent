@@ -113,7 +113,7 @@ class SuggestionValidationTests(unittest.TestCase):
             (
                 self.raw(
                     replacement_text=(
-                        "<!-- eneo-review:suggestion key=sha256:"
+                        "<!-- review-agent:suggestion key=sha256:"
                         + ("0" * 64)
                         + " -->"
                     )
@@ -154,7 +154,7 @@ class SuggestionValidationTests(unittest.TestCase):
         )
         fake = "sha256:" + ("0" * 64)
         body = (
-            f"```suggestion\n<!-- eneo-review:suggestion key={fake} -->\n```\n"
+            f"```suggestion\n<!-- review-agent:suggestion key={fake} -->\n```\n"
             f"{memory_suggestions.suggestion_marker(expected)}"
         )
 

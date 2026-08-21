@@ -292,9 +292,9 @@ class ReviewPublisherTests(unittest.TestCase):
         self.connection.close()
         self.temp.cleanup()
 
-    def test_canonical_publication_marker_keeps_old_comment_bytes(self) -> None:
+    def test_canonical_publication_marker_uses_review_agent_protocol_only(self) -> None:
         publication_key = "sha256:" + ("0" * 64)
-        marker = "eneo-review:canonical publication=sha256:" + ("0" * 64)
+        marker = "review-agent:canonical publication=sha256:" + ("0" * 64)
         html_marker = f"<!-- {marker} -->"
 
         self.assertEqual(
@@ -312,7 +312,9 @@ class ReviewPublisherTests(unittest.TestCase):
         )
         self.assertIsNone(
             memory_publications.extract_publication_key(
-                "<!-- review-agent:canonical publication=sha256:" + ("0" * 64) + " -->"
+                "<!-- review-agent-legacy:canonical publication=sha256:"
+                + ("0" * 64)
+                + " -->"
             )
         )
 
@@ -487,7 +489,7 @@ class ReviewPublisherTests(unittest.TestCase):
         self.assertEqual(comments[0].side, "RIGHT")
         self.assertIsNone(comments[0].start_line)
         self.assertIn("```suggestion\nunsafe = False\n```", comments[0].body)
-        self.assertIn("eneo-review:suggestion key=sha256:", comments[0].body)
+        self.assertIn("review-agent:suggestion key=sha256:", comments[0].body)
         self.assertIn("optional GitHub suggestion ready to apply", github.created[0])
 
     def test_independent_patches_across_files_share_one_native_review(self) -> None:
@@ -982,7 +984,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 kind="metadata",
                 markdown=(
                     "<!--\n"
-                    "eneo-review:\n"
+                    "review-agent:\n"
                     "head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
                     "F1=first\n"
                     "F2=second\n"

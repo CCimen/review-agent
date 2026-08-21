@@ -38,7 +38,7 @@ MAX_SUGGESTION_RANGE_LINES = 8
 MAX_SUGGESTION_REPLACEMENT_LINES = 16
 MAX_SUGGESTION_TEXT_CHARS = 2_400
 SUGGESTION_POSTING_LEASE_MINUTES = 30
-SUGGESTION_MARKER_PREFIX = "eneo-review:suggestion key="
+SUGGESTION_MARKER_PREFIX = "review-agent:suggestion key="
 
 _SUGGESTION_FIELDS = frozenset(
     {"start_line", "end_line", "expected_text", "replacement_text"}

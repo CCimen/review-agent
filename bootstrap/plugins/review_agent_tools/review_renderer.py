@@ -958,7 +958,7 @@ def render_review(
             ReviewBlock(kind="feedback_help", markdown=render_feedback_help(current))
         )
 
-    metadata_lines = ["<!--", "eneo-review:", f"head={head_sha}"]
+    metadata_lines = ["<!--", "review-agent:", f"head={head_sha}"]
     if coverage is not None:
         metadata_lines.extend(
             [

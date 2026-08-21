@@ -1636,7 +1636,7 @@ def _cleanup_prior_failure_status(
         deleted.add(comment.comment_id)
 
 
-_FAILURE_STATUS_TOKEN = "eneo-review:failure-status"
+_FAILURE_STATUS_TOKEN = "review-agent:failure-status"
 # The failure-status fallback (no stored comment id) must find a recent comment even on
 # very noisy PRs. GitHub returns issue comments oldest-first, so a recently posted
 # failure-status comment can sit far beyond the default 300-comment window; scan deeper

@@ -1540,7 +1540,7 @@ class ReviewMemoryTests(unittest.TestCase):
         )
 
         result = self.finalize()
-        visible = result["markdown"].split("<!--\neneo-review:", 1)[0]
+        visible = result["markdown"].split("<!--\nreview-agent:", 1)[0]
         rendered_prose = visible.split("```text\nTask:", 1)[0]
 
         self.assertIn("&lt;/details&gt;", rendered_prose)

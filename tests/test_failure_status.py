@@ -119,7 +119,7 @@ class FailureStatusTests(unittest.TestCase):
         self.assertTrue(result["posted"])
         self.assertEqual(len(fake.created), 1)
         body = fake.created[0][1]
-        self.assertIn(f"eneo-review:failure-status run={run_id}", body)
+        self.assertIn(f"review-agent:failure-status run={run_id}", body)
         self.assertIn("GitHub could not render this pull request's diff", body)
         self.assertIn("post `/review` again as a new top-level PR comment", body)
         self.assertIn("share the status code with the reviewer operator", body)

@@ -93,7 +93,7 @@ PublicationStatus = Literal[
     "stale",
 ]
 READY_TO_POST: frozenset[str] = frozenset({"generated", "publish_failed"})
-PUBLICATION_MARKER_PREFIX = "eneo-review:canonical publication="
+PUBLICATION_MARKER_PREFIX = "review-agent:canonical publication="
 
 
 class PriorFindingVerdict(TypedDict):

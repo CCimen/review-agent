@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Ship and audit the Docusaurus GitHub Pages documentation site, then select the first maintainability-first architecture slice."
+  tranche: "Centralize core runtime configuration ownership without changing review behavior."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 0
+  completed_write_tasks_in_thread: 1
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "854fd7a3990e1a4e2d2a3ca2e9a813bb082d282d"
+  last_verified_revision: "388242f1259a151707615490060864cc8c14c337"
 
-active_task: T003
+active_task: T005
 
 tasks:
   - id: T001
@@ -114,7 +114,7 @@ tasks:
   - id: T003
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Implement the Docusaurus documentation site selected by T002, verify it visually and technically, then commit and push it to main."
     constraints:
@@ -159,11 +159,24 @@ tasks:
       - "GitHub Pages requires an owner setting that cannot be configured from the repository; complete all repository work and report the exact setting."
       - "A current-versus-target capability is ambiguous after source inspection."
       - "A focused validation fails twice for a non-mechanical reason."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T003-documentation-site-implementation.md"
+      summary: "Published a maintainable Docusaurus site with one explicit public-content owner, built-route enforcement, accessible Read-mode styling, and a successful GitHub Pages deployment."
+      commits:
+        - "904b14adbd37ee977f23cdff80de57b91234abfb"
+        - "388242f1259a151707615490060864cc8c14c337"
+      evidence:
+        - "Node 24 clean install, type-check, production build, and exact-route contract passed"
+        - "Strict Pyright, 461 tests, replay policy, and YAML validation passed"
+        - "Codex peer gate green at score 8"
+        - "GitHub Pages run 32463657915 deployed https://ccimen.github.io/review-agent/"
+      spawned_tasks:
+        - T004
   - id: T004
     type: judge
     assignee: Judge
-    status: queued
+    status: done
     reasoning_hint: high
     objective: "Audit the published documentation tranche and select the next maintainability-first architecture slice."
     inputs:
@@ -179,23 +192,69 @@ tasks:
       - "Documentation tranche complete | not complete"
       - "Missing evidence or direct fixes"
       - "Exact next maintainability PM task with allowed files, verification, and stop conditions"
-    receipt: null
+    receipt:
+      result: done
+      decision: "Documentation tranche complete at recovery revision 388242f; proceed with typed core runtime settings ownership."
+      note: "notes/T004-documentation-tranche-audit.md"
+      summary: "Audited the live Pages site, current-versus-target truth, public boundary, onboarding, workflow controls, and responsive accessibility with no remaining tranche blocker."
+      evidence:
+        - "Hosted Pages build and deployment run 32463657915 passed"
+        - "Homepage and representative deep link returned HTTP 200"
+        - "Live 500 by 812 audit showed one H1, mobile navigation, no horizontal overflow, and valid light/dark CTA colors"
+      spawned_tasks:
+        - T005
+        - T006
   - id: T005
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
-    objective: "Execute the first maintainability-first architecture slice selected by T004."
+    objective: "Centralize core runtime environment interpretation in a typed settings owner without changing observable behavior."
     constraints:
       - "The PM implements; subagents remain read-only."
       - "Preserve review behavior and the locked-down trust contract."
       - "Do not start PostgreSQL, GitHub App, Slack, or deferred security integrations before the maintainability gate."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/settings.py
+      - bootstrap/plugins/review_agent_tools/tools.py
+      - bootstrap/plugins/review_agent_tools/review_publisher.py
+      - bootstrap/plugins/review_agent_tools/memory_schema.py
+      - bootstrap/plugins/review_agent_tools/memory_validation.py
+      - bootstrap/plugins/review_agent_tools/memory_publications.py
+      - tests/test_settings.py
+      - tests/test_tools_validation.py
+      - tests/test_run_tools.py
+      - tests/test_review_publisher.py
+      - tests/test_memory_db.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "python3 -m unittest tests.test_settings tests.test_tools_validation tests.test_run_tools tests.test_review_publisher tests.test_memory_db"
+      - "No migrated core consumer reads os.environ directly"
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate the Goal Maker board"
+      - "Run one skeptical Codex peer gate with score >= 8"
+    stop_if:
+      - "The change needs feedback sidecar, CLI, Compose, or environment-contract edits."
+      - "The change requires aliases, a service locator, a generic provider port, global mutable caching, or a framework dependency."
+      - "The change alters public tool JSON or errors, token fallback, SQLite schema or data, or publication semantics."
+      - "Need files outside the selected owner-level scope."
+      - "A focused verification fails twice for a non-mechanical reason."
+    receipt: null
+  - id: T006
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: default
+    objective: "Close the observed SQLite connection and HTTP-error resource warnings in one separate behavior-preserving cleanup."
+    constraints:
+      - "Do not mix resource lifetime cleanup into typed settings ownership."
+      - "Keep tests focused on the demonstrated leaks and existing behavior."
     allowed_files: []
     verify: []
     stop_if:
-      - "Need files outside the selected owner-level scope."
-      - "Behavior or migration semantics are ambiguous."
-      - "A focused verification fails twice for a non-mechanical reason."
+      - "The warning cannot be reproduced or needs a behavioral redesign."
+      - "The fix needs files outside the later judge-approved scope."
     receipt: null
   - id: T999
     type: judge
@@ -218,10 +277,11 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-at-854fd7a"
+  dirty_fingerprint: "control-files-only-after-388242f"
   last_verification:
     result: pass
-    task: T001
+    task: T004
     commands:
-      - "git status --short --branch before board creation"
-      - "Previous genericization tranche verified at 854fd7a"
+      - "GitHub Pages run 32463657915"
+      - "Live homepage and direct deep-link HTTP checks"
+      - "Live 500 by 812 browser structure, overflow, and color inspection"

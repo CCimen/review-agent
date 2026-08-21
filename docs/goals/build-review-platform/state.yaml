@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Correct and freeze the PostgreSQL first-write contract, then add the authoritative migration runner."
+  tranche: "Add the typed PostgreSQL runtime foundation without application writes."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   rotation_count: 2
-  completed_write_tasks_in_thread: 5
+  completed_write_tasks_in_thread: 6
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-21T18:11:17Z"
-  last_verified_revision: "5d0fbc55df91100de35750ea1506e383373414f6"
+  last_handoff_at: "2026-08-21T18:44:53Z"
+  last_verified_revision: "5ef159baabe11df78e2ed854c12631eaef266b79"
 
-active_task: T021
+active_task: T022
 
 tasks:
   - id: T001
@@ -912,7 +912,7 @@ tasks:
   - id: T021
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add the checksum-verifying, advisory-locked PostgreSQL migration runner after the corrected schema contract is published."
     constraints:
@@ -952,7 +952,66 @@ tasks:
     stop_if:
       - "T020 is not committed, pushed, and green in live CI."
       - "The implementation needs runtime persistence or deployment cutover changes."
-    receipt: null
+    receipt:
+      result: done
+      decision: "The migration runner is the authoritative PostgreSQL schema-evolution owner; proceed to the read-only runtime foundation."
+      note: "notes/T021-postgresql-migration-runner.md"
+      summary: "Added exact-byte checksums, one transaction-level advisory lock, atomic SQL and ledger writes, database-ahead recovery, and an explicit READ COMMITTED protocol without starting application persistence."
+      implementation_revision: "5ef159baabe11df78e2ed854c12631eaef266b79"
+      evidence:
+        - "Twenty-three PostgreSQL 17 tests passed, including checksum drift, rollback, previous-image recovery, and barrier-released Repeatable Read concurrency."
+        - "Strict Pyright, the 518-test bundle, pinned runtime image build/import, documentation build, Goal Maker validation, and diff hygiene passed."
+        - "The resumable skeptical peer gate finished green at score 8 with no remaining findings."
+        - "Live Python bundle run 32514751272 and Publish documentation run 32514751286 succeeded; the hosted roadmap publishes checksum migration ownership."
+      spawned_tasks:
+        - T022
+  - id: T022
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Add typed PostgreSQL configuration, an explicitly opened bounded pool, readiness and pool metrics, and a pending-migration health check without application writes."
+    constraints:
+      - "Deepen the existing typed settings owner and migration owner; create one cohesive PostgreSQL runtime module rather than a generic persistence abstraction."
+      - "Use synchronous Psycopg 3 and psycopg_pool with no import-time connection and no ORM."
+      - "Use a direct dedicated connection for migrations; pooled runtime connections must have reviewed UTC, application_name, statement, lock, and idle-transaction timeouts."
+      - "Startup and readiness must fail clearly when the database is unavailable or migrations are pending or drifted."
+      - "Keep current SQLite application reads and writes unchanged; do not add dual-write or fallback behavior."
+    allowed_files:
+      - requirements.txt
+      - Dockerfile
+      - .github/workflows/ci.yml
+      - bootstrap/plugins/review_agent_tools/settings.py
+      - bootstrap/plugins/review_agent_tools/postgres_runtime.py
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/runner.py
+      - scripts/check_postgres_schema.sh
+      - tests/test_settings.py
+      - tests/test_postgres_runtime.py
+      - tests/test_postgres_migrations.py
+      - tests/test_ci_workflow.py
+      - tests/test_dockerfile_tools.py
+      - docs/ROADMAP.md
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+    verify:
+      - "Prove typed database URL validation, explicit pool lifecycle, connection settings, readiness, migration health, and bounded metrics against PostgreSQL 17."
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_settings tests.test_ci_workflow tests.test_dockerfile_tools"
+      - "./scripts/check_bundle.sh"
+      - "Build the pinned runtime image once after dependency wiring is stable."
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "git diff --check"
+      - "Validate Goal Maker state"
+      - "Run one skeptical Claude Opus/high peer gate at the stable pre-commit candidate."
+      - "After push, verify Python bundle and documentation publication workflows"
+    stop_if:
+      - "The implementation needs an application persistence operation, runtime/Compose cutover, or SQLite changes."
+      - "A pool lifecycle cannot be owned explicitly by the future process startup boundary."
+      - "The slice requires a generic backend interface, service locator, or configurable timeout framework."
   - id: T999
     type: judge
     assignee: Judge
@@ -977,10 +1036,10 @@ checks:
   dirty_fingerprint: "control-files-only-after-32fc5de"
   last_verification:
     result: pass
-    task: T018
+    task: T021
     commands:
-      - "12 real PostgreSQL 17 schema-contract tests"
-      - "Python 3.11 strict Pyright and 506-test canonical bundle"
-      - "Node 24 documentation type-check, production build, route checks, documentation checks, Goal Maker validation, YAML parsing, and diff checks"
-      - "Skeptical gpt-5.6-sol xhigh peer gate green at score 8 with no remaining findings"
-      - "Live Python bundle run 32492965527 and Publish documentation run 32492965461 green"
+      - "23 real PostgreSQL 17 schema and migration-runner tests"
+      - "Python 3.11 strict Pyright and 518-test canonical bundle"
+      - "Pinned runtime image build/import, Node 24 documentation type-check/build, route checks, Goal Maker validation, YAML parsing, and diff checks"
+      - "Resumable skeptical peer gate green at score 8 with no remaining findings"
+      - "Live Python bundle run 32514751272 and Publish documentation run 32514751286 green"

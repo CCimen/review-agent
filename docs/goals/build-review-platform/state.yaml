@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Audit the finding-memory application extraction and select the next maintainability-first owner slice."
+  tranche: "Consolidate the fixed Sundsvall Hermes profile into one canonical source bundle."
   status: active
 
 rules:
@@ -30,15 +30,15 @@ continuity:
   rotate_after_completed_write_tasks: 2
   rotate_after_hours: 6
   rotate_when_slow: true
-  current_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
-  previous_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
-  rotation_count: 1
-  completed_write_tasks_in_thread: 2
+  current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
+  previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
+  rotation_count: 2
+  completed_write_tasks_in_thread: 0
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-21T09:35:43Z"
+  last_handoff_at: "2026-08-21T10:34:29Z"
   last_verified_revision: "19f73db6b51dfd52a7c6df6e9c77f9a6de5f21b9"
 
-active_task: T011
+active_task: T012
 
 tasks:
   - id: T001
@@ -465,7 +465,7 @@ tasks:
   - id: T011
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the delivered finding-memory application slice and select the next maintainability-first owner task."
     inputs:
@@ -482,6 +482,57 @@ tasks:
       - "T010 complete | not complete"
       - "Missing evidence or direct blockers"
       - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
+    receipt:
+      result: done
+      decision: "T010 is complete; publication remains deferred; proceed with one fixed Sundsvall profile-bundle extraction."
+      summary: "Verified finding-memory ownership, bounded connections and head reads, preserved suggestion behavior, and selected the existing fixed profile as the next non-publication maintainability owner."
+      evidence:
+        - "155 focused tests, strict Pyright, and the 486-test bundle passed in the audit"
+        - "tools.py retains GitHub and serialization boundaries while the application owns finding-memory coordination"
+        - "The first publication recommendation was withdrawn because it conflicts with the user's explicit deferral"
+        - "Existing profile assets are scattered sources installed into one fixed Hermes profile"
+      spawned_tasks:
+        - T012
+  - id: T012
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Consolidate the existing managed Hermes identity, review contract, and review skills into one fixed bootstrap/profiles/sundsvall-standard/ source bundle without changing installed behavior."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Move existing profile assets byte-for-byte; do not rewrite their content."
+      - "Keep installed destinations, runtime configuration, tool behavior, and review output unchanged."
+      - "Use one fixed PROFILE_SOURCE in bootstrap/install.py; do not add selectors, manifests, schemas, aliases, or compatibility profiles."
+      - "Keep publication, trusted project context/policy overlays, scanners/Codex Security, PostgreSQL, jobs, GitHub App, and feedback deferred."
+    allowed_files:
+      - bootstrap/install.py
+      - bootstrap/SOUL.md
+      - bootstrap/workspace/AGENTS.md
+      - bootstrap/skills/review-agent-pr/**
+      - bootstrap/skills/ponytail/**
+      - bootstrap/profiles/sundsvall-standard/**
+      - README.md
+      - docs/BEHAVIOR_OWNERSHIP.md
+      - tests/test_profile_bundle.py
+      - tests/test_docs_contract.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Add behavior-first installer coverage proving byte-identical assets at the existing Hermes destinations"
+      - "Verify repeat install, --preserve-soul, --force-agents, config merge, plugin copy, and --skip-plugin-enable behavior remain intact"
+      - "Confirm obsolete scattered source paths are absent outside historical goal receipts"
+      - "Run profile_bundle, docs_contract, dockerfile_tools, and feedback_workflow tests with ResourceWarnings as errors"
+      - "python3 scripts/check_docs.py"
+      - "pyright -p ."
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate the Goal Maker board"
+      - "Run one skeptical gpt-5.6-sol xhigh Codex peer gate with score >= 8"
+    stop_if:
+      - "Any moved profile file content changes."
+      - "Installed paths, config precedence, preserve/force behavior, plugin enablement, database initialization, model, or tool permissions change."
+      - "The slice requires a profile selector, manifest/schema, compatibility alias, runtime plugin change, Compose/workflow change, or files beyond the allowed scope."
+      - "Focused verification fails twice for a non-mechanical reason."
     receipt: null
   - id: T999
     type: judge
@@ -507,9 +558,9 @@ checks:
   dirty_fingerprint: "control-files-only-after-19f73db"
   last_verification:
     result: pass
-    task: T010
+    task: T011
     commands:
       - "155 focused tests with ResourceWarnings promoted to errors"
       - "Strict Pyright and 486-test bundle"
-      - "Codex peer gate iteration 2 green at score 8"
-      - "Distinct rejection-heavy head-file read limit test passed"
+      - "Goal Maker validation and git diff check"
+      - "Read-only owner, invariant, and deferred-scope audit"

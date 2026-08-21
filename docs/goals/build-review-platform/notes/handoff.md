@@ -1,42 +1,23 @@
 # Goal Maker Handoff
 
-This is a non-authoritative conversational snapshot. If it conflicts with
-`state.yaml`, `state.yaml` wins.
+This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
-## Current Direction
+## Current direction
 
-- Last explicit user instruction: continue without stopping, use subagents only
-  for read-only research, follow both approved Sundsvall refactor plans, keep
-  testing proportional, and keep security integration deferred.
-- Latest verified outcome: the Docusaurus Pages site is live; typed settings and
-  resource ownership are centralized; the concrete bounded GitHub read client
-  was delivered at `3c1072bd09b0a1e09eb1bb95edac323429ba4a77` and audited
-  complete. The overall platform goal remains active.
-- Unfinished action: implement active task T008, the frozen review-run lifecycle
-  and coverage application owner, then verify, peer-review, commit, push, audit,
-  and continue the approved maintainability sequence.
+- Work in `/Users/ccimen/Documents/ChatGPT/Review Agent` on `main`; direct commits and pushes are authorized.
+- T010 is complete at `19f73db6b51dfd52a7c6df6e9c77f9a6de5f21b9`: finding context, persistence, and bounded optional-suggestion coordination now have one typed application owner.
+- T011 audited T010 complete. Its initial publication recommendation was rejected because publication is explicitly deferred.
+- T012 is active: move the existing fixed Sundsvall Hermes identity, review contract, and two review skills into one `bootstrap/profiles/sundsvall-standard/` source bundle without changing bytes or installed behavior.
 
-## Orientation
+## Execution boundary
 
-- Work in `/Users/ccimen/Documents/ChatGPT/Review Agent` on
-  `CCimen/review-agent` `main`; direct main commits and pushes are authorized.
-- Read `goal.md`, `state.yaml`, both approved plan files named by the board, and
-  the T008 scope before acting. Verify repository state against
-  `continuity.last_verified_revision`.
-- The primary agent implements. Subagents are read-only researchers. Keep
-  scanner/Codex Security, PostgreSQL, jobs, GitHub App, policy overlays,
-  publication, and feedback out of T008.
-- Apply behavior-first tests proportionately and run the required single
-  skeptical Codex peer gate at a stable candidate.
+- The primary agent implements; subagents are read-only.
+- Keep the process lean: proportional behavior-first and full validation, one skeptical peer gate at a stable candidate, one implementation commit, and one compact receipt/audit update where practical.
+- Do not add profile selection, manifests, compatibility aliases, trusted project context, or policy precedence.
+- Publication, scanners/Codex Security, PostgreSQL, jobs, GitHub App, policy overlays, and feedback remain deferred.
 
-## Recent Conversation Tail
+## Continuity
 
-- The resource-lifetime cleanup closed SQLite and HTTPError resources without
-  behavior changes and was pushed as `c59b6ac`.
-- Two read-only plan audits independently selected the concrete GitHub read
-  client as the next A2 slice. It was pushed as `3c1072b`; a first peer gate
-  requested stronger bounded-read and 404/406 proofs, and the resumed gate was
-  green at score 8 after focused test-only changes.
-- A Scout and Judge then selected T008: move review-run and coverage coordination
-  into one concrete application module while retaining existing persistence
-  owners and all public behavior.
+- Successor task: `01a023e2-c60a-77b3-9857-23bb2fc3d6f4`.
+- Previous task: `01a023ae-4213-7071-8cc7-50048392fe97`.
+- Read `goal.md`, `state.yaml`, repository instructions, and both approved plans. Verify clean `main == origin/main`, then execute only T012.

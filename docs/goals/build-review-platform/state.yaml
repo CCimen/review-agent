@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Centralize core runtime configuration ownership without changing review behavior."
+  tranche: "Close demonstrated SQLite and HTTP response lifetime leaks without changing behavior."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02028-61ae-7952-add3-bced6e4aab13"
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 1
+  completed_write_tasks_in_thread: 2
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "388242f1259a151707615490060864cc8c14c337"
+  last_verified_revision: "c34eb827179eff1faf8b8c728070cc75a6b8e90e"
 
-active_task: T005
+active_task: T006
 
 tasks:
   - id: T001
@@ -207,7 +207,7 @@ tasks:
   - id: T005
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Centralize core runtime environment interpretation in a typed settings owner without changing observable behavior."
     constraints:
@@ -240,21 +240,48 @@ tasks:
       - "The change alters public tool JSON or errors, token fallback, SQLite schema or data, or publication semantics."
       - "Need files outside the selected owner-level scope."
       - "A focused verification fails twice for a non-mechanical reason."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T005-typed-runtime-settings.md"
+      summary: "Centralized seven core environment contracts in one typed, stateless, lazy settings owner while preserving domain wrappers and observable behavior."
+      commit: "c34eb827179eff1faf8b8c728070cc75a6b8e90e"
+      evidence:
+        - "170 focused tests and the strict 467-test bundle passed"
+        - "Five migrated consumers contain no direct os.environ or os.getenv reads"
+        - "Direct top-level import fallbacks passed"
+        - "Codex peer gate green at score 9"
+      spawned_tasks:
+        - T006
   - id: T006
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: default
     objective: "Close the observed SQLite connection and HTTP-error resource warnings in one separate behavior-preserving cleanup."
     constraints:
       - "Do not mix resource lifetime cleanup into typed settings ownership."
       - "Keep tests focused on the demonstrated leaks and existing behavior."
-    allowed_files: []
-    verify: []
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/memory_schema.py
+      - bootstrap/plugins/review_agent_tools/tools.py
+      - bootstrap/plugins/review_agent_tools/review_publisher.py
+      - tests/test_memory_db.py
+      - tests/test_review_runs.py
+      - tests/test_tools_validation.py
+      - tests/test_review_publisher.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Run the seven reproduced resource-lifetime tests with tracemalloc and ResourceWarnings enabled"
+      - "Run the affected test modules"
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate the Goal Maker board"
+      - "Run one skeptical Codex peer gate with score >= 8"
     stop_if:
-      - "The warning cannot be reproduced or needs a behavioral redesign."
-      - "The fix needs files outside the later judge-approved scope."
+      - "Closing the response requires consuming its body or changes retry, fallback, or error codes."
+      - "Database transaction or readiness behavior changes."
+      - "The fix touches feedback architecture or needs files outside the allowed scope."
+      - "A focused warning persists twice after a non-mechanical correction."
     receipt: null
   - id: T999
     type: judge
@@ -277,11 +304,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-388242f"
+  dirty_fingerprint: "control-files-only-after-c34eb82"
   last_verification:
     result: pass
-    task: T004
+    task: T005
     commands:
-      - "GitHub Pages run 32463657915"
-      - "Live homepage and direct deep-link HTTP checks"
-      - "Live 500 by 812 browser structure, overflow, and color inspection"
+      - "170 focused settings and consumer tests"
+      - "Strict Pyright and 467-test bundle"
+      - "Direct top-level import fallback smoke check"
+      - "Codex peer gate green at score 9"

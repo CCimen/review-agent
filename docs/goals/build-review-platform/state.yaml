@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-21T10:34:29Z"
   last_verified_revision: "6baa7a8ef93fe18c2b4dfba02b459ef502358620"
 
-active_task: T017
+active_task: T018
 
 tasks:
   - id: T001
@@ -712,7 +712,7 @@ tasks:
   - id: T017
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the full Python CI and current-versus-target documentation, then freeze the smallest complete PostgreSQL schema and transaction-boundary slice from current behavior and source evidence."
     inputs:
@@ -734,6 +734,101 @@ tasks:
       - "Canonical PostgreSQL schema and transaction owner map"
       - "Observable behavior and integration invariants"
       - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
+    receipt:
+      result: done
+      decision: "T016 is complete; continue with one forward-only PostgreSQL schema-contract slice and no runtime change."
+      summary: "Verified T016 locally and live, mapped current persistence behavior and atomic lifecycle operations, and froze versioned plain SQL plus real PostgreSQL tests as the smallest complete next slice."
+      evidence:
+        - "Clean main and origin/main matched at 4cfc5f71ddfe803c02fc7b7c0af4afd6952b821e"
+        - "Focused CI and documentation contracts, the strict bundle, Goal Maker validation, and live runs 32478702720 and 32478702712 were green"
+        - "Owner architecture review superseded the initial freeze before commit: repositories use generated internal IDs plus stable provider numeric IDs, while owner/name/full_name remain mutable metadata"
+        - "Identity-only pull_requests own repository-local PR numbers; ordinary descendants reach scope through parent paths, while true bridge rows carry only the minimal scope needed for PostgreSQL to reject disagreement between independent parents"
+        - "Projects are deferred because no current reader or owner exists and a later lookup-table retrofit is small; no sentinel project or profile policy is introduced"
+        - "Review file reads become normalized range rows, and finding identity becomes repository-scoped with observation-specific evidence kept only on occurrences"
+        - "The 14-table proposal was guidance rather than a mandate; current verification/reconciliation, publication, feedback, suggestion, coach, replay, and audit behavior remains represented"
+        - "Current compute_fingerprint salts with repository name and resolve_fingerprint performs global prefix lookup; both must become repository-ID-scoped before the first PostgreSQL write"
+      spawned_tasks:
+        - T018
+  - id: T018
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Add the forward-only PostgreSQL initial schema and real PostgreSQL contract tests without changing the current runtime."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Versioned plain SQL under postgres_migrations owns PostgreSQL DDL; do not add a generic store, adapter hierarchy, ORM, driver, or second runtime path."
+      - "Use repositories.id as canonical relational identity; require provider plus stable numeric provider_repository_id, keep owner/name/full_name mutable, and make provider/full_name unique without adding aliases or rename-history machinery."
+      - "Add identity-only pull_requests with one repository path and a repository-local number; do not add mutable GitHub state, draft, refs, or current-SHA fields."
+      - "Defer projects because no current reader or canonical owner exists; do not add a sentinel project, default_profile_key, or policy ownership."
+      - "Normalize deterministic file coverage into review_file_reads with side/start/end checks and deduplication; remove head/base range JSON aggregates."
+      - "Normalized review_file_reads removes the current repeated JSON read/parse/membership/sort/rewrite path, its O(r^2)-style growth across accumulated ranges, and its lost-update window."
+      - "Use generated repository-scoped finding identities and direct run/finding/occurrence parent keys; copy scope only on true bridge rows where PostgreSQL must compare independent parent paths."
+      - "Preserve current review subject/run, verification/reconciliation, publication, feedback, suggestion, coach, replay, and audit behavior without transliterating SQLite-only sentinels."
+      - "Use behavior/query-driven indexes only; add composite identity/foreign-key fences and their supporting uniqueness solely where independent parents must agree, never for a blanket all-foreign-keys-indexed contract."
+      - "Every retained index must map to a named expected lookup, join, ordering, active-run exclusion, or stale-run scan; remove covered duplicates and do not add blanket foreign-key indexes."
+      - "Real-engine tests must prove repository renames preserve history, same-numbered PRs and identical fingerprints remain isolated, one active run exists per PR, targeted foreign-key fences reject cross-parent links, file ranges validate/deduplicate/order, decision and delivery lifecycles stay valid, current publications remain unique, and coach NULL scope deduplicates."
+      - "Migration 001 is transactional and forward-only, applies once to an empty database, and rejects reapplication or partial state without damaging the installed schema."
+      - "Use pinned PostgreSQL 17.10 in an ephemeral named container with no host port and no Python database dependency."
+      - "Keep current memory_* runtime owners unchanged; migration runner, runtime adapter, provider-ID acquisition, configuration/Compose switching, roles/grants, and SQLite deletion follow later before the first PostgreSQL write."
+      - "The next runtime slice must remove repository-name input from compute_fingerprint and make resolve_fingerprint repository-scoped before the first PostgreSQL write."
+      - "Keep Hermes HERMES_HOME state outside this application schema."
+      - "Keep projects, analyzers, jobs, leases, outbox, publication/feedback feature work, trusted context/policy overlays, scanners/security, GitHub App, organization, webhook, and role machinery deferred."
+      - "Keep public current-versus-target documentation accurate without rewriting unrelated operator guidance."
+    allowed_files:
+      - .github/workflows/ci.yml
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/001_initial.sql
+      - scripts/check_postgres_schema.sh
+      - tests/test_postgres_schema.py
+      - tests/test_ci_workflow.py
+      - docs/ROADMAP.md
+      - website/src/pages/index.tsx
+      - docs/goals/build-review-platform/state.yaml
+    verify:
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_ci_workflow tests.test_memory_module_boundaries"
+      - "./scripts/check_bundle.sh"
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "git diff --check"
+      - "Validate Goal Maker state"
+      - "Run one skeptical gpt-5.6-sol xhigh Codex peer gate with score >= 8"
+      - "After push, verify the live Python bundle including the PostgreSQL contract check and the Publish documentation workflow"
+    stop_if:
+      - "The slice requires runtime, settings, Dockerfile, Compose, or existing memory_* edits."
+      - "A driver, ORM, adapter hierarchy, dual backend, importer, downgrade path, or SQLite compatibility mechanism appears necessary."
+      - "Projects, aliases, mutable GitHub PR state, analyzer runs, or rename-history machinery becomes necessary."
+      - "The schema cannot represent current publication, feedback, verification, and coach behavior without changing observable behavior."
+      - "A real pinned PostgreSQL test cannot run locally and in CI."
+      - "Scope expands beyond DDL, its guarded test harness, CI wiring, and receipt."
+    receipt: null
+  - id: T019
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "Audit the initial PostgreSQL schema and freeze the first cohesive runtime-owner persistence slice before any PostgreSQL write."
+    inputs:
+      - "T018 receipt, implementation revision, and live Python/documentation workflow evidence"
+      - "Current operation-owned memory modules and strict typed application owners"
+      - "Current compute_fingerprint and resolve_fingerprint call sites"
+      - "Representative review-run and finding persistence workloads"
+    constraints:
+      - "Read-only; do not implement."
+      - "Require canonical strict Pyright with no Any, ignores, or untyped persistence-row surfaces."
+      - "Freeze cohesive operation-owned PostgreSQL modules; do not create one god module, one class per table, a generic multi-database seam, or an SQLite adapter."
+      - "Require short transactions, a bounded psycopg pool, batch writes, and no N+1 query loops."
+      - "Require baseline profiling or measurement on representative review-run and finding persistence before optimizing the PostgreSQL runtime."
+      - "Require compute_fingerprint to drop repository-name input and resolve_fingerprint to become repository-scoped before the first PostgreSQL write."
+      - "Treat current SQLite complexity findings as retiring-path evidence only; do not optimize SQLite."
+      - "Keep migration execution, provider-ID acquisition, roles/grants, configuration/Compose cutover, and SQLite deletion explicitly sequenced before the first PostgreSQL write."
+      - "Keep projects, jobs/leases/outbox, publication refactor, security/scanners, GitHub App, trusted context/policy overlays, and feedback feature work deferred."
+    expected_output:
+      - "T018 complete | not complete"
+      - "Exact first runtime-owner objective and operation-owned module map"
+      - "Allowed files, real PostgreSQL behavior tests, performance baseline, strict Pyright, verification, and stop conditions"
     receipt: null
   - id: T999
     type: judge

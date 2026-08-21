@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+POSTGRES_CHECK = ROOT / "scripts" / "check_postgres_schema.sh"
 ROADMAP = ROOT / "docs" / "ROADMAP.md"
 HOMEPAGE = ROOT / "website" / "src" / "pages" / "index.tsx"
 README = ROOT / "README.md"
@@ -63,6 +64,7 @@ concurrency:
             run_commands,
             [
                 "npm install --global pyright@1.1.408",
+                "./scripts/check_postgres_schema.sh",
                 "./scripts/check_bundle.sh",
             ],
         )
@@ -74,6 +76,23 @@ concurrency:
         ):
             self.assertNotIn(duplicated_command, source)
 
+    def test_postgresql_contract_uses_one_pinned_unexposed_real_database(self):
+        source = POSTGRES_CHECK.read_text(encoding="utf-8")
+        image = (
+            "postgres:17.10-bookworm@"
+            "sha256:9b18b78397054fce88a9552e9d5a3ad5bb7fd258c5b3cc1c5028e46373d6ea8f"
+        )
+
+        self.assertEqual(source.count(image), 1)
+        self.assertIn('cd "$ROOT"', source)
+        self.assertIn("docker run", source)
+        self.assertIn("--rm", source)
+        self.assertIn("docker rm --force", source)
+        self.assertIn("trap ", source)
+        self.assertIn('REVIEW_AGENT_POSTGRES_CONTAINER="$CONTAINER"', source)
+        self.assertIn("python3 -m unittest tests.test_postgres_schema", source)
+        self.assertNotRegex(source, r"(?m)(?:--publish(?:=|\s)|-p(?:\s|[0-9]))")
+
 
 class MigrationReadinessDocumentationTests(unittest.TestCase):
     def test_public_status_names_the_clean_postgresql_replacement(self):
@@ -81,6 +100,7 @@ class MigrationReadinessDocumentationTests(unittest.TestCase):
         homepage = HOMEPAGE.read_text(encoding="utf-8")
         readme = README.read_text(encoding="utf-8")
         normalized_roadmap = re.sub(r"\s+", " ", roadmap)
+        normalized_homepage = re.sub(r"\s+", " ", homepage)
 
         for current_capability in (
             "Full Python bundle CI",
@@ -95,21 +115,25 @@ class MigrationReadinessDocumentationTests(unittest.TestCase):
             "No per-repository databases",
             "no permanent dual writes",
             "temporary and disposable",
-            "PostgreSQL schema and transaction boundary",
+            "initial PostgreSQL schema",
+            "real PostgreSQL",
+            "active reviewer still uses SQLite",
+            "migration runner and runtime owner",
+            "provider repository ID acquisition",
+            "runtime configuration and Compose",
+            "Delete the SQLite application persistence",
+            "Hermes `HERMES_HOME` state is separate",
             "clean runtime replacement",
-            "previous PostgreSQL-compatible application image against the same PostgreSQL database",
         ):
             self.assertIn(migration_invariant, normalized_roadmap)
 
-        self.assertIn("Jobs, leases, and an outbox follow", normalized_roadmap)
+        self.assertIn("durable jobs and an outbox", normalized_roadmap)
+        recovery = "Define the initial PostgreSQL replacement recovery path"
+        cutover = "Switch runtime configuration and Compose to PostgreSQL"
+        self.assertIn(recovery, normalized_roadmap)
+        self.assertIn("previous PostgreSQL-compatible application image", normalized_roadmap)
+        self.assertLess(normalized_roadmap.index(recovery), normalized_roadmap.index(cutover))
         self.assertNotIn("PostgreSQL is deployed", normalized_roadmap)
-        recovery = normalized_roadmap.index(
-            "Define and test initial replacement recovery before switching"
-        )
-        switch = normalized_roadmap.index(
-            "Switch runtime configuration and Compose to PostgreSQL"
-        )
-        self.assertLess(recovery, switch)
         for retired_direction in (
             "SQLite importer",
             "SQLite rollback",
@@ -121,7 +145,10 @@ class MigrationReadinessDocumentationTests(unittest.TestCase):
             "Typed ownership and trusted project context come before PostgreSQL",
             homepage,
         )
-        self.assertIn("one PostgreSQL database per environment", homepage)
+        self.assertIn("one PostgreSQL database per environment", normalized_homepage)
+        self.assertIn("initial PostgreSQL schema", normalized_homepage)
+        self.assertIn("real-engine CI contract", normalized_homepage)
+        self.assertIn("still uses SQLite", normalized_homepage)
         self.assertIn("GitHub Actions runs the same bundle", readme)
 
 

@@ -13,12 +13,11 @@ architecture tranches without weakening the proven review contract.
 
 ## Current Tranche
 
-Design, implement, verify, publish, and audit a Docusaurus documentation site on
-GitHub Pages. The site must explain the current product truth, onboarding,
-configuration ownership, trust model, operations, FAQ, and the distinction
-between current and planned architecture. After this audit, continue with the
-next evidence-backed maintainability slice rather than beginning persistence or
-integration work prematurely.
+Establish the PostgreSQL migration safety gate. First run the existing full
+Python bundle in GitHub Actions and refresh current-versus-planned documentation.
+Then freeze one narrow persistence and transaction contract, define migration
+invariants, and move canonical review state to one PostgreSQL database per
+environment as a clean runtime replacement.
 
 ## Approved Sequencing Input
 
@@ -42,8 +41,18 @@ scanner/Codex Security integration is deferred until the owner resumes it.
 - The platform owns one municipal `SOUL.md`. Repository-specific review context
   will come from trusted base-branch configuration and `AGENTS.md`, never from a
   PR-head `SOUL.md` or repository-name conditionals.
-- Keep SQLite until application ownership and persistence interfaces are stable.
-  PostgreSQL, durable jobs, and the GitHub App follow the maintainability gate.
+- PostgreSQL is the approved canonical store: one database per environment,
+  never one database per repository. The owner confirmed on 2026-08-21 that the
+  reviewer has no production deployment or persisted production review state,
+  so do not build a SQLite importer, dual-backend mode, compatibility layer, or
+  SQLite rollback path.
+- Run the full Python bundle in CI before persistence work. Sequence the narrow
+  persistence and transaction contract, migration invariants, PostgreSQL schema
+  and runtime ownership, runtime/configuration/Compose switch, and deletion of
+  SQLite code separately. Define initial replacement recovery before switching;
+  after PostgreSQL writes, rollback uses the previous PostgreSQL-compatible
+  application image against the same database. Jobs, leases, and the outbox
+  follow later.
 - Defer Codex Security, scanner workers, scanner aggregation, and security
   artifact storage. Do not weaken existing security controls.
 - Use proportional behavior and contract tests. Do not add broad test matrices

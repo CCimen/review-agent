@@ -140,8 +140,9 @@ function Home(): ReactNode {
           <div>
             <Heading as="h2">Deliberate about what comes next</Heading>
             <p>
-              Typed ownership and trusted project context come before PostgreSQL,
-              jobs, and a GitHub App. Scanner integrations remain deferred.
+              Full Python CI now guards changes. The next migration slices move
+              canonical review state to one PostgreSQL database per environment;
+              jobs and other integrations follow separately.
             </p>
             <Link to="/docs/roadmap">Read the current and planned capabilities</Link>
           </div>

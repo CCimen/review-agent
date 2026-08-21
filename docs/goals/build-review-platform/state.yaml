@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Audit the direct persistence-owner cleanup and select the next non-deferred maintainability slice."
+  tranche: "Establish full Python CI and refresh PostgreSQL migration sequencing truth."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-21T10:34:29Z"
   last_verified_revision: "094e78ad67fd2fff3807a0d36af9a8313bcad9dc"
 
-active_task: T015
+active_task: T016
 
 tasks:
   - id: T001
@@ -627,7 +627,7 @@ tasks:
   - id: T015
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the direct persistence-owner cleanup and select the next meaningful non-deferred maintainability-first owner task from current source evidence."
     inputs:
@@ -638,11 +638,64 @@ tasks:
       - "Read-only; do not implement."
       - "Audit direct owner mapping, facade isolation, connection and transaction behavior, exception identity, test seams, and proportional verification."
       - "Select the next task from current source evidence; do not assume deeper schema decomposition is next."
-      - "Keep publication, trusted project context/policy overlays, scanners/Codex Security, PostgreSQL, jobs, GitHub App, and feedback deferred."
+      - "Treat PostgreSQL as the approved target after a short readiness gate; do not implement it in this read-only audit."
+      - "Keep publication, trusted project context/policy overlays, scanners/Codex Security, jobs, GitHub App, and feedback deferred."
     expected_output:
       - "T014 complete | not complete"
       - "Missing evidence or direct blockers"
       - "Exact next PM objective, allowed files, verification, stop conditions, and non-goals"
+    receipt:
+      result: done
+      decision: "T014 is complete; establish full Python CI and refresh stale migration sequencing before persistence code."
+      summary: "Verified T014 with 110 focused tests and the 491-test bundle; confirmed one shared SQLite database, missing full-code CI, stale roadmap status, and PostgreSQL as the owner-approved target."
+      evidence:
+        - "Main and origin/main were clean at ce8d62ad8e05e5f86bfef5136e842f2afa18bad3"
+        - "Exact persistence owners, connection order, transactions, exceptions, and facade isolation remain green"
+        - "Only documentation workflows exist; no workflow invokes scripts/check_bundle.sh"
+        - "The roadmap and homepage still describe completed ownership work as upcoming"
+        - "Both approved plans support one PostgreSQL database per environment; final owner direction supersedes their importer path with a clean replacement because no production or user data exists"
+      spawned_tasks:
+        - T016
+  - id: T016
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Run the canonical full Python bundle in GitHub Actions and refresh stale public and control sequencing so PostgreSQL is the approved next platform target."
+    constraints:
+      - "The PM implements; subagents remain read-only."
+      - "Keep scripts/check_bundle.sh as the sole bundle owner; the workflow is a thin read-only adapter."
+      - "Use Python 3.11, an exact Pyright pin, and immutable action SHAs."
+      - "State one PostgreSQL database per environment and a clean SQLite replacement with no importer, per-repository databases, dual backend, permanent dual writes, or SQLite rollback path."
+      - "Define initial replacement recovery before switching; after PostgreSQL writes, rollback uses the previous PostgreSQL-compatible application image against the same database."
+      - "Do not preserve SQLite IDs, schema versions, or local test data."
+      - "Keep jobs, leases, and the outbox as later separate slices."
+      - "Keep publication, trusted project context/policy overlays, scanners/Codex Security, GitHub App, and feedback deferred."
+    allowed_files:
+      - .github/workflows/ci.yml
+      - tests/test_ci_workflow.py
+      - docs/ROADMAP.md
+      - website/src/pages/index.tsx
+      - README.md
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+    verify:
+      - "python3 -m unittest tests.test_ci_workflow tests.test_docs_contract"
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website ci"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Validate Goal Maker state"
+      - "Run one skeptical gpt-5.6-sol xhigh Codex peer gate with score >= 8"
+      - "After push, verify the CI and affected documentation workflows are green"
+    stop_if:
+      - "The canonical bundle cannot run on GitHub's Python 3.11 runner without changing its behavior or adding runtime dependencies."
+      - "The workflow needs secrets, write permissions, deployment changes, or unpinned actions."
+      - "The slice enters SQL, schema, Compose, settings, application runtime, replacement, or deletion implementation."
+      - "A focused or live workflow failure repeats twice for a non-mechanical reason."
     receipt: null
   - id: T999
     type: judge

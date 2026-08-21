@@ -113,6 +113,12 @@ publication; a profile owns project policy, skills, tone, and enabled verifier
 providers. The initial profile is being separated from source-specific policy so
 repository differences can be resolved through versioned configuration.
 
+The persistence target is one PostgreSQL database per environment. The current
+runtime bundle uses one shared SQLite database, but that runtime is temporary
+and disposable: the reviewer has no production deployment or persisted
+production review state. PostgreSQL will replace SQLite directly. See the
+[current migration sequence](docs/ROADMAP.md) for the guarded replacement plan.
+
 ## Developer Workflow
 
 Request a review with a new top-level PR comment:
@@ -175,6 +181,7 @@ Run the bundle check before shipping changes:
 ./scripts/check_bundle.sh
 ```
 
+GitHub Actions runs the same bundle for pull requests and changes to `main`.
 The bundle validates Python imports, strict type checks, unit tests, replay
 fixtures, and YAML. It cannot live-test your Dokploy routes, GitHub token
 approval, ChatGPT OAuth state, or repository rules.

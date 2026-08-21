@@ -20,28 +20,42 @@ behavior documented in the repository and verified by the shipped bundle.
 
 - One shared reviewer per environment with an exact repository allowlist.
 - Trusted GitHub Actions request workflow and HMAC-signed webhooks.
+- Full Python bundle CI for pull requests and changes to `main`.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
 - Deterministic GitHub summaries and validated optional native suggestions.
 - Human-governed feedback plus private, operator-run learning and verification.
+- Central typed runtime settings, a bounded GitHub read client, and typed run and
+  finding application owners.
+- One fixed Sundsvall profile bundle for reviewer identity and procedure.
 
-## Next maintainability work
+## PostgreSQL migration sequence
 
-The immediate work improves ownership inside the existing modular monolith
-without changing review behavior:
+The repository owner confirmed on 2026-08-21 that the reviewer has no production
+deployment or persisted production review state. Its packaged SQLite runtime is
+temporary and disposable. The approved target—not a deployed capability—is one
+PostgreSQL database per environment. No per-repository databases will be
+introduced, and there will be no permanent dual writes.
 
-1. centralize typed runtime settings;
-2. consolidate concrete GitHub read ownership;
-3. extract the review application workflow from transport and storage details;
-4. separate publication planning from GitHub delivery;
-5. define trusted, versioned policy resolution and base-branch project context.
+1. Define one PostgreSQL schema and transaction boundary plus the invariants
+   that behavior and integration tests must preserve.
+2. Add the PostgreSQL runtime owner without changing review behavior.
+3. Define and test initial replacement recovery before switching. After
+   PostgreSQL accepts writes, rollback means redeploying the previous
+   PostgreSQL-compatible application image against the same PostgreSQL database,
+   never switching back to SQLite.
+4. Switch runtime configuration and Compose to PostgreSQL, then delete the
+   SQLite runtime, schema, migrations, and SQLite-only tests after the
+   replacement passes. Jobs, leases, and an outbox follow as separate slices
+   after the canonical store is established.
 
-SQLite remains in place until these application boundaries are stable.
+This clean runtime replacement preserves observable review behavior without
+preserving SQLite IDs, schema versions, local test data, or a compatibility
+backend.
 
 ## Planned platform capabilities
 
-- PostgreSQL persistence and explicit transactional boundaries;
 - durable jobs, retries, leases, and an outbox for external delivery;
 - GitHub App installation tokens and webhook-based repository lifecycle;
 - trusted base-branch `.github/review-agent.yaml` and `AGENTS.md` context;
@@ -50,7 +64,8 @@ SQLite remains in place until these application boundaries are stable.
 
 ## Explicitly deferred
 
-Codex Security, scanner workers, SARIF aggregation, dependency-vulnerability
-artifact storage, and similar security integrations are deferred. Existing
-security controls stay in place, and deterministic scanners should continue to
-run independently in repository CI.
+Publication ownership changes, trusted project context and policy overlays,
+GitHub App migration, new feedback work, Codex Security, scanner workers, SARIF
+aggregation, and security artifact storage are deferred. Existing security
+controls stay in place, and deterministic scanners should continue to run
+independently in repository CI.

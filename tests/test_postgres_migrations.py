@@ -115,6 +115,20 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                 runner.apply_migrations(connection)
             connection.rollback()
 
+    def test_inspection_reports_a_concurrent_migration_holder(self) -> None:
+        with psycopg.connect(DSN) as lock_holder:
+            with lock_holder.transaction():
+                lock_holder.execute(
+                    "SELECT pg_advisory_xact_lock(%s)",
+                    (runner._MIGRATION_LOCK_KEY,),
+                )
+                with psycopg.connect(DSN) as connection:
+                    with self.assertRaisesRegex(
+                        runner.MigrationError,
+                        "PostgreSQL migrations are currently running",
+                    ):
+                        runner.inspect_migrations(connection)
+
     def test_failed_migration_rolls_back_ddl_and_ledger(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)

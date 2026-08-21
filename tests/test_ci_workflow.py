@@ -91,7 +91,12 @@ concurrency:
         self.assertIn("docker rm --force", source)
         self.assertIn("trap ", source)
         self.assertIn('REVIEW_AGENT_POSTGRES_CONTAINER="$CONTAINER"', source)
-        self.assertIn("tests.test_postgres_schema tests.test_postgres_migrations", source)
+        for test_module in (
+            "tests.test_postgres_schema",
+            "tests.test_postgres_migrations",
+            "tests.test_postgres_runtime",
+        ):
+            self.assertIn(test_module, source)
         self.assertIn("--publish 127.0.0.1::5432", source)
         self.assertNotIn("0.0.0.0", source)
         self.assertNotRegex(source, r"127\.0\.0\.1:[0-9]+:5432")
@@ -122,6 +127,7 @@ class MigrationReadinessDocumentationTests(unittest.TestCase):
             "real PostgreSQL",
             "active reviewer still uses SQLite",
             "checksum-verifying migration runner",
+            "read-only PostgreSQL runtime foundation",
             "provider repository ID acquisition",
             "runtime configuration and Compose",
             "Delete the SQLite application persistence",

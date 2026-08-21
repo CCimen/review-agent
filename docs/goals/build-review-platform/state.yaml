@@ -982,7 +982,8 @@ tasks:
       - Dockerfile
       - .github/workflows/ci.yml
       - bootstrap/plugins/review_agent_tools/settings.py
-      - bootstrap/plugins/review_agent_tools/postgres_runtime.py
+      - bootstrap/plugins/review_agent_tools/postgres/__init__.py
+      - bootstrap/plugins/review_agent_tools/postgres/runtime.py
       - bootstrap/plugins/review_agent_tools/postgres_migrations/runner.py
       - scripts/check_postgres_schema.sh
       - tests/test_settings.py

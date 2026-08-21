@@ -117,7 +117,10 @@ class DockerfileToolsTests(unittest.TestCase):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
-        self.assertEqual(requirements, "psycopg[binary]==3.3.4\n")
+        self.assertEqual(
+            requirements,
+            "psycopg[binary]==3.3.4\npsycopg-pool==3.3.1\n",
+        )
         self.assertIn(
             "COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt",
             dockerfile,

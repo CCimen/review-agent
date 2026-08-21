@@ -51,6 +51,9 @@ fi
 PYTHONDONTWRITEBYTECODE=1 \
 REVIEW_AGENT_POSTGRES_CONTAINER="$CONTAINER" \
 REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/review_agent_migration_test" \
-    python3 -m unittest tests.test_postgres_schema tests.test_postgres_migrations
+    python3 -m unittest \
+        tests.test_postgres_schema \
+        tests.test_postgres_migrations \
+        tests.test_postgres_runtime
 
 printf '%s\n' "PostgreSQL schema contract passed."

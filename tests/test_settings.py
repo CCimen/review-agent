@@ -9,11 +9,52 @@ from unittest.mock import patch
 PLUGIN_PARENT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
-from review_agent_tools.settings import ReviewAgentSettings, SettingsError  # noqa: E402
+from review_agent_tools.settings import (  # noqa: E402
+    PostgresDatabaseUrl,
+    ReviewAgentSettings,
+    SettingsError,
+)
 from review_agent_tools import memory_validation, review_publisher  # noqa: E402
 
 
 class ReviewAgentSettingsTests(unittest.TestCase):
+    def test_postgresql_database_url_is_required_and_typed(self) -> None:
+        configured = ReviewAgentSettings(
+            {
+                "REVIEW_AGENT_DATABASE_URL": (
+                    " postgresql://reviewer:secret@db.example.test/reviews "
+                )
+            }
+        )
+
+        self.assertEqual(
+            configured.postgres_database_url,
+            PostgresDatabaseUrl(
+                "postgresql://reviewer:secret@db.example.test/reviews"
+            ),
+        )
+        with self.assertRaisesRegex(
+            SettingsError, "REVIEW_AGENT_DATABASE_URL is required"
+        ):
+            ReviewAgentSettings({}).postgres_database_url
+        with self.assertRaisesRegex(
+            SettingsError, "REVIEW_AGENT_DATABASE_URL must be a PostgreSQL URL"
+        ):
+            ReviewAgentSettings(
+                {"REVIEW_AGENT_DATABASE_URL": "sqlite:///review.sqlite3"}
+            ).postgres_database_url
+        for incomplete_url in (
+            "postgresql://db.example.test",
+            "postgresql:///reviews",
+        ):
+            with self.subTest(incomplete_url=incomplete_url):
+                with self.assertRaisesRegex(
+                    SettingsError, "must include a host and database name"
+                ):
+                    ReviewAgentSettings(
+                        {"REVIEW_AGENT_DATABASE_URL": incomplete_url}
+                    ).postgres_database_url
+
     def test_repository_and_token_values_are_normalized(self) -> None:
         settings = ReviewAgentSettings(
             {

@@ -6,12 +6,15 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NewType
+from urllib.parse import urlsplit
 
 DEFAULT_DATABASE_NAME = "review_memory.sqlite3"
 DEFAULT_POLICY_REVISION = "policy-v1"
 DEFAULT_PUBLISH_MAX_BYTES = 60_000
 MIN_PUBLISH_MAX_BYTES = 1_000
 MAX_PUBLISH_MAX_BYTES = 65_000
+PostgresDatabaseUrl = NewType("PostgresDatabaseUrl", str)
 
 
 class SettingsError(ValueError):
@@ -42,6 +45,29 @@ class ReviewAgentSettings:
     @property
     def github_publish_token(self) -> str:
         return self.environment.get("REVIEW_AGENT_PUBLISH_GH_TOKEN", "").strip()
+
+    @property
+    def postgres_database_url(self) -> PostgresDatabaseUrl:
+        value = self.environment.get("REVIEW_AGENT_DATABASE_URL", "").strip()
+        if not value:
+            raise SettingsError("REVIEW_AGENT_DATABASE_URL is required")
+        try:
+            parsed = urlsplit(value)
+        except ValueError as exc:
+            raise SettingsError(
+                "REVIEW_AGENT_DATABASE_URL must be a PostgreSQL URL"
+            ) from exc
+        if parsed.scheme not in {"postgresql", "postgres"} or any(
+            character.isspace() for character in value
+        ):
+            raise SettingsError(
+                "REVIEW_AGENT_DATABASE_URL must be a PostgreSQL URL"
+            )
+        if not parsed.hostname or not parsed.path.strip("/"):
+            raise SettingsError(
+                "REVIEW_AGENT_DATABASE_URL must include a host and database name"
+            )
+        return PostgresDatabaseUrl(value)
 
     @property
     def publish_max_bytes(self) -> int:

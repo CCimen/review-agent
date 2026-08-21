@@ -33,6 +33,13 @@ class Migration:
     sql: bytes
 
 
+@dataclass(frozen=True, slots=True)
+class MigrationStatus:
+    applied_version: int
+    pending_versions: tuple[int, ...]
+    database_ahead: bool
+
+
 def discover_migrations(directory: Path = MIGRATION_DIRECTORY) -> tuple[Migration, ...]:
     if not directory.is_dir():
         raise MigrationError(f"migration directory does not exist: {directory}")
@@ -130,6 +137,47 @@ def _verify_applied(
             )
         if migration.checksum != checksum:
             raise MigrationError(f"checksum mismatch for {migration.name}")
+
+
+def inspect_migrations(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    directory: Path = MIGRATION_DIRECTORY,
+) -> MigrationStatus:
+    """Inspect migration health without creating or changing database objects."""
+    if connection.info.transaction_status != TransactionStatus.IDLE:
+        raise MigrationError("migration inspection requires an idle PostgreSQL connection")
+    migrations = discover_migrations(directory)
+    try:
+        with connection.transaction():
+            lock = connection.execute(
+                "SELECT pg_try_advisory_xact_lock(%s)", (_MIGRATION_LOCK_KEY,)
+            ).fetchone()
+            if lock != (True,):
+                raise MigrationError("PostgreSQL migrations are currently running")
+            ledger = connection.execute(
+                "SELECT to_regclass('review_agent.schema_migrations') IS NOT NULL"
+            ).fetchone()
+            if ledger == (True,):
+                applied = _applied_migrations(connection)
+                _verify_applied(migrations, applied)
+            elif ledger == (False,):
+                applied = {}
+            else:
+                raise MigrationError("could not inspect the migration ledger")
+    except psycopg.Error as exc:
+        raise MigrationError("PostgreSQL migration inspection failed") from exc
+
+    applied_version = max(applied, default=0)
+    return MigrationStatus(
+        applied_version=applied_version,
+        pending_versions=tuple(
+            migration.version
+            for migration in migrations
+            if migration.version not in applied
+        ),
+        database_ahead=applied_version > migrations[-1].version,
+    )
 
 
 def apply_migrations(

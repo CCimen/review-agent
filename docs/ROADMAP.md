@@ -22,7 +22,8 @@ behavior documented in the repository and verified by the shipped bundle.
 - Trusted GitHub Actions request workflow and HMAC-signed webhooks.
 - Full Python bundle CI for pull requests and changes to `main`.
 - A corrected first-write PostgreSQL schema, checksum-verifying migration
-  runner, and real PostgreSQL CI contract.
+  runner, read-only PostgreSQL runtime foundation, and real PostgreSQL CI
+  contract.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -39,8 +40,11 @@ deployment or persisted production review state. Its packaged SQLite runtime is
 temporary and disposable. The approved target—not a deployed capability—is one
 PostgreSQL database per environment. No per-repository databases will be
 introduced, and there will be no permanent dual writes. The initial PostgreSQL
-schema and real PostgreSQL integration contract are implemented and run in CI,
-but PostgreSQL is not deployed: the active reviewer still uses SQLite.
+schema, migration runner, and read-only runtime foundation are implemented and
+run in CI, but PostgreSQL is not deployed: the active reviewer still uses
+SQLite. The foundation owns the typed database URL, explicitly opened bounded
+pool, connection safeguards, readiness, migration health, and pool metrics; it
+does not perform application reads or writes.
 
 Four gates protect the first authoritative PostgreSQL write:
 
@@ -57,9 +61,9 @@ Four gates protect the first authoritative PostgreSQL write:
 
 The remaining milestones are:
 
-1. Add the runtime owner, then the bounded provider repository ID acquisition,
-   pull-request, subject, run, and coverage operations. No network or model
-   call may hold a database connection.
+1. Add the bounded provider repository ID acquisition, pull-request, subject,
+   run, and coverage operations. No network or model call may hold a database
+   connection.
 2. Port stable repository-scoped finding identity and governance, followed by
    exact publication payload delivery and feedback transactions.
 3. Define the initial PostgreSQL replacement recovery path before switching.

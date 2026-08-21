@@ -7,7 +7,6 @@ from contextlib import closing
 import hashlib
 import json
 import re
-import sqlite3
 import urllib.parse
 from typing import Any, Callable, Literal, TypeVar, cast
 
@@ -16,7 +15,7 @@ from . import (
     diff_render,
     failure_codes,
     memory_db,
-    memory_suggestions,
+    review_finding_application,
     review_run_application,
     review_publisher,
     settings,
@@ -1161,202 +1160,23 @@ def review_memory_context(args: dict[str, Any], **_: Any) -> str:
         paths = [_path(item) for item in raw_paths]
         raw_pr_number = args.get("pr_number")
         pr_number = _pr_number(raw_pr_number) if raw_pr_number is not None else None
-        with closing(memory_db.connect_existing()) as connection:
-            return _output(
-                memory_db.memory_context(
-                    connection, repository, paths, pr_number=pr_number
+        return _output(
+            review_finding_application.load_context(
+                review_finding_application.FindingContextQuery(
+                    repository=repository,
+                    paths=tuple(paths),
+                    pr_number=pr_number,
                 )
             )
-    except (ToolInputError, memory_db.ReviewMemoryError) as exc:
+        )
+    except (
+        ToolInputError,
+        memory_db.ReviewMemoryError,
+        review_finding_application.ReviewFindingError,
+    ) as exc:
         return _error(str(exc))
     except Exception:
         return _error("unexpected memory read failure")
-
-
-def _suggestion_rank(finding: JsonObject, index: int) -> tuple[int, int, str, int]:
-    severity = str(finding.get("severity", "")).strip().title()
-    try:
-        publication_score = int(finding.get("publication_score", 0))
-    except (TypeError, ValueError):
-        publication_score = 0
-    return (
-        int(memory_db.SEVERITY_PRIORITY.get(severity, 99)),
-        -publication_score,
-        str(finding.get("rule_id", "")),
-        index,
-    )
-
-
-def _ranges_overlap(
-    first: memory_suggestions.ValidatedSuggestion,
-    second: memory_suggestions.ValidatedSuggestion,
-) -> bool:
-    return first["path"] == second["path"] and not (
-        first["end_line"] < second["start_line"]
-        or second["end_line"] < first["start_line"]
-    )
-
-
-def _record_optional_suggestions(
-    *,
-    repository: str,
-    pr_number: int,
-    head_sha: str,
-    pull: JsonObject,
-    findings: list[JsonObject],
-    recorded: list[dict[str, Any]],
-    changed_by_path: dict[str, JsonObject],
-) -> tuple[int, dict[int, str]]:
-    """Validate and store optional patches without making findings depend on them."""
-    requested = [
-        index for index, finding in enumerate(findings) if "suggestion" in finding
-    ]
-    if not requested:
-        # A repeated record call is authoritative for the observation. Clear any
-        # previously offered candidate when the model now deliberately omits it.
-        with closing(memory_db.connect_existing()) as connection, connection:
-            for item in recorded:
-                memory_suggestions.replace_observation_suggestion(
-                    connection,
-                    observation_id=int(item["observation_id"]),
-                    suggestion=None,
-                )
-        return 0, {}
-
-    statuses: dict[int, str] = {}
-    ordered = sorted(requested, key=lambda value: _suggestion_rank(findings[value], value))
-    try:
-        key_by_index = {
-            index: memory_suggestions.suggestion_key(
-                repository,
-                pr_number,
-                head_sha,
-                str(recorded[index]["fingerprint"]),
-            )
-            for index in requested
-        }
-        with closing(memory_db.connect_existing()) as connection:
-            canonical_by_key = memory_suggestions.canonical_suggestions(
-                connection, key_by_index.values()
-            )
-    except (memory_db.ReviewMemoryError, sqlite3.Error):
-        return 0, {index: "suggestion_storage_failed" for index in requested}
-
-    try:
-        source_repository = _pull_head_repository(pull)
-    except ToolInputError:
-        source_repository = ""
-        statuses.update(
-            {index: "suggestion_head_repository_unavailable" for index in requested}
-        )
-
-    head_files: dict[str, str | None] = {}
-    selected: dict[int, memory_suggestions.ValidatedSuggestion] = {}
-    for index in ordered:
-        if bool(recorded[index].get("suppressed", False)):
-            statuses[index] = "suggestion_finding_suppressed"
-            continue
-        finding = findings[index]
-        eligibility_rejection = memory_suggestions.suggestion_eligibility_rejection(
-            rule_id=str(finding.get("rule_id", "")),
-            category=str(finding.get("category", "")),
-            path=str(recorded[index]["path"]),
-            symbol=str(finding.get("symbol", "")),
-            anchor=str(finding.get("anchor", "")),
-            title=str(finding.get("title", "")),
-            evidence=str(finding.get("evidence", "")),
-            impact=str(finding.get("impact", "")),
-            smallest_fix=str(finding.get("smallest_fix", "")),
-        )
-        if eligibility_rejection:
-            statuses[index] = eligibility_rejection
-            continue
-        if len(selected) >= memory_suggestions.MAX_ATOMIC_SUGGESTIONS_PER_REVIEW:
-            statuses[index] = "suggestion_review_limit"
-            continue
-        path = str(recorded[index]["path"])
-        canonical = canonical_by_key.get(key_by_index[index])
-        if canonical is not None:
-            if canonical["path"] != path:
-                statuses[index] = "suggestion_validation_failed"
-                continue
-            if any(
-                _ranges_overlap(canonical, existing)
-                for existing in selected.values()
-            ):
-                statuses[index] = "suggestion_overlaps_higher_priority_patch"
-                continue
-            selected[index] = canonical
-            statuses[index] = "recorded"
-            continue
-
-        if not source_repository:
-            continue
-        raw_suggestion = finding.get("suggestion")
-        if not isinstance(raw_suggestion, dict):
-            statuses[index] = "suggestion_must_be_an_object"
-            continue
-        if path not in head_files:
-            try:
-                raw = _file_at_revision(source_repository, path, head_sha)
-                if b"\x00" in raw[:8192]:
-                    head_files[path] = None
-                else:
-                    head_files[path] = raw.decode("utf-8")
-            except (ToolInputError, UnicodeDecodeError):
-                head_files[path] = None
-        head_text = head_files[path]
-        if head_text is None:
-            statuses[index] = "suggestion_head_file_unavailable"
-            continue
-
-        file_info = changed_by_path[path]
-        patch_value = file_info.get("patch")
-        patch_text = patch_value if isinstance(patch_value, str) else None
-        try:
-            validation = memory_suggestions.validate_suggestion(
-                cast(dict[str, object], raw_suggestion),
-                repository=repository,
-                pr_number=pr_number,
-                head_sha=head_sha,
-                fingerprint=str(recorded[index]["fingerprint"]),
-                path=path,
-                finding_line=int(finding["line"]),
-                patch=patch_text,
-                head_text=head_text,
-            )
-        except memory_db.ReviewMemoryError:
-            statuses[index] = "suggestion_validation_failed"
-            continue
-        if validation.suggestion is None:
-            statuses[index] = validation.rejection_reason
-            continue
-        candidate = validation.suggestion
-        if any(_ranges_overlap(candidate, existing) for existing in selected.values()):
-            statuses[index] = "suggestion_overlaps_higher_priority_patch"
-            continue
-        selected[index] = candidate
-        statuses[index] = "recorded"
-
-    try:
-        with closing(memory_db.connect_existing()) as connection, connection:
-            for item in recorded:
-                memory_suggestions.replace_observation_suggestion(
-                    connection,
-                    observation_id=int(item["observation_id"]),
-                    suggestion=None,
-                )
-            for index, suggestion in selected.items():
-                memory_suggestions.replace_observation_suggestion(
-                    connection,
-                    observation_id=int(recorded[index]["observation_id"]),
-                    suggestion=suggestion,
-                )
-    except (memory_db.ReviewMemoryError, sqlite3.Error):
-        for index in requested:
-            statuses[index] = "suggestion_storage_failed"
-        return 0, statuses
-    return len(selected), statuses
 
 
 def review_memory_record(args: dict[str, Any], **_: Any) -> str:
@@ -1394,8 +1214,7 @@ def review_memory_record(args: dict[str, Any], **_: Any) -> str:
         # Findings on un-enumerated paths are still rejected below, and incomplete
         # coverage is surfaced by the renderer's "Review context incomplete" banner —
         # the review is never silently dropped nor falsely reported clean.
-        changed_files = {str(item.get("path", "")): item for item in files}
-        context_hashes: dict[str, str] = {}
+        changed_by_path = {str(item.get("path", "")): item for item in files}
         finding_objects: list[JsonObject] = []
         for raw_finding in findings:
             if not isinstance(raw_finding, dict):
@@ -1403,51 +1222,56 @@ def review_memory_record(args: dict[str, Any], **_: Any) -> str:
             finding = cast(JsonObject, raw_finding)
             finding_objects.append(finding)
             finding_path = _path(finding.get("path"))
-            file_info = changed_files.get(finding_path)
-            if file_info is None:
+            if finding_path not in changed_by_path:
                 raise ToolInputError(
                     "every recorded finding must point to a changed pull-request file"
                 )
-            candidate_hash = str(file_info.get("context_hash", "")).strip().lower()
-            source = str(file_info.get("context_hash_source", ""))
-            # Only GitHub's blob SHA is stable enough for cross-review suppression.
-            # If it is unavailable, narrow the decision to this exact PR head.
-            context_hashes[finding_path] = (
-                candidate_hash
-                if source == "blob" and _SHA_RE.fullmatch(candidate_hash)
-                else head_sha
-            )
 
-        with closing(memory_db.connect_existing()) as connection:
-            recorded = memory_db.record_findings(
-                connection,
-                repository,
-                number,
-                head_sha,
-                finding_objects,
-                review_run_id=run_id,
-                base_sha=base_sha,
-                context_hashes=context_hashes,
+        changed_file_records = tuple(
+            review_finding_application.ChangedFile(
+                path=path,
+                context_hash=str(item.get("context_hash", "")),
+                context_hash_source=str(item.get("context_hash_source", "")),
+                patch=(
+                    patch_value
+                    if isinstance((patch_value := item.get("patch")), str)
+                    else None
+                ),
             )
-        suggestions_recorded, suggestion_statuses = _record_optional_suggestions(
-            repository=repository,
-            pr_number=number,
-            head_sha=head_sha,
-            pull=pull,
-            findings=finding_objects,
-            recorded=recorded,
-            changed_by_path=changed_files,
+            for path, item in changed_by_path.items()
         )
-        for index, reason in suggestion_statuses.items():
-            recorded[index]["suggestion"] = (
-                {"status": "recorded"}
-                if reason == "recorded"
-                else {"status": "omitted", "reason": reason}
-            )
+        try:
+            source_repository = _pull_head_repository(pull)
+        except ToolInputError:
+            source_repository = ""
+
+        def load_head_file(path: str) -> str | None:
+            if not source_repository:
+                return None
+            try:
+                raw = _file_at_revision(source_repository, path, head_sha)
+                if b"\x00" in raw[:8192]:
+                    return None
+                return raw.decode("utf-8")
+            except (ToolInputError, UnicodeDecodeError):
+                return None
+
+        result = review_finding_application.record_findings(
+            review_finding_application.FindingRecordSubject(
+                repository=repository,
+                pr_number=number,
+                run_id=run_id,
+                base_sha=base_sha,
+                head_sha=head_sha,
+            ),
+            findings=finding_objects,
+            changed_files=changed_file_records,
+            head_file_loader=load_head_file if source_repository else None,
+        )
         return _output(
             {
-                "recorded": recorded,
-                "suggestions_recorded": suggestions_recorded,
+                "recorded": result.items,
+                "suggestions_recorded": result.suggestions_recorded,
                 "instruction": (
                     "Omit every item whose suppressed field is true. Use fingerprint_short "
                     "only in hidden review metadata for each published item; do not put "
@@ -1459,7 +1283,11 @@ def review_memory_record(args: dict[str, Any], **_: Any) -> str:
         )
     except ReviewRunTerminal as terminal:
         return _output(_run_terminal_payload(terminal.run_id))
-    except (ToolInputError, memory_db.ReviewMemoryError) as exc:
+    except (
+        ToolInputError,
+        memory_db.ReviewMemoryError,
+        review_finding_application.ReviewFindingError,
+    ) as exc:
         return _error(str(exc))
     except Exception:
         return _error("unexpected memory write failure")

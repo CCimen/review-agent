@@ -14,6 +14,7 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools import (  # noqa: E402
     memory_db,
+    review_finding_application,
     review_publisher,
     schemas,
     source_control,
@@ -140,28 +141,24 @@ class ToolValidationTests(unittest.TestCase):
             connection.close()
         for index in suppressed_indices:
             recorded[index]["suppressed"] = True
-        pull = {
-            "head": {
-                "sha": "a" * 40,
-                "repo": {"full_name": "sundsvallskommun/example-repository"},
-            }
-        }
-        changed = {
-            "path": "backend/changed.py",
-            "patch": patch_text,
-        }
-        with (
-            patch.dict(os.environ, self.env, clear=False),
-            patch.object(tools, "_file_at_revision", return_value=head_text.encode()),
-        ):
-            return tools._record_optional_suggestions(
-                repository="sundsvallskommun/example-repository",
-                pr_number=1,
-                head_sha="a" * 40,
-                pull=pull,
-                findings=findings,
-                recorded=recorded,
-                changed_by_path={"backend/changed.py": changed},
+        with patch.dict(os.environ, self.env, clear=False):
+            return review_finding_application._record_optional_suggestions(
+                review_finding_application.FindingRecordSubject(
+                    repository="sundsvallskommun/example-repository",
+                    pr_number=1,
+                    run_id=run_id,
+                    base_sha="b" * 40,
+                    head_sha="a" * 40,
+                ),
+                findings,
+                recorded,
+                {
+                    "backend/changed.py": review_finding_application.ChangedFile(
+                        path="backend/changed.py",
+                        patch=patch_text,
+                    )
+                },
+                lambda _path: head_text,
             )
 
     def test_empty_allowlist_denies_by_default(self):
@@ -951,32 +948,35 @@ class ToolValidationTests(unittest.TestCase):
             )
         finally:
             connection.close()
-        pull = {
-            "head": {
-                "sha": "a" * 40,
-                "repo": {"full_name": "sundsvallskommun/example-repository"},
-            }
-        }
-        with (
-            patch.dict(os.environ, self.env, clear=False),
-            patch.object(
-                tools,
-                "_file_at_revision",
-                return_value=b"value = 0",
-            ) as read,
-        ):
-            count, statuses = tools._record_optional_suggestions(
-                repository="sundsvallskommun/example-repository",
-                pr_number=1,
-                head_sha="a" * 40,
-                pull=pull,
-                findings=findings,
-                recorded=recorded,
-                changed_by_path=changed_by_path,
+        reads: list[str] = []
+
+        def load_head(path: str) -> str:
+            reads.append(path)
+            return "value = 0"
+
+        with patch.dict(os.environ, self.env, clear=False):
+            count, statuses = review_finding_application._record_optional_suggestions(
+                review_finding_application.FindingRecordSubject(
+                    repository="sundsvallskommun/example-repository",
+                    pr_number=1,
+                    run_id=run_id,
+                    base_sha="b" * 40,
+                    head_sha="a" * 40,
+                ),
+                findings,
+                recorded,
+                {
+                    path: review_finding_application.ChangedFile(
+                        path=path,
+                        patch=str(item["patch"]),
+                    )
+                    for path, item in changed_by_path.items()
+                },
+                load_head,
             )
 
         self.assertEqual(count, memory_db.MAX_ATOMIC_SUGGESTIONS_PER_REVIEW)
-        self.assertEqual(read.call_count, memory_db.MAX_ATOMIC_SUGGESTIONS_PER_REVIEW)
+        self.assertEqual(len(reads), memory_db.MAX_ATOMIC_SUGGESTIONS_PER_REVIEW)
         self.assertEqual(statuses[12], "suggestion_review_limit")
 
     def test_deliver_returns_terminal_handoff_when_snapshot_changed(self):

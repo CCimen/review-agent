@@ -102,6 +102,74 @@ class MemoryModuleBoundaryTests(unittest.TestCase):
         self.assertTrue(forbidden.isdisjoint(imported_roots(source)))
         self.assertIn("settings", imported_roots("from . import settings as config"))
 
+    def test_review_finding_application_keeps_infrastructure_in_tool_adapters(self):
+        forbidden = {
+            "json",
+            "review_publisher",
+            "schemas",
+            "settings",
+            "source_control",
+            "urllib",
+        }
+        source = (PLUGIN / "review_finding_application.py").read_text(encoding="utf-8")
+        imported: set[str] = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imported.add(node.module.split(".")[0])
+                elif node.level:
+                    imported.update(alias.name.split(".")[0] for alias in node.names)
+        self.assertTrue(forbidden.isdisjoint(imported))
+
+    def test_tools_delegate_finding_memory_operations_to_application_owner(self):
+        source = (PLUGIN / "tools.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        forbidden_imports: set[str] = set()
+        memory_facades: set[str] = set()
+        direct_operations: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".")[0]
+                    if root in {"sqlite3", "memory_suggestions"}:
+                        forbidden_imports.add(root)
+                    if alias.name in {"memory_db", "review_agent_tools.memory_db"}:
+                        memory_facades.add(alias.asname or alias.name.split(".")[-1])
+            elif isinstance(node, ast.ImportFrom):
+                if node.module in {"memory_db", "review_agent_tools.memory_db"} or (
+                    node.level == 1 and node.module == "memory_db"
+                ):
+                    for alias in node.names:
+                        if alias.name in {"memory_context", "record_findings"}:
+                            direct_operations[alias.asname or alias.name] = alias.name
+                elif node.module == "review_agent_tools" or (
+                    node.level == 1 and node.module is None
+                ):
+                    for alias in node.names:
+                        if alias.name == "memory_db":
+                            memory_facades.add(alias.asname or alias.name)
+                        if alias.name == "memory_suggestions":
+                            forbidden_imports.add(alias.name)
+
+        moved_calls: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in memory_facades
+                and node.func.attr in {"memory_context", "record_findings"}
+            ):
+                moved_calls.add(node.func.attr)
+            elif isinstance(node.func, ast.Name) and node.func.id in direct_operations:
+                moved_calls.add(direct_operations[node.func.id])
+
+        self.assertFalse(forbidden_imports)
+        self.assertFalse(moved_calls)
+
     def test_tools_delegate_run_and_coverage_operations_to_application_owner(self):
         moved_operations = {
             "complete_run",

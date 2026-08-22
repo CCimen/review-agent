@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Implement the first cohesive PostgreSQL registry and review-run transaction without changing the active SQLite runtime."
+  tranche: "Registry and review-run operations complete; normalized PostgreSQL coverage is the next active task, with implementation not yet started."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
   rotation_count: 2
-  completed_write_tasks_in_thread: 7
+  completed_write_tasks_in_thread: 8
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-21T19:13:21Z"
-  last_verified_revision: "0dafdf636e270f1f2c3b6e5d696ce99e9837a37d"
+  last_handoff_at: "2026-08-22T09:55:00Z"
+  last_verified_revision: "e2af211a7b70f86dca2bf29ab705982dc4ec99f6"
 
-active_task: T023
+active_task: T024
 
 tasks:
   - id: T001
@@ -1029,7 +1029,7 @@ tasks:
   - id: T023
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add cohesive PostgreSQL repository, pull-request, immutable subject, and review-run operations behind the existing application owner."
     constraints:
@@ -1082,6 +1082,72 @@ tasks:
       - "The exact request-key or provider-identity contract cannot be expressed without a product decision."
       - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
       - "The Stockholm time is too close to 00:10 to finish the current safe unit; write a durable handoff and stop."
+    receipt:
+      result: done
+      decision: "The cohesive PostgreSQL registry and review-run transaction is verified; queue normalized changed-file and content-read coverage without starting it."
+      note: "notes/T023-postgresql-review-lifecycle.md"
+      summary: "Added typed immutable review subjects, stable provider registry operations, trigger-key idempotency, single-active-run coordination, explicit lifecycle transitions, and one short application transaction without changing the active SQLite runtime."
+      implementation_revision: "e2af211a7b70f86dca2bf29ab705982dc4ec99f6"
+      evidence:
+        - "Forty-one PostgreSQL 17 tests passed, including overlapping-transaction supersession, concurrent start authority, immutable subject verification, and whole-transaction rollback."
+        - "Strict Pyright, all 537 bundle tests, documentation typecheck/build, nine built routes, Goal Maker validation, and diff hygiene passed."
+        - "Claude Opus/high session review-agent-t023-lifecycle finished the implementation gate green at score 8 on iteration 3; its two non-blocking refinements were applied before commit and verified in the green iteration 4 receipt gate."
+        - "Live Python bundle run 32566104359 and Publish documentation run 32566104351 succeeded; the hosted roadmap publishes the milestone while stating SQLite remains active."
+      spawned_tasks:
+        - T024
+  - id: T024
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Add normalized PostgreSQL changed-file inventory and content-read coverage operations behind the existing application owner."
+    constraints:
+      - "Do not start in the T023 wrap-up session."
+      - "Use one batch inventory insert and normalized range operations; do not port the retiring SQLite JSON-range algorithm."
+      - "Registration alone must not claim diff or source access, and source reads must not claim diff availability."
+      - "Concurrent duplicate range inserts must deduplicate without lost coverage."
+      - "An incomplete changed-file inventory must remain explicitly incomplete."
+      - "Perform GitHub fetches before or after short database transactions; never hold a pool connection during network access."
+      - "Keep tools, active SQLite behavior, findings, publication, settings, Compose, and deployment unchanged."
+      - "Run Claude Opus/high at the stable commit gate and stop all work during the 00:10–07:00 Europe/Stockholm blackout."
+    expected_output:
+      - "Typed PostgreSQL changed-file inventory and content-read range operations"
+      - "Behavior proof for batch registration, duplicate and concurrent range deduplication, honest incomplete coverage, and diff/source separation"
+      - "No database connection held during GitHub fetches"
+      - "One reviewable implementation commit and live CI receipt"
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/review.py
+      - bootstrap/plugins/review_agent_tools/postgres/coverage.py
+      - bootstrap/plugins/review_agent_tools/review_run_application.py
+      - scripts/check_postgres_schema.sh
+      - tests/test_postgres_coverage.py
+      - tests/test_memory_module_boundaries.py
+      - docs/ROADMAP.md
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+      - docs/goals/build-review-platform/notes/T024-postgresql-review-coverage.md
+    verify:
+      - "Prove batch inventory registration, exact range deduplication, concurrent range inserts, explicit incomplete inventory, and strict diff/source separation against PostgreSQL 17."
+      - "Prove no external fetch occurs inside runtime.transaction()."
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_review_run_application tests.test_memory_module_boundaries"
+      - "./scripts/check_bundle.sh"
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "git diff --check"
+      - "Validate Goal Maker state"
+      - "Run one skeptical Claude Opus/high peer gate at the stable commit candidate and require green with score >= 8."
+      - "After push, verify the live Python bundle and documentation publication workflows."
+    stop_if:
+      - "The implementation requires tools.py, GitHub network calls inside a database transaction, SQLite edits, findings, publication, settings, Compose, or deployment changes."
+      - "A generic coverage interface, backend switch, JSON range store, repository class, or dual-write/fallback path appears necessary."
+      - "Coverage completeness cannot remain honest under partial changed-file enumeration."
+      - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
+      - "The Stockholm time is too close to 00:10 to finish the current safe unit; write a durable handoff and stop."
+    receipt: null
   - id: T999
     type: judge
     assignee: Judge
@@ -1103,13 +1169,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-32fc5de"
+  dirty_fingerprint: "control-files-only-after-e2af211"
   last_verification:
     result: pass
-    task: T022
+    task: T023
     commands:
-      - "30 real PostgreSQL 17 schema, migration, and runtime-foundation tests"
-      - "Python 3.11 strict Pyright and 526-test canonical bundle"
-      - "Pinned final runtime image build/import, Node 24 documentation type-check/build, route checks, Goal Maker validation, YAML parsing, and diff checks"
-      - "Claude Opus/high peer session green at score 8 on iteration 2 with no remaining blockers"
-      - "Live Python bundle run 32517163480 and Publish documentation run 32517163559 green"
+      - "41 real PostgreSQL 17 schema, migration, runtime, registry, subject, and review-run tests"
+      - "Python 3.11 strict Pyright and 537-test canonical bundle"
+      - "Node 24 documentation type-check/build, nine route checks, Goal Maker validation, YAML parsing, and diff checks"
+      - "Claude Opus/high implementation and receipt gates green at score 8 on iterations 3 and 4"
+      - "Live Python bundle run 32566104359 and Publish documentation run 32566104351 green"

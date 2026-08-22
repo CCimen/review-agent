@@ -13,10 +13,11 @@ architecture tranches without weakening the proven review contract.
 
 ## Current Tranche
 
-Implement the first cohesive PostgreSQL repository, pull-request, immutable
-subject, and review-run transaction behind the existing application owner.
-The active SQLite runtime, coverage, configuration and Compose switching, and
-SQLite deletion remain later implementation slices.
+The cohesive PostgreSQL repository-to-review-run transaction is complete.
+Normalized changed-file and content-read coverage is the next active slice;
+its implementation has not started in this wrap-up session. The active SQLite
+runtime, findings, publication, configuration and Compose switching, and SQLite
+deletion remain later slices.
 
 ## Approved Sequencing Input
 

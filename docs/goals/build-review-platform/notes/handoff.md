@@ -6,12 +6,12 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits and pushes to `CCimen/review-agent` `main` are authorized.
 - `state.yaml` is authoritative for the active task and current revision. Do not infer active work from this handoff when they disagree.
-- The corrected PostgreSQL first-write contract, migration runner, and read-only
-  runtime foundation are live at `0dafdf6`; there is still no PostgreSQL
-  application writer or authoritative data.
-- The repository owner resumed work on 2026-08-22. T023 is active and owns the
-  first cohesive PostgreSQL registry, immutable-subject, and review-run
-  transaction without a tool/runtime cutover.
+- The corrected PostgreSQL contract, migration runner, runtime foundation, and
+  cohesive registry-to-review-run operations are live at `e2af211`. The new
+  operations are integration-only; no tool or runtime cutover has occurred.
+- T023 is complete. T024 is activated for the next work window but no T024
+  implementation has begun. It owns normalized changed-file inventory and
+  content-read coverage without porting the SQLite JSON algorithm.
 - The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
 
 ## Execution boundary
@@ -31,9 +31,11 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - Before a future consumer retries `PostgreSQLNotReady`, add a typed distinction
   between transient pending/concurrent migration and fatal drift/invariant
   failure. Do not branch on error-message text.
-- The later runtime-adapter slice must create the validated, versioned, and
-  hashed `review_subjects.resolved_config` aggregate before its first subject
-  insert; all three fields are deliberately required and have no default.
+- The application owner now creates validated, versioned, and hashed review
+  subjects before PostgreSQL checkout and composes the registry/run transaction.
+- T024 must preserve registration versus inspection truth, range deduplication,
+  concurrent inserts, and explicit incomplete inventory without holding a pool
+  connection during GitHub reads.
 - Publication module splitting, jobs, outbox, trusted project context and
   policy, scanners/Codex Security, and GitHub App work remain deferred.
 
@@ -42,9 +44,9 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - Read `goal.md`, `state.yaml`, `notes/handoff.md`, repository instructions, and
   the active task's exact source paths. Verify the recorded revision and live
   branch before editing.
-- The repository owner requested Claude Opus/high instead of Codex for future
-  pre-commit peer gates. Resume `review-agent-t023-lifecycle` after the candidate
-  is locally stable; do not start a duplicate session.
+- The repository owner requested Claude Opus/high for every future pre-commit
+  peer gate and hard architecture question. Start one resumable T024 session
+  only after its candidate is locally stable.
 - All Codex and Claude work must stop by 00:10 Europe/Stockholm and may resume
   at 07:00 Europe/Stockholm. Do not start a unit that risks crossing the stop
   boundary.

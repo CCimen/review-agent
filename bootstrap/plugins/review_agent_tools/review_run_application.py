@@ -7,11 +7,25 @@ from contextlib import closing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar
 
-from . import failure_codes, memory_coverage, memory_runs, memory_schema
-from .domain.review import JsonObject, resolve_review_subject
+from . import changed_files, failure_codes, memory_coverage, memory_runs, memory_schema
+from .domain.review import (
+    DiffState,
+    FileDomain,
+    FileSide as PostgresFileSide,
+    JsonObject,
+    ReviewDomainError,
+    ReviewMode,
+    ReviewRunId,
+    resolve_changed_file,
+    resolve_changed_file_count,
+    resolve_diff_observation,
+    resolve_file_read,
+    resolve_review_subject,
+)
 from .memory_coverage import FileIndexSummary, RunFileLookup, RunFilePage
 from .memory_runs import RunPhase
 from .postgres import registry as postgres_registry
+from .postgres import coverage as postgres_coverage
 from .postgres import review_runs as postgres_review_runs
 from .postgres.runtime import PostgreSQLRuntime
 
@@ -63,6 +77,23 @@ class PostgresRunRequest:
     request_key: str
     trigger_comment_id: int | None = None
     trigger_user: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PostgresChangedFile:
+    path: str
+    change_status: str
+    previous_path: str | None = None
+    domain: FileDomain = FileDomain.GENERAL
+    review_mode: ReviewMode = ReviewMode.NORMAL
+
+
+@dataclass(frozen=True, slots=True)
+class PostgresFileRead:
+    path: str
+    side: PostgresFileSide
+    start_line: int
+    end_line: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +163,94 @@ def start_postgres_review(
             trigger_comment_id=request.trigger_comment_id,
             trigger_user=request.trigger_user,
         )
+
+
+def register_postgres_changed_files(
+    runtime: PostgreSQLRuntime,
+    *,
+    run_id: ReviewRunId,
+    files: Sequence[PostgresChangedFile],
+    changed_files_reported: int,
+    registration_complete: bool,
+) -> postgres_coverage.CoverageRegistration:
+    """Persist one pre-fetched changed-file batch in one short transaction."""
+    if len(files) > changed_files.MAX_CHANGED_FILES:
+        raise ReviewDomainError("changed-file batch exceeds the supported limit")
+    resolved = tuple(
+        resolve_changed_file(
+            path=item.path,
+            change_status=item.change_status,
+            previous_path=item.previous_path,
+            domain=item.domain,
+            review_mode=item.review_mode,
+        )
+        for item in files
+    )
+    resolved_reported = resolve_changed_file_count(changed_files_reported)
+    with runtime.transaction() as connection:
+        return postgres_coverage.insert_changed_files(
+            connection,
+            run_id=run_id,
+            files=resolved,
+            changed_files_reported=resolved_reported,
+            registration_complete=registration_complete,
+        )
+
+
+def record_postgres_diff_observation(
+    runtime: PostgreSQLRuntime,
+    *,
+    run_id: ReviewRunId,
+    paths: Sequence[str],
+    state: DiffState,
+    unavailable_reason: str = "",
+) -> int:
+    """Persist one pre-fetched diff outcome without a network callback."""
+    if len(paths) > changed_files.MAX_CHANGED_FILES:
+        raise ReviewDomainError("diff observation exceeds the supported limit")
+    observation = resolve_diff_observation(
+        paths=paths,
+        state=state,
+        unavailable_reason=unavailable_reason,
+    )
+    with runtime.transaction() as connection:
+        return postgres_coverage.record_diff_observation(
+            connection,
+            run_id=run_id,
+            observation=observation,
+        )
+
+
+def record_postgres_file_reads(
+    runtime: PostgreSQLRuntime,
+    *,
+    run_id: ReviewRunId,
+    reads: Sequence[PostgresFileRead],
+) -> postgres_coverage.FileReadBatch:
+    """Persist pre-resolved source ranges without changing diff coverage."""
+    if len(reads) > changed_files.MAX_CHANGED_FILES:
+        raise ReviewDomainError("source-read batch exceeds the supported limit")
+    resolved = tuple(
+        resolve_file_read(
+            path=item.path,
+            side=item.side,
+            start_line=item.start_line,
+            end_line=item.end_line,
+        )
+        for item in reads
+    )
+    with runtime.transaction() as connection:
+        return postgres_coverage.insert_file_reads(
+            connection, run_id=run_id, reads=resolved
+        )
+
+
+def summarize_postgres_coverage(
+    runtime: PostgreSQLRuntime, run_id: ReviewRunId
+) -> postgres_coverage.CoverageSummary:
+    """Read the normalized coverage summary in one short transaction."""
+    with runtime.transaction() as connection:
+        return postgres_coverage.summarize(connection, run_id)
 
 
 @dataclass(frozen=True, slots=True)

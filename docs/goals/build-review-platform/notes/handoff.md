@@ -9,9 +9,9 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - The corrected PostgreSQL contract, migration runner, runtime foundation, and
   cohesive registry-to-review-run operations are live at `e2af211`. The new
   operations are integration-only; no tool or runtime cutover has occurred.
-- T023 is complete. T024 is activated for the next work window but no T024
-  implementation has begun. It owns normalized changed-file inventory and
-  content-read coverage without porting the SQLite JSON algorithm.
+- T023 is complete. T024 is active with a locally green normalized changed-file
+  inventory and content-read coverage candidate. It does not port or change the
+  SQLite JSON algorithm and is not wired into tools or the runtime.
 - The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
 
 ## Execution boundary
@@ -36,6 +36,18 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - T024 must preserve registration versus inspection truth, range deduplication,
   concurrent inserts, and explicit incomplete inventory without holding a pool
   connection during GitHub reads.
+- The current T024 candidate has 47 real PostgreSQL tests and strict Pyright
+  green. Rerun the full bundle and public documentation checks after the gate
+  corrections, then resume the existing Claude Opus/high session before publish.
+- At cutover, the adapter must map the current changed-file classification into
+  the typed `FileDomain` and `ReviewMode` values before pool checkout. Delete the
+  SQLite `CoverageState`/`DiffState` literals, `FileSide` alias, and classification
+  helpers when their final SQLite consumers are removed; do not keep parallel
+  vocabularies after PostgreSQL becomes active.
+- Coverage writes hold a shared run lock and may make supersession wait up to the
+  existing two-second `lock_timeout`. The active runtime adapter must map an
+  exhausted `LockNotAvailable` into its retry or user-facing busy contract; do
+  not lengthen the transaction or hide the bounded contention.
 - Publication module splitting, jobs, outbox, trusted project context and
   policy, scanners/Codex Security, and GitHub App work remain deferred.
 

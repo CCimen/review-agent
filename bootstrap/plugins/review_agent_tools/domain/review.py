@@ -41,6 +41,38 @@ class ReviewPhase(StrEnum):
     FAILED = "failed"
     SUPERSEDED = "superseded"
 
+
+class CoverageState(StrEnum):
+    UNKNOWN = "unknown"
+    INCOMPLETE = "incomplete"
+    COMPLETE = "complete"
+
+
+class DiffState(StrEnum):
+    UNSEEN = "unseen"
+    COMPLETE = "complete"
+    TRUNCATED = "truncated"
+    UNAVAILABLE = "unavailable"
+
+
+class FileSide(StrEnum):
+    BASE = "base"
+    HEAD = "head"
+
+
+class FileDomain(StrEnum):
+    BACKEND = "backend"
+    FRONTEND = "frontend"
+    INFRASTRUCTURE = "infrastructure"
+    GENERAL = "general"
+
+
+class ReviewMode(StrEnum):
+    NORMAL = "normal"
+    MIGRATION = "migration"
+    CONFIGURATION = "configuration"
+    GENERATED_CONTRACT = "generated-contract"
+
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
 
 
@@ -61,6 +93,30 @@ class ReviewSubjectDefinition:
     head_sha: str
     policy_revision: str
     resolved_config: ResolvedConfig
+
+
+@dataclass(frozen=True, slots=True)
+class ChangedFileDefinition:
+    path: str
+    change_status: str
+    previous_path: str | None
+    domain: FileDomain
+    review_mode: ReviewMode
+
+
+@dataclass(frozen=True, slots=True)
+class FileReadDefinition:
+    path: str
+    side: FileSide
+    start_line: int
+    end_line: int
+
+
+@dataclass(frozen=True, slots=True)
+class DiffObservation:
+    paths: tuple[str, ...]
+    state: DiffState
+    unavailable_reason: str
 
 
 def _normalize_json(value: object) -> JsonValue:
@@ -102,6 +158,120 @@ def _policy_revision(value: str) -> str:
     if len(normalized) > 120:
         raise ReviewDomainError("policy_revision exceeds 120 characters")
     return normalized
+
+
+def resolve_review_path(value: str) -> str:
+    """Validate one repository-relative path without changing its identity."""
+    if not value or len(value) > 500:
+        raise ReviewDomainError("path must contain at most 500 characters")
+    if "\x00" in value:
+        raise ReviewDomainError("path must not contain NUL")
+    if value.startswith("/") or value.endswith("/") or "//" in value:
+        raise ReviewDomainError("path must be repository-relative and normalized")
+    if "\\" in value or any(part in {".", ".."} for part in value.split("/")):
+        raise ReviewDomainError("path must be repository-relative and normalized")
+    return value
+
+
+def _bounded_label(
+    value: str,
+    *,
+    field: str,
+    limit: int,
+) -> str:
+    normalized = " ".join(value.strip().split())
+    if not normalized:
+        raise ReviewDomainError(f"{field} is required")
+    if "\x00" in normalized or len(normalized) > limit:
+        raise ReviewDomainError(f"{field} exceeds {limit} characters")
+    return normalized
+
+
+def resolve_changed_file(
+    *,
+    path: str,
+    change_status: str,
+    previous_path: str | None = None,
+    domain: FileDomain = FileDomain.GENERAL,
+    review_mode: ReviewMode = ReviewMode.NORMAL,
+) -> ChangedFileDefinition:
+    """Validate changed-file metadata before a transaction is opened."""
+    normalized_status = _bounded_label(
+        change_status, field="change_status", limit=40
+    )
+    return ChangedFileDefinition(
+        path=resolve_review_path(path),
+        change_status=normalized_status,
+        previous_path=(
+            resolve_review_path(previous_path) if previous_path else None
+        ),
+        domain=domain,
+        review_mode=review_mode,
+    )
+
+
+def resolve_file_read(
+    *,
+    path: str,
+    side: FileSide,
+    start_line: int,
+    end_line: int,
+) -> FileReadDefinition:
+    """Validate one inclusive source-read range before pool checkout."""
+    if (
+        isinstance(start_line, bool)
+        or isinstance(end_line, bool)
+        or start_line < 1
+        or end_line < start_line
+    ):
+        raise ReviewDomainError("line range must be positive and inclusive")
+    return FileReadDefinition(
+        path=resolve_review_path(path),
+        side=side,
+        start_line=start_line,
+        end_line=end_line,
+    )
+
+
+def resolve_diff_reason(state: DiffState, unavailable_reason: str) -> str:
+    """Validate the reason attached to one observed diff state."""
+    reason = " ".join(unavailable_reason.strip().split())
+    if state is DiffState.UNAVAILABLE:
+        if not reason or "\x00" in reason or len(reason) > 80:
+            raise ReviewDomainError(
+                "unavailable diff observation requires a bounded reason"
+            )
+    elif reason:
+        raise ReviewDomainError(
+            "unavailable_reason requires unavailable diff state"
+        )
+    return reason
+
+
+def resolve_diff_observation(
+    *,
+    paths: Sequence[str],
+    state: DiffState,
+    unavailable_reason: str = "",
+) -> DiffObservation:
+    """Validate one batch of diff evidence before pool checkout."""
+    if state is DiffState.UNSEEN:
+        raise ReviewDomainError("an observed diff state cannot be unseen")
+    resolved_paths = tuple(resolve_review_path(path) for path in paths)
+    if len(set(resolved_paths)) != len(resolved_paths):
+        raise ReviewDomainError("diff observation contains duplicate paths")
+    return DiffObservation(
+        paths=resolved_paths,
+        state=state,
+        unavailable_reason=resolve_diff_reason(state, unavailable_reason),
+    )
+
+
+def resolve_changed_file_count(value: int) -> int:
+    """Validate the provider-reported changed-file count."""
+    if isinstance(value, bool) or value < 0:
+        raise ReviewDomainError("changed_files_reported must be zero or greater")
+    return value
 
 
 def _resolved_config(value: object, *, schema_version: int) -> ResolvedConfig:

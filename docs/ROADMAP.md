@@ -42,12 +42,14 @@ PostgreSQL database per environment. No per-repository databases will be
 introduced, and there will be no permanent dual writes. The initial PostgreSQL
 schema, migration runner, and read-only PostgreSQL runtime foundation milestone
 are implemented. That foundation is now deepened with the first cohesive
-repository-to-review-run transaction, and both run in CI, but PostgreSQL is not
-deployed: the active reviewer still uses SQLite. The runtime
+repository-to-review-run transaction and normalized changed-file and
+content-read coverage operations. All run in CI, but PostgreSQL is not deployed:
+the active reviewer still uses SQLite. The runtime
 owns the typed database URL, explicitly opened bounded pool, connection
 safeguards, readiness, migration health, short transaction scope, and pool
-metrics. The application owner can exercise registry and review-run operations
-in integration tests without adding a backend switch, dual write, or fallback.
+metrics. The application owner can exercise registry, review-run, inventory,
+diff-observation, and source-range operations in integration tests without
+adding a backend switch, dual write, or fallback.
 
 Four gates protect the first authoritative PostgreSQL write:
 
@@ -64,21 +66,18 @@ Four gates protect the first authoritative PostgreSQL write:
 
 The remaining milestones are:
 
-1. Add normalized changed-file and source-read coverage operations. The bounded
-   provider repository ID acquisition remains part of the later runtime cutover
-   and must complete from trusted PR metadata before opening the
-   repository-to-run transaction; no network or model call may hold a database
-   connection.
-2. Port stable repository-scoped finding identity and governance, followed by
+1. Port stable repository-scoped finding identity and governance, followed by
    exact publication payload delivery and feedback transactions.
-3. Define the initial PostgreSQL replacement recovery path before switching.
+2. Define the initial PostgreSQL replacement recovery path before switching.
    Recovery after PostgreSQL writes uses the previous PostgreSQL-compatible
    application image against the same database.
-4. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
-   review against a fresh database.
-5. Delete the SQLite application persistence, migrations, volume, environment
+3. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
+   review against a fresh database. The bounded provider repository ID
+   acquisition must use trusted PR metadata before the repository-to-run
+   transaction opens; no network or model call may hold a database connection.
+4. Delete the SQLite application persistence, migrations, volume, environment
    settings, and SQLite-only tests after the cutover passes.
-6. Add durable jobs and an outbox as separate work after PostgreSQL owns the
+5. Add durable jobs and an outbox as separate work after PostgreSQL owns the
    application state.
 
 This clean runtime replacement preserves observable review behavior without

@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Registry and review-run operations complete; normalized PostgreSQL coverage is the next active task, with implementation not yet started."
+  tranche: "Normalized PostgreSQL coverage is complete; stable finding identity and occurrence storage is the next active task."
   status: active
 
 rules:
@@ -30,15 +30,15 @@ continuity:
   rotate_after_completed_write_tasks: 4
   rotate_after_hours: 6
   rotate_when_slow: true
-  current_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
-  previous_thread_id: "01a023ae-4213-7071-8cc7-50048392fe97"
-  rotation_count: 2
-  completed_write_tasks_in_thread: 8
+  current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
+  previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
+  rotation_count: 3
+  completed_write_tasks_in_thread: 1
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-22T09:55:00Z"
-  last_verified_revision: "e2af211a7b70f86dca2bf29ab705982dc4ec99f6"
+  last_handoff_at: "2026-08-22T11:54:04Z"
+  last_verified_revision: "efcd7a27b057715a7a538cd98fc45323c0c14d12"
 
-active_task: T024
+active_task: T025
 
 tasks:
   - id: T001
@@ -1098,7 +1098,7 @@ tasks:
   - id: T024
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add normalized PostgreSQL changed-file inventory and content-read coverage operations behind the existing application owner."
     constraints:
@@ -1147,7 +1147,74 @@ tasks:
       - "Coverage completeness cannot remain honest under partial changed-file enumeration."
       - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
       - "The Stockholm time is too close to 00:10 to finish the current safe unit; write a durable handoff and stop."
-    receipt: null
+    receipt:
+      result: done
+      decision: "Normalized PostgreSQL coverage is verified; proceed to stable finding identity and occurrence storage without runtime cutover."
+      note: "notes/T024-postgresql-review-coverage.md"
+      summary: "Added typed batch changed-file inventory, normalized source-read ranges, non-regressing diff observations, and fail-closed coverage summaries without changing the active SQLite runtime."
+      implementation_revision: "efcd7a27b057715a7a538cd98fc45323c0c14d12"
+      evidence:
+        - "Forty-seven PostgreSQL 17 tests passed, including atomic inventory conflicts, honest incompleteness, source/diff separation, concurrent range deduplication, and lifecycle lock ordering."
+        - "Strict Pyright, all 543 bundle tests, documentation typecheck/build, nine built routes, and diff hygiene passed."
+        - "Claude Opus/high session review-agent-t024-coverage converged from score 5 to green at score 8 after two passes."
+        - "Live Python bundle run 32571316208 and Publish documentation run 32571316250 succeeded; the hosted roadmap states SQLite remains active."
+      spawned_tasks:
+        - T025
+  - id: T025
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Add rename-stable PostgreSQL finding identities, batched occurrences and pull-request-local references, plus exact repeat-review context behind the existing finding application owner."
+    constraints:
+      - "Compute fingerprints only from normalized rule ID, path, symbol, and anchor; repository scope belongs in the database key, never inside the hash."
+      - "Require repository identity for full and abbreviated fingerprint resolution so unrelated repositories cannot change a prefix's meaning."
+      - "Validate the complete batch before pool checkout and record up to the existing 200-finding application limit in one short transaction without per-finding SQL loops."
+      - "Treat exact retry of one run as idempotent and reject conflicting identity or occurrence data atomically."
+      - "Derive repeat-review history from normalized occurrences and local references with deterministic bounds and ordering."
+      - "Preserve the current application confidence, publication-score, changed-file, and context-hash admission policy in behavior tests; the database stores generic valid numeric bounds."
+      - "Keep optional suggestions, decisions and suppression, publication, tools, active SQLite behavior, settings, Compose, and deployment unchanged."
+      - "Run Claude Opus/high at the stable commit gate and stop all work during the 00:10–07:00 Europe/Stockholm blackout."
+    expected_output:
+      - "Typed rename-stable finding identity and repository-scoped resolution"
+      - "One batched PostgreSQL identity, occurrence, and local-reference transaction for at most 200 findings"
+      - "Exact bounded repeat-review context from normalized history"
+      - "Behavior proof that current application admission policy remains unchanged"
+      - "One reviewable implementation commit and live CI receipt"
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/finding.py
+      - bootstrap/plugins/review_agent_tools/postgres/findings.py
+      - bootstrap/plugins/review_agent_tools/review_finding_application.py
+      - scripts/check_postgres_schema.sh
+      - tests/test_postgres_findings.py
+      - tests/test_review_finding_application.py
+      - tests/test_memory_module_boundaries.py
+      - docs/ROADMAP.md
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+      - docs/goals/build-review-platform/notes/T025-postgresql-finding-memory.md
+    verify:
+      - "Prove fingerprint stability across repository rename, repository-scoped full and prefix resolution, same fingerprint in different repositories, ambiguity handling, and exact retry behavior against PostgreSQL 17."
+      - "Prove one batch of 200 findings, atomic conflict rollback, deterministic local references, and exact bounded repeat-review history without N+1 SQL."
+      - "Prove current finding admission behavior at the existing application boundary."
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_review_finding_application tests.test_memory_module_boundaries"
+      - "./scripts/check_bundle.sh"
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "git diff --check"
+      - "Validate Goal Maker state"
+      - "Run one skeptical Claude Opus/high peer gate at the stable commit candidate and require green with score >= 8."
+      - "After push, verify the live Python bundle and documentation publication workflows."
+    stop_if:
+      - "The implementation requires suggestions, decisions, publication, tools, active SQLite edits, settings, Compose, or deployment changes."
+      - "A generic finding repository, backend switch, ORM, row-per-query loop, dual-write, fallback, or compatibility path appears necessary."
+      - "Repeat-review semantics cannot be preserved without a product or governance decision."
+      - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
+      - "The Stockholm time is too close to 00:10 to finish the current safe unit; write a durable handoff and stop."
   - id: T999
     type: judge
     assignee: Judge
@@ -1169,13 +1236,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-e2af211"
+  dirty_fingerprint: "control-files-only-after-efcd7a2"
   last_verification:
     result: pass
-    task: T023
+    task: T024
     commands:
-      - "41 real PostgreSQL 17 schema, migration, runtime, registry, subject, and review-run tests"
-      - "Python 3.11 strict Pyright and 537-test canonical bundle"
-      - "Node 24 documentation type-check/build, nine route checks, Goal Maker validation, YAML parsing, and diff checks"
-      - "Claude Opus/high implementation and receipt gates green at score 8 on iterations 3 and 4"
-      - "Live Python bundle run 32566104359 and Publish documentation run 32566104351 green"
+      - "47 real PostgreSQL 17 schema, migration, runtime, lifecycle, and normalized coverage tests"
+      - "Python 3.11 strict Pyright and 543-test canonical bundle"
+      - "Node 24 documentation type-check/build, nine route checks, YAML parsing, and diff checks"
+      - "Claude Opus/high implementation gate green at score 8 on iteration 2"
+      - "Live Python bundle run 32571316208 and Publish documentation run 32571316250 green"

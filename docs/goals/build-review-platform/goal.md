@@ -13,11 +13,12 @@ architecture tranches without weakening the proven review contract.
 
 ## Current Tranche
 
-The cohesive PostgreSQL repository-to-review-run transaction is complete.
-Normalized changed-file and content-read coverage is the next active slice;
-its implementation has not started in this wrap-up session. The active SQLite
-runtime, findings, publication, configuration and Compose switching, and SQLite
-deletion remain later slices.
+The cohesive PostgreSQL repository-to-review-run transaction and normalized
+changed-file and content-read coverage are complete. Stable finding identity,
+batched occurrences, pull-request-local references, and repeat-review context
+are the next active slice. The active SQLite runtime, suggestions and decisions,
+publication, configuration and Compose switching, and SQLite deletion remain
+later slices.
 
 ## Approved Sequencing Input
 

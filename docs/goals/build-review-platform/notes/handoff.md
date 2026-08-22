@@ -5,13 +5,14 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 ## Current direction
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits and pushes to `CCimen/review-agent` `main` are authorized.
-- `state.yaml` is authoritative for the active task and current revision. Do not infer active work from this handoff when they disagree.
-- The corrected PostgreSQL contract, migration runner, runtime foundation, and
-  cohesive registry-to-review-run operations are live at `e2af211`. The new
-  operations are integration-only; no tool or runtime cutover has occurred.
-- T023 is complete. T024 is active with a locally green normalized changed-file
-  inventory and content-read coverage candidate. It does not port or change the
-  SQLite JSON algorithm and is not wired into tools or the runtime.
+- The corrected PostgreSQL contract, migration runner, runtime foundation,
+  cohesive registry-to-review-run operations, and normalized review coverage
+  are live at `efcd7a2`. The new operations are integration-only; no tool or
+  runtime cutover has occurred.
+- T024 is complete. T025 is active for rename-stable finding identity, batched
+  PostgreSQL occurrences and local references, and exact repeat-review context.
+  It must preserve the current application admission policy without porting
+  suggestions, decisions, publication, or active SQLite behavior.
 - The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
 
 ## Execution boundary
@@ -33,12 +34,6 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   failure. Do not branch on error-message text.
 - The application owner now creates validated, versioned, and hashed review
   subjects before PostgreSQL checkout and composes the registry/run transaction.
-- T024 must preserve registration versus inspection truth, range deduplication,
-  concurrent inserts, and explicit incomplete inventory without holding a pool
-  connection during GitHub reads.
-- The current T024 candidate has 47 real PostgreSQL tests and strict Pyright
-  green. Rerun the full bundle and public documentation checks after the gate
-  corrections, then resume the existing Claude Opus/high session before publish.
 - At cutover, the adapter must map the current changed-file classification into
   the typed `FileDomain` and `ReviewMode` values before pool checkout. Delete the
   SQLite `CoverageState`/`DiffState` literals, `FileSide` alias, and classification
@@ -57,8 +52,8 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   the active task's exact source paths. Verify the recorded revision and live
   branch before editing.
 - The repository owner requested Claude Opus/high for every future pre-commit
-  peer gate and hard architecture question. Start one resumable T024 session
-  only after its candidate is locally stable.
+  peer gate and hard architecture question. Use one resumable session per
+  stable slice and do not repeat it for unchanged or mechanical follow-ups.
 - All Codex and Claude work must stop by 00:10 Europe/Stockholm and may resume
   at 07:00 Europe/Stockholm. Do not start a unit that risks crossing the stop
   boundary.

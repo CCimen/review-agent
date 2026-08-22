@@ -4,7 +4,7 @@ slug: /roadmap
 title: Current and planned capabilities
 description: A clear boundary between the working reviewer and planned platform work.
 status: target
-last_verified: 2026-08-21
+last_verified: 2026-08-22
 ---
 
 # Current and planned capabilities
@@ -22,8 +22,8 @@ behavior documented in the repository and verified by the shipped bundle.
 - Trusted GitHub Actions request workflow and HMAC-signed webhooks.
 - Full Python bundle CI for pull requests and changes to `main`.
 - A corrected first-write PostgreSQL schema, checksum-verifying migration
-  runner, read-only PostgreSQL runtime foundation, and real PostgreSQL CI
-  contract.
+  runner, bounded runtime foundation, and a real PostgreSQL 17 CI contract for
+  the repository, immutable-subject, and review-run transaction.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -40,11 +40,14 @@ deployment or persisted production review state. Its packaged SQLite runtime is
 temporary and disposable. The approved target—not a deployed capability—is one
 PostgreSQL database per environment. No per-repository databases will be
 introduced, and there will be no permanent dual writes. The initial PostgreSQL
-schema, migration runner, and read-only runtime foundation are implemented and
-run in CI, but PostgreSQL is not deployed: the active reviewer still uses
-SQLite. The foundation owns the typed database URL, explicitly opened bounded
-pool, connection safeguards, readiness, migration health, and pool metrics; it
-does not perform application reads or writes.
+schema, migration runner, and read-only PostgreSQL runtime foundation milestone
+are implemented. That foundation is now deepened with the first cohesive
+repository-to-review-run transaction, and both run in CI, but PostgreSQL is not
+deployed: the active reviewer still uses SQLite. The runtime
+owns the typed database URL, explicitly opened bounded pool, connection
+safeguards, readiness, migration health, short transaction scope, and pool
+metrics. The application owner can exercise registry and review-run operations
+in integration tests without adding a backend switch, dual write, or fallback.
 
 Four gates protect the first authoritative PostgreSQL write:
 
@@ -61,8 +64,10 @@ Four gates protect the first authoritative PostgreSQL write:
 
 The remaining milestones are:
 
-1. Add the bounded provider repository ID acquisition, pull-request, subject,
-   run, and coverage operations. No network or model call may hold a database
+1. Add normalized changed-file and source-read coverage operations. The bounded
+   provider repository ID acquisition remains part of the later runtime cutover
+   and must complete from trusted PR metadata before opening the
+   repository-to-run transaction; no network or model call may hold a database
    connection.
 2. Port stable repository-scoped finding identity and governance, followed by
    exact publication payload delivery and feedback transactions.

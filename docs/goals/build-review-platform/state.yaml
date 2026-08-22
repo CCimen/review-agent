@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Runtime foundation complete; registry and review-run operations are queued but not started."
+  tranche: "Implement the first cohesive PostgreSQL registry and review-run transaction without changing the active SQLite runtime."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-21T19:13:21Z"
   last_verified_revision: "0dafdf636e270f1f2c3b6e5d696ce99e9837a37d"
 
-active_task: null
+active_task: T023
 
 tasks:
   - id: T001
@@ -1029,7 +1029,7 @@ tasks:
   - id: T023
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Add cohesive PostgreSQL repository, pull-request, immutable subject, and review-run operations behind the existing application owner."
     constraints:
@@ -1037,6 +1037,8 @@ tasks:
       - "Use operation-level functions with explicit short transactions; do not create one repository class per table or a generic persistence port."
       - "Acquire the bounded provider repository ID before opening a database transaction; no GitHub or model call may hold a pool connection."
       - "Canonicalize, validate, version, and hash resolved_config before the first review_subject insert."
+      - "Use a trigger-derived durable request_key supplied by the caller; a repeated key is idempotent only for the same pull request and exact subject, and a cross-scope reuse fails explicitly."
+      - "Compose repository, pull request, exact subject, and run creation in exactly one concrete function in the existing review_run_application.py owner; do not wire it into tools.py before cutover."
       - "Preserve request idempotency, concurrent single-active-run authority, immutable subjects, and explicit run transitions."
       - "Before adding startup retry behavior, distinguish transient migration readiness from fatal drift or invariant failure with typed state rather than message matching."
       - "Keep SQLite runtime behavior unchanged until the controlled cutover slice."
@@ -1045,6 +1047,41 @@ tasks:
       - "Behavior proof for rename identity, repository isolation, request idempotency, concurrent start, immutable subjects, and invalid transitions"
       - "No connection held during external calls"
       - "One reviewable implementation commit and live CI receipt"
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/__init__.py
+      - bootstrap/plugins/review_agent_tools/domain/review.py
+      - bootstrap/plugins/review_agent_tools/postgres/runtime.py
+      - bootstrap/plugins/review_agent_tools/postgres/registry.py
+      - bootstrap/plugins/review_agent_tools/postgres/review_runs.py
+      - bootstrap/plugins/review_agent_tools/review_run_application.py
+      - scripts/check_postgres_schema.sh
+      - tests/test_postgres_runtime.py
+      - tests/test_postgres_review_lifecycle.py
+      - docs/ROADMAP.md
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+      - docs/goals/build-review-platform/notes/T023-postgresql-review-lifecycle.md
+    verify:
+      - "Run focused pure-domain red/green tests and real PostgreSQL 17 lifecycle tests."
+      - "Prove provider-ID rename identity, same-numbered PR isolation, canonical subject deduplication and corruption detection, request idempotency and cross-scope conflict, bounded concurrent starts, supersession, invalid transitions, and whole-transaction rollback."
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_postgres_runtime tests.test_review_run_application tests.test_memory_module_boundaries"
+      - "./scripts/check_bundle.sh"
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "git diff --check"
+      - "Validate Goal Maker state"
+      - "Resume Claude Opus/high session review-agent-t023-lifecycle at the stable commit gate and require green with score >= 8."
+      - "After push, verify the live Python bundle and documentation publication workflows."
+    stop_if:
+      - "The implementation requires tools.py, process startup, settings, Compose, SQLite, coverage, findings, publication, or deployment changes."
+      - "A generic persistence port, backend switch, ORM, repository-per-table class, or dual-write/fallback path appears necessary."
+      - "The exact request-key or provider-identity contract cannot be expressed without a product decision."
+      - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
+      - "The Stockholm time is too close to 00:10 to finish the current safe unit; write a durable handoff and stop."
   - id: T999
     type: judge
     assignee: Judge

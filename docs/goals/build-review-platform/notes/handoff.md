@@ -9,8 +9,9 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - The corrected PostgreSQL first-write contract, migration runner, and read-only
   runtime foundation are live at `0dafdf6`; there is still no PostgreSQL
   application writer or authoritative data.
-- The repository owner requested a stop after T022. T023 is queued but not
-  active; do not begin it until the owner resumes work.
+- The repository owner resumed work on 2026-08-22. T023 is active and owns the
+  first cohesive PostgreSQL registry, immutable-subject, and review-run
+  transaction without a tool/runtime cutover.
 - The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
 
 ## Execution boundary
@@ -42,5 +43,8 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   the active task's exact source paths. Verify the recorded revision and live
   branch before editing.
 - The repository owner requested Claude Opus/high instead of Codex for future
-  single pre-commit peer gates; use it only after the candidate is locally
-  stable.
+  pre-commit peer gates. Resume `review-agent-t023-lifecycle` after the candidate
+  is locally stable; do not start a duplicate session.
+- All Codex and Claude work must stop by 00:10 Europe/Stockholm and may resume
+  at 07:00 Europe/Stockholm. Do not start a unit that risks crossing the stop
+  boundary.

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import psycopg
 from psycopg.rows import TupleRow
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, PoolClosed, PoolTimeout
 
 from ..postgres_migrations import runner
 from ..settings import PostgresDatabaseUrl
@@ -153,6 +155,27 @@ class PostgreSQLRuntime:
             applied_migration_version=migration.applied_version,
             database_ahead=migration.database_ahead,
         )
+
+    @contextmanager
+    def transaction(self) -> Iterator[psycopg.Connection[TupleRow]]:
+        """Yield one checked-out connection inside one short transaction."""
+        if self._pool.closed:
+            raise PostgreSQLNotReady("PostgreSQL runtime is not open")
+        try:
+            with self._pool.connection() as connection:
+                with connection.transaction():
+                    yield connection
+        # Preserve workload and lock failures; they do not mean PostgreSQL is down.
+        except (
+            psycopg.errors.DeadlockDetected,
+            psycopg.errors.QueryCanceled,
+            psycopg.errors.LockNotAvailable,
+        ):
+            raise
+        except (PoolClosed, PoolTimeout, psycopg.OperationalError) as exc:
+            raise PostgreSQLUnavailable(
+                "PostgreSQL transaction could not complete"
+            ) from exc
 
     def pool_metrics(self) -> PostgreSQLPoolMetrics:
         stats = self._pool.get_stats()

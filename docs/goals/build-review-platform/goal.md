@@ -13,10 +13,10 @@ architecture tranches without weakening the proven review contract.
 
 ## Current Tranche
 
-Correct and freeze the empty PostgreSQL first-write contract, then add one
-checksum-verifying migration runner. Runtime persistence operations,
-configuration and Compose switching, and SQLite deletion remain later
-implementation slices.
+Implement the first cohesive PostgreSQL repository, pull-request, immutable
+subject, and review-run transaction behind the existing application owner.
+The active SQLite runtime, coverage, configuration and Compose switching, and
+SQLite deletion remain later implementation slices.
 
 ## Approved Sequencing Input
 

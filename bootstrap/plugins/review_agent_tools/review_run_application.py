@@ -8,8 +8,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar
 
 from . import failure_codes, memory_coverage, memory_runs, memory_schema
+from .domain.review import JsonObject, resolve_review_subject
 from .memory_coverage import FileIndexSummary, RunFileLookup, RunFilePage
 from .memory_runs import RunPhase
+from .postgres import registry as postgres_registry
+from .postgres import review_runs as postgres_review_runs
+from .postgres.runtime import PostgreSQLRuntime
 
 if TYPE_CHECKING:
     import sqlite3
@@ -46,6 +50,22 @@ class RunRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class PostgresRunRequest:
+    provider: str
+    provider_repository_id: int
+    repository: str
+    pr_number: int
+    base_sha: str
+    head_sha: str
+    policy_revision: str
+    resolved_config_schema_version: int
+    resolved_config: JsonObject
+    request_key: str
+    trigger_comment_id: int | None = None
+    trigger_user: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class RunSubject:
     repository: str
     pr_number: int
@@ -71,6 +91,47 @@ class DuplicateRun:
 
 
 RunStart = StartedRun | DuplicateRun
+
+
+def start_postgres_review(
+    runtime: PostgreSQLRuntime, request: PostgresRunRequest
+) -> postgres_review_runs.RunStart:
+    """Compose the first exact PostgreSQL review in one short transaction."""
+    repository_definition = postgres_registry.resolve_repository(
+        postgres_registry.RepositoryDefinition(
+            provider=request.provider,
+            provider_repository_id=request.provider_repository_id,
+            full_name=request.repository,
+        )
+    )
+    subject_definition = resolve_review_subject(
+        base_sha=request.base_sha,
+        head_sha=request.head_sha,
+        policy_revision=request.policy_revision,
+        resolved_config_schema_version=request.resolved_config_schema_version,
+        resolved_config=request.resolved_config,
+    )
+    if isinstance(request.pr_number, bool) or request.pr_number < 1:
+        raise ReviewRunError("pr_number must be positive")
+
+    with runtime.transaction() as connection:
+        repository = postgres_registry.ensure_repository(
+            connection, repository_definition
+        )
+        pull_request = postgres_registry.ensure_pull_request(
+            connection, repository.id, request.pr_number
+        )
+        subject = postgres_registry.create_or_get_subject(
+            connection, pull_request.id, subject_definition
+        )
+        return postgres_review_runs.start_run(
+            connection,
+            pull_request_id=pull_request.id,
+            review_subject_id=subject.id,
+            request_key=request.request_key,
+            trigger_comment_id=request.trigger_comment_id,
+            trigger_user=request.trigger_user,
+        )
 
 
 @dataclass(frozen=True, slots=True)

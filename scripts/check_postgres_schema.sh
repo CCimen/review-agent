@@ -54,6 +54,7 @@ REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/r
     python3 -m unittest \
         tests.test_postgres_schema \
         tests.test_postgres_migrations \
-        tests.test_postgres_runtime
+        tests.test_postgres_runtime \
+        tests.test_postgres_review_lifecycle
 
 printf '%s\n' "PostgreSQL schema contract passed."

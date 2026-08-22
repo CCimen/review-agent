@@ -150,6 +150,40 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
 
         self.assertFalse(runtime.pool_metrics().open)
 
+    def test_transaction_commits_success_and_rolls_back_failure(self) -> None:
+        with psycopg.connect(DSN) as connection:
+            runner.apply_migrations(connection)
+        runtime = PostgreSQLRuntime(PostgresDatabaseUrl(DSN))
+        self.addCleanup(runtime.close)
+        runtime.open()
+
+        with runtime.transaction() as connection:
+            connection.execute(
+                "INSERT INTO review_agent.repositories "
+                "(provider, provider_repository_id, owner, name, full_name, "
+                "created_at, updated_at) VALUES "
+                "('github', 801, 'team', 'committed', 'team/committed', "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "rollback probe"):
+            with runtime.transaction() as connection:
+                connection.execute(
+                    "INSERT INTO review_agent.repositories "
+                    "(provider, provider_repository_id, owner, name, full_name, "
+                    "created_at, updated_at) VALUES "
+                    "('github', 802, 'team', 'rolled-back', 'team/rolled-back', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+                raise RuntimeError("rollback probe")
+
+        with runtime.transaction() as connection:
+            rows = connection.execute(
+                "SELECT provider_repository_id FROM review_agent.repositories "
+                "WHERE provider_repository_id IN (801, 802) ORDER BY 1"
+            ).fetchall()
+        self.assertEqual(rows, [(801,)])
+
 
 if __name__ == "__main__":
     unittest.main()

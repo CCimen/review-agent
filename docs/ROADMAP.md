@@ -23,7 +23,8 @@ behavior documented in the repository and verified by the shipped bundle.
 - Full Python bundle CI for pull requests and changes to `main`.
 - A corrected first-write PostgreSQL schema, checksum-verifying migration
   runner, bounded runtime foundation, and a real PostgreSQL 17 CI contract for
-  the repository, immutable-subject, and review-run transaction.
+  repository, immutable-subject, review-run, coverage, and finding-memory
+  operations.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -43,19 +44,22 @@ introduced, and there will be no permanent dual writes. The initial PostgreSQL
 schema, migration runner, and read-only PostgreSQL runtime foundation milestone
 are implemented. That foundation is now deepened with the first cohesive
 repository-to-review-run transaction and normalized changed-file and
-content-read coverage operations. All run in CI, but PostgreSQL is not deployed:
-the active reviewer still uses SQLite. The runtime
+content-read coverage operations. Rename-stable finding identities, batched
+occurrences, repository-scoped resolution, pull-request-local references, and
+bounded repeat history now run in CI too. PostgreSQL is not deployed: the active
+reviewer still uses SQLite. The runtime
 owns the typed database URL, explicitly opened bounded pool, connection
 safeguards, readiness, migration health, short transaction scope, and pool
 metrics. The application owner can exercise registry, review-run, inventory,
-diff-observation, and source-range operations in integration tests without
-adding a backend switch, dual write, or fallback.
+diff-observation, source-range, and finding-memory operations in integration
+tests without adding a backend switch, dual write, or fallback.
 
 Four gates protect the first authoritative PostgreSQL write:
 
 - **Stable finding identity:** fingerprints must use stable local finding fields,
   while every full or abbreviated lookup is scoped by the repository's internal
-  ID. This remains part of the finding runtime slice.
+  ID. The integration owner and PostgreSQL 17 behavior contract now enforce this
+  before runtime cutover.
 - **Request idempotency:** the schema now requires one globally unique durable
   request key for each review command.
 - **Checksum migration ownership:** one advisory-locked runner verifies exact
@@ -66,8 +70,9 @@ Four gates protect the first authoritative PostgreSQL write:
 
 The remaining milestones are:
 
-1. Port stable repository-scoped finding identity and governance, followed by
-   exact publication payload delivery and feedback transactions.
+1. Port finding suggestions, human decisions, verification, reconciliation,
+   and coaching, followed by exact publication payload delivery and feedback
+   transactions.
 2. Define the initial PostgreSQL replacement recovery path before switching.
    Recovery after PostgreSQL writes uses the previous PostgreSQL-compatible
    application image against the same database.

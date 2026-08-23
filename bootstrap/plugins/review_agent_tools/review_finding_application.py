@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 import sqlite3
-from typing import TypedDict, cast
+from typing import TypeAlias, TypedDict, cast
 
 from . import (
     memory_findings,
@@ -15,6 +15,21 @@ from . import (
     memory_suggestions,
     memory_validation,
 )
+from .domain.finding import (
+    MAX_FINDINGS_PER_REVIEW,
+    FindingDefinition,
+    FindingDomainError,
+    FindingInput,
+    RepeatFinding,
+    resolve_context_hash,
+    resolve_finding,
+    resolve_finding_path,
+    resolve_fingerprint_query,
+    require_unique_finding_identities,
+)
+from .domain.review import RepositoryId, ReviewRunId
+from .postgres import findings as postgres_findings
+from .postgres.runtime import PostgreSQLRuntime
 
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
@@ -63,6 +78,83 @@ class ChangedFile:
 class FindingRecordResult:
     items: list[RecordedFinding]
     suggestions_recorded: int
+
+
+PostgresFindingBatch: TypeAlias = postgres_findings.FindingBatch
+
+
+def _postgres_context_hash(changed_file: ChangedFile, head_sha: str) -> str:
+    candidate = changed_file.context_hash.strip().lower()
+    if changed_file.context_hash_source == "blob" and _SHA_RE.fullmatch(candidate):
+        return resolve_context_hash(candidate)
+    return head_sha
+
+
+def record_postgres_findings(
+    runtime: PostgreSQLRuntime,
+    *,
+    run_id: ReviewRunId,
+    head_sha: str,
+    findings: Sequence[FindingInput],
+    changed_files: Sequence[ChangedFile],
+) -> PostgresFindingBatch:
+    """Validate and atomically persist one pre-reviewed PostgreSQL finding batch."""
+    if len(findings) > MAX_FINDINGS_PER_REVIEW:
+        raise FindingDomainError(
+            f"findings exceeds operational safety limit of {MAX_FINDINGS_PER_REVIEW}"
+        )
+    resolved_head = resolve_context_hash(head_sha)
+    changed_by_path = {
+        resolve_finding_path(item.path): item for item in changed_files
+    }
+    definitions: list[FindingDefinition] = []
+    for item in findings:
+        path = resolve_finding_path(item.path)
+        changed_file = changed_by_path.get(path)
+        if changed_file is None:
+            raise ReviewFindingError(
+                "every recorded finding must point to a changed pull-request file"
+            )
+        definitions.append(
+            resolve_finding(
+                replace(item, path=path),
+                context_hash=_postgres_context_hash(changed_file, resolved_head),
+            )
+        )
+    require_unique_finding_identities(definitions)
+    with runtime.transaction() as connection:
+        return postgres_findings.record_findings(
+            connection,
+            run_id=run_id,
+            expected_head_sha=resolved_head,
+            definitions=tuple(definitions),
+        )
+
+
+def resolve_postgres_fingerprint(
+    runtime: PostgreSQLRuntime,
+    *,
+    repository_id: RepositoryId,
+    value: str,
+) -> str:
+    """Resolve a fingerprint only within the caller's stable repository identity."""
+    query = resolve_fingerprint_query(value)
+    with runtime.transaction() as connection:
+        return postgres_findings.resolve_fingerprint(
+            connection, repository_id=repository_id, query=query
+        )
+
+
+def load_postgres_repeat_history(
+    runtime: PostgreSQLRuntime,
+    *,
+    run_id: ReviewRunId,
+) -> tuple[RepeatFinding, ...]:
+    """Load bounded prior occurrence context for one exact pull request."""
+    with runtime.transaction() as connection:
+        return postgres_findings.repeat_history(
+            connection, run_id=run_id, limit=MAX_FINDINGS_PER_REVIEW
+        )
 
 
 def load_context(query: FindingContextQuery) -> FindingMemoryContext:

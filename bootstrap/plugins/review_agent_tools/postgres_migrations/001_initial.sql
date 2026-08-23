@@ -399,6 +399,11 @@ CREATE TABLE review_agent.finding_occurrences (
 CREATE INDEX finding_occurrences_finding_seen_idx
     ON review_agent.finding_occurrences (finding_id, observed_at DESC);
 
+CREATE INDEX finding_occurrences_pull_request_history_idx
+    ON review_agent.finding_occurrences (
+        pull_request_id, finding_id, observed_at DESC
+    );
+
 CREATE TABLE review_agent.finding_suggestions (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     finding_occurrence_id BIGINT NOT NULL,

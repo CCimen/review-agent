@@ -6,19 +6,20 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits and pushes to `CCimen/review-agent` `main` are authorized.
 - The corrected PostgreSQL contract, migration runner, runtime foundation,
-  cohesive registry-to-review-run operations, and normalized review coverage
-  are live at `efcd7a2`. The new operations are integration-only; no tool or
-  runtime cutover has occurred.
-- T024 is complete. T025 is active for rename-stable finding identity, batched
-  PostgreSQL occurrences and local references, and exact repeat-review context.
-  It must preserve the current application admission policy without porting
-  suggestions, decisions, publication, or active SQLite behavior.
+  cohesive registry-to-review-run operations, normalized review coverage, and
+  stable finding memory are live at `153132d`. The new operations are
+  integration-only; no tool or runtime cutover has occurred.
+- T025 is complete. T026 is active for best-effort PostgreSQL suggestions and
+  context-matched human decisions. Move and reuse the existing pure suggestion
+  validation, keep database transactions separate from trusted head-file reads,
+  and preserve active SQLite observable behavior without dual writes.
 - The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
 
 ## Execution boundary
 
 - The primary agent implements; subagents are read-only.
-- Keep the process lean: proportional behavior-first and full validation, one skeptical peer gate at a stable candidate, one implementation commit, and one compact receipt/audit update where practical.
+- Keep validation proportional and use one skeptical peer gate per stable
+  candidate.
 - PostgreSQL is the approved clean replacement: one database per environment.
   The owner confirmed no production deployment or persisted production review
   state. `goal.md` owns the no-legacy and recovery constraints; `docs/ROADMAP.md`
@@ -32,8 +33,6 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - Before a future consumer retries `PostgreSQLNotReady`, add a typed distinction
   between transient pending/concurrent migration and fatal drift/invariant
   failure. Do not branch on error-message text.
-- The application owner now creates validated, versioned, and hashed review
-  subjects before PostgreSQL checkout and composes the registry/run transaction.
 - At cutover, the adapter must map the current changed-file classification into
   the typed `FileDomain` and `ReviewMode` values before pool checkout. Delete the
   SQLite `CoverageState`/`DiffState` literals, `FileSide` alias, and classification
@@ -43,6 +42,11 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   existing two-second `lock_timeout`. The active runtime adapter must map an
   exhausted `LockNotAvailable` into its retry or user-facing busy contract; do
   not lengthen the transaction or hide the bounded contention.
+- Finding writes hold the same pull-request lifecycle lock with
+  `FOR NO KEY UPDATE`; lock timeout maps to typed `FindingRunBusy`. Canonical
+  symbol and anchor values are case-folded because they are identity fields,
+  not display copy. A conflicting same-run regenerated batch recovers through a
+  new review run rather than mutating durable occurrence evidence.
 - Publication module splitting, jobs, outbox, trusted project context and
   policy, scanners/Codex Security, and GitHub App work remain deferred.
 
@@ -54,6 +58,6 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 - The repository owner requested Claude Opus/high for every future pre-commit
   peer gate and hard architecture question. Use one resumable session per
   stable slice and do not repeat it for unchanged or mechanical follow-ups.
-- All Codex and Claude work must stop by 00:10 Europe/Stockholm and may resume
-  at 07:00 Europe/Stockholm. Do not start a unit that risks crossing the stop
+- All Codex and Claude work must stop by 23:50 Europe/Stockholm and may resume
+  at 06:00 Europe/Stockholm. Do not start a unit that risks crossing the stop
   boundary.

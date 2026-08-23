@@ -13,19 +13,22 @@ architecture tranches without weakening the proven review contract.
 
 ## Current Tranche
 
-The cohesive PostgreSQL repository-to-review-run transaction and normalized
-changed-file and content-read coverage are complete. Stable finding identity,
-batched occurrences, pull-request-local references, and repeat-review context
-are the next active slice. The active SQLite runtime, suggestions and decisions,
-publication, configuration and Compose switching, and SQLite deletion remain
-later slices.
+The cohesive PostgreSQL repository-to-review-run transaction, normalized
+coverage, stable finding identity, batched occurrences, pull-request-local
+references, and repeat-review context are complete. Best-effort optional
+suggestions and context-matched human decisions are the next active slice. The
+active SQLite runtime, publication, verification, coaching, configuration and
+Compose switching, and SQLite deletion remain later slices.
 
 ## Approved Sequencing Input
 
 - `/Users/ccimen/Downloads/sundsvall-review-agent-maintainability-first-plan.md`
 - `/Users/ccimen/Downloads/sundsvall-general-review-agent-refactor-plan(2)(1).md`
+- Local `refactor-plan1.md`, SHA-256
+  `53349848017a9fead8cc7e0c4cf0abb69f66bb34e7b941fb7bedf8b0f4d810e0`
 
-These plans are architectural and sequencing input. Direct repository-owner
+These plans are advisory architectural and sequencing input; each active
+`state.yaml` task is self-contained. Direct repository-owner
 decisions supersede suggestions in them. In particular, this new repository is
 a clean break with no Eneo aliases or compatibility profile, and security
 scanner/Codex Security integration is deferred until the owner resumes it.

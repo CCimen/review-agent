@@ -7,7 +7,7 @@ goal:
   title: "Build the Sundsvall review platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Normalized PostgreSQL coverage is complete; stable finding identity and occurrence storage is the next active task."
+  tranche: "Stable PostgreSQL finding memory is complete; optional suggestions and context-matched human decisions are the next active task."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 1
+  completed_write_tasks_in_thread: 2
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-22T11:54:04Z"
-  last_verified_revision: "efcd7a27b057715a7a538cd98fc45323c0c14d12"
+  last_handoff_at: "2026-08-23T20:59:36Z"
+  last_verified_revision: "153132da36ad2a590e4b0df0abec5acb12f77b8a"
 
-active_task: T025
+active_task: T026
 
 tasks:
   - id: T001
@@ -1163,7 +1163,7 @@ tasks:
   - id: T025
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add rename-stable PostgreSQL finding identities, batched occurrences and pull-request-local references, plus exact repeat-review context behind the existing finding application owner."
     constraints:
@@ -1174,7 +1174,7 @@ tasks:
       - "Derive repeat-review history from normalized occurrences and local references with deterministic bounds and ordering."
       - "Preserve the current application confidence, publication-score, changed-file, and context-hash admission policy in behavior tests; the database stores generic valid numeric bounds."
       - "Keep optional suggestions, decisions and suppression, publication, tools, active SQLite behavior, settings, Compose, and deployment unchanged."
-      - "Run Claude Opus/high at the stable commit gate and stop all work during the 00:10–07:00 Europe/Stockholm blackout."
+      - "Run Claude Opus/high at the stable commit gate and stop all work during the 23:50–06:00 Europe/Stockholm blackout."
     expected_output:
       - "Typed rename-stable finding identity and repository-scoped resolution"
       - "One batched PostgreSQL identity, occurrence, and local-reference transaction for at most 200 findings"
@@ -1184,6 +1184,7 @@ tasks:
     allowed_files:
       - bootstrap/plugins/review_agent_tools/domain/finding.py
       - bootstrap/plugins/review_agent_tools/postgres/findings.py
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/001_initial.sql
       - bootstrap/plugins/review_agent_tools/review_finding_application.py
       - scripts/check_postgres_schema.sh
       - tests/test_postgres_findings.py
@@ -1214,7 +1215,79 @@ tasks:
       - "A generic finding repository, backend switch, ORM, row-per-query loop, dual-write, fallback, or compatibility path appears necessary."
       - "Repeat-review semantics cannot be preserved without a product or governance decision."
       - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
-      - "The Stockholm time is too close to 00:10 to finish the current safe unit; write a durable handoff and stop."
+      - "The Stockholm time is too close to 23:50 to finish the current safe unit; write a durable handoff and stop."
+    receipt:
+      result: done
+      note: "notes/T025-postgresql-finding-memory.md"
+      summary: "Added canonical rename-stable finding identities, atomic batched occurrences, deterministic PR references, and indexed exact repeat history without changing the active SQLite runtime."
+      implementation_revision: "153132da36ad2a590e4b0df0abec5acb12f77b8a"
+      evidence:
+        - "Fifty-seven PostgreSQL 17 tests passed, including case drift, monotonic last-seen facts, typed lock contention, exact retry, atomic conflicts, deterministic references, and repository-scoped history."
+        - "Claude Opus/high session review-agent-t025-finding-memory converged from score 5 to green at score 8 after two authenticated passes."
+        - "Strict Pyright, the 552-test canonical bundle, documentation build and route checks, live Python bundle run 32665661348, and documentation run 32665661300 passed."
+        - "The hosted roadmap states finding memory runs in CI while SQLite remains active."
+      spawned_tasks:
+        - T026
+  - id: T026
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Add best-effort PostgreSQL finding suggestions and context-matched human decisions behind the existing finding application owner."
+    constraints:
+      - "Move and reuse pure suggestion validation from memory_suggestions.py in suggestion_validation.py; do not copy the SQLite implementation or create a backend interface."
+      - "Validate suggestion head hash, expected text, range, overlap, and high-risk omission without holding a database connection; empty replacement remains valid."
+      - "Persist optional suggestions in a separate short transaction so finding persistence remains successful when suggestion persistence fails."
+      - "Apply a suppressive decision only when its stored context hash matches the current occurrence context; append the decision and audit event atomically."
+      - "Limit initial-schema edits to index or constraint corrections required by these named behaviors; do not add a table or column in this slice."
+      - "Preserve active SQLite observable behavior while it delegates to moved pure validation; do not add dual writes, fallback, compatibility storage, or an importer."
+      - "Keep publication, verification, reconciliation, coaching, tools, settings, Compose, deployment, and runtime cutover unchanged."
+      - "Run Claude Opus/high at the stable commit gate and stop all work during the 23:50–06:00 Europe/Stockholm blackout."
+    expected_output:
+      - "One shared pure suggestion-validation owner with unchanged SQLite behavior"
+      - "Best-effort batched PostgreSQL suggestion persistence with exact snapshot validation"
+      - "Context-matched suppressive decisions with atomic audit evidence"
+      - "One reviewable implementation commit and live CI receipt"
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/finding.py
+      - bootstrap/plugins/review_agent_tools/suggestion_validation.py
+      - bootstrap/plugins/review_agent_tools/memory_suggestions.py
+      - bootstrap/plugins/review_agent_tools/memory_decisions.py
+      - bootstrap/plugins/review_agent_tools/postgres/findings.py
+      - bootstrap/plugins/review_agent_tools/postgres/suggestions.py
+      - bootstrap/plugins/review_agent_tools/postgres/decisions.py
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/001_initial.sql
+      - bootstrap/plugins/review_agent_tools/review_finding_application.py
+      - scripts/check_postgres_schema.sh
+      - tests/test_postgres_suggestions_decisions.py
+      - tests/test_review_suggestions.py
+      - tests/test_memory_module_boundaries.py
+      - docs/ROADMAP.md
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+      - docs/goals/build-review-platform/notes/T026-postgresql-suggestions-decisions.md
+    verify:
+      - "Prove exact head and expected-text validation, empty replacement, overlap and high-risk omission, and finding success when optional suggestion persistence fails."
+      - "Prove suppressive decisions require matching context hash and decision plus audit commit or roll back together."
+      - "Prove the active SQLite suggestion behavior remains unchanged through the shared pure validator."
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_review_suggestions tests.test_memory_module_boundaries"
+      - "./scripts/check_bundle.sh"
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "Validate Goal Maker state"
+      - "Run one skeptical Claude Opus/high peer gate at the stable commit candidate and require green with score >= 8."
+      - "After push, verify the live Python bundle and documentation publication workflows."
+    stop_if:
+      - "The implementation requires publication, verification, reconciliation, coaching, tools, settings, Compose, deployment, or runtime cutover changes."
+      - "A generic repository, backend switch, ORM, dual write, fallback, importer, or provider call inside a database transaction appears necessary."
+      - "Suggestion or suppression semantics require a product or public-contract decision not settled by the approved plan and current behavior."
+      - "The implementation needs a file outside allowed_files."
+      - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
+      - "The Stockholm time is too close to 23:50 to finish the current safe unit; write a durable handoff and stop."
   - id: T999
     type: judge
     assignee: Judge
@@ -1236,13 +1309,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-efcd7a2"
+  dirty_fingerprint: "control-files-only-after-153132d"
   last_verification:
     result: pass
-    task: T024
+    task: T025
     commands:
-      - "47 real PostgreSQL 17 schema, migration, runtime, lifecycle, and normalized coverage tests"
-      - "Python 3.11 strict Pyright and 543-test canonical bundle"
+      - "57 real PostgreSQL 17 schema, migration, lifecycle, concurrency, and finding-memory tests"
+      - "Python 3.11 strict Pyright and 552-test canonical bundle"
       - "Node 24 documentation type-check/build, nine route checks, YAML parsing, and diff checks"
-      - "Claude Opus/high implementation gate green at score 8 on iteration 2"
-      - "Live Python bundle run 32571316208 and Publish documentation run 32571316250 green"
+      - "Claude Opus/high implementation gate green at score 8 on iteration 3"
+      - "Live Python bundle run 32665661348 and Publish documentation run 32665661300 green"

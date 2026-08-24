@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypedDict
 
 try:
     from . import memory_publications
@@ -35,6 +36,19 @@ _HISTORICAL_TRUNCATION_NOTICE = (
 class PublicationPart:
     part_number: int
     body: str
+
+
+class HistoricalPublication(TypedDict):
+    review_number: int | None
+    repository: str
+    pr_number: int
+    head_sha: str
+    publication_key: str
+    rendered_markdown: str
+    rendered_blocks_json: str
+    current_findings_count: int
+    superseded_by_review_number: int | None
+    superseded_by_comment_id: int
 
 
 def _part_marker(publication_key: str, part_number: int, total_parts: int) -> str:
@@ -162,7 +176,7 @@ def _comment_url(repository: str, pr_number: int, comment_id: int) -> str:
 
 
 def _historical_content_blocks(
-    publication: memory_publications.PublicationForSupersession,
+    publication: HistoricalPublication,
 ) -> list[str]:
     marker = memory_publications.publication_marker_html(publication["publication_key"])
     blocks_json = publication["rendered_blocks_json"]
@@ -170,6 +184,8 @@ def _historical_content_blocks(
         blocks = review_blocks_from_json(
             blocks_json, fallback_markdown=publication["rendered_markdown"]
         )
+        if review_markdown_from_blocks(blocks) != publication["rendered_markdown"]:
+            raise PublicationDomainError("rendered_blocks_mismatch")
         content = [
             block.markdown.replace(marker, "").strip()
             for block in blocks
@@ -229,7 +245,7 @@ def _fit_historical_chunks(
 
 
 def historical_bodies(
-    publication: memory_publications.PublicationForSupersession,
+    publication: HistoricalPublication,
     *,
     max_comment_bytes: int,
     target_parts: int,
@@ -290,7 +306,7 @@ def historical_bodies(
 
 
 def extra_superseded_body(
-    publication: memory_publications.PublicationForSupersession,
+    publication: HistoricalPublication,
     *,
     part_number: int,
     total_parts: int,

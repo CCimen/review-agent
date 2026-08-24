@@ -15,6 +15,7 @@ from psycopg.types.json import Jsonb
 
 from ..domain.publication import (
     CanonicalPayload,
+    PublicationDomainError,
     PublicationFindingDefinition,
     PublicationFindingOutcome,
     PublicationDelivery,
@@ -25,6 +26,7 @@ from ..domain.publication import (
     PublicationPlan,
     PublicationStatus,
     decode_publication_delivery,
+    resolve_rendered_blocks,
 )
 from ..domain.review import PullRequestId, ReviewRunId
 
@@ -133,6 +135,29 @@ class PublicationClaim:
     acquired: bool
 
 
+@dataclass(frozen=True, slots=True)
+class HistoricalPublication:
+    publication_id: PublicationId
+    review_number: int
+    repository: str
+    pr_number: int
+    head_sha: str
+    publication_key: str
+    rendered_markdown: str
+    rendered_blocks_json: str
+    comment_ids: tuple[int, ...]
+    current_findings_count: int
+    superseding_review_number: int
+    superseding_comment_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class SupersessionResult:
+    publication_id: PublicationId
+    rendered_at: datetime
+    failure_code: str | None
+
+
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
     if connection.info.transaction_status != TransactionStatus.INTRANS:
         raise PublicationStoreError(
@@ -238,7 +263,14 @@ def _stored(
 ) -> StoredPublication:
     part_rows = _part_rows(connection, row.id)
     finding_rows = _finding_rows(connection, row.id)
-    rendered_blocks_json = _canonical_json(row.rendered_blocks)
+    try:
+        rendered_blocks_json = resolve_rendered_blocks(
+            row.rendered_blocks,
+            schema_version=row.rendered_blocks_schema_version,
+            rendered_markdown=row.rendered_markdown,
+        )
+    except PublicationDomainError as exc:
+        raise PublicationConflict("stored rendered blocks are invalid") from exc
     rendered_hash = hashlib.sha256(
         row.rendered_markdown.encode("utf-8")
     ).hexdigest()
@@ -361,6 +393,122 @@ def get_publication(
     if row is None:
         raise PublicationNotFound("publication does not exist")
     return _stored(connection, row)
+
+
+def publication_for_supersession(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    superseding_publication_id: PublicationId,
+) -> HistoricalPublication | None:
+    """Load the oldest pending historical rewrite in a posted publication's PR."""
+    _require_transaction(connection)
+    current = get_publication(connection, superseding_publication_id)
+    if current.status is not PublicationStatus.POSTED:
+        raise InvalidPublicationTransition(
+            "supersession recovery requires a posted publication"
+        )
+    row = connection.execute(
+        """
+        SELECT id, superseded_by_publication_id
+        FROM review_agent.publications
+        WHERE pull_request_id = %s
+          AND superseded_by_publication_id IS NOT NULL
+          AND (
+              supersession_rendered_at IS NULL
+              OR supersession_failure_code IS NOT NULL
+          )
+        ORDER BY (superseded_by_publication_id = %s) DESC, superseded_at, id
+        LIMIT 1
+        """,
+        (current.pull_request_id, superseding_publication_id),
+    ).fetchone()
+    if row is None:
+        return None
+    prior = get_publication(connection, PublicationId(int(row[0])))
+    superseding = get_publication(connection, PublicationId(int(row[1])))
+    if (
+        prior.status is not PublicationStatus.POSTED
+        or superseding.status is not PublicationStatus.POSTED
+    ):
+        raise PublicationConflict("supersession requires two posted publications")
+    issue_parts = tuple(
+        part
+        for part in prior.parts
+        if part.part_type
+        in {PublicationPartType.SUMMARY, PublicationPartType.CONTINUATION}
+    )
+    comment_ids = tuple(
+        part.external_id for part in issue_parts if part.external_id is not None
+    )
+    if len(comment_ids) != len(issue_parts) or not comment_ids:
+        raise PublicationConflict("superseded publication has incomplete comment IDs")
+    superseding_summary = next(
+        (
+            part
+            for part in superseding.parts
+            if part.part_type is PublicationPartType.SUMMARY
+            and part.part_number == 1
+        ),
+        None,
+    )
+    if superseding_summary is None or superseding_summary.external_id is None:
+        raise PublicationConflict("superseding publication has no summary comment")
+    return HistoricalPublication(
+        publication_id=prior.id,
+        review_number=prior.review_number,
+        repository=prior.repository,
+        pr_number=prior.pr_number,
+        head_sha=prior.head_sha,
+        publication_key=prior.plan.publication_key,
+        rendered_markdown=prior.plan.rendered_markdown,
+        rendered_blocks_json=prior.plan.rendered_blocks_json,
+        comment_ids=comment_ids,
+        current_findings_count=sum(
+            finding.outcome is PublicationFindingOutcome.CURRENT
+            for finding in prior.plan.findings
+        ),
+        superseding_review_number=superseding.review_number,
+        superseding_comment_id=superseding_summary.external_id,
+    )
+
+
+def record_supersession_result(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    publication_id: PublicationId,
+    failure_code: str | None,
+) -> SupersessionResult:
+    """Record one completed historical rewrite attempt for a superseded review."""
+    _require_transaction(connection)
+    code = failure_code.strip() if failure_code is not None else None
+    if code is not None and (not code or len(code) > 80):
+        raise PublicationStoreError(
+            "failure_code must contain at most 80 characters"
+        )
+    row = connection.execute(
+        """
+        UPDATE review_agent.publications
+        SET supersession_rendered_at = statement_timestamp(),
+            supersession_failure_code = %s
+        WHERE id = %s
+          AND status = 'posted'
+          AND superseded_by_publication_id IS NOT NULL
+        RETURNING supersession_rendered_at, supersession_failure_code
+        """,
+        (code, publication_id),
+    ).fetchone()
+    if row is None:
+        raise InvalidPublicationTransition(
+            "only a superseded posted publication can record a rewrite result"
+        )
+    rendered_at = row[0]
+    if not isinstance(rendered_at, datetime):
+        raise PublicationConflict("supersession result has no timestamp")
+    return SupersessionResult(
+        publication_id=publication_id,
+        rendered_at=rendered_at,
+        failure_code=str(row[1]) if row[1] is not None else None,
+    )
 
 
 def claim_publication(

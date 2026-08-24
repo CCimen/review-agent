@@ -9,6 +9,10 @@ from typing import Any, Literal, Sequence, TypedDict, cast
 import urllib.parse
 
 try:
+    from .domain.publication import (
+        PUBLICATION_RENDERED_BLOCK_KINDS,
+        PublicationRenderedBlockKind,
+    )
     from .feedback_contract import feedback_templates
     from .memory_validation import (
         FINDING_TEXT_LIMITS,
@@ -24,6 +28,10 @@ try:
         REVIEW_COMMENT_TITLE,
     )
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
+    from domain.publication import (  # type: ignore[no-redef]
+        PUBLICATION_RENDERED_BLOCK_KINDS,
+        PublicationRenderedBlockKind,
+    )
     from feedback_contract import feedback_templates
     from memory_validation import (
         FINDING_TEXT_LIMITS,
@@ -94,16 +102,7 @@ class ReviewCoverageSummary(TypedDict):
     truncated_paths: list[str]
 
 
-ReviewBlockKind = Literal[
-    "header",
-    "finding",
-    "suggestion_help",
-    "unchecked_history",
-    "closed_history",
-    "fix_brief",
-    "feedback_help",
-    "metadata",
-]
+ReviewBlockKind = PublicationRenderedBlockKind
 
 
 @dataclass(frozen=True)
@@ -118,18 +117,7 @@ class RenderedReview:
     blocks: tuple[ReviewBlock, ...]
 
 
-_BLOCK_KINDS = frozenset(
-    {
-        "header",
-        "finding",
-        "suggestion_help",
-        "unchecked_history",
-        "closed_history",
-        "fix_brief",
-        "feedback_help",
-        "metadata",
-    }
-)
+_BLOCK_KINDS = PUBLICATION_RENDERED_BLOCK_KINDS
 _FIX_BRIEF_FINDINGS_PER_BLOCK = 10
 _ACTIVE_URL_SCHEME_RE = re.compile(r"(?i)\b(https?|ftp)://")
 _ACTIVE_WWW_RE = re.compile(r"(?i)\bwww\.")

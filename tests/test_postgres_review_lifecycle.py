@@ -325,6 +325,35 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         self.assertEqual(failed.phase, ReviewPhase.FAILED)
         self.assertEqual(failed.failure_code, "review_failed")
 
+        with self.runtime.transaction() as connection:
+            recorded = postgres_review_runs.record_failure_status_comment(
+                connection,
+                run_id=failed.id,
+                comment_id=8801,
+            )
+            comments = postgres_review_runs.failure_status_comments_for_pull_request(
+                connection,
+                repository="team/reviewer",
+                pr_number=14,
+            )
+        self.assertEqual(recorded.comment_id, 8801)
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(comments[0].run_id, recorded.run_id)
+        self.assertEqual(comments[0].comment_id, recorded.comment_id)
+
+        with self.runtime.transaction() as connection:
+            cleared = postgres_review_runs.clear_failure_status_comment(
+                connection,
+                run_id=failed.id,
+            )
+            comments = postgres_review_runs.failure_status_comments_for_pull_request(
+                connection,
+                repository="team/reviewer",
+                pr_number=14,
+            )
+        self.assertIsNone(cleared.comment_id)
+        self.assertEqual(comments, ())
+
     def test_new_exact_subject_supersedes_the_active_run(self) -> None:
         first = review_run_application.start_postgres_review(
             self.runtime, self.request()

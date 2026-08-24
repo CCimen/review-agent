@@ -8,7 +8,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import NewType, TypeAlias, cast
+from typing import Literal, NewType, TypeAlias, cast
 
 
 JsonValue: TypeAlias = (
@@ -22,6 +22,28 @@ PublicationPartId = NewType("PublicationPartId", int)
 _SHA256_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _LOCAL_REFERENCE_RE = re.compile(r"^F[1-9][0-9]*$")
 PUBLICATION_MARKER_PREFIX = "review-agent:canonical publication="
+PublicationRenderedBlockKind = Literal[
+    "header",
+    "finding",
+    "suggestion_help",
+    "unchecked_history",
+    "closed_history",
+    "fix_brief",
+    "feedback_help",
+    "metadata",
+]
+PUBLICATION_RENDERED_BLOCK_KINDS = frozenset(
+    {
+        "header",
+        "finding",
+        "suggestion_help",
+        "unchecked_history",
+        "closed_history",
+        "fix_brief",
+        "feedback_help",
+        "metadata",
+    }
+)
 
 
 class PublicationDomainError(ValueError):
@@ -427,6 +449,48 @@ def _findings(
     return tuple(sorted(resolved, key=lambda item: item.local_reference))
 
 
+def resolve_rendered_blocks(
+    values: object,
+    *,
+    schema_version: int,
+    rendered_markdown: str,
+) -> str:
+    if schema_version != 1:
+        raise PublicationDomainError("rendered_blocks schema version is unsupported")
+    blocks_json = _canonical_json(values, field="rendered_blocks")
+    decoded: object = json.loads(blocks_json)
+    if not isinstance(decoded, list) or not decoded:
+        raise PublicationDomainError("rendered_blocks must be a non-empty JSON array")
+    markdown_parts: list[str] = []
+    for index, value in enumerate(cast(list[object], decoded)):
+        if not isinstance(value, dict):
+            raise PublicationDomainError(
+                f"rendered_blocks[{index}] must be an object"
+            )
+        item = cast(dict[object, object], value)
+        if set(item) != {"kind", "markdown"}:
+            raise PublicationDomainError(
+                f"rendered_blocks[{index}] must contain kind and markdown"
+            )
+        kind = item["kind"]
+        markdown = item["markdown"]
+        if kind not in PUBLICATION_RENDERED_BLOCK_KINDS:
+            raise PublicationDomainError(
+                f"rendered_blocks[{index}].kind is unsupported"
+            )
+        if not isinstance(markdown, str) or not markdown.strip():
+            raise PublicationDomainError(
+                f"rendered_blocks[{index}].markdown must be text"
+            )
+        markdown_parts.append(markdown.rstrip())
+    reconstructed = "\n\n".join(markdown_parts).rstrip() + "\n"
+    if reconstructed != rendered_markdown:
+        raise PublicationDomainError(
+            "rendered_blocks do not reconstruct rendered_markdown"
+        )
+    return blocks_json
+
+
 def resolve_publication_plan(
     *,
     publication_key: str,
@@ -453,9 +517,11 @@ def resolve_publication_plan(
         rendered_blocks_schema_version,
         field="rendered_blocks_schema_version",
     )
-    blocks_json = _canonical_json(rendered_blocks, field="rendered_blocks")
-    if not isinstance(json.loads(blocks_json), list):
-        raise PublicationDomainError("rendered_blocks must be a JSON array")
+    blocks_json = resolve_rendered_blocks(
+        rendered_blocks,
+        schema_version=blocks_schema_version,
+        rendered_markdown=rendered_markdown,
+    )
     return PublicationPlan(
         publication_key=publication_key,
         rendered_markdown=rendered_markdown,

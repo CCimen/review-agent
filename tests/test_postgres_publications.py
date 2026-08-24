@@ -66,6 +66,8 @@ class FakePostgresPublicationGitHub:
         self.issue_comments_newest_first = False
         self.create_calls = 0
         self.fail_on_create_call: int | None = None
+        self.list_issue_comments_calls = 0
+        self.fail_on_list_call: int | None = None
 
     def _outside_transaction(self) -> None:
         if self.fail_on_call:
@@ -96,7 +98,12 @@ class FakePostgresPublicationGitHub:
         newest_first: bool = False,
     ) -> list[IssueComment]:
         self._outside_transaction()
-        self.issue_comments_newest_first = newest_first
+        self.list_issue_comments_calls += 1
+        if self.fail_on_list_call == self.list_issue_comments_calls:
+            raise GitHubPublicationError("github_unreachable")
+        self.issue_comments_newest_first = (
+            self.issue_comments_newest_first or newest_first
+        )
         comments = list(self.comments)
         return list(reversed(comments)) if newest_first else comments
 
@@ -122,10 +129,24 @@ class FakePostgresPublicationGitHub:
     def update_issue_comment(
         self, repository: str, comment_id: int, body: str
     ) -> IssueComment:
-        raise AssertionError("PostgreSQL publication does not update exact plans")
+        self._outside_transaction()
+        for index, comment in enumerate(self.comments):
+            if comment.comment_id != comment_id:
+                continue
+            updated = IssueComment(
+                comment_id=comment_id,
+                body=body,
+                author_login=comment.author_login,
+            )
+            self.comments[index] = updated
+            return updated
+        raise GitHubPublicationError("comment_not_found")
 
     def delete_issue_comment(self, repository: str, comment_id: int) -> None:
-        raise AssertionError("PostgreSQL publication does not delete exact plans")
+        self._outside_transaction()
+        self.comments = [
+            comment for comment in self.comments if comment.comment_id != comment_id
+        ]
 
     def create_pull_request_review(
         self,
@@ -175,7 +196,10 @@ class PublicationDomainTests(unittest.TestCase):
             publication_key="sha256:" + ("a" * 64),
             rendered_markdown="## Review\n\nExact bytes.\n",
             rendered_blocks_schema_version=1,
-            rendered_blocks=({"markdown": "Exact bytes.", "kind": "summary"},),
+            rendered_blocks=(
+                {"kind": "header", "markdown": "## Review"},
+                {"kind": "finding", "markdown": "Exact bytes."},
+            ),
             parts=(
                 PublicationPartInput(
                     part_type=PublicationPartType.SUMMARY,
@@ -222,15 +246,39 @@ class PublicationDomainTests(unittest.TestCase):
             ).hexdigest(),
         )
 
+    def test_plan_rejects_blocks_outside_the_version_one_renderer_contract(self) -> None:
+        with self.assertRaisesRegex(PublicationDomainError, "kind is unsupported"):
+            resolve_publication_plan(
+                publication_key="sha256:" + ("1" * 64),
+                rendered_markdown="review\n",
+                rendered_blocks_schema_version=1,
+                rendered_blocks=({"kind": "summary", "markdown": "review"},),
+                parts=(
+                    PublicationPartInput(
+                        part_type=PublicationPartType.SUMMARY,
+                        part_number=1,
+                        payload_schema_version=1,
+                        payload={
+                            "body": (
+                                "review\n\n<!-- review-agent:canonical publication="
+                                + ("sha256:" + ("1" * 64))
+                                + " part=1/1 -->"
+                            )
+                        },
+                    ),
+                ),
+                findings=(),
+            )
+
     def test_current_finding_rejects_cross_run_evidence(self) -> None:
         with self.assertRaisesRegex(
             PublicationDomainError, "current finding must not have outcome evidence"
         ):
             resolve_publication_plan(
                 publication_key="sha256:" + ("a" * 64),
-                rendered_markdown="review",
+                rendered_markdown="review\n",
                 rendered_blocks_schema_version=1,
-                rendered_blocks=(),
+                rendered_blocks=({"kind": "header", "markdown": "review"},),
                 parts=(
                     PublicationPartInput(
                         part_type=PublicationPartType.SUMMARY,
@@ -263,9 +311,9 @@ class PublicationDomainTests(unittest.TestCase):
         ):
             resolve_publication_plan(
                 publication_key="sha256:" + ("7" * 64),
-                rendered_markdown="review",
+                rendered_markdown="review\n",
                 rendered_blocks_schema_version=1,
-                rendered_blocks=(),
+                rendered_blocks=({"kind": "header", "markdown": "review"},),
                 parts=(
                     PublicationPartInput(
                         part_type=PublicationPartType.SUMMARY,
@@ -371,16 +419,38 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         batch: review_finding_application.PostgresFindingBatch,
         *,
         key_character: str = "d",
+        detailed_history: bool = False,
     ) -> PublicationPlan:
         finding = batch.items[0]
         publication_key = "sha256:" + (key_character * 64)
+        blocks = (
+            {"kind": "header", "markdown": "## Review"},
+            {"kind": "finding", "markdown": "Exact persisted review."},
+            {"kind": "feedback_help", "markdown": "React to give feedback."},
+            {"kind": "metadata", "markdown": "<!-- review-agent: exact -->"},
+        )
+        if detailed_history:
+            blocks = (
+                {"kind": "header", "markdown": "## Review"},
+                {
+                    "kind": "finding",
+                    "markdown": "First historical evidence.\n\n" + ("A" * 450),
+                },
+                {
+                    "kind": "finding",
+                    "markdown": "Second historical evidence.\n\n" + ("B" * 450),
+                },
+                {"kind": "feedback_help", "markdown": "Stale feedback instructions."},
+                {"kind": "metadata", "markdown": "<!-- stale metadata -->"},
+            )
+        rendered_markdown = "\n\n".join(
+            str(block["markdown"]).rstrip() for block in blocks
+        ).rstrip() + "\n"
         return resolve_publication_plan(
             publication_key=publication_key,
-            rendered_markdown="## Review\n\nExact persisted review.\n",
+            rendered_markdown=rendered_markdown,
             rendered_blocks_schema_version=1,
-            rendered_blocks=(
-                {"kind": "summary", "markdown": "Exact persisted review."},
-            ),
+            rendered_blocks=blocks,
             parts=(
                 PublicationPartInput(
                     part_type=PublicationPartType.SUMMARY,
@@ -520,6 +590,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 self.runtime,
                 publication_id=int(prepared.id),
                 github=github,
+                max_comment_bytes=60_000,
             )
         self.assertEqual(len(github.comments), 1)
 
@@ -528,6 +599,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             publication_id=int(prepared.id),
             github=github,
             recover_posting=True,
+            max_comment_bytes=60_000,
         )
 
         self.assertEqual(recovered.status, "posted")
@@ -541,6 +613,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
+            max_comment_bytes=60_000,
         )
         self.assertEqual(direct.external_ids, (700, 701))
 
@@ -560,6 +633,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
+            max_comment_bytes=60_000,
         )
 
         self.assertEqual(result.status, "posting")
@@ -580,6 +654,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
+            max_comment_bytes=60_000,
         )
         with self.runtime.transaction() as connection:
             failed_run = review_runs.get_run(connection, run_id)
@@ -587,6 +662,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
+            max_comment_bytes=60_000,
         )
         with self.runtime.transaction() as connection:
             completed_run = review_runs.get_run(connection, run_id)
@@ -606,13 +682,16 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         )
         with self.runtime.transaction() as connection:
             first = publications.prepare_publication(
-                connection, run_id=first_run, plan=self.plan(first_batch)
+                connection,
+                run_id=first_run,
+                plan=self.plan(first_batch, detailed_history=True),
             )
         github = FakePostgresPublicationGitHub(self.runtime)
         first_result = review_publication_application.publish_postgres_publication(
             self.runtime,
             publication_id=int(first.id),
             github=github,
+            max_comment_bytes=1_200,
         )
         self.assertEqual(first_result.status, "posted")
 
@@ -629,10 +708,19 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime,
             publication_id=int(second.id),
             github=github,
+            max_comment_bytes=1_200,
         )
         self.assertEqual(second_result.status, "posted")
 
         with self.runtime.transaction() as connection:
+            recorded = connection.execute(
+                """
+                SELECT supersession_rendered_at, supersession_failure_code
+                FROM review_agent.publications
+                WHERE id = %s
+                """,
+                (first.id,),
+            ).fetchone()
             supersession = connection.execute(
                 """
                 SELECT superseded_by_publication_id, superseded_at IS NOT NULL
@@ -642,6 +730,144 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 (first.id,),
             ).fetchone()
         self.assertEqual(supersession, (int(second.id), True))
+        self.assertEqual(second_result.superseded_publication_id, int(first.id))
+        self.assertTrue(second_result.supersession_rendered)
+        self.assertIsNone(second_result.supersession_failure_code)
+        self.assertIsNotNone(recorded)
+        assert recorded is not None
+        self.assertIsNotNone(recorded[0])
+        self.assertIsNone(recorded[1])
+        self.assertIn("Superseded by [Review 2]", github.comments[0].body)
+        self.assertIn("Superseded by [Review 2]", github.comments[1].body)
+        self.assertIn("First historical evidence", github.comments[0].body)
+        self.assertIn("Second historical evidence", github.comments[1].body)
+        self.assertNotIn("Stale feedback instructions", github.comments[0].body)
+        self.assertNotIn("stale metadata", github.comments[0].body)
+        self.assertNotIn("[truncated]", github.comments[0].body)
+
+    def test_missing_historical_comment_records_supersession_failure(self) -> None:
+        first_run, first_batch = self.start_recorded_run(
+            request_key="github:issue-comment:supersession-failure-1"
+        )
+        with self.runtime.transaction() as connection:
+            first = publications.prepare_publication(
+                connection, run_id=first_run, plan=self.plan(first_batch)
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(first.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        missing = github.comments.pop(0)
+        second_run, second_batch = self.start_recorded_run(
+            request_key="github:issue-comment:supersession-failure-2"
+        )
+        with self.runtime.transaction() as connection:
+            second = publications.prepare_publication(
+                connection,
+                run_id=second_run,
+                plan=self.plan(second_batch, key_character="f"),
+            )
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(second.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+
+        with self.runtime.transaction() as connection:
+            result = connection.execute(
+                """
+                SELECT supersession_rendered_at, supersession_failure_code
+                FROM review_agent.publications
+                WHERE id = %s
+                """,
+                (first.id,),
+            ).fetchone()
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIsNotNone(result[0])
+        self.assertEqual(result[1], "superseded_comment_missing")
+
+        github.comments.append(missing)
+        third_run, third_batch = self.start_recorded_run(
+            request_key="github:issue-comment:supersession-failure-3"
+        )
+        with self.runtime.transaction() as connection:
+            third = publications.prepare_publication(
+                connection,
+                run_id=third_run,
+                plan=self.plan(third_batch, key_character="7"),
+            )
+        third_result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(third.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        self.assertTrue(third_result.supersession_rendered)
+        self.assertEqual(third_result.superseded_publication_id, int(second.id))
+        drained = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(third.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        self.assertTrue(drained.supersession_rendered)
+        self.assertEqual(drained.superseded_publication_id, int(first.id))
+        with self.runtime.transaction() as connection:
+            retried = connection.execute(
+                """
+                SELECT supersession_rendered_at, supersession_failure_code
+                FROM review_agent.publications
+                WHERE id = %s
+                """,
+                (first.id,),
+            ).fetchone()
+        self.assertIsNotNone(retried)
+        assert retried is not None
+        self.assertIsNotNone(retried[0])
+        self.assertIsNone(retried[1])
+
+    def test_supersession_list_failure_is_recorded_after_posting(self) -> None:
+        first_run, first_batch = self.start_recorded_run(
+            request_key="github:issue-comment:supersession-list-1"
+        )
+        with self.runtime.transaction() as connection:
+            first = publications.prepare_publication(
+                connection, run_id=first_run, plan=self.plan(first_batch)
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(first.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        second_run, second_batch = self.start_recorded_run(
+            request_key="github:issue-comment:supersession-list-2"
+        )
+        with self.runtime.transaction() as connection:
+            second = publications.prepare_publication(
+                connection,
+                run_id=second_run,
+                plan=self.plan(second_batch, key_character="6"),
+            )
+        github.fail_on_list_call = github.list_issue_comments_calls + 2
+
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(second.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+
+        self.assertEqual(result.status, "posted")
+        self.assertFalse(result.supersession_rendered)
+        self.assertEqual(result.supersession_failure_code, "github_unreachable")
 
     def test_stale_head_is_checked_immediately_before_first_external_write(self) -> None:
         run_id, batch = self.start_recorded_run()
@@ -656,10 +882,92 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
+            max_comment_bytes=60_000,
         )
 
         self.assertEqual(result.status, "stale")
         self.assertEqual(github.comments, [])
+
+    def test_failure_status_is_idempotent_and_cleared_by_a_posted_review(self) -> None:
+        failed_run, _ = self.start_recorded_run(
+            request_key="github:issue-comment:failed-status"
+        )
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection,
+                failed_run,
+                failure_code="review_deliver_error",
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+
+        first = review_publication_application.publish_postgres_run_failure_status(
+            self.runtime,
+            run_id=int(failed_run),
+            github=github,
+        )
+        repeated = review_publication_application.publish_postgres_run_failure_status(
+            self.runtime,
+            run_id=int(failed_run),
+            github=github,
+        )
+
+        self.assertEqual(repeated.comment_id, first.comment_id)
+        self.assertEqual(len(github.comments), 1)
+        with self.runtime.transaction() as connection:
+            stored = review_runs.failure_status_target(connection, failed_run)
+        self.assertEqual(stored.comment_id, first.comment_id)
+
+        posted_run, posted_batch = self.start_recorded_run(
+            request_key="github:issue-comment:posted-after-failure"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection,
+                run_id=posted_run,
+                plan=self.plan(posted_batch, key_character="9"),
+            )
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(prepared.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+
+        self.assertEqual(result.status, "posted")
+        self.assertNotIn(first.comment_id, [item.comment_id for item in github.comments])
+        with self.runtime.transaction() as connection:
+            cleared = review_runs.failure_status_target(connection, failed_run)
+        self.assertIsNone(cleared.comment_id)
+
+        retry_run, _ = self.start_recorded_run(
+            request_key="github:issue-comment:failed-status-retry"
+        )
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection,
+                retry_run,
+                failure_code="review_deliver_error",
+            )
+        retry_status = review_publication_application.publish_postgres_run_failure_status(
+            self.runtime,
+            run_id=int(retry_run),
+            github=github,
+        )
+        direct = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(prepared.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+
+        self.assertEqual(direct.status, "posted")
+        self.assertNotIn(
+            retry_status.comment_id,
+            [item.comment_id for item in github.comments],
+        )
+        with self.runtime.transaction() as connection:
+            retried_cleanup = review_runs.failure_status_target(connection, retry_run)
+        self.assertIsNone(retried_cleanup.comment_id)
 
     def test_structured_suggestion_part_posts_from_the_exact_persisted_payload(
         self,
@@ -671,9 +979,11 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         key = "sha256:" + ("8" * 64)
         plan = resolve_publication_plan(
             publication_key=key,
-            rendered_markdown="review with suggestion",
+            rendered_markdown="review with suggestion\n",
             rendered_blocks_schema_version=1,
-            rendered_blocks=(),
+            rendered_blocks=(
+                {"kind": "header", "markdown": "review with suggestion"},
+            ),
             parts=(
                 PublicationPartInput(
                     part_type=PublicationPartType.SUMMARY,
@@ -727,6 +1037,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime,
             publication_id=int(prepared.id),
             github=github,
+            max_comment_bytes=60_000,
         )
 
         self.assertEqual(result.external_ids, (700, 800))
@@ -870,9 +1181,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
         plan = resolve_publication_plan(
             publication_key="sha256:" + ("9" * 64),
-            rendered_markdown="all outcomes",
+            rendered_markdown="all outcomes\n",
             rendered_blocks_schema_version=1,
-            rendered_blocks=(),
+            rendered_blocks=({"kind": "header", "markdown": "all outcomes"},),
             parts=(
                 PublicationPartInput(
                     part_type=PublicationPartType.SUMMARY,

@@ -75,6 +75,36 @@ RunStart: TypeAlias = StartedRun | DuplicateRun
 
 
 @dataclass(frozen=True, slots=True)
+class FailureStatusTarget:
+    run_id: ReviewRunId
+    repository: str
+    pr_number: int
+    head_sha: str
+    status: ReviewStatus
+    failure_code: str
+    comment_id: int | None
+    posted_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class StoredFailureStatusComment:
+    run_id: ReviewRunId
+    comment_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class _FailureStatusTargetRow:
+    run_id: ReviewRunId
+    repository: str
+    pr_number: int
+    head_sha: str
+    status: str
+    failure_code: str | None
+    comment_id: int | None
+    posted_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class _ReviewRunRow:
     id: ReviewRunId
     pull_request_id: PullRequestId
@@ -200,6 +230,152 @@ def get_run(
     if run is None:
         raise ReviewRunNotFound("review run does not exist")
     return run
+
+
+def _failure_status_row(
+    connection: psycopg.Connection[TupleRow],
+    run_id: ReviewRunId,
+    *,
+    for_update: bool = False,
+) -> _FailureStatusTargetRow | None:
+    lock = " FOR UPDATE OF run" if for_update else ""
+    with connection.cursor(row_factory=class_row(_FailureStatusTargetRow)) as cursor:
+        return cursor.execute(
+            f"""
+            SELECT run.id AS run_id, repository.full_name AS repository,
+                   pull_request.number AS pr_number, subject.head_sha,
+                   run.status, run.failure_code,
+                   run.failure_status_comment_id AS comment_id,
+                   run.failure_status_posted_at AS posted_at
+            FROM review_agent.review_runs AS run
+            JOIN review_agent.pull_requests AS pull_request
+              ON pull_request.id = run.pull_request_id
+            JOIN review_agent.repositories AS repository
+              ON repository.id = pull_request.repository_id
+            JOIN review_agent.review_subjects AS subject
+              ON subject.id = run.review_subject_id
+            WHERE run.id = %s{lock}
+            """,
+            (run_id,),
+        ).fetchone()
+
+
+def _failure_status_target(row: _FailureStatusTargetRow) -> FailureStatusTarget:
+    try:
+        status = ReviewStatus(row.status)
+    except ValueError as exc:
+        raise ReviewRunError("stored review run has an unknown status") from exc
+    if status not in {ReviewStatus.FAILED, ReviewStatus.SUPERSEDED}:
+        raise InvalidReviewTransition("failure status requires a terminal failed run")
+    if row.failure_code is None:
+        raise ReviewRunError("terminal failed run has no failure code")
+    return FailureStatusTarget(
+        run_id=row.run_id,
+        repository=row.repository,
+        pr_number=row.pr_number,
+        head_sha=row.head_sha,
+        status=status,
+        failure_code=row.failure_code,
+        comment_id=row.comment_id,
+        posted_at=row.posted_at,
+    )
+
+
+def failure_status_target(
+    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
+) -> FailureStatusTarget:
+    """Load the exact terminal run targeted by a deterministic status comment."""
+    _require_transaction(connection)
+    row = _failure_status_row(connection, run_id)
+    if row is None:
+        raise ReviewRunNotFound("review run does not exist")
+    return _failure_status_target(row)
+
+
+def record_failure_status_comment(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    comment_id: int,
+) -> FailureStatusTarget:
+    """Persist the provider comment identity after a successful external write."""
+    _require_transaction(connection)
+    if isinstance(comment_id, bool) or comment_id < 1:
+        raise ReviewRunError("comment_id must be positive")
+    row = _failure_status_row(connection, run_id, for_update=True)
+    if row is None:
+        raise ReviewRunNotFound("review run does not exist")
+    _failure_status_target(row)
+    connection.execute(
+        """
+        UPDATE review_agent.review_runs
+        SET failure_status_comment_id = %s,
+            failure_status_posted_at = statement_timestamp()
+        WHERE id = %s
+        """,
+        (comment_id, run_id),
+    )
+    recorded = _failure_status_row(connection, run_id)
+    if recorded is None:
+        raise ReviewRunNotFound("review run disappeared after status recording")
+    return _failure_status_target(recorded)
+
+
+def clear_failure_status_comment(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+) -> FailureStatusTarget:
+    """Forget one prior failure-status comment after its external cleanup."""
+    _require_transaction(connection)
+    row = _failure_status_row(connection, run_id, for_update=True)
+    if row is None:
+        raise ReviewRunNotFound("review run does not exist")
+    _failure_status_target(row)
+    connection.execute(
+        """
+        UPDATE review_agent.review_runs
+        SET failure_status_comment_id = NULL,
+            failure_status_posted_at = NULL
+        WHERE id = %s
+        """,
+        (run_id,),
+    )
+    cleared = _failure_status_row(connection, run_id)
+    if cleared is None:
+        raise ReviewRunNotFound("review run disappeared after status cleanup")
+    return _failure_status_target(cleared)
+
+
+def failure_status_comments_for_pull_request(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    repository: str,
+    pr_number: int,
+) -> tuple[StoredFailureStatusComment, ...]:
+    """List stored failure-status comments for one GitHub pull request."""
+    _require_transaction(connection)
+    if isinstance(pr_number, bool) or pr_number < 1:
+        raise ReviewRunError("pr_number must be positive")
+    with connection.cursor(row_factory=class_row(StoredFailureStatusComment)) as cursor:
+        rows = cursor.execute(
+            """
+            SELECT run.id AS run_id,
+                   run.failure_status_comment_id AS comment_id
+            FROM review_agent.review_runs AS run
+            JOIN review_agent.pull_requests AS pull_request
+              ON pull_request.id = run.pull_request_id
+            JOIN review_agent.repositories AS repository
+              ON repository.id = pull_request.repository_id
+            WHERE repository.provider = 'github'
+              AND lower(repository.full_name) = lower(%s)
+              AND pull_request.number = %s
+              AND run.failure_status_comment_id IS NOT NULL
+            ORDER BY run.id
+            """,
+            (repository.strip(), pr_number),
+        ).fetchall()
+    return tuple(rows)
 
 
 def _same_request(

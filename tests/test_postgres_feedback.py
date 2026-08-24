@@ -179,7 +179,8 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
             rendered_markdown="## Review\n\nExact persisted review.\n",
             rendered_blocks_schema_version=1,
             rendered_blocks=(
-                {"kind": "summary", "markdown": "Exact persisted review."},
+                {"kind": "header", "markdown": "## Review"},
+                {"kind": "finding", "markdown": "Exact persisted review."},
             ),
             parts=(
                 PublicationPartInput(

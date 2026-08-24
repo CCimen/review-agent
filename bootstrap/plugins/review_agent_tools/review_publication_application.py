@@ -25,6 +25,7 @@ try:
     from .memory_validation import ReviewMemoryError, isoformat, utc_now
     from .publication_partition import (
         PublicationPart,
+        HistoricalPublication,
         extra_superseded_body,
         historical_bodies,
         publication_body_size,
@@ -49,6 +50,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
     from memory_validation import ReviewMemoryError, isoformat, utc_now
     from publication_partition import (
         PublicationPart,
+        HistoricalPublication,
         extra_superseded_body,
         historical_bodies,
         publication_body_size,
@@ -56,7 +58,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
     )
     from review_identity import REVIEW_COMMENT_TITLE
 
-_SUGGESTION_RECOVERY_SCAN_PAGES = 10
+_COMMENT_RECOVERY_SCAN_PAGES = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +67,24 @@ class PostgresPublicationResult:
     status: str
     external_ids: tuple[int, ...]
     recovered_parts: int
+    superseded_publication_id: int | None = None
+    supersession_rendered: bool | None = None
+    supersession_failure_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PostgresSupersessionResult:
+    publication_id: int
+    rendered: bool
+    failure_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PostgresFailureStatusResult:
+    run_id: int
+    comment_id: int
+    failure_code: str
+    posted_at: str
 
 
 def _postgres_target_failure(
@@ -79,11 +99,219 @@ def _postgres_target_failure(
     return None
 
 
+def _render_postgres_supersession(
+    runtime: "PostgreSQLRuntime",
+    *,
+    github: GitHubPublicationGateway,
+    superseding_publication_id: int,
+    max_comment_bytes: int,
+) -> PostgresSupersessionResult | None:
+    """Rewrite one prior PostgreSQL publication without holding a checkout."""
+    from .domain.publication import PublicationDomainError, PublicationId
+    from .postgres import publications as postgres_publications
+
+    with runtime.transaction() as connection:
+        historical = postgres_publications.publication_for_supersession(
+            connection,
+            superseding_publication_id=PublicationId(superseding_publication_id),
+        )
+    if historical is None:
+        return None
+
+    partition_input: HistoricalPublication = {
+        "review_number": historical.review_number,
+        "repository": historical.repository,
+        "pr_number": historical.pr_number,
+        "head_sha": historical.head_sha,
+        "publication_key": historical.publication_key,
+        "rendered_markdown": historical.rendered_markdown,
+        "rendered_blocks_json": historical.rendered_blocks_json,
+        "current_findings_count": historical.current_findings_count,
+        "superseded_by_review_number": historical.superseding_review_number,
+        "superseded_by_comment_id": historical.superseding_comment_id,
+    }
+
+    try:
+        comments = github.list_issue_comments(
+            historical.repository,
+            historical.pr_number,
+            max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
+            newest_first=True,
+        )
+        targets = _comments_by_id(comments, list(historical.comment_ids))
+        if len(targets) != len(historical.comment_ids):
+            raise PublicationDomainError("superseded_comment_missing")
+        parts = historical_bodies(
+            partition_input,
+            max_comment_bytes=max_comment_bytes,
+            target_parts=len(targets),
+        )
+        if len(parts) > len(targets):
+            raise GitHubPublicationError("superseded_body_needs_more_parts")
+        for index, target in enumerate(targets):
+            body = (
+                parts[index].body
+                if index < len(parts)
+                else extra_superseded_body(
+                    partition_input,
+                    part_number=index + 1,
+                    total_parts=len(targets),
+                )
+            )
+            if target.body != body:
+                github.update_issue_comment(
+                    historical.repository,
+                    target.comment_id,
+                    body,
+                )
+    except (GitHubPublicationError, PublicationDomainError, ValueError) as exc:
+        code = (
+            exc.code
+            if isinstance(exc, (GitHubPublicationError, PublicationDomainError))
+            else "supersession_failed"
+        )
+        with runtime.transaction() as connection:
+            postgres_publications.record_supersession_result(
+                connection,
+                publication_id=historical.publication_id,
+                failure_code=code,
+            )
+        return PostgresSupersessionResult(
+            publication_id=int(historical.publication_id),
+            rendered=False,
+            failure_code=code,
+        )
+
+    with runtime.transaction() as connection:
+        postgres_publications.record_supersession_result(
+            connection,
+            publication_id=historical.publication_id,
+            failure_code=None,
+        )
+    return PostgresSupersessionResult(
+        publication_id=int(historical.publication_id),
+        rendered=True,
+    )
+
+
+def publish_postgres_run_failure_status(
+    runtime: "PostgreSQLRuntime",
+    *,
+    run_id: int,
+    github: GitHubPublicationGateway,
+) -> PostgresFailureStatusResult:
+    """Publish one deterministic terminal-run status, then persist its ID."""
+    from .domain.review import ReviewRunId
+    from .postgres import review_runs as postgres_review_runs
+
+    resolved_id = ReviewRunId(run_id)
+    with runtime.transaction() as connection:
+        target = postgres_review_runs.failure_status_target(connection, resolved_id)
+    body = _failure_status_body(run_id, target.head_sha, target.failure_code)
+    if target.comment_id is not None:
+        comment = github.update_issue_comment(
+            target.repository,
+            target.comment_id,
+            body,
+        )
+    else:
+        marker = _failure_status_marker(run_id, target.head_sha)
+        existing = next(
+            (
+                item
+                for item in _my_failure_status_comments(
+                    github,
+                    target.repository,
+                    target.pr_number,
+                )
+                if marker in item.body
+            ),
+            None,
+        )
+        comment = (
+            github.update_issue_comment(
+                target.repository,
+                existing.comment_id,
+                body,
+            )
+            if existing is not None
+            else github.create_issue_comment(
+                target.repository,
+                target.pr_number,
+                body,
+            )
+        )
+    with runtime.transaction() as connection:
+        recorded = postgres_review_runs.record_failure_status_comment(
+            connection,
+            run_id=resolved_id,
+            comment_id=comment.comment_id,
+        )
+    if recorded.posted_at is None:
+        raise postgres_review_runs.ReviewRunError(
+            "failure-status comment has no recorded timestamp"
+        )
+    return PostgresFailureStatusResult(
+        run_id=run_id,
+        comment_id=comment.comment_id,
+        failure_code=recorded.failure_code,
+        posted_at=recorded.posted_at.isoformat().replace("+00:00", "Z"),
+    )
+
+
+def _cleanup_postgres_failure_status(
+    runtime: "PostgreSQLRuntime",
+    *,
+    github: GitHubPublicationGateway,
+    repository: str,
+    pr_number: int,
+    scan_markers: bool = True,
+) -> None:
+    """Remove stored and marker-recovered failure statuses after a real review."""
+    from .postgres import review_runs as postgres_review_runs
+
+    with runtime.transaction() as connection:
+        targets = postgres_review_runs.failure_status_comments_for_pull_request(
+            connection,
+            repository=repository,
+            pr_number=pr_number,
+        )
+    deleted: set[int] = set()
+    retained: set[int] = set()
+    for target in targets:
+        try:
+            github.delete_issue_comment(repository, target.comment_id)
+        except GitHubPublicationError as exc:
+            if exc.status != 404:
+                retained.add(target.comment_id)
+                continue
+        deleted.add(target.comment_id)
+        with runtime.transaction() as connection:
+            postgres_review_runs.clear_failure_status_comment(
+                connection,
+                run_id=target.run_id,
+            )
+    if not scan_markers:
+        return
+    try:
+        marker_comments = _my_failure_status_comments(github, repository, pr_number)
+    except GitHubPublicationError:
+        return
+    for comment in marker_comments:
+        if comment.comment_id in deleted or comment.comment_id in retained:
+            continue
+        try:
+            github.delete_issue_comment(repository, comment.comment_id)
+        except GitHubPublicationError:
+            pass
+
+
 def publish_postgres_publication(
     runtime: "PostgreSQLRuntime",
     *,
     publication_id: int,
     github: GitHubPublicationGateway,
+    max_comment_bytes: int,
     recover_posting: bool = False,
 ) -> PostgresPublicationResult:
     """Deliver one prepared PostgreSQL plan without holding a database checkout.
@@ -108,6 +336,19 @@ def publish_postgres_publication(
         claim = postgres_publications.claim_publication(connection, resolved_id)
     publication = claim.publication
     if publication.status is PublicationStatus.POSTED:
+        supersession = _render_postgres_supersession(
+            runtime,
+            github=github,
+            superseding_publication_id=publication_id,
+            max_comment_bytes=max_comment_bytes,
+        )
+        _cleanup_postgres_failure_status(
+            runtime,
+            github=github,
+            repository=publication.repository,
+            pr_number=publication.pr_number,
+            scan_markers=False,
+        )
         return PostgresPublicationResult(
             publication_id=publication_id,
             status=PublicationStatus.POSTED.value,
@@ -117,6 +358,15 @@ def publish_postgres_publication(
                 if part.external_id is not None
             ),
             recovered_parts=0,
+            superseded_publication_id=(
+                supersession.publication_id if supersession is not None else None
+            ),
+            supersession_rendered=(
+                supersession.rendered if supersession is not None else None
+            ),
+            supersession_failure_code=(
+                supersession.failure_code if supersession is not None else None
+            ),
         )
     if not claim.acquired and not recover_posting:
         return PostgresPublicationResult(
@@ -223,7 +473,7 @@ def publish_postgres_publication(
                     listed = github.list_issue_comments(
                         publication.repository,
                         publication.pr_number,
-                        max_pages=_SUGGESTION_RECOVERY_SCAN_PAGES,
+                        max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
                         newest_first=True,
                     )
                     # `setdefault` in recovery keeps this newest match.
@@ -267,7 +517,7 @@ def publish_postgres_publication(
                     review_comments = github.list_pull_request_review_comments(
                         publication.repository,
                         publication.pr_number,
-                        max_pages=_SUGGESTION_RECOVERY_SCAN_PAGES,
+                        max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
                     )
                 matches = [
                     comment
@@ -333,6 +583,18 @@ def publish_postgres_publication(
             publication.review_run_id,
             findings_count=findings_count,
         )
+    supersession = _render_postgres_supersession(
+        runtime,
+        github=github,
+        superseding_publication_id=publication_id,
+        max_comment_bytes=max_comment_bytes,
+    )
+    _cleanup_postgres_failure_status(
+        runtime,
+        github=github,
+        repository=publication.repository,
+        pr_number=publication.pr_number,
+    )
     return PostgresPublicationResult(
         publication_id=publication_id,
         status=posted.status.value,
@@ -340,6 +602,15 @@ def publish_postgres_publication(
             part.external_id for part in posted.parts if part.external_id is not None
         ),
         recovered_parts=recovered,
+        superseded_publication_id=(
+            supersession.publication_id if supersession is not None else None
+        ),
+        supersession_rendered=(
+            supersession.rendered if supersession is not None else None
+        ),
+        supersession_failure_code=(
+            supersession.failure_code if supersession is not None else None
+        ),
     )
 
 
@@ -646,7 +917,7 @@ def _publish_suggestions(
         review_comments = github.list_pull_request_review_comments(
             publication["repository"],
             publication["pr_number"],
-            max_pages=_SUGGESTION_RECOVERY_SCAN_PAGES,
+            max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
         )
         recovered = _recovered_suggestion_comments(
             review_comments,
@@ -701,7 +972,7 @@ def _publish_suggestions(
                     reconciled_comments = github.list_pull_request_review_comments(
                         publication["repository"],
                         publication["pr_number"],
-                        max_pages=_SUGGESTION_RECOVERY_SCAN_PAGES,
+                        max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
                     )
                     reconciled = _recovered_suggestion_comments(
                         reconciled_comments,

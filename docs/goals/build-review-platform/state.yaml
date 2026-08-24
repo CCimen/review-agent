@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Generic product identity and trusted Hermes-native profile selection are complete; operational capacity ceilings are under audit."
+  tranche: "Operational capacity ownership is complete; the full approved-plan audit is active."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 7
+  completed_write_tasks_in_thread: 8
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-24T09:55:34Z"
-  last_verified_revision: "e16163a0d5817a97fd9dd3927089492540294c14"
+  last_verified_revision: "e35946cd2f932058f446c05c1fea26ef7356117e"
 
-active_task: T091
+active_task: T999
 
 tasks:
   - id: T001
@@ -1568,7 +1568,7 @@ tasks:
   - id: T091
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit hard-coded operational capacity ceilings and remove model-era assumptions while retaining explicit provider, storage, and resource-safety bounds."
     constraints:
@@ -1592,11 +1592,22 @@ tasks:
       - "A provider or model capability cannot be discovered or configured without a product decision or a new provider abstraction."
       - "A proposed configurable value can weaken authorization, prompt trust, snapshot enforcement, persistence integrity, or denial-of-service protection."
       - "The implementation requires a generic limits framework, policy engine, dynamic plugin, or administration UI."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T091-capacity-limit-audit.md"
+      summary: "Removed model-era review ceilings, added exact bounded continuation and honest incomplete states, consolidated duplicate owners, and made one complete page-result budget operator-configurable without limiting total review depth."
+      implementation_revision: "e35946cd2f932058f446c05c1fea26ef7356117e"
+      evidence:
+        - "Strict Pyright and the 598-test canonical bundle passed with 71 expected database-environment skips."
+        - "Large diff continuation, provider-owned 3,000-file and 100 MB boundaries, one-file revision caching, low-newline source truncation, and exact-path fallback behavior are covered."
+        - "Nine-document contract, website typecheck, clean Docusaurus build, live Python workflow 32720374050, and Pages build/deploy 32720374018 passed."
+        - "Claude Opus/high session review-agent-t091-capacity-limits reached green at score 8 after verified blocker corrections and a serializer-boundary reframe."
+      spawned_tasks:
+        - T999
   - id: T999
     type: judge
     assignee: Judge
-    status: queued
+    status: active
     reasoning_hint: xhigh
     objective: "Audit the full platform goal against the approved plans and direct owner decisions."
     inputs:
@@ -1616,12 +1627,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-e16163a0"
+  dirty_fingerprint: "goal-control-files-only-after-e35946cd"
   last_verification:
     result: pass
-    task: T090
+    task: T091
     commands:
-      - "Strict Pyright and 588-test canonical bundle"
-      - "Forty-two focused profile, documentation, Dockerfile, and workflow contracts"
-      - "Public nine-document contract, website typecheck, and Docusaurus production build"
-      - "Claude Opus/high session review-agent-t090-generic-profile green at score 8"
+      - "Strict Pyright and 598-test canonical bundle with 71 expected database-environment skips"
+      - "Focused diff, source-page, fallback, capacity, schema, and documentation contracts"
+      - "Public nine-document contract, website typecheck, and clean Docusaurus production build"
+      - "Claude Opus/high session review-agent-t091-capacity-limits green at score 8"
+      - "Live Python bundle 32720374050 and Pages build/deploy 32720374018"

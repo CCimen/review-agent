@@ -15,25 +15,27 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   trusted profile whose SOUL, AGENTS, and reviewed skills cannot merge fixed
   model, tool, route, authorization, snapshot, persistence, marker, or lifecycle
   settings. `sundsvall-standard` remains the packaged municipal profile.
-- T091 is active to audit actual operational capacity ceilings. Identifier
-  regexes remain protocol grammar; arbitrary or duplicated model-era limits do
-  not. Retained provider, storage, and denial-of-service bounds need one owner
-  and rationale.
+- T091 is live at `e35946cd2f932058f446c05c1fea26ef7356117e`.
+  Model-era context and turn ceilings are gone; changed files, diffs, and source
+  reads use pageable or honestly incomplete contracts. One native plugin setting
+  owns complete diff/source page-result capacity, while GitHub, storage, request,
+  publication, and security boundaries remain explicit.
+- T999 is active for the full approved-plan audit. It must compare every direct
+  owner decision and approved plan with current source and receipts, and add
+  bounded implementation tasks if material work remains rather than declaring
+  completion from the existing board count.
 
 ## Execution boundary
 
-- Inventory source-read, changed-file enumeration, diff assembly, suggestion,
-  publication, provider-payload, database-storage, request-body, and resource
-  ceilings before changing any number.
-- Classify each retained limit by owner and rationale. Identifier grammars are
-  protocols; provider/storage/security bounds are not model-context ceilings.
-- Prefer honest incomplete coverage, pagination, streaming, capability-derived
-  values, or one existing typed setting. Delete duplicate/arbitrary caps before
-  adding configuration.
-- Do not expose security/resource ceilings through the deployment profile and do
-  not create a limits framework, provider abstraction, policy engine, or admin UI.
-- Ponytail lite remains active: take the smallest complete capacity correction
-  supported by observable large-input behavior.
+- Keep T999 read-only. Audit `refactor-plan1.md` and the three owner-supplied plan
+  documents against current source, receipts, and direct decisions.
+- The direct PostgreSQL decision supersedes SQLite migration or compatibility
+  proposals: the product is not in production, so remaining SQLite runtime code
+  must be treated as deletion/cutover work, not preserved legacy behavior.
+- Keep deferred security-scanner/Codex Security integration out of completion
+  while its explicit deferral remains active.
+- If the goal is not complete, add only evidence-backed bounded tasks in approved
+  dependency order and activate one. Do not implement during the T999 audit.
 
 ## Continuity
 
@@ -50,7 +52,10 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   `review-agent-t090-generic-profile`, UUID
   `caa28055-7ac5-4923-808a-de58403cd5e8`.
 - T091 now owns actual source/model capacity separately from fixed provider and
-  security ceilings. Start one new Claude Opus/high session only at its stable
-  commit gate or for a genuinely hard classification question.
+  security ceilings. Claude session `review-agent-t091-capacity-limits`, UUID
+  `2a6408f6-5bf1-41da-8e24-bace5b012619`, reached green at score 8 after exact
+  pagination, cache, source-envelope, fallback, and serializer-boundary fixes.
+- T091 live workflows: Python bundle 32720374050 and documentation build/deploy
+  32720374018 passed; Pages was deployed from the same revision.
 - Preserve user-owned `refactor-plan1.md`. Stop all Codex and Claude work by
   23:50 Europe/Stockholm; resume at 06:00.

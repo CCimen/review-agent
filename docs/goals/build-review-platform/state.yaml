@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Crash-safe PostgreSQL publication persistence is complete; generic product identity and bounded Hermes-native profile customization are active."
+  tranche: "Generic product identity and trusted Hermes-native profile selection are complete; operational capacity ceilings are under audit."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 6
+  completed_write_tasks_in_thread: 7
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T09:32:33Z"
-  last_verified_revision: "204c2626c305201414b42fc6a9658400f6236151"
+  last_handoff_at: "2026-08-24T09:55:34Z"
+  last_verified_revision: "e16163a0d5817a97fd9dd3927089492540294c14"
 
-active_task: T090
+active_task: T091
 
 tasks:
   - id: T001
@@ -1528,7 +1528,7 @@ tasks:
   - id: T090
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Generalize the public Review Agent product and make the shipped Hermes deployment profile straightforward to select and customize without weakening fixed runtime invariants."
     constraints:
@@ -1554,11 +1554,21 @@ tasks:
       - "The implementation requires a marketplace, dynamic code loader, generic plugin or template framework, profile inheritance graph, or administration UI."
       - "A profile can alter authorization, platform toolsets, delivery mode, prompt-trust rules, publication markers, persistence, or lifecycle protocols."
       - "Language or presentation cannot vary without weakening deterministic publication or introducing free-form protocol templates; escalate that exact surface instead."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T090-generic-product-profile.md"
+      summary: "Renamed the public product to Review Agent and added a narrow trusted profile selector for Hermes-native identity, rules, presentation, and reviewed skills while retaining sundsvall-standard and fixed runtime invariants."
+      implementation_revision: "e16163a0d5817a97fd9dd3927089492540294c14"
+      evidence:
+        - "Strict Pyright, the 588-test bundle, 42 focused profile/docs/deployment tests, docs contract, site typecheck, and production build passed."
+        - "Unknown, traversal, unsafe-manifest, missing-route-skill, profile-switch, stale-skill, redeploy, and invalid-receipt behavior are covered."
+        - "Claude Opus/high session review-agent-t090-generic-profile converged from score 7 to green at score 8 in one correction and resume."
+      spawned_tasks:
+        - T091
   - id: T091
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Audit hard-coded operational capacity ceilings and remove model-era assumptions while retaining explicit provider, storage, and resource-safety bounds."
     constraints:
@@ -1606,13 +1616,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-204c2626"
+  dirty_fingerprint: "control-files-only-after-e16163a0"
   last_verification:
     result: pass
-    task: T029
+    task: T090
     commands:
-      - "Real PostgreSQL 17 schema and integration contract: 83 tests"
-      - "Strict Pyright and 584-test canonical bundle"
-      - "Active SQLite publication and failure behavior: 59 focused tests"
-      - "Claude Opus/high session review-agent-t029-postgresql-publications green at score 8"
-      - "Documentation contract and website typecheck green"
+      - "Strict Pyright and 588-test canonical bundle"
+      - "Forty-two focused profile, documentation, Dockerfile, and workflow contracts"
+      - "Public nine-document contract, website typecheck, and Docusaurus production build"
+      - "Claude Opus/high session review-agent-t090-generic-profile green at score 8"

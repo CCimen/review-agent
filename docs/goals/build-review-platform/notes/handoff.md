@@ -10,27 +10,30 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   PostgreSQL now owns immutable exact publication plans, finding outcomes, typed
   delivery parts, short claim/ack transactions, retryable partial delivery, and
   publication-scoped crash recovery. No live caller or backend switch exists.
-- T090 is active: make the public product organization-neutral “Review Agent”
-  and add the smallest useful Hermes-native operator profile workflow. Retain
-  `sundsvall-standard` and legitimate `sundsvallskommun` deployment examples.
-- T091 is queued next to audit actual operational capacity ceilings. Identifier
+- T090 is live at `e16163a0d5817a97fd9dd3927089492540294c14`.
+  Public product/site identity is “Review Agent”; the strict installer selects a
+  trusted profile whose SOUL, AGENTS, and reviewed skills cannot merge fixed
+  model, tool, route, authorization, snapshot, persistence, marker, or lifecycle
+  settings. `sundsvall-standard` remains the packaged municipal profile.
+- T091 is active to audit actual operational capacity ceilings. Identifier
   regexes remain protocol grammar; arbitrary or duplicated model-era limits do
   not. Retained provider, storage, and denial-of-service bounds need one owner
   and rationale.
 
 ## Execution boundary
 
-- Generic engine/product copy may change to “Review Agent.” The shipped profile
-  directory and municipal examples are not generic product branding and remain.
-- Use Hermes-native `SOUL.md` for identity/voice, `AGENTS.md` for stable rules,
-  and reviewed skills for procedure. Add only a small validated profile contract
-  where deterministic rendering needs language/presentation values.
-- Profiles cannot alter authorization, tools, prompt trust, snapshots, durable
-  state, delivery routes, markers, provider/model selection, or lifecycle rules.
-- Reuse installer and profile-bundle primitives. Do not add inheritance,
-  marketplace, dynamic loading, template language, plugin framework, or admin UI.
-- Ponytail lite remains active: remove hard-coded product identity and deepen
-  the existing profile owner without creating speculative configuration.
+- Inventory source-read, changed-file enumeration, diff assembly, suggestion,
+  publication, provider-payload, database-storage, request-body, and resource
+  ceilings before changing any number.
+- Classify each retained limit by owner and rationale. Identifier grammars are
+  protocols; provider/storage/security bounds are not model-context ceilings.
+- Prefer honest incomplete coverage, pagination, streaming, capability-derived
+  values, or one existing typed setting. Delete duplicate/arbitrary caps before
+  adding configuration.
+- Do not expose security/resource ceilings through the deployment profile and do
+  not create a limits framework, provider abstraction, policy engine, or admin UI.
+- Ponytail lite remains active: take the smallest complete capacity correction
+  supported by observable large-input behavior.
 
 ## Continuity
 
@@ -42,8 +45,12 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   T090's stable architecture/commit gate.
 - The runtime caller later owns retry/reap policy for interrupted publication.
   PostgreSQL historical supersession rendering remains required before cutover.
-- T090 must remove unnecessary public/code “Sundsvall” product naming while
-  retaining the real Sundsvall deployment profile. T091 then audits actual
-  source/model capacity separately from fixed provider and security ceilings.
+- T090 evidence: strict Pyright, 588-test bundle, 42 focused contracts, docs,
+  site typecheck/build, and Claude Opus/high green at score 8. Session
+  `review-agent-t090-generic-profile`, UUID
+  `caa28055-7ac5-4923-808a-de58403cd5e8`.
+- T091 now owns actual source/model capacity separately from fixed provider and
+  security ceilings. Start one new Claude Opus/high session only at its stable
+  commit gate or for a genuinely hard classification question.
 - Preserve user-owned `refactor-plan1.md`. Stop all Codex and Claude work by
   23:50 Europe/Stockholm; resume at 06:00.

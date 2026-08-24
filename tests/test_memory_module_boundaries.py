@@ -79,10 +79,70 @@ class MemoryModuleBoundaryTests(unittest.TestCase):
         for module in (
             "review_run_application",
             "review_finding_application",
+            "review_publication_application",
         ):
             with self.subTest(module=module):
                 source = (PLUGIN / f"{module}.py").read_text(encoding="utf-8")
                 self.assertFalse(_imports_memory_db_facade(source))
+
+    def test_publication_modules_keep_concrete_ownership_boundaries(self):
+        def imported_roots(relative_path: str) -> set[str]:
+            source = (PLUGIN / relative_path).read_text(encoding="utf-8")
+            roots: set[str] = set()
+            for node in ast.walk(ast.parse(source)):
+                if isinstance(node, ast.Import):
+                    roots.update(alias.name.split(".")[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        roots.add(node.module.split(".")[0])
+                    elif node.level:
+                        roots.update(alias.name.split(".")[0] for alias in node.names)
+            return roots
+
+        boundaries = {
+            "github/publication.py": {
+                "memory_publications",
+                "memory_runs",
+                "memory_suggestions",
+                "review_renderer",
+                "settings",
+                "sqlite3",
+            },
+            "publication_partition.py": {
+                "memory_runs",
+                "memory_suggestions",
+                "settings",
+                "sqlite3",
+                "urllib",
+            },
+            "review_publication_application.py": {
+                "json",
+                "review_publisher",
+                "review_renderer",
+                "settings",
+                "urllib",
+            },
+            "review_publisher.py": {
+                "json",
+                "memory_publications",
+                "memory_runs",
+                "memory_suggestions",
+                "publication_partition",
+                "review_renderer",
+                "urllib",
+            },
+        }
+        for path, forbidden in boundaries.items():
+            with self.subTest(path=path):
+                self.assertTrue(forbidden.isdisjoint(imported_roots(path)))
+
+        self.assertIn("urllib", imported_roots("github/publication.py"))
+        self.assertIn("review_renderer", imported_roots("publication_partition.py"))
+        self.assertIn(
+            "memory_publications",
+            imported_roots("review_publication_application.py"),
+        )
+        self.assertIn("settings", imported_roots("review_publisher.py"))
 
     def test_public_plugin_does_not_import_offline_learning_modules(self):
         for path in sorted(PLUGIN.glob("*.py")):

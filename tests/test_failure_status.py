@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,7 +12,12 @@ from pathlib import Path
 PLUGINS = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGINS))
 
-from review_agent_tools import memory_db, review_publisher  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    memory_db,
+    review_publication_application,
+    review_publisher,
+)
+from review_agent_tools.github import publication as github_publication  # noqa: E402
 
 
 class FakeGateway:
@@ -19,7 +25,7 @@ class FakeGateway:
 
     def __init__(self, *, login: str = "review-agent-bot", comments=None):
         self.login = login
-        self._comments: list[review_publisher.IssueComment] = list(comments or [])
+        self._comments: list[github_publication.IssueComment] = list(comments or [])
         self.created: list[tuple[int, str]] = []
         self.updated: list[tuple[int, str]] = []
         self.deleted: list[int] = []
@@ -30,7 +36,7 @@ class FakeGateway:
 
     def get_pull_request(self, repository: str, pr_number: int):
         del repository, pr_number
-        return review_publisher.PullRequestState(
+        return github_publication.PullRequestState(
             state="open", draft=False, base_sha="b" * 40, head_sha="a" * 40
         )
 
@@ -45,7 +51,7 @@ class FakeGateway:
     def update_issue_comment(self, repository: str, comment_id: int, body: str):
         del repository
         self.updated.append((comment_id, body))
-        return review_publisher.IssueComment(
+        return github_publication.IssueComment(
             comment_id=comment_id, body=body, author_login=self.login
         )
 
@@ -53,7 +59,7 @@ class FakeGateway:
         del repository, issue_number
         self._next_id += 1
         self.created.append((self._next_id, body))
-        comment = review_publisher.IssueComment(
+        comment = github_publication.IssueComment(
             comment_id=self._next_id, body=body, author_login=self.login
         )
         self._comments.append(comment)
@@ -129,6 +135,97 @@ class FailureStatusTests(unittest.TestCase):
         self.assertEqual(run["failure_status_comment_id"], fake.created[0][0])
         self.assertTrue(run["failure_status_posted_at"])
 
+    def test_installed_flat_import_path_posts_failure_status(self):
+        plugin = PLUGINS / "review_agent_tools"
+        tools = Path(__file__).resolve().parents[1] / "tools"
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join((str(plugin), str(tools)))
+        script = r'''
+from contextlib import closing
+from types import SimpleNamespace
+import os
+
+import memory_db
+import review_agent_memory
+
+
+class Gateway:
+    def __init__(self):
+        self.created = []
+
+    def current_user_login(self):
+        return "review-agent-bot"
+
+    def get_pull_request(self, repository, pr_number):
+        del repository, pr_number
+        return SimpleNamespace(
+            state="open", draft=False, base_sha="b" * 40, head_sha="a" * 40
+        )
+
+    def list_issue_comments(self, repository, issue_number, *, max_pages=3):
+        del repository, issue_number, max_pages
+        return []
+
+    def create_issue_comment(self, repository, issue_number, body):
+        del repository, issue_number
+        comment = SimpleNamespace(
+            comment_id=9001, body=body, author_login="review-agent-bot"
+        )
+        self.created.append(comment)
+        return comment
+
+    def update_issue_comment(self, repository, comment_id, body):
+        del repository
+        return SimpleNamespace(
+            comment_id=comment_id, body=body, author_login="review-agent-bot"
+        )
+
+    def delete_issue_comment(self, repository, comment_id):
+        del repository, comment_id
+
+
+database = os.environ["REVIEW_AGENT_DB"]
+with closing(memory_db.connect(database)) as connection:
+    run = memory_db.start_run(
+        connection,
+        "sundsvallskommun/example-repository",
+        12,
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+    )
+    memory_db.complete_run(
+        connection,
+        int(run["id"]),
+        repository="sundsvallskommun/example-repository",
+        pr_number=12,
+        status="failed",
+        failure_code="github_diff_406",
+    )
+
+gateway = Gateway()
+publisher = review_agent_memory.load_review_publisher()
+with closing(memory_db.connect_existing(database)) as connection:
+    result = publisher.publish_run_failure_status(
+        connection,
+        run_id=int(run["id"]),
+        failure_code="github_diff_406",
+        github=gateway,
+    )
+
+assert result["posted"] is True
+assert len(gateway.created) == 1
+assert "review-agent:failure-status" in gateway.created[0].body
+'''
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_publish_failure_status_is_idempotent_stored_id_first(self):
         run_id = self._failed_run()
         fake = FakeGateway()
@@ -153,14 +250,16 @@ class FailureStatusTests(unittest.TestCase):
         # so the recent status comment is on a late page. The deep scan must FIND and
         # UPDATE it, never create a duplicate.
         run_id = self._failed_run()
-        marker = review_publisher._failure_status_marker(run_id, "a" * 40)
+        marker = review_publication_application._failure_status_marker(
+            run_id, "a" * 40
+        )
         fillers = [
-            review_publisher.IssueComment(
+            github_publication.IssueComment(
                 comment_id=i, body=f"chatter {i}", author_login="review-agent-bot"
             )
             for i in range(304)
         ]
-        marker_comment = review_publisher.IssueComment(
+        marker_comment = github_publication.IssueComment(
             comment_id=9999, body=f"earlier status\n{marker}\n", author_login="review-agent-bot"
         )
         fake = FakeGateway(comments=fillers + [marker_comment])
@@ -257,13 +356,15 @@ class FailureStatusTests(unittest.TestCase):
         # A failure-status comment posted in degraded mode has the marker but no stored
         # DB id. The stored-id sweep can't see it; the marker fallback must delete it so a
         # successful retry never leaves a stale failure comment.
-        marker = review_publisher._failure_status_marker(123, "a" * 40)
-        orphan = review_publisher.IssueComment(
+        marker = review_publication_application._failure_status_marker(
+            123, "a" * 40
+        )
+        orphan = github_publication.IssueComment(
             comment_id=4242, body=f"status\n{marker}\n", author_login="review-agent-bot"
         )
         fake = FakeGateway(comments=[orphan])
         with closing(memory_db.connect_existing(self.db)) as conn:
-            review_publisher._cleanup_prior_failure_status(
+            review_publication_application._cleanup_prior_failure_status(
                 conn, fake, "sundsvallskommun/example-repository", 12
             )
         self.assertIn(4242, fake.deleted)

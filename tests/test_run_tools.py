@@ -13,6 +13,7 @@ PLUGINS = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGINS))
 
 from review_agent_tools import memory_db, review_publisher, tools  # noqa: E402
+from review_agent_tools.github import publication as github_publication  # noqa: E402
 
 
 class FakeGitHub:
@@ -34,7 +35,7 @@ class FakeGitHub:
 
     def get_pull_request(self, repository, pr_number):
         del repository, pr_number
-        return review_publisher.PullRequestState(
+        return github_publication.PullRequestState(
             state="open",
             draft=self.draft,
             base_sha=self.base_sha,
@@ -47,7 +48,7 @@ class FakeGitHub:
 
     def update_issue_comment(self, repository, comment_id, body):
         del repository
-        return review_publisher.IssueComment(
+        return github_publication.IssueComment(
             comment_id=comment_id,
             body=body,
             author_login="review-agent-bot",
@@ -57,7 +58,7 @@ class FakeGitHub:
         del repository, issue_number
         self.next_comment_id += 1
         self.created.append(body)
-        return review_publisher.IssueComment(
+        return github_publication.IssueComment(
             comment_id=self.next_comment_id,
             body=body,
             author_login="review-agent-bot",

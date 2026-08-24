@@ -18,9 +18,12 @@ from review_agent_tools import (  # noqa: E402
     memory_db,
     memory_publications,
     memory_suggestions,
+    publication_partition,
+    review_publication_application,
     review_publisher,
     review_renderer,
 )
+from review_agent_tools.github import publication as github_publication  # noqa: E402
 
 
 # Large enough for one atomic coding-agent brief plus modest wording growth, but
@@ -51,8 +54,8 @@ class FakeGitHub:
         base_sha: str = "b" * 40,
         head_sha: str = "a" * 40,
         bot_login: str = "review-agent-bot",
-        comments: list[review_publisher.IssueComment] | None = None,
-        review_comments: list[review_publisher.PullRequestReviewComment] | None = None,
+        comments: list[github_publication.IssueComment] | None = None,
+        review_comments: list[github_publication.PullRequestReviewComment] | None = None,
     ) -> None:
         self.base_sha = base_sha
         self.head_sha = head_sha
@@ -68,7 +71,7 @@ class FakeGitHub:
                 int,
                 str,
                 str,
-                tuple[review_publisher.InlineReviewComment, ...],
+                tuple[github_publication.InlineReviewComment, ...],
             ]
         ] = []
         self.next_comment_id = 1000
@@ -80,9 +83,9 @@ class FakeGitHub:
 
     def get_pull_request(
         self, repository: str, pr_number: int
-    ) -> review_publisher.PullRequestState:
+    ) -> github_publication.PullRequestState:
         del repository, pr_number
-        return review_publisher.PullRequestState(
+        return github_publication.PullRequestState(
             state="open",
             draft=False,
             base_sha=self.base_sha,
@@ -91,7 +94,7 @@ class FakeGitHub:
 
     def get_issue_comment(
         self, repository: str, comment_id: int
-    ) -> review_publisher.IssueComment | None:
+    ) -> github_publication.IssueComment | None:
         del repository
         for comment in self.comments:
             if comment.comment_id == comment_id:
@@ -100,15 +103,15 @@ class FakeGitHub:
 
     def list_issue_comments(
         self, repository: str, issue_number: int, *, max_pages: int = 3
-    ) -> list[review_publisher.IssueComment]:
+    ) -> list[github_publication.IssueComment]:
         del repository, issue_number, max_pages
         return list(self.comments)
 
     def update_issue_comment(
         self, repository: str, comment_id: int, body: str
-    ) -> review_publisher.IssueComment:
+    ) -> github_publication.IssueComment:
         del repository
-        updated = review_publisher.IssueComment(
+        updated = github_publication.IssueComment(
             comment_id=comment_id, body=body, author_login=self.bot_login
         )
         self.comments = [
@@ -119,10 +122,10 @@ class FakeGitHub:
 
     def create_issue_comment(
         self, repository: str, issue_number: int, body: str
-    ) -> review_publisher.IssueComment:
+    ) -> github_publication.IssueComment:
         del repository, issue_number
         self.next_comment_id += 1
-        created = review_publisher.IssueComment(
+        created = github_publication.IssueComment(
             comment_id=self.next_comment_id,
             body=body,
             author_login=self.bot_login,
@@ -145,8 +148,8 @@ class FakeGitHub:
         *,
         commit_id: str,
         body: str,
-        comments: Sequence[review_publisher.InlineReviewComment],
-    ) -> review_publisher.PullRequestReview:
+        comments: Sequence[github_publication.InlineReviewComment],
+    ) -> github_publication.PullRequestReview:
         self.next_review_id += 1
         review_id = self.next_review_id
         frozen_comments = tuple(comments)
@@ -156,7 +159,7 @@ class FakeGitHub:
         for comment in frozen_comments:
             self.next_review_comment_id += 1
             self.review_comments.append(
-                review_publisher.PullRequestReviewComment(
+                github_publication.PullRequestReviewComment(
                     comment_id=self.next_review_comment_id,
                     review_id=review_id,
                     body=comment.body,
@@ -169,7 +172,7 @@ class FakeGitHub:
                     start_side=comment.start_side,
                 )
             )
-        return review_publisher.PullRequestReview(
+        return github_publication.PullRequestReview(
             review_id=review_id,
             body=body,
             author_login=self.bot_login,
@@ -179,7 +182,7 @@ class FakeGitHub:
 
     def list_pull_request_review_comments(
         self, repository: str, pr_number: int, *, max_pages: int = 3
-    ) -> list[review_publisher.PullRequestReviewComment]:
+    ) -> list[github_publication.PullRequestReviewComment]:
         del repository, pr_number, max_pages
         return list(self.review_comments)
 
@@ -192,10 +195,10 @@ class FailingSuggestionGitHub(FakeGitHub):
         *,
         commit_id: str,
         body: str,
-        comments: Sequence[review_publisher.InlineReviewComment],
-    ) -> review_publisher.PullRequestReview:
+        comments: Sequence[github_publication.InlineReviewComment],
+    ) -> github_publication.PullRequestReview:
         del repository, pr_number, commit_id, body, comments
-        raise review_publisher.GitHubPublicationError(
+        raise github_publication.GitHubPublicationError(
             "github_403_create_pull_request_review",
             status=403,
             operation="create_pull_request_review",
@@ -210,8 +213,8 @@ class AmbiguousSuggestionGitHub(FakeGitHub):
         *,
         commit_id: str,
         body: str,
-        comments: Sequence[review_publisher.InlineReviewComment],
-    ) -> review_publisher.PullRequestReview:
+        comments: Sequence[github_publication.InlineReviewComment],
+    ) -> github_publication.PullRequestReview:
         super().create_pull_request_review(
             repository,
             pr_number,
@@ -219,7 +222,7 @@ class AmbiguousSuggestionGitHub(FakeGitHub):
             body=body,
             comments=comments,
         )
-        raise review_publisher.GitHubPublicationError(
+        raise github_publication.GitHubPublicationError(
             "github_http_502_create_pull_request_review",
             status=502,
             operation="create_pull_request_review",
@@ -234,8 +237,8 @@ class AcceptedThenUnreachableSuggestionGitHub(FakeGitHub):
         *,
         commit_id: str,
         body: str,
-        comments: Sequence[review_publisher.InlineReviewComment],
-    ) -> review_publisher.PullRequestReview:
+        comments: Sequence[github_publication.InlineReviewComment],
+    ) -> github_publication.PullRequestReview:
         super().create_pull_request_review(
             repository,
             pr_number,
@@ -243,7 +246,7 @@ class AcceptedThenUnreachableSuggestionGitHub(FakeGitHub):
             body=body,
             comments=comments,
         )
-        raise review_publisher.GitHubPublicationError(
+        raise github_publication.GitHubPublicationError(
             "github_unreachable",
             operation="create_pull_request_review",
         )
@@ -257,7 +260,7 @@ class AdvancingHeadGitHub(FakeGitHub):
 
     def get_pull_request(
         self, repository: str, pr_number: int
-    ) -> review_publisher.PullRequestState:
+    ) -> github_publication.PullRequestState:
         self.pull_reads += 1
         if self.pull_reads >= self.advance_on_call:
             self.head_sha = "c" * 40
@@ -623,10 +626,10 @@ class ReviewPublisherTests(unittest.TestCase):
         stored = memory_suggestions.suggestions_for_publication(
             self.connection, int(publication["publication_id"])
         )[0]
-        existing = review_publisher.PullRequestReviewComment(
+        existing = github_publication.PullRequestReviewComment(
             comment_id=77,
             review_id=88,
-            body=review_publisher._inline_suggestion_body(stored),
+            body=review_publication_application._inline_suggestion_body(stored),
             author_login="review-agent-bot",
             path=stored["path"],
             commit_id="a" * 40,
@@ -998,7 +1001,7 @@ class ReviewPublisherTests(unittest.TestCase):
         )
         body = review_renderer.review_markdown_from_blocks(blocks)
 
-        parts = review_publisher.split_publication_body(
+        parts = publication_partition.split_publication_body(
             body,
             publication_key=publication_key,
             max_comment_bytes=1250,
@@ -1032,9 +1035,9 @@ class ReviewPublisherTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(
-            review_publisher.GitHubPublicationError, "body_too_large"
+            github_publication.GitHubPublicationError, "body_too_large"
         ):
-            review_publisher.split_publication_body(
+            publication_partition.split_publication_body(
                 body,
                 publication_key=publication_key,
                 max_comment_bytes=1250,
@@ -1078,7 +1081,7 @@ class ReviewPublisherTests(unittest.TestCase):
 
     def test_retry_with_larger_budget_deletes_stale_current_parts(self) -> None:
         run, publication = self.generate()
-        split_parts = review_publisher.split_publication_body(
+        split_parts = publication_partition.split_publication_body(
             str(publication["markdown"]),
             publication_key=str(publication["publication_key"]),
             max_comment_bytes=SPLIT_BUDGET,
@@ -1088,7 +1091,7 @@ class ReviewPublisherTests(unittest.TestCase):
         original_ids = [900 + part.part_number for part in split_parts]
         github = FakeGitHub(
             comments=[
-                review_publisher.IssueComment(
+                github_publication.IssueComment(
                     comment_id=comment_id,
                     body=part.body,
                     author_login="review-agent-bot",
@@ -1153,7 +1156,7 @@ class ReviewPublisherTests(unittest.TestCase):
         run, publication = self.generate()
         github = FakeGitHub(
             comments=[
-                review_publisher.IssueComment(
+                github_publication.IssueComment(
                     comment_id=77,
                     body=str(publication["markdown"]),
                     author_login="alice",
@@ -1194,7 +1197,7 @@ class ReviewPublisherTests(unittest.TestCase):
         marker = memory_db.publication_marker(str(publication["publication_key"]))
         github = FakeGitHub(
             comments=[
-                review_publisher.IssueComment(
+                github_publication.IssueComment(
                     comment_id=88,
                     body=f"{publication['markdown']}\n<!-- {marker} -->",
                     author_login="review-agent-bot",
@@ -1313,7 +1316,7 @@ class ReviewPublisherTests(unittest.TestCase):
 
         gateway = review_publisher.GitHubIssueCommentGateway("write-token")
         with mock.patch("urllib.request.urlopen", fake_urlopen):
-            with self.assertRaises(review_publisher.GitHubPublicationError) as error:
+            with self.assertRaises(github_publication.GitHubPublicationError) as error:
                 gateway.create_issue_comment("example-org/example-repository", 240, "review")
 
         self.assertEqual(error.exception.code, "github_403_create_issue_comment")
@@ -1349,13 +1352,13 @@ class ReviewPublisherTests(unittest.TestCase):
             )
 
         comments = [
-            review_publisher.InlineReviewComment(
+            github_publication.InlineReviewComment(
                 path="backend/api.py",
                 body="F1\n```suggestion\nreturn scoped_query\n```",
                 line=42,
                 side="RIGHT",
             ),
-            review_publisher.InlineReviewComment(
+            github_publication.InlineReviewComment(
                 path="frontend/src/client.ts",
                 body="F2\n```suggestion\nconst value = first\nconst ready = true\n```",
                 start_line=7,
@@ -1377,7 +1380,7 @@ class ReviewPublisherTests(unittest.TestCase):
 
         self.assertEqual(
             review,
-            review_publisher.PullRequestReview(
+            github_publication.PullRequestReview(
                 review_id=81,
                 body=review_body,
                 author_login="review-agent-bot",
@@ -1495,14 +1498,14 @@ class ReviewPublisherTests(unittest.TestCase):
 
         gateway = review_publisher.GitHubIssueCommentGateway("write-token")
         with mock.patch("urllib.request.urlopen", fake_urlopen):
-            with self.assertRaises(review_publisher.GitHubPublicationError) as error:
+            with self.assertRaises(github_publication.GitHubPublicationError) as error:
                 gateway.create_pull_request_review(
                     "example-org/example-repository",
                     240,
                     commit_id="a" * 40,
                     body="Optional atomic fix.",
                     comments=[
-                        review_publisher.InlineReviewComment(
+                        github_publication.InlineReviewComment(
                             path="backend/api.py",
                             body="F1\n```suggestion\nreturn scoped_query\n```",
                             line=42,
@@ -1531,14 +1534,14 @@ class ReviewPublisherTests(unittest.TestCase):
 
         gateway = review_publisher.GitHubIssueCommentGateway("write-token")
         with mock.patch("urllib.request.urlopen", fake_urlopen):
-            with self.assertRaises(review_publisher.GitHubPublicationError) as error:
+            with self.assertRaises(github_publication.GitHubPublicationError) as error:
                 gateway.create_pull_request_review(
                     "example-org/example-repository",
                     240,
                     commit_id="a" * 40,
                     body="Optional atomic fix.",
                     comments=[
-                        review_publisher.InlineReviewComment(
+                        github_publication.InlineReviewComment(
                             path="backend/api.py",
                             body="F1\n```suggestion\nreturn scoped_query\n```",
                             line=42,
@@ -1565,14 +1568,14 @@ class ReviewPublisherTests(unittest.TestCase):
         with mock.patch(
             "urllib.request.urlopen", return_value=FakeHTTPResponse(response)
         ):
-            with self.assertRaises(review_publisher.GitHubPublicationError) as error:
+            with self.assertRaises(github_publication.GitHubPublicationError) as error:
                 gateway.create_pull_request_review(
                     "example-org/example-repository",
                     240,
                     commit_id=head_sha,
                     body="Optional atomic fix.",
                     comments=[
-                        review_publisher.InlineReviewComment(
+                        github_publication.InlineReviewComment(
                             path="backend/api.py",
                             body="F1\n```suggestion\nreturn scoped_query\n```",
                             line=42,
@@ -1603,7 +1606,7 @@ class ReviewPublisherTests(unittest.TestCase):
         with mock.patch(
             "urllib.request.urlopen", return_value=FakeHTTPResponse(response)
         ):
-            with self.assertRaises(review_publisher.GitHubPublicationError) as error:
+            with self.assertRaises(github_publication.GitHubPublicationError) as error:
                 gateway.list_pull_request_review_comments("example-org/example-repository", 240)
 
         self.assertEqual(error.exception.code, "github_bad_review_comments_response")
@@ -1633,7 +1636,7 @@ class ReviewPublisherTests(unittest.TestCase):
                 gateway = review_publisher.GitHubIssueCommentGateway("write-token")
                 with mock.patch("urllib.request.urlopen", fake_urlopen):
                     with self.assertRaises(
-                        review_publisher.GitHubPublicationError
+                        github_publication.GitHubPublicationError
                     ) as error:
                         gateway.create_pull_request_review(
                             "example-org/example-repository",
@@ -1641,7 +1644,7 @@ class ReviewPublisherTests(unittest.TestCase):
                             commit_id=head_sha,
                             body="Optional atomic fix.",
                             comments=[
-                                review_publisher.InlineReviewComment(
+                                github_publication.InlineReviewComment(
                                     path="backend/api.py",
                                     body=(
                                         "F1\n```suggestion\nreturn scoped_query\n```"

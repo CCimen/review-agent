@@ -20,6 +20,7 @@ from review_agent_tools import (  # noqa: E402
     source_control,
     tools,
 )
+from review_agent_tools.github import publication as github_publication  # noqa: E402
 import review_agent_tools  # noqa: E402
 
 
@@ -41,7 +42,7 @@ class _FakeGitHub:
 
     def get_pull_request(self, repository, pr_number):
         del repository, pr_number
-        return review_publisher.PullRequestState(
+        return github_publication.PullRequestState(
             state="open",
             draft=False,
             base_sha="b" * 40,
@@ -54,7 +55,7 @@ class _FakeGitHub:
 
     def update_issue_comment(self, repository, comment_id, body):
         del repository, body
-        return review_publisher.IssueComment(
+        return github_publication.IssueComment(
             comment_id=comment_id,
             body="updated",
             author_login="review-agent-bot",
@@ -62,7 +63,7 @@ class _FakeGitHub:
 
     def create_issue_comment(self, repository, issue_number, body):
         del repository, issue_number
-        return review_publisher.IssueComment(
+        return github_publication.IssueComment(
             comment_id=123,
             body=body,
             author_login="review-agent-bot",

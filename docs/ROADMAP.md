@@ -63,6 +63,12 @@ best-effort transaction, and keeps deletion patches valid. A suppressive human
 decision applies only to the exact reviewed context hash, while its decision and
 authorization audit commit or roll back together.
 
+The active SQLite publication path now has separate owners for environment
+composition, lifecycle orchestration, deterministic payload partitioning, and
+GitHub HTTP delivery. This is an internal ownership change only: rendered bytes,
+delivery behavior, and public tool responses are unchanged, and PostgreSQL
+publication persistence remains planned.
+
 Four gates protect the first authoritative PostgreSQL write:
 
 - **Stable finding identity:** fingerprints must use stable local finding fields,
@@ -107,7 +113,7 @@ is not part of this application persistence replacement.
 
 ## Explicitly deferred
 
-Publication ownership changes, trusted project context and policy overlays,
+PostgreSQL publication persistence, trusted project context and policy overlays,
 GitHub App migration, new feedback work, Codex Security, scanner workers, SARIF
 aggregation, and security artifact storage are deferred. Existing security
 controls stay in place, and deterministic scanners should continue to run

@@ -911,14 +911,18 @@ def mark_stale_runs_failed(
         for row in connection.execute(
             """
             UPDATE review_agent.publications
-            SET status = 'publish_failed',
+            SET status = 'failed',
                 posting_started_at = COALESCE(
                     posting_started_at, statement_timestamp()
                 ),
                 publish_failed_at = statement_timestamp(),
-                failure_code = 'stale_timeout'
+                failure_code = 'stale_timeout',
+                delivery_lease_owner = NULL,
+                delivery_lease_expires_at = NULL,
+                delivery_last_heartbeat_at = NULL,
+                delivery_completed_at = statement_timestamp()
             WHERE review_run_id = ANY(%s::bigint[])
-              AND status IN ('generated', 'posting')
+              AND status IN ('generated', 'posting', 'publish_failed')
             RETURNING id
             """,
             ([int(run_id) for run_id in run_ids],),

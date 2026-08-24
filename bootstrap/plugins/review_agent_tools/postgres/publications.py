@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import psycopg
@@ -29,7 +29,7 @@ from ..domain.publication import (
     decode_publication_delivery,
     resolve_rendered_blocks,
 )
-from ..domain.review import PullRequestId, ReviewRunId
+from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
 
 
 class PublicationStoreError(ValueError):
@@ -78,6 +78,12 @@ class StoredPublication:
     plan: PublicationPlan
     status: PublicationStatus
     posting_started_at: datetime | None
+    delivery_attempt_count: int
+    delivery_max_attempts: int
+    delivery_lease_owner: str | None
+    delivery_lease_generation: int
+    delivery_lease_expires_at: datetime | None
+    delivery_recovery_count: int
     parts: tuple[StoredPublicationPart, ...]
 
 
@@ -105,6 +111,12 @@ class _PublicationRow:
     rendered_hash: str
     status: str
     posting_started_at: datetime | None
+    delivery_attempt_count: int
+    delivery_max_attempts: int
+    delivery_lease_owner: str | None
+    delivery_lease_generation: int
+    delivery_lease_expires_at: datetime | None
+    delivery_recovery_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +146,14 @@ class _FindingRow:
 class PublicationClaim:
     publication: StoredPublication
     acquired: bool
+
+
+class PublicationLeaseLost(PublicationStoreError):
+    """A publisher no longer owns the exact delivery generation."""
+
+
+_DIRECT_LEASE_OWNER = "direct-publication-call"
+_DIRECT_LEASE_DURATION = timedelta(minutes=5)
 
 
 @dataclass(frozen=True, slots=True)
@@ -730,6 +750,12 @@ def _stored(
         plan=plan,
         status=PublicationStatus(row.status),
         posting_started_at=row.posting_started_at,
+        delivery_attempt_count=row.delivery_attempt_count,
+        delivery_max_attempts=row.delivery_max_attempts,
+        delivery_lease_owner=row.delivery_lease_owner,
+        delivery_lease_generation=row.delivery_lease_generation,
+        delivery_lease_expires_at=row.delivery_lease_expires_at,
+        delivery_recovery_count=row.delivery_recovery_count,
         parts=tuple(
             StoredPublicationPart(
                 id=item.id,
@@ -766,7 +792,13 @@ def _publication_row(
                    publication.rendered_markdown,
                    publication.rendered_blocks_schema_version,
                    publication.rendered_blocks, publication.rendered_hash,
-                   publication.status, publication.posting_started_at
+                   publication.status, publication.posting_started_at,
+                   publication.delivery_attempt_count,
+                   publication.delivery_max_attempts,
+                   publication.delivery_lease_owner,
+                   publication.delivery_lease_generation,
+                   publication.delivery_lease_expires_at,
+                   publication.delivery_recovery_count
             FROM review_agent.publications AS publication
             JOIN review_agent.pull_requests AS pull_request
               ON pull_request.id = publication.pull_request_id
@@ -910,33 +942,116 @@ def record_supersession_result(
 
 
 def claim_publication(
-    connection: psycopg.Connection[TupleRow], publication_id: PublicationId
+    connection: psycopg.Connection[TupleRow],
+    publication_id: PublicationId,
+    *,
+    lease_owner: str = _DIRECT_LEASE_OWNER,
+    lease_duration: timedelta = _DIRECT_LEASE_DURATION,
+    recover_expired: bool = False,
 ) -> PublicationClaim:
-    """Claim generated delivery once; posting retries reuse the same recovery state."""
+    """Claim one exact delivery or recover it only after its lease expires."""
     _require_transaction(connection)
+    owner = lease_owner.strip()
+    if not owner:
+        raise PublicationStoreError("lease_owner is required")
+    if lease_duration <= timedelta(0):
+        raise PublicationStoreError("lease_duration must be positive")
+    initial = _publication_row(connection, publication_id)
+    if initial is None:
+        raise PublicationNotFound("publication does not exist")
+    from . import review_runs
+
+    run = review_runs.lock_run(connection, initial.review_run_id)
     row = _publication_row(connection, publication_id, for_update=True)
     if row is None:
         raise PublicationNotFound("publication does not exist")
-    if row.status in {
-        PublicationStatus.GENERATED.value,
-        PublicationStatus.PUBLISH_FAILED.value,
-    }:
+    if run.status is not ReviewStatus.RUNNING:
+        stale = run.status is ReviewStatus.SUPERSEDED
+        status = PublicationStatus.STALE if stale else PublicationStatus.FAILED
+        part_status = (
+            PublicationPartStatus.STALE
+            if stale
+            else PublicationPartStatus.PUBLISH_FAILED
+        )
+        failure_code = (
+            "snapshot_superseded" if stale else "review_run_terminal"
+        )
+        connection.execute(
+            """
+            UPDATE review_agent.publication_parts
+            SET status = %s,
+                posting_started_at = COALESCE(
+                    posting_started_at, statement_timestamp()
+                ),
+                failure_at = statement_timestamp(), failure_code = %s
+            WHERE publication_id = %s AND status <> 'posted'
+            """,
+            (part_status.value, failure_code, publication_id),
+        )
         connection.execute(
             """
             UPDATE review_agent.publications
-            SET status = 'posting', posting_started_at = statement_timestamp(),
-                publish_failed_at = NULL, failure_code = NULL
-            WHERE id = %s AND status IN ('generated', 'publish_failed')
+            SET status = %s,
+                posting_started_at = COALESCE(
+                    posting_started_at, statement_timestamp()
+                ),
+                publish_failed_at = statement_timestamp(), failure_code = %s,
+                delivery_lease_owner = NULL,
+                delivery_lease_expires_at = NULL,
+                delivery_last_heartbeat_at = NULL,
+                delivery_completed_at = statement_timestamp()
+            WHERE id = %s
+              AND status IN ('generated', 'posting', 'publish_failed')
             """,
-            (publication_id,),
+            (status.value, failure_code, publication_id),
         )
+        terminal = _publication_row(connection, publication_id)
+        if terminal is None:
+            raise PublicationNotFound("publication disappeared during terminalization")
+        return PublicationClaim(
+            publication=_stored(connection, terminal), acquired=False
+        )
+    clock = connection.execute("SELECT statement_timestamp()").fetchone()
+    if clock is None or not isinstance(clock[0], datetime):
+        raise PublicationStoreError("database clock could not be read")
+    expired = (
+        row.status == PublicationStatus.POSTING.value
+        and row.delivery_lease_expires_at is not None
+        and row.delivery_lease_expires_at <= clock[0]
+    )
+    if row.status in {
+        PublicationStatus.GENERATED.value,
+        PublicationStatus.PUBLISH_FAILED.value,
+    } or (recover_expired and expired):
+        recovered = row.status == PublicationStatus.POSTING.value
+        updated = connection.execute(
+            """
+            UPDATE review_agent.publications
+            SET status = 'posting', posting_started_at = statement_timestamp(),
+                publish_failed_at = NULL, failure_code = NULL,
+                delivery_attempt_count = delivery_attempt_count + 1,
+                delivery_lease_owner = %s,
+                delivery_lease_generation = delivery_lease_generation + 1,
+                delivery_lease_expires_at = statement_timestamp() + %s,
+                delivery_last_heartbeat_at = statement_timestamp(),
+                delivery_recovery_count = delivery_recovery_count + %s
+            WHERE id = %s
+              AND delivery_attempt_count < delivery_max_attempts
+            RETURNING id
+            """,
+            (owner, lease_duration, int(recovered), publication_id),
+        )
+        if updated.fetchone() is None:
+            raise InvalidPublicationTransition(
+                "publication exhausted its delivery attempts"
+            )
         connection.execute(
             """
             UPDATE review_agent.publication_parts
             SET status = 'posting', posting_started_at = statement_timestamp(),
                 failure_at = NULL, failure_code = NULL
             WHERE publication_id = %s
-              AND status IN ('pending', 'publish_failed')
+              AND status IN ('pending', 'posting', 'publish_failed')
             """,
             (publication_id,),
         )
@@ -951,6 +1066,175 @@ def claim_publication(
     )
 
 
+def claim_next_publication(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    lease_owner: str,
+    lease_duration: timedelta,
+) -> PublicationClaim | None:
+    """Claim the oldest ready publication, including an expired delivery."""
+    _require_transaction(connection)
+    terminal = connection.execute(
+        """
+        SELECT publication.id
+        FROM review_agent.publications AS publication
+        JOIN review_agent.review_runs AS run
+          ON run.id = publication.review_run_id
+        WHERE run.status <> 'running'
+          AND publication.status IN ('generated', 'posting', 'publish_failed')
+        ORDER BY publication.id
+        FOR UPDATE OF run SKIP LOCKED
+        LIMIT 1
+        """
+    ).fetchone()
+    if terminal is not None:
+        claim_publication(
+            connection,
+            PublicationId(int(terminal[0])),
+            lease_owner=lease_owner,
+            lease_duration=lease_duration,
+            recover_expired=True,
+        )
+    row = connection.execute(
+        """
+        SELECT publication.id
+        FROM review_agent.publications AS publication
+        JOIN review_agent.review_runs AS run
+          ON run.id = publication.review_run_id
+        WHERE (
+              (
+                publication.status IN ('generated', 'publish_failed')
+                AND publication.delivery_available_at <= statement_timestamp()
+              )
+           OR (
+                publication.status = 'posting'
+                AND publication.delivery_lease_expires_at <= statement_timestamp()
+              )
+              )
+          AND run.status = 'running'
+          AND publication.delivery_attempt_count
+              < publication.delivery_max_attempts
+        ORDER BY COALESCE(
+            publication.delivery_lease_expires_at,
+            publication.delivery_available_at
+        ), publication.id
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return None
+    claim = claim_publication(
+        connection,
+        PublicationId(int(row[0])),
+        lease_owner=lease_owner,
+        lease_duration=lease_duration,
+        recover_expired=True,
+    )
+    return claim if claim.acquired else None
+
+
+def fail_one_expired_exhausted_publication(
+    connection: psycopg.Connection[TupleRow],
+) -> StoredPublication | None:
+    """Terminalize one final-attempt lease abandoned by a dead publisher."""
+    _require_transaction(connection)
+    candidate = connection.execute(
+        """
+        SELECT id, review_run_id
+        FROM review_agent.publications
+        WHERE status = 'posting'
+          AND delivery_lease_expires_at <= statement_timestamp()
+          AND delivery_attempt_count >= delivery_max_attempts
+        ORDER BY delivery_lease_expires_at, id
+        LIMIT 1
+        """
+    ).fetchone()
+    if candidate is None:
+        return None
+    from . import review_runs
+
+    review_runs.lock_run(connection, ReviewRunId(int(candidate[1])))
+    row = connection.execute(
+        """
+        SELECT id
+        FROM review_agent.publications
+        WHERE id = %s AND status = 'posting'
+          AND delivery_lease_expires_at <= statement_timestamp()
+          AND delivery_attempt_count >= delivery_max_attempts
+        FOR UPDATE
+        """,
+        (candidate[0],),
+    ).fetchone()
+    if row is None:
+        return None
+    publication_id = PublicationId(int(row[0]))
+    connection.execute(
+        """
+        UPDATE review_agent.publication_parts
+        SET status = 'publish_failed', failure_at = statement_timestamp(),
+            failure_code = 'publication_attempts_exhausted'
+        WHERE publication_id = %s AND status = 'posting'
+        """,
+        (publication_id,),
+    )
+    connection.execute(
+        """
+        UPDATE review_agent.publications
+        SET status = 'failed', publish_failed_at = statement_timestamp(),
+            failure_code = 'publication_attempts_exhausted',
+            delivery_lease_owner = NULL,
+            delivery_lease_expires_at = NULL,
+            delivery_last_heartbeat_at = NULL,
+            delivery_completed_at = statement_timestamp()
+        WHERE id = %s AND status = 'posting'
+        """,
+        (publication_id,),
+    )
+    return get_publication(connection, publication_id)
+
+
+def heartbeat_publication(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    publication_id: PublicationId,
+    lease_owner: str,
+    lease_generation: int,
+    lease_duration: timedelta,
+) -> StoredPublication:
+    """Extend one live publisher lease generation."""
+    _require_transaction(connection)
+    owner = lease_owner.strip()
+    if not owner or lease_generation < 1 or lease_duration <= timedelta(0):
+        raise PublicationStoreError("a valid publication lease is required")
+    updated = connection.execute(
+        """
+        UPDATE review_agent.publications
+        SET delivery_last_heartbeat_at = statement_timestamp(),
+            delivery_lease_expires_at = statement_timestamp() + %s
+        WHERE id = %s AND status = 'posting'
+          AND delivery_lease_owner = %s
+          AND delivery_lease_generation = %s
+          AND delivery_lease_expires_at > statement_timestamp()
+        RETURNING id
+        """,
+        (lease_duration, publication_id, owner, lease_generation),
+    ).fetchone()
+    if updated is None:
+        raise PublicationLeaseLost("publication delivery lease is no longer current")
+    return get_publication(connection, publication_id)
+
+
+def _require_delivery_lease(
+    row: _PublicationRow, *, lease_owner: str, lease_generation: int
+) -> None:
+    if (
+        row.status != PublicationStatus.POSTING.value
+        or row.delivery_lease_owner != lease_owner
+        or row.delivery_lease_generation != lease_generation
+    ):
+        raise PublicationLeaseLost("publication delivery lease is no longer current")
+
+
 def acknowledge_part(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -959,6 +1243,8 @@ def acknowledge_part(
     part_number: int,
     external_id: int,
     posting_started_at: datetime,
+    lease_owner: str = _DIRECT_LEASE_OWNER,
+    lease_generation: int | None = None,
 ) -> StoredPublicationPart:
     """Persist one provider ID after a successful write or marker recovery."""
     _require_transaction(connection)
@@ -967,6 +1253,14 @@ def acknowledge_part(
     row = _publication_row(connection, publication_id, for_update=True)
     if row is None:
         raise PublicationNotFound("publication does not exist")
+    generation = (
+        row.delivery_lease_generation
+        if lease_generation is None
+        else lease_generation
+    )
+    _require_delivery_lease(
+        row, lease_owner=lease_owner, lease_generation=generation
+    )
     if row.posting_started_at != posting_started_at:
         raise InvalidPublicationTransition("publication posting generation changed")
     matching = [
@@ -1009,6 +1303,8 @@ def complete_publication(
     *,
     publication_id: PublicationId,
     posting_started_at: datetime,
+    lease_owner: str = _DIRECT_LEASE_OWNER,
+    lease_generation: int | None = None,
 ) -> StoredPublication:
     """Mark delivery posted only after every exact part has an external ID."""
     _require_transaction(connection)
@@ -1017,6 +1313,14 @@ def complete_publication(
         raise PublicationNotFound("publication does not exist")
     if row.status == PublicationStatus.POSTED.value:
         return _stored(connection, row)
+    generation = (
+        row.delivery_lease_generation
+        if lease_generation is None
+        else lease_generation
+    )
+    _require_delivery_lease(
+        row, lease_owner=lease_owner, lease_generation=generation
+    )
     if (
         row.status != PublicationStatus.POSTING.value
         or row.posting_started_at != posting_started_at
@@ -1050,7 +1354,11 @@ def complete_publication(
         connection.execute(
             """
             UPDATE review_agent.publications
-            SET status = 'posted', posted_at = statement_timestamp()
+            SET status = 'posted', posted_at = statement_timestamp(),
+                delivery_lease_owner = NULL,
+                delivery_lease_expires_at = NULL,
+                delivery_last_heartbeat_at = NULL,
+                delivery_completed_at = statement_timestamp()
             WHERE id = %s AND status = 'posting'
             """,
             (publication_id,),
@@ -1072,8 +1380,12 @@ def fail_publication(
     posting_started_at: datetime,
     failure_code: str,
     stale: bool = False,
+    retryable: bool = True,
+    retry_delay: timedelta = timedelta(seconds=30),
+    lease_owner: str = _DIRECT_LEASE_OWNER,
+    lease_generation: int | None = None,
 ) -> StoredPublication:
-    """Terminalize the posting generation and all of its unfinished parts."""
+    """Release a retryable delivery or terminalize its exact lease generation."""
     _require_transaction(connection)
     code = failure_code.strip()
     if not code or len(code) > 80:
@@ -1081,12 +1393,31 @@ def fail_publication(
     row = _publication_row(connection, publication_id, for_update=True)
     if row is None:
         raise PublicationNotFound("publication does not exist")
+    generation = (
+        row.delivery_lease_generation
+        if lease_generation is None
+        else lease_generation
+    )
+    _require_delivery_lease(
+        row, lease_owner=lease_owner, lease_generation=generation
+    )
     if (
         row.status != PublicationStatus.POSTING.value
         or row.posting_started_at != posting_started_at
     ):
         raise InvalidPublicationTransition("publication is not in this posting generation")
-    status = PublicationStatus.STALE if stale else PublicationStatus.PUBLISH_FAILED
+    can_retry = retryable and not stale and (
+        row.delivery_attempt_count < row.delivery_max_attempts
+    )
+    status = (
+        PublicationStatus.STALE
+        if stale
+        else (
+            PublicationStatus.PUBLISH_FAILED
+            if can_retry
+            else PublicationStatus.FAILED
+        )
+    )
     part_status = (
         PublicationPartStatus.STALE
         if stale
@@ -1104,10 +1435,20 @@ def fail_publication(
         """
         UPDATE review_agent.publications
         SET status = %s, publish_failed_at = statement_timestamp(),
-            failure_code = %s
+            failure_code = %s,
+            delivery_available_at = CASE
+                WHEN %s THEN statement_timestamp() + %s
+                ELSE delivery_available_at
+            END,
+            delivery_lease_owner = NULL,
+            delivery_lease_expires_at = NULL,
+            delivery_last_heartbeat_at = NULL,
+            delivery_completed_at = CASE
+                WHEN %s THEN NULL ELSE statement_timestamp()
+            END
         WHERE id = %s AND status = 'posting'
         """,
-        (status.value, code, publication_id),
+        (status.value, code, can_retry, retry_delay, can_retry, publication_id),
     )
     failed = _publication_row(connection, publication_id)
     if failed is None:
@@ -1120,9 +1461,17 @@ def prepare_publication(
     *,
     run_id: ReviewRunId,
     plan: PublicationPlan,
+    delivery_max_attempts: int = 3,
+    review_job_id: int | None = None,
+    review_lease_generation: int | None = None,
 ) -> StoredPublication:
     """Atomically freeze one exact plan and advance its run to publishing."""
     _require_transaction(connection)
+    if (
+        isinstance(delivery_max_attempts, bool)
+        or delivery_max_attempts < 1
+    ):
+        raise PublicationStoreError("delivery_max_attempts must be positive")
     scope = _run_scope(connection, run_id)
     existing_id = connection.execute(
         "SELECT id FROM review_agent.publications WHERE review_run_id = %s",
@@ -1134,6 +1483,14 @@ def prepare_publication(
             raise PublicationConflict(
                 "review run already has a different immutable publication plan"
             )
+        from . import jobs as postgres_jobs
+
+        postgres_jobs.handoff_to_publication(
+            connection,
+            review_run_id=run_id,
+            job_id=review_job_id,
+            lease_generation=review_lease_generation,
+        )
         return existing
     if scope.phase != "rendering":
         raise InvalidPublicationTransition(
@@ -1173,9 +1530,10 @@ def prepare_publication(
             INSERT INTO review_agent.publications (
                 pull_request_id, review_run_id, review_number, publication_key,
                 rendered_markdown, rendered_blocks_schema_version,
-                rendered_blocks, rendered_hash, status, generated_at
+                rendered_blocks, rendered_hash, status, generated_at,
+                delivery_available_at, delivery_max_attempts
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'generated',
-                      statement_timestamp())
+                      statement_timestamp(), statement_timestamp(), %s)
             RETURNING id
             """,
             (
@@ -1187,6 +1545,7 @@ def prepare_publication(
                 plan.rendered_blocks_schema_version,
                 Jsonb(json.loads(plan.rendered_blocks_json)),
                 plan.rendered_hash,
+                delivery_max_attempts,
             ),
         ).fetchone()
         if publication_id_row is None:
@@ -1244,6 +1603,14 @@ def prepare_publication(
             raise InvalidPublicationTransition(
                 "review run stopped during publication preparation"
             )
+        from . import jobs as postgres_jobs
+
+        postgres_jobs.handoff_to_publication(
+            connection,
+            review_run_id=run_id,
+            job_id=review_job_id,
+            lease_generation=review_lease_generation,
+        )
     except psycopg.IntegrityError as exc:
         if (
             isinstance(exc, errors.CheckViolation)

@@ -19,22 +19,12 @@ import TabItem from '@theme/TabItem';
 
 ## Runtime shape
 
-```mermaid
-flowchart LR
-    A["GitHub Actions"] -->|"signed /review request"| B["Admission :8644"]
-    B -->|"run + job in one transaction"| P[(PostgreSQL)]
-    W1["Worker 1"] -->|"fair lease"| P
-    W2["Worker 2"] -->|"fair lease"| P
-    W1 --> H["Hermes API :8642"]
-    W2 --> H
-    H -->|"read PR + publish review"| G["GitHub API"]
-    F["Feedback :8645"] --> P
-    F --> G
-```
+![Review Agent runtime: GitHub Actions enters through admission, review workers use Hermes, a separate publisher writes to GitHub, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.png)
 
-Expose admission on port `8644`. Expose feedback on `8645` only when you enable
-feedback. Keep Hermes `8642` and PostgreSQL off the shared proxy network; the
-dedicated egress network lets Hermes reach GitHub and its model provider.
+One box represents one worker type, not one replica. Scale review workers and
+publishers independently. Expose admission on port `8644`; expose feedback on
+`8645` only when enabled. Keep Hermes `8642` and PostgreSQL off the shared proxy
+network.
 
 ## Create the credentials
 
@@ -102,7 +92,7 @@ secret as a GitHub token or database password.
 
 4. Route the review hostname to `review-admission:8644`. Route the optional
    feedback hostname to `hermes-review-feedback:8645`. Do not route
-   `hermes-review`, `review-worker`, or `review-postgres`.
+   `hermes-review`, `review-worker`, `review-publisher`, or `review-postgres`.
 5. Connect the Codex account and restart Hermes:
 
    ```bash
@@ -144,10 +134,12 @@ oc create secret generic review-agent-admission \
   --from-literal=GITHUB_READ_TOKEN="$GITHUB_READ_TOKEN"
 oc create secret generic review-agent-hermes \
   --from-literal=GITHUB_READ_TOKEN="$GITHUB_READ_TOKEN" \
-  --from-literal=REVIEW_AGENT_PUBLISH_GH_TOKEN="$REVIEW_AGENT_PUBLISH_GH_TOKEN" \
   --from-literal=API_SERVER_KEY="$API_SERVER_KEY"
 oc create secret generic review-agent-worker \
   --from-literal=API_SERVER_KEY="$API_SERVER_KEY"
+oc create secret generic review-agent-publisher \
+  --from-literal=GITHUB_READ_TOKEN="$GITHUB_READ_TOKEN" \
+  --from-literal=REVIEW_AGENT_PUBLISH_GH_TOKEN="$REVIEW_AGENT_PUBLISH_GH_TOKEN"
 oc create secret generic review-agent-feedback \
   --from-literal=REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET="$REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET" \
   --from-literal=REVIEW_AGENT_FEEDBACK_GH_TOKEN="$REVIEW_AGENT_FEEDBACK_GH_TOKEN" \
@@ -177,6 +169,7 @@ oc rollout status deployment/hermes-review --timeout=5m
 
 oc scale deployment/review-agent-admission --replicas=1
 oc scale deployment/review-agent-worker --replicas=1
+oc scale deployment/review-agent-publisher --replicas=1
 oc get route review-agent
 ```
 
@@ -239,6 +232,9 @@ docker compose up -d --scale review-worker=3
 # or
 oc scale deployment/review-agent-worker --replicas=3
 ```
+
+Scale `review-publisher` the same way when publication wait time grows. The
+database prevents two publishers from owning the same delivery generation.
 
 Inspect active jobs, release a delayed retry, or cancel the owning run:
 

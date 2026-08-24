@@ -167,6 +167,12 @@ class PublicationReport:
     status: str
     comment_ids: tuple[int, ...]
     failure_code: str | None
+    queue_age_seconds: float
+    delivery_attempt_count: int
+    delivery_max_attempts: int
+    delivery_recovery_count: int
+    delivery_available_at: datetime
+    delivery_lease_expires_at: datetime | None
     generated_at: datetime
     posting_started_at: datetime | None
     posted_at: datetime | None
@@ -305,6 +311,12 @@ class _PublicationReportRow:
     status: str
     comment_ids: list[int]
     failure_code: str | None
+    queue_age_seconds: Decimal
+    delivery_attempt_count: int
+    delivery_max_attempts: int
+    delivery_recovery_count: int
+    delivery_available_at: datetime
+    delivery_lease_expires_at: datetime | None
     generated_at: datetime
     posting_started_at: datetime | None
     posted_at: datetime | None
@@ -920,7 +932,20 @@ def list_publications(
                    repository.full_name AS repository,
                    pull_request.number AS pr_number, publication.status,
                    COALESCE(parts.comment_ids, ARRAY[]::bigint[]) AS comment_ids,
-                   publication.failure_code, publication.generated_at,
+                   publication.failure_code,
+                   GREATEST(
+                       EXTRACT(EPOCH FROM (
+                           COALESCE(publication.delivery_completed_at,
+                                    statement_timestamp())
+                           - publication.generated_at
+                       )), 0
+                   ) AS queue_age_seconds,
+                   publication.delivery_attempt_count,
+                   publication.delivery_max_attempts,
+                   publication.delivery_recovery_count,
+                   publication.delivery_available_at,
+                   publication.delivery_lease_expires_at,
+                   publication.generated_at,
                    publication.posting_started_at, publication.posted_at,
                    publication.publish_failed_at, publication.superseded_at,
                    publication.superseded_by_publication_id,
@@ -974,6 +999,12 @@ def list_publications(
             status=row.status,
             comment_ids=tuple(row.comment_ids),
             failure_code=row.failure_code,
+            queue_age_seconds=float(row.queue_age_seconds),
+            delivery_attempt_count=row.delivery_attempt_count,
+            delivery_max_attempts=row.delivery_max_attempts,
+            delivery_recovery_count=row.delivery_recovery_count,
+            delivery_available_at=row.delivery_available_at,
+            delivery_lease_expires_at=row.delivery_lease_expires_at,
             generated_at=row.generated_at,
             posting_started_at=row.posting_started_at,
             posted_at=row.posted_at,

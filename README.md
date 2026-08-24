@@ -67,19 +67,7 @@ current architecture roadmap.
 
 ## Review Flow
 
-```mermaid
-flowchart TD
-    A["Trusted developer comments /review"] --> B["GitHub Actions allowlist + association gate"]
-    B --> C["HMAC-signed webhook"]
-    C --> D["Atomic admission + PostgreSQL queue"]
-    D --> E["Repository-fair worker lease"]
-    E --> F["Hermes + Codex exact run"]
-    F --> G["Bounded GitHub PR tools"]
-    F --> H["Deterministic renderer + publisher"]
-    H --> I["Structured summary + optional native suggestions"]
-    I --> J["Developer feedback commands"]
-    J --> D
-```
+![Four phases of a review: request and authorize, read and review, verify and publish, then learn on re-review.](website/static/img/review-lifecycle.png)
 
 The model proposes and challenges findings. Plugin code owns the durable state,
 publication, feedback parsing, snapshot checks, and GitHub writes.
@@ -98,7 +86,7 @@ gate pull requests.
 | Review admission | `review_agent_tools.admission`, `compose.yaml`, `examples/github/ai-review-request.yml` | Authenticates requests and commits the exact run plus durable job before Hermes runs. |
 | GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
 | Review state | PostgreSQL database | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
-| Publication | `review_agent_deliver` | Verifies snapshot and writes deterministic PR comments. |
+| Publication | `review_agent_deliver`, publisher worker | Verifies the snapshot, freezes exact parts, and delivers them through a recoverable lease. |
 | Reviewer identity | `bootstrap/profiles/sundsvall-standard/SOUL.md` | Tone, evidence posture, and identity. |
 | Review contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
 | Review procedure | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | Two-pass PR review procedure. |

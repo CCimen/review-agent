@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -77,6 +78,9 @@ def prepare_postgres_publication(
     previous_verdicts: object,
     feedback_enabled: bool,
     max_comment_bytes: int,
+    delivery_max_attempts: int = 3,
+    review_job_id: int | None = None,
+    review_lease_generation: int | None = None,
 ) -> PreparedPostgresPublication:
     """Build and freeze one exact plan in a single bounded transaction."""
     from .domain.publication import (
@@ -125,7 +129,12 @@ def prepare_postgres_publication(
             max_comment_bytes=max_comment_bytes,
         )
         stored = postgres_publications.prepare_publication(
-            connection, run_id=resolved_run_id, plan=planned.plan
+            connection,
+            run_id=resolved_run_id,
+            plan=planned.plan,
+            delivery_max_attempts=delivery_max_attempts,
+            review_job_id=review_job_id,
+            review_lease_generation=review_lease_generation,
         )
     return PreparedPostgresPublication(
         publication_id=int(stored.id),
@@ -362,6 +371,9 @@ def publish_postgres_publication(
     github: GitHubPublicationGateway,
     max_comment_bytes: int,
     recover_posting: bool = False,
+    lease_owner: str | None = None,
+    lease_generation: int | None = None,
+    retry_delay: timedelta = timedelta(seconds=30),
 ) -> PostgresPublicationResult:
     """Deliver one prepared PostgreSQL plan without holding a database checkout.
 
@@ -378,11 +390,40 @@ def publish_postgres_publication(
         extract_publication_key,
     )
     from .postgres import publications as postgres_publications
+    from .postgres import review_runs as postgres_review_runs
 
     resolved_id = PublicationId(publication_id)
     with runtime.transaction() as connection:
-        claim = postgres_publications.claim_publication(connection, resolved_id)
+        if lease_owner is None and lease_generation is None:
+            claim = postgres_publications.claim_publication(
+                connection,
+                resolved_id,
+                recover_expired=recover_posting,
+            )
+        elif lease_owner is not None and lease_generation is not None:
+            publication = postgres_publications.get_publication(
+                connection, resolved_id
+            )
+            if (
+                publication.status is not PublicationStatus.POSTING
+                or publication.delivery_lease_owner != lease_owner
+                or publication.delivery_lease_generation != lease_generation
+            ):
+                raise postgres_publications.PublicationLeaseLost(
+                    "publication delivery lease is no longer current"
+                )
+            claim = postgres_publications.PublicationClaim(
+                publication=publication, acquired=True
+            )
+        else:
+            raise postgres_publications.PublicationStoreError(
+                "lease_owner and lease_generation must be supplied together"
+            )
     publication = claim.publication
+    resolved_lease_owner = (
+        publication.delivery_lease_owner or "direct-publication-call"
+    )
+    resolved_lease_generation = publication.delivery_lease_generation
     if publication.status is PublicationStatus.POSTED:
         supersession = _render_postgres_supersession(
             runtime,
@@ -416,7 +457,7 @@ def publish_postgres_publication(
                 supersession.failure_code if supersession is not None else None
             ),
         )
-    if not claim.acquired and not recover_posting:
+    if not claim.acquired:
         return PostgresPublicationResult(
             publication_id=publication_id,
             status=PublicationStatus.POSTING.value,
@@ -453,6 +494,8 @@ def publish_postgres_publication(
                 part_number=part_number,
                 external_id=external_id,
                 posting_started_at=posting_started_at,
+                lease_owner=resolved_lease_owner,
+                lease_generation=resolved_lease_generation,
             )
 
     def stale_failure() -> str | None:
@@ -486,14 +529,18 @@ def publish_postgres_publication(
 
     def terminalize_stale(failure_code: str) -> PostgresPublicationResult:
         with runtime.transaction() as connection:
+            postgres_review_runs.lock_run(connection, publication.review_run_id)
             postgres_publications.fail_publication(
                 connection,
                 publication_id=resolved_id,
                 posting_started_at=posting_started_at,
                 failure_code=failure_code,
                 stale=True,
+                retryable=False,
+                lease_owner=resolved_lease_owner,
+                lease_generation=resolved_lease_generation,
             )
-            review_run_application.fail_run_in_transaction(
+            review_run_application.fail_run_after_publication_in_transaction(
                 connection,
                 publication.review_run_id,
                 failure_code=failure_code,
@@ -603,12 +650,28 @@ def publish_postgres_publication(
             acknowledge(part.part_type, part.part_number, external_id)
     except GitHubPublicationError as exc:
         with runtime.transaction() as connection:
+            postgres_review_runs.lock_run(connection, publication.review_run_id)
             failed = postgres_publications.fail_publication(
                 connection,
                 publication_id=resolved_id,
                 posting_started_at=posting_started_at,
                 failure_code=exc.code,
+                retryable=(
+                    exc.status is None
+                    or exc.status in {408, 425, 429}
+                    or exc.status >= 500
+                ),
+                retry_delay=retry_delay,
+                lease_owner=resolved_lease_owner,
+                lease_generation=resolved_lease_generation,
             )
+            if failed.status is PublicationStatus.FAILED:
+                review_run_application.fail_run_after_publication_in_transaction(
+                    connection,
+                    publication.review_run_id,
+                    failure_code=exc.code,
+                    findings_count=findings_count,
+                )
         return PostgresPublicationResult(
             publication_id=publication_id,
             status=failed.status.value,
@@ -621,12 +684,15 @@ def publish_postgres_publication(
         )
 
     with runtime.transaction() as connection:
+        postgres_review_runs.lock_run(connection, publication.review_run_id)
         posted = postgres_publications.complete_publication(
             connection,
             publication_id=resolved_id,
             posting_started_at=posting_started_at,
+            lease_owner=resolved_lease_owner,
+            lease_generation=resolved_lease_generation,
         )
-        review_run_application.complete_run_in_transaction(
+        review_run_application.complete_run_after_publication_in_transaction(
             connection,
             publication.review_run_id,
             findings_count=findings_count,
@@ -696,6 +762,9 @@ _FAILURE_REASONS = {
     ),
     failure_codes.JOB_EXECUTION_FAILED: (
         "the review worker encountered a non-retryable execution failure"
+    ),
+    failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED: (
+        "the publisher exhausted its configured recovery attempts"
     ),
 }
 

@@ -74,6 +74,7 @@ class WorkerLeaseSession:
 class ReviewJobStatus(str, Enum):
     QUEUED = "queued"
     LEASED = "leased"
+    AWAITING_PUBLICATION = "awaiting_publication"
     SUPERSEDED = "superseded"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -435,7 +436,7 @@ def enqueue_run(
     )
     active_count = connection.execute(
         "SELECT count(*) FROM review_agent.review_jobs "
-        "WHERE status IN ('queued', 'leased')"
+        "WHERE status IN ('queued', 'leased', 'awaiting_publication')"
     ).fetchone()
     if active_count is None or not isinstance(active_count[0], int):
         raise ReviewJobError("active review-job count could not be read")
@@ -657,6 +658,52 @@ def fail_claimed_job(
     return JobFailureResult(job=job, run_failure_code=run_failure_code)
 
 
+def handoff_to_publication(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    review_run_id: ReviewRunId,
+    job_id: int | None,
+    lease_generation: int | None,
+) -> ReviewJob | None:
+    """Release the exact review lease after its publication intent is durable."""
+    _require_transaction(connection)
+    if job_id is None and lease_generation is None:
+        return None
+    if job_id is None or lease_generation is None:
+        raise ReviewJobError("job_id and lease_generation must be supplied together")
+    resolved_job_id = _integer(job_id, field="job_id", minimum=1)
+    generation = _integer(
+        lease_generation, field="lease_generation", minimum=1
+    )
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            UPDATE review_agent.review_jobs
+            SET status = 'awaiting_publication',
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                last_heartbeat_at = NULL,
+                failure_code = NULL
+            WHERE id = %s
+              AND review_run_id = %s
+              AND status = 'leased'
+              AND lease_generation = %s
+              AND lease_expires_at > statement_timestamp()
+            RETURNING {_JOB_COLUMNS}
+            """,
+            (resolved_job_id, review_run_id, generation),
+        ).fetchone()
+    if row is None:
+        raise ReviewJobLeaseLost(get_job(connection, resolved_job_id))
+    publication = connection.execute(
+        "SELECT id FROM review_agent.publications WHERE review_run_id = %s",
+        (review_run_id,),
+    ).fetchone()
+    if publication is None:
+        raise ReviewJobError("publication intent must exist before job handoff")
+    return _job(row)
+
+
 def reconcile_run_jobs(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -688,7 +735,7 @@ def reconcile_run_jobs(
                 failure_code = %s,
                 completed_at = statement_timestamp()
             WHERE review_run_id = ANY(%s::bigint[])
-              AND status IN ('queued', 'leased')
+              AND status IN ('queued', 'leased', 'awaiting_publication')
             RETURNING {_JOB_COLUMNS}
             """,
             (job_status.value, job_failure_code, [int(item) for item in run_ids]),

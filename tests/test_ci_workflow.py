@@ -75,6 +75,9 @@ concurrency:
             "--entrypoint /usr/local/bin/review-agent-worker", source
         )
         self.assertIn(
+            "--entrypoint /usr/local/bin/review-agent-publisher", source
+        )
+        self.assertIn(
             "--entrypoint /usr/local/bin/review-agent-hermes-contract", source
         )
         for duplicated_command in (
@@ -143,12 +146,12 @@ class MigrationReadinessDocumentationTests(unittest.TestCase):
         ):
             self.assertIn(current_invariant, normalized_roadmap)
 
-        for planned_reliability in (
+        for current_reliability in (
             "exact-run continuation",
-            "Activate durable request admission",
-            "recoverable outbox worker",
+            "activated through signed admission",
+            "recoverable publisher lease",
         ):
-            self.assertIn(planned_reliability, normalized_roadmap)
+            self.assertIn(current_reliability, normalized_roadmap)
         self.assertNotIn(
             "Typed ownership and trusted project context come before PostgreSQL",
             homepage,

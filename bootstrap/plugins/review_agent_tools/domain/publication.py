@@ -59,6 +59,7 @@ class PublicationStatus(StrEnum):
     POSTING = "posting"
     POSTED = "posted"
     PUBLISH_FAILED = "publish_failed"
+    FAILED = "failed"
     STALE = "stale"
 
 

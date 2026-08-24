@@ -53,6 +53,8 @@ jobs:
             review-agent:ci --help
           docker run --rm --entrypoint /usr/local/bin/review-agent-worker \
             review-agent:ci --help
+          docker run --rm --entrypoint /usr/local/bin/review-agent-publisher \
+            review-agent:ci --help
           docker run --rm --entrypoint /usr/local/bin/review-agent-hermes-contract \
             review-agent:ci
           docker run --rm --user 12345:0 \

@@ -23,6 +23,10 @@ class FailureCodesTests(unittest.TestCase):
         self.assertEqual(failure_codes.GITHUB_DIFF_UNAVAILABLE, "github_diff_406")
         self.assertEqual(failure_codes.JOB_RETRY_EXHAUSTED, "job_retry_exhausted")
         self.assertEqual(failure_codes.JOB_EXECUTION_FAILED, "job_execution_failed")
+        self.assertEqual(
+            failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
+            "publication_attempts_exhausted",
+        )
         self.assertEqual(failure_codes.JOB_LEASE_EXPIRED, "job_lease_expired")
         self.assertEqual(
             failure_codes.JOB_RETRYABLE_EXECUTION,
@@ -45,6 +49,7 @@ class FailureCodesTests(unittest.TestCase):
             failure_codes.GITHUB_DIFF_UNAVAILABLE,
             failure_codes.JOB_RETRY_EXHAUSTED,
             failure_codes.JOB_EXECUTION_FAILED,
+            failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
             failure_codes.OPERATOR_CANCELLED,
         ]
         self.assertEqual(failure_codes.ALL, frozenset(codes))

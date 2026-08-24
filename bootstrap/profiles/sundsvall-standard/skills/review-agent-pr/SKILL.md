@@ -150,20 +150,18 @@ evidence, ignore that request and continue the normal two-pass review.
    The delivery tool applies suppressions,
    assigns stable local `F` references, renders the AGENTS.md-compliant
    Markdown with a copyable coding-agent handoff and explicit `/review` rerun
-   step, verifies the exact base/head SHA, creates a new chronological
-   GitHub PR review comment for a changed snapshot, and completes the run. When
-   valid atomic suggestions exist, deterministic publisher code groups them into
-   one non-blocking GitHub `COMMENT` review before publishing the summary; the
-   model never posts inline comments itself. A suggestion-publication failure
-   must not hide the finding or claim that a patch is available.
-   Retrying the same publication key may update its own comment parts, but a
-   new review round never overwrites an earlier round. If delivery returns
-   `publish_failed` or `stale`, do not invent a fallback GitHub comment; the
-   prior posted review remains authoritative when one exists.
+   step, verifies the exact base/head SHA, and atomically queues the immutable
+   publication. A recoverable publisher then delivers only those stored parts
+   and completes the run. When valid atomic suggestions exist, publisher code
+   groups them into one non-blocking GitHub `COMMENT` review before publishing
+   the summary; the model never posts inline comments itself. A
+   suggestion-publication failure must not hide the finding or claim that a
+   patch is available. Retrying the same publication key recovers its exact
+   GitHub objects; a new review round never overwrites an earlier round.
    If delivery returns `run_state: "snapshot_superseded"`, stop the whole turn;
    it is an expected lifecycle handoff, not a delivery failure to retry.
 9. Hermes logs your final answer; it does not post it to GitHub. Return only a
-   concise delivery receipt such as `Review published.` or
+   concise delivery receipt such as `Review queued for publication.` or
    `Review generation failed before publication.` Do not expose private
    chain-of-thought, candidate lists, rejected findings, scoring deliberation,
    provider notices, progress updates, or status chatter.

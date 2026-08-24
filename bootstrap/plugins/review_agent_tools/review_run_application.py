@@ -210,6 +210,46 @@ def fail_run_in_transaction(
     return run
 
 
+def complete_run_after_publication_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    run_id: ReviewRunId,
+    *,
+    findings_count: int,
+) -> postgres_review_runs.ReviewRun:
+    """Complete a live run, or preserve a concurrently terminal run."""
+    current = postgres_review_runs.lock_run(connection, run_id)
+    if current.status is not ReviewStatus.RUNNING:
+        postgres_jobs.reconcile_run_jobs(
+            connection, run_ids=(current.id,), status=current.status
+        )
+        return current
+    return complete_run_in_transaction(
+        connection, run_id, findings_count=findings_count
+    )
+
+
+def fail_run_after_publication_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    run_id: ReviewRunId,
+    *,
+    failure_code: str,
+    findings_count: int | None = None,
+) -> postgres_review_runs.ReviewRun:
+    """Fail a live run, or preserve a concurrently terminal run."""
+    current = postgres_review_runs.lock_run(connection, run_id)
+    if current.status is not ReviewStatus.RUNNING:
+        postgres_jobs.reconcile_run_jobs(
+            connection, run_ids=(current.id,), status=current.status
+        )
+        return current
+    return fail_run_in_transaction(
+        connection,
+        run_id,
+        failure_code=failure_code,
+        findings_count=findings_count,
+    )
+
+
 def mark_superseded_in_transaction(
     connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
 ) -> postgres_review_runs.ReviewRun:

@@ -19,13 +19,11 @@ const config: Config = {
     locales: ['en'],
   },
   markdown: {
-    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: 'throw',
       onBrokenMarkdownImages: 'throw',
     },
   },
-  themes: ['@docusaurus/theme-mermaid'],
   presets: [
     [
       'classic',

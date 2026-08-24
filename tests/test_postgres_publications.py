@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import threading
 import unittest
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg
@@ -40,9 +42,14 @@ from review_agent_tools.github.publication import (  # noqa: E402
     PullRequestState,
 )
 from review_agent_tools.postgres import publications  # noqa: E402
+from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres import review_runs  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
+from review_agent_tools.publisher import (  # noqa: E402
+    PublicationWorker,
+    PublisherPolicy,
+)
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 
 
@@ -667,6 +674,227 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             acquired = list(executor.map(lambda _: claim(), range(2)))
         self.assertEqual(sorted(acquired), [False, True])
 
+    def test_expired_delivery_reclaims_with_a_new_fenced_generation(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:delivery-reclaim"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch)
+            )
+        with self.runtime.transaction() as connection:
+            first = publications.claim_next_publication(
+                connection,
+                lease_owner="publisher-one",
+                lease_duration=timedelta(seconds=30),
+            )
+        assert first is not None
+        self.assertEqual(first.publication.id, prepared.id)
+        self.assertEqual(first.publication.delivery_lease_generation, 1)
+
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE review_agent.publications
+                SET delivery_lease_expires_at = statement_timestamp()
+                    - INTERVAL '1 second'
+                WHERE id = %s
+                """,
+                (prepared.id,),
+            )
+        with self.runtime.transaction() as connection:
+            reclaimed = publications.claim_next_publication(
+                connection,
+                lease_owner="publisher-two",
+                lease_duration=timedelta(seconds=30),
+            )
+        assert reclaimed is not None
+        self.assertEqual(reclaimed.publication.delivery_lease_generation, 2)
+        self.assertEqual(reclaimed.publication.delivery_recovery_count, 1)
+
+        with self.assertRaises(publications.PublicationLeaseLost):
+            with self.runtime.transaction() as connection:
+                publications.heartbeat_publication(
+                    connection,
+                    publication_id=prepared.id,
+                    lease_owner="publisher-one",
+                    lease_generation=1,
+                    lease_duration=timedelta(seconds=30),
+                )
+
+    def test_terminal_run_publication_is_retired_without_github_delivery(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:terminal-publication"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch)
+            )
+            review_run_application.mark_superseded_in_transaction(
+                connection, run_id
+            )
+
+        github = FakePostgresPublicationGitHub(self.runtime)
+        worker = PublicationWorker(
+            self.runtime,
+            github,
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=30),
+                heartbeat_interval=timedelta(seconds=5),
+                retry_delay=timedelta(seconds=1),
+                poll_interval=timedelta(milliseconds=10),
+                max_comment_bytes=60_000,
+            ),
+            lease_owner="terminal-run-test",
+            stop_event=threading.Event(),
+        )
+        worker.run(once=True)
+
+        with self.runtime.transaction() as connection:
+            retired = publications.get_publication(connection, prepared.id)
+        self.assertEqual(retired.status, publications.PublicationStatus.STALE)
+        self.assertEqual(github.comments, [])
+
+    def test_expired_final_attempt_fails_publication_and_run(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:exhausted-publication"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection,
+                run_id=run_id,
+                plan=self.plan(batch),
+                delivery_max_attempts=1,
+            )
+            claimed = publications.claim_publication(
+                connection,
+                prepared.id,
+                lease_owner="dead-publisher",
+                lease_duration=timedelta(seconds=30),
+            )
+            connection.execute(
+                """
+                UPDATE review_agent.publications
+                SET delivery_lease_expires_at = statement_timestamp()
+                    - INTERVAL '1 second'
+                WHERE id = %s
+                """,
+                (prepared.id,),
+            )
+        self.assertTrue(claimed.acquired)
+
+        worker = PublicationWorker(
+            self.runtime,
+            FakePostgresPublicationGitHub(self.runtime),
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=30),
+                heartbeat_interval=timedelta(seconds=5),
+                retry_delay=timedelta(seconds=1),
+                poll_interval=timedelta(milliseconds=10),
+                max_comment_bytes=60_000,
+            ),
+            lease_owner="recovery-publisher",
+            stop_event=threading.Event(),
+        )
+        worker.run(once=True)
+
+        with self.runtime.transaction() as connection:
+            failed = publications.get_publication(connection, prepared.id)
+            failed_run = review_runs.get_run(connection, run_id)
+        self.assertEqual(failed.status, publications.PublicationStatus.FAILED)
+        self.assertEqual(failed_run.status, ReviewStatus.FAILED)
+        self.assertEqual(
+            failed_run.failure_code, "publication_attempts_exhausted"
+        )
+
+    def test_stale_sweep_clears_an_active_publication_lease(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:stale-publication-lease"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch)
+            )
+            publications.claim_publication(
+                connection,
+                prepared.id,
+                lease_owner="stale-publisher",
+                lease_duration=timedelta(minutes=5),
+            )
+            stale_at = datetime(2026, 8, 20, tzinfo=timezone.utc)
+            connection.execute(
+                """
+                UPDATE review_agent.review_runs
+                SET started_at = %s, last_heartbeat_at = %s
+                WHERE id = %s
+                """,
+                (stale_at, stale_at, run_id),
+            )
+            recovered = review_run_application.mark_stale_runs_failed_in_transaction(
+                connection,
+                cutoff=datetime(2026, 8, 24, tzinfo=timezone.utc),
+                repository=None,
+                pr_number=None,
+            )
+            failed = publications.get_publication(connection, prepared.id)
+
+        self.assertEqual(recovered, (run_id,))
+        self.assertEqual(failed.status, publications.PublicationStatus.FAILED)
+        self.assertIsNone(failed.delivery_lease_owner)
+        self.assertIsNone(failed.delivery_lease_expires_at)
+
+    def test_publication_intent_and_review_job_handoff_are_atomic(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:publication-handoff"
+        )
+        with self.runtime.transaction() as connection:
+            enqueued = jobs.enqueue_run(
+                connection,
+                review_run_id=run_id,
+                priority=0,
+                max_attempts=3,
+                active_job_limit=10,
+            )
+        with self.runtime.transaction() as connection:
+            claimed = jobs.claim_next_job(
+                connection,
+                lease_owner="review-worker",
+                lease_duration=timedelta(seconds=30),
+                priority_aging_interval=timedelta(minutes=15),
+            )
+        assert claimed is not None
+        self.assertEqual(claimed.id, enqueued.job.id)
+
+        with self.assertRaises(jobs.ReviewJobLeaseLost):
+            with self.runtime.transaction() as connection:
+                publications.prepare_publication(
+                    connection,
+                    run_id=run_id,
+                    plan=self.plan(batch),
+                    review_job_id=claimed.id,
+                    review_lease_generation=claimed.lease_generation + 1,
+                )
+        with self.runtime.transaction() as connection:
+            publication_count = connection.execute(
+                "SELECT count(*) FROM review_agent.publications WHERE review_run_id = %s",
+                (run_id,),
+            ).fetchone()
+        self.assertEqual(publication_count, (0,))
+
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection,
+                run_id=run_id,
+                plan=self.plan(batch),
+                review_job_id=claimed.id,
+                review_lease_generation=claimed.lease_generation,
+            )
+            handed_off = jobs.get_job(connection, claimed.id)
+        self.assertEqual(prepared.status, publications.PublicationStatus.GENERATED)
+        self.assertEqual(
+            handed_off.status, jobs.ReviewJobStatus.AWAITING_PUBLICATION
+        )
+
     def test_process_death_after_github_success_recovers_marker_without_duplicate(
         self,
     ) -> None:
@@ -686,6 +914,17 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 max_comment_bytes=60_000,
             )
         self.assertEqual(len(github.comments), 1)
+
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE review_agent.publications
+                SET delivery_lease_expires_at = statement_timestamp()
+                    - INTERVAL '1 second'
+                WHERE id = %s
+                """,
+                (prepared.id,),
+            )
 
         recovered = review_publication_application.publish_postgres_publication(
             self.runtime,

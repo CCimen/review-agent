@@ -1117,10 +1117,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 pull_request_id, review_run_id, review_number, publication_key,
                 rendered_markdown, rendered_blocks_schema_version,
                 rendered_blocks, rendered_hash, status, generated_at,
-                posting_started_at, posted_at
+                posting_started_at, posted_at, delivery_completed_at
             ) VALUES (
                 %d, %d, 1, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
-                'posted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                'posted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
             ) RETURNING id;
             """
                 % (pull_request_id, first_run, "b" * 64, "e" * 64)
@@ -1184,10 +1185,11 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 pull_request_id, review_run_id, review_number, publication_key,
                 rendered_markdown, rendered_blocks_schema_version,
                 rendered_blocks, rendered_hash, status, generated_at,
-                posting_started_at, posted_at
+                posting_started_at, posted_at, delivery_completed_at
             ) VALUES (
                 %d, %d, 2, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
-                'posted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                'posted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
             );
             """
             % (pull_request_id, second_run, "c" * 64, "f" * 64),
@@ -1421,10 +1423,10 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 pull_request_id, review_run_id, review_number, publication_key,
                 rendered_markdown, rendered_blocks_schema_version,
                 rendered_blocks, rendered_hash, status,
-                generated_at
+                generated_at, delivery_completed_at
             ) VALUES (
                 %d, %d, 2, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
-                'stale', CURRENT_TIMESTAMP
+                'stale', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
             """
             % (pull_request_id, run_id, "f" * 64, "0" * 64),
@@ -1436,11 +1438,12 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 pull_request_id, review_run_id, review_number, publication_key,
                 rendered_markdown, rendered_blocks_schema_version,
                 rendered_blocks, rendered_hash, status, generated_at,
-                posting_started_at, publish_failed_at, failure_code
+                posting_started_at, publish_failed_at, failure_code,
+                delivery_completed_at
             ) VALUES (
                 %d, %d, 2, 'sha256:%s', 'review', 1, '[]'::jsonb, '%s',
                 'stale', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
-                CURRENT_TIMESTAMP, 'stale_head'
+                CURRENT_TIMESTAMP, 'stale_head', CURRENT_TIMESTAMP
             );
             """
             % (pull_request_id, run_id, "f" * 64, "0" * 64)

@@ -35,7 +35,6 @@ from .postgres.runtime import (
     PostgreSQLRuntimeRole,
 )
 from .postgres.coverage import FileIndexSummary, RunFile, RunFilePage
-from .domain.publication import PublicationPartType
 from .domain.review import ReviewRunId
 from .github.publication import GitHubIssueCommentGateway
 
@@ -1661,6 +1660,8 @@ def _publish_failure_status_safe(*, run_id: int, failure_code: str) -> None:
 
     Never masks the primary error; the out-of-band reaper is the durable catch-all for
     runs that abort before reaching this path (e.g. loop-guard or turn-cap aborts)."""
+    if not settings.ReviewAgentSettings.from_environment().github_publish_token:
+        return
     try:
         del failure_code
         review_publication_application.publish_postgres_run_failure_status(
@@ -1668,12 +1669,16 @@ def _publish_failure_status_safe(*, run_id: int, failure_code: str) -> None:
             run_id=run_id,
             github=_github_publication_gateway(),
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "Run %s failure-status publication was deferred: %s",
+            run_id,
+            exc,
+        )
 
 
 @_worker_lease_fence()
-def review_deliver(args: dict[str, Any], **_: Any) -> str:
+def review_deliver(args: dict[str, Any], **context: Any) -> str:
     repository = ""
     number = 0
     run_id = 0
@@ -1710,78 +1715,31 @@ def review_deliver(args: dict[str, Any], **_: Any) -> str:
         if pull.get("state") != "open":
             raise ToolInputError("the pull request is no longer open")
         configured = settings.ReviewAgentSettings.from_environment()
+        lease = postgres_jobs.WorkerLeaseSession.parse(context.get("session_id"))
         prepared = review_publication_application.prepare_postgres_publication(
             _postgres_runtime(),
             run_id=run_id,
             previous_verdicts=args.get("previous_verdicts"),
             feedback_enabled=configured.feedback_enabled,
             max_comment_bytes=configured.publish_max_bytes,
+            delivery_max_attempts=configured.publication_max_attempts,
+            review_job_id=lease.job_id if lease is not None else None,
+            review_lease_generation=(
+                lease.lease_generation if lease is not None else None
+            ),
         )
-        published = review_publication_application.publish_postgres_publication(
-            _postgres_runtime(),
-            publication_id=prepared.publication_id,
-            github=_github_publication_gateway(),
-            max_comment_bytes=configured.publish_max_bytes,
-        )
-        if published.status == "posted":
-            suggestion_review_ids = tuple(
-                part.external_id
-                for part in published.published_parts
-                if part.part_type is PublicationPartType.SUGGESTION_REVIEW
-            )
-            if len(suggestion_review_ids) > 1:
-                raise ToolInputError("posted publication has multiple suggestion reviews")
-            suggestion_review_id = (
-                suggestion_review_ids[0] if suggestion_review_ids else None
-            )
-            comment_ids = tuple(
-                part.external_id
-                for part in published.published_parts
-                if part.part_type in {
-                    PublicationPartType.SUMMARY,
-                    PublicationPartType.CONTINUATION,
-                }
-            )
-            if not comment_ids:
-                raise ToolInputError("posted publication has no summary comment")
-            return _output(
-                {
-                    "stage": "delivered",
-                    "published": True,
-                    "run_id": run_id,
-                    "publication_id": prepared.publication_id,
-                    "delivery_status": published.status,
-                    "comment_id": comment_ids[0],
-                    "comment_ids": list(comment_ids),
-                    "findings_count": prepared.findings_count,
-                    "suggestions_count": prepared.suggestions_count,
-                    "suggestions_published": suggestion_review_id is not None,
-                    "suggestion_delivery_status": (
-                        "posted" if suggestion_review_id is not None else "none"
-                    ),
-                    "suggestion_review_id": suggestion_review_id,
-                    "resolved_count": prepared.resolved_count,
-                    "ignored_previous_verdicts": list(
-                        prepared.ignored_previous_verdicts
-                    ),
-                }
-            )
-
         return _output(
             {
-                "stage": (
-                    "publishing" if published.status == "posting" else "publish_failed"
-                ),
+                "stage": "queued_for_publication",
                 "published": False,
                 "run_id": run_id,
                 "publication_id": prepared.publication_id,
-                "delivery_status": published.status,
+                "delivery_status": "generated",
                 "findings_count": prepared.findings_count,
+                "suggestions_count": prepared.suggestions_count,
                 "resolved_count": prepared.resolved_count,
-                "retryable": published.status in {"posting", "publish_failed"},
-                "operator_hint": (
-                    "Run `review-agent-memory publications --repo "
-                    f"{repository} --pr {number}` to inspect the publication ledger."
+                "ignored_previous_verdicts": list(
+                    prepared.ignored_previous_verdicts
                 ),
             }
         )

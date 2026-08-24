@@ -41,16 +41,25 @@ missing permission or org approval path.
 `.env.example` contains the deployable defaults. These settings control queue
 load and worker behavior:
 
-| Name | Required | Default | Notes |
-| --- | --- | --- | --- |
-| `REVIEW_AGENT_ACTIVE_JOB_LIMIT` | no | `100` | Maximum queued plus leased jobs. Admission returns HTTP 429 at capacity. |
-| `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS` | no | `900` | Wait time that offsets one priority point. |
-| `REVIEW_AGENT_JOB_MAX_ATTEMPTS` | no | `3` | Attempt budget before dead letter. |
-| `REVIEW_AGENT_JOB_LEASE_SECONDS` | no | `120` | Lease duration for one worker generation. |
-| `REVIEW_AGENT_JOB_HEARTBEAT_SECONDS` | no | `30` | Heartbeat period; it must stay below half the lease. |
-| `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS` | no | `7200` | Maximum duration of one Hermes API request. |
-| `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` | no | `8` | Concurrent signed admission requests per process. |
-| `REVIEW_AGENT_PUBLISH_MAX_BYTES` | no | `60000` | Bytes per GitHub comment part, not a finding cap. |
+All values are optional and have deployable defaults:
+
+- `REVIEW_AGENT_ACTIVE_JOB_LIMIT` — default `100`. Maximum queued, leased, and
+  publication-waiting reviews; admission returns HTTP 429 at capacity.
+- `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS` — default `900`. Wait time that
+  offsets one priority point.
+- `REVIEW_AGENT_JOB_MAX_ATTEMPTS` — default `3`. Review-worker attempt budget.
+- `REVIEW_AGENT_JOB_LEASE_SECONDS` / `REVIEW_AGENT_JOB_HEARTBEAT_SECONDS` —
+  defaults `120` / `30`. Keep the heartbeat below half the lease.
+- `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS` — default `7200`. Maximum duration of
+  one Hermes request.
+- `REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS` — default `3`. Attempt budget frozen
+  with each publication before the publisher claims it.
+- `REVIEW_AGENT_PUBLICATION_LEASE_SECONDS` /
+  `REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS` — defaults `120` / `30`.
+- `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` — default `8`. Concurrent
+  signed admission requests per process.
+- `REVIEW_AGENT_PUBLISH_MAX_BYTES` — default `60000`. Bytes per GitHub comment
+  part, not a finding cap.
 
 Use one database per environment. The example Compose network keeps PostgreSQL
 private and uses this service-local URL shape:

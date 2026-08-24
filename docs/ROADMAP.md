@@ -29,12 +29,12 @@ last_verified: 2026-08-24
   connections.
 - Durable PostgreSQL job records with atomic lease claims, exact heartbeats,
   bounded retry and dead-letter transitions, expiry recovery, and atomic
-  review-run reconciliation. They are not yet connected to the live request
-  path.
-- A concrete serial worker in the image with exact-run continuation,
+  review-run reconciliation, activated through signed admission.
+- Replicable review workers with exact-run continuation,
   generation-fenced tool calls, per-lease Hermes idempotency, graceful stop, and
-  process-boundary tests. It is deliberately not deployed until admission and
-  operator controls activate with it.
+  process-boundary tests.
+- Immutable publication intent and exact parts delivered through a separate
+  recoverable publisher lease, including marker-based ambiguous-write recovery.
 - Repository-scoped exports with an operator-selected per-table row budget.
 - One validated deployment-profile selector with `sundsvall-standard` as the
   shipped municipal profile. Profiles own voice, stable rules, presentation,
@@ -44,17 +44,8 @@ last_verified: 2026-08-24
 PostgreSQL owns application persistence. Hermes `HERMES_HOME` remains separate
 profile-local runtime state.
 
-## Remaining reliability work
-
-1. Activate durable request admission and the proven worker together, with fast
-   acknowledgement, old-head cancellation, fairness, and operator controls.
-2. Persist publication intent and exact payloads atomically, then deliver them
-   through a recoverable outbox worker without holding database connections
-   during GitHub calls.
-
 ## Planned platform capabilities
 
-- activated durable workers and an outbox for external delivery;
 - GitHub App installation tokens and webhook-based repository lifecycle;
 - trusted base-branch `.github/review-agent.yaml` and `AGENTS.md` context;
 - operator-facing repository and policy management;

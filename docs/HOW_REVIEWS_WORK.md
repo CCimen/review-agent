@@ -10,23 +10,13 @@ last_verified: 2026-08-24
 # How reviews work
 
 > **Current** — This page describes the live request, review, persistence, and
-> publication path. Durable worker activation and the GitHub App remain planned
-> work.
+> publication path. A GitHub App remains planned work.
 
 The reviewer separates model reasoning from authorization, state transitions,
 and GitHub writes. The model can investigate and propose findings; deterministic
 code decides what snapshot is valid and how stored results reach GitHub.
 
-```mermaid
-flowchart LR
-    A[Request] --> B[Authorize]
-    B --> C[Read exact snapshot]
-    C --> D[Review and challenge]
-    D --> E[Record findings]
-    E --> F[Recheck snapshot]
-    F --> G[Publish]
-    G --> H[Feedback and re-review]
-```
+![Four phases of a review: request and authorize, read and review, verify and publish, then learn on re-review.](../website/static/img/review-lifecycle.png)
 
 ## Request and authorize
 
@@ -63,21 +53,23 @@ large output predictably. Optional GitHub suggestions are published only when
 their range and current content still match and each patch is local and safe to
 apply independently.
 
-The model has no arbitrary GitHub mutation tool. Publication uses the dedicated
-publisher token through a narrow gateway.
+The model has no arbitrary GitHub mutation tool. It freezes the exact publication
+parts in PostgreSQL. A separate publisher claims that durable intent, writes only
+those parts with the dedicated token, and records each GitHub ID independently.
+If the process stops after GitHub accepts a write, marker recovery finds the same
+object instead of creating a duplicate.
 
-## Prepared durable execution
+## Durable execution
 
-The image includes a serial worker that claims PostgreSQL jobs with
+Each review worker claims PostgreSQL jobs with
 `FOR UPDATE SKIP LOCKED`, heartbeats one exact lease generation, and continues
 the assigned run through Hermes' authenticated chat API. A reclaimed generation
 uses a new request identity and fenced tool session. Retries within one
 generation remain idempotent, while PostgreSQL rejects the next mutable tool
 entry from an older generation after it loses its lease. Each operation keeps
-its own transactional guards, and the publication owner separately prevents
-duplicate delivery. This worker is tested but is
-not yet connected to the public request path; the current webhook still runs
-the review directly.
+its own transactional guards. The publisher uses a separate fenced lease so a
+slow GitHub request never holds a database transaction. Both worker types can be
+replicated; PostgreSQL coordinates claims and recovery.
 
 ## Learn from explicit feedback
 

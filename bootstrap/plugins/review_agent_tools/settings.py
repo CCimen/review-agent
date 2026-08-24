@@ -83,6 +83,23 @@ class ReviewAgentSettings:
             ) from exc
         return max(MIN_PUBLISH_MAX_BYTES, min(value, MAX_PUBLISH_MAX_BYTES))
 
+    @property
+    def publication_max_attempts(self) -> int:
+        raw = self.environment.get(
+            "REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS", "3"
+        ).strip()
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise SettingsError(
+                "REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS must be an integer"
+            ) from exc
+        if value < 1:
+            raise SettingsError(
+                "REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS must be positive"
+            )
+        return value
+
     def policy_revision(self, explicit: str | None = None) -> str:
         raw = explicit or self.environment.get(
             "REVIEW_AGENT_POLICY_REVISION", DEFAULT_POLICY_REVISION

@@ -10,63 +10,58 @@
   PostgreSQL application persistence and controlled backup/restore are proven.
 - T105 is complete at `4042ddf0d03fec8d538241775caeb0e3aead12bc`.
   Durable jobs are one-to-one extensions of run-owned acceptance identity, with
-  atomic fenced claim, queued supersession, and recovery-safe lease history.
+  atomic fenced claim, queued supersession, and recoverable lease history.
 - T106 is complete at `a73b6a2ee265231712bb912784f5392c2a9aff3a`.
-  Exact heartbeat, bounded retry/dead-letter recovery, and atomic two-way
-  run/job reconciliation are proven without activating a worker.
+  Exact heartbeat, retry/dead-letter recovery, and two-way run/job reconciliation
+  are proven.
 - T110 is complete at `aabbb7bda0851b688620dcec3044502f58802a1f`.
-  One non-deployed serial worker now has exact-run continuation, isolated
-  heartbeats, bounded retry, graceful stop, and pinned Hermes generation-fence
-  proof.
-- T107 is the sole active task: activate durable admission and the proven worker
-  with old-head cancellation, per-repository fairness, priority aging, operator
-  queue controls, and concise deployment/readiness guidance.
+  The serial worker has exact-run continuation, isolated heartbeats, bounded
+  retry, graceful stop, and pinned Hermes generation-fence proof.
+- T107 is complete at `f9dc0f6eed0097814335d4e02753b018d3359460`.
+  Signed admission atomically creates runs/jobs; fair workers, operator controls,
+  private runtime networking, Compose-based deployment, and arbitrary-UID
+  OpenShift are active and documented.
+- T108 is the sole active task: persist publication readiness and outbox intent
+  atomically, then deliver exact stored parts through one recoverable publisher.
 - Public identity is “Review Agent.” `sundsvall-standard` remains a selectable
-  municipal profile, not the product identity. Model-era review-depth ceilings
-  are gone; pageable or honestly incomplete contracts own large inputs.
+  municipal profile. PostgreSQL is the only application persistence contract.
 
-## T107 execution boundary
+## T108 execution boundary
 
-- Activate the authenticated internal Hermes API and worker only with real
-  durable ingress and readiness. Reuse the concrete worker and PostgreSQL job
-  owner; do not add Celery, ARQ, Redis, a scheduler, or a generic queue port.
-- A duplicate request must acknowledge quickly and idempotently. A newer head
-  must cancel queued work and make leased old-head work unable to publish.
-- Start with one active review per repository and a bounded global queue. Own
-  fairness and priority aging in the PostgreSQL claim query; tune concurrency
-  only from measured queue age and provider capacity.
-- Extend the existing operator CLI with queue inspection/retry/cancel behavior.
-  Document worker variables, health/readiness, scaling, Docker Compose, Dokploy,
-  and arbitrary-UID OpenShift without adding Helm or another deployment layer.
-- Keep publication serialization and delivery where they are. T108 owns the
-  outbox and must not be pulled into activation.
+- Reuse the existing PostgreSQL publication plan, part, direct-ID, marker
+  recovery, and deterministic GitHub publisher owners. Do not create another
+  serializer or parallel publication path.
+- Commit publication readiness and outbox intent in one transaction. Provider
+  calls must happen after commit through a recoverable claim.
+- Claim exact stored publication parts with a durable fence. Acknowledgement
+  must be independently recoverable per part.
+- Prove the ambiguous boundary: if GitHub succeeds and the process dies before
+  database acknowledgement, replay must resolve the exact external object and
+  must not create a duplicate.
+- Add queue age, retry, failure, and recovery visibility in the existing
+  operator/runtime owners. Keep GitHub as the sole delivery sink; no generic
+  notification bus, Celery, ARQ, Redis, or broker.
+- Update public operations/security/how-it-works docs only where externally
+  visible behavior changes. Keep prose concise and diagrams code-native.
 
 ## Remaining order
 
-T107 activation/supersession/fairness/fast enqueue → T108 publication outbox →
-T109 final audit.
-Security-scanner and Codex Security integrations remain explicitly deferred.
+T108 transactional publication outbox → T109 final read-only audit.
+GitHub App, repository policy overlays, Slack, scanners, Codex Security,
+feedback-sidecar packaging, and evidence-based OpenShift resource defaults are
+deferred unless T108 directly requires them.
 
 ## Verification continuity
 
-- Older exact-commit evidence remains on each completed task receipt in
-  `state.yaml`; this handoff keeps only the job/worker sequence needed by T107.
-- T105: PostgreSQL 116 tests, strict Pyright, 316-test bundle, nine-document
-  manifest, and final Claude Opus/high green 8. Sessions
-  `review-agent-t105-durable-jobs` (UUID
-  `fbf41768-47f2-4631-8941-518111bd54f3`) and the re-sliced constraint gate
-  `review-agent-t105-constraint-final` (UUID
-  `1d4c3167-0193-4c9e-9632-e9a137aa0cfd`). Exact-commit run `32750859418`
-  passed all required jobs.
-- T106: PostgreSQL 123 tests, strict Pyright, 323-test bundle, public docs/site
-  checks, and Claude Opus/high green 8. Session
-  `review-agent-t106-worker-architecture` (UUID
-  `3925a59c-148d-4367-a6ae-7e5f4c4ca436`). Source revision
-  `a73b6a2ee265231712bb912784f5392c2a9aff3a` passed exact-commit CI.
+- T105: PostgreSQL 116 tests, strict Pyright, 316-test bundle, final green 8.
+- T106: PostgreSQL 123 tests, strict Pyright, 323-test bundle, final green 8.
 - T110: PostgreSQL 125 tests, strict Pyright, 334-test bundle, fresh image and
-  pinned Hermes adapter checks, public docs/site, and Claude Opus/high green 8.
-  Session `review-agent-t110-worker-proof` (UUID
-  `6d0f83ad-a2a9-424e-84c0-c6894ec986f7`). Exact-commit Python/image run
-  `32763967594` and Pages run `32763967574` passed.
+  pinned Hermes adapter checks, final green 8; GitHub CI/Pages passed.
+- T107: PostgreSQL 129 tests; strict Pyright and 347-test bundle; fresh image,
+  admission/worker/Hermes/arbitrary-UID checks; Compose isolation; 14-object
+  OpenShift parse; ten-document contract and Docusaurus build. Claude session
+  `review-agent-t107-durable-admission` converged from 6 to green 8.
+- T107 exact-commit Python/image run `32769601380` and Pages run `32769601428`
+  passed.
 - Preserve user-owned `refactor-plan1.md`.
 - Stop all Codex and Claude work by 23:50 Europe/Stockholm; resume at 06:00.

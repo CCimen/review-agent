@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Exact-run worker proof is complete; durable admission and controlled activation are active."
+  tranche: "Durable admission and controlled worker activation are complete; transactional publication delivery is active."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 16
+  completed_write_tasks_in_thread: 17
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T18:46:00Z"
-  last_verified_revision: "aabbb7bda0851b688620dcec3044502f58802a1f"
+  last_handoff_at: "2026-08-24T19:41:41Z"
+  last_verified_revision: "f9dc0f6eed0097814335d4e02753b018d3359460"
 
-active_task: T107
+active_task: T108
 
 tasks:
   - id: T001
@@ -2036,7 +2036,7 @@ tasks:
   - id: T107
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Activate durable admission and the proven worker with old-head cancellation, per-repository fairness, fast acknowledgement, priority aging, and operator queue inspection."
     constraints:
@@ -2057,11 +2057,67 @@ tasks:
     stop_if:
       - "A safe acknowledgement boundary requires a GitHub App or another external control plane."
       - "The slice requires scanners, Slack, or another broker."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T107-durable-admission.md"
+      summary: "Activated signed durable admission, fair generation-fenced workers, operator queue controls, and private Compose/OpenShift deployment paths."
+      changed_files:
+        - ".env.example"
+        - ".github/workflows/ci.yml"
+        - "Dockerfile"
+        - "README.md"
+        - "bootstrap/config.yaml"
+        - "bootstrap/plugins/review_agent_tools/admission.py"
+        - "bootstrap/plugins/review_agent_tools/failure_codes.py"
+        - "bootstrap/plugins/review_agent_tools/feedback_bridge.py"
+        - "bootstrap/plugins/review_agent_tools/github_webhook.py"
+        - "bootstrap/plugins/review_agent_tools/operator_application.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/runtime.py"
+        - "bootstrap/plugins/review_agent_tools/review_run_application.py"
+        - "bootstrap/plugins/review_agent_tools/worker.py"
+        - "compose.yaml"
+        - "docs/DEPLOYMENT.md"
+        - "docs/GETTING_STARTED.md"
+        - "docs/OPERATIONS.md"
+        - "docs/SECURITY.md"
+        - "examples/openshift/review-agent-template.yaml"
+        - "tests/test_admission.py"
+        - "tests/test_docs_contract.py"
+        - "tests/test_failure_codes.py"
+        - "tests/test_feedback_workflow.py"
+        - "tests/test_postgres_jobs.py"
+        - "tests/test_worker.py"
+        - "tools/review_agent_admission.py"
+        - "tools/review_agent_database.py"
+        - "tools/review_agent_worker.py"
+        - "website/docusaurus.config.ts"
+        - "website/public-documents.json"
+        - "website/sidebars.ts"
+      commands:
+        - cmd: "./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "129 PostgreSQL 17 tests plus migration, backup, and recovery contracts passed."
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright and 347 tests passed; 115 environment-gated tests skipped."
+        - cmd: "container, Compose, and OpenShift validation"
+          status: pass
+          summary: "Fresh image and entrypoint contracts passed; rendered Compose isolated Hermes; the 14-object OpenShift template parsed."
+        - cmd: "python3 scripts/check_docs.py && website typecheck/build"
+          status: pass
+          summary: "Ten-document public contract, typecheck, and clean Docusaurus production build passed."
+        - cmd: "Claude Opus/high commit gate"
+          status: pass
+          summary: "Session review-agent-t107-durable-admission converged from score 6 to green at score 8."
+        - cmd: "GitHub Actions exact-commit validation"
+          status: pass
+          summary: "Python/image run 32769601380 and Pages run 32769601428 passed."
+      revision: "f9dc0f6eed0097814335d4e02753b018d3359460"
   - id: T108
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Persist publication readiness and outbox intent atomically, then deliver exact stored parts through one recoverable publisher worker."
     constraints:
@@ -2098,13 +2154,15 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-a73b6a2e"
+  dirty_fingerprint: "goal-control-files-only-after-f9dc0f6e"
   last_verification:
     result: pass
-    task: T106
+    task: T107
     commands:
-      - "PostgreSQL 17 lifecycle, migration, backup, and restore suite: 123 tests"
-      - "Strict Pyright and 323-test canonical bundle"
-      - "Public nine-document contract, website typecheck, and clean Docusaurus production build"
-      - "Claude Opus/high session review-agent-t106-worker-architecture green at score 8"
-      - "Source revision a73b6a2ee265231712bb912784f5392c2a9aff3a"
+      - "PostgreSQL 17 schema, migration, backup, recovery, and concurrency suite: 129 tests"
+      - "Strict Pyright and 347-test canonical bundle"
+      - "Public ten-document contract, website typecheck, and clean Docusaurus production build"
+      - "Fresh image, entrypoint, Compose isolation, and OpenShift template validation"
+      - "Claude Opus/high session review-agent-t107-durable-admission green at score 8"
+      - "GitHub Python/image run 32769601380 and Pages run 32769601428 passed"
+      - "Source revision f9dc0f6eed0097814335d4e02753b018d3359460"

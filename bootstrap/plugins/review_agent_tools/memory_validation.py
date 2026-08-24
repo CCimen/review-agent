@@ -8,8 +8,10 @@ from datetime import datetime, timezone
 from typing import Any, Literal, get_args
 
 try:
+    from .domain.finding import MAX_FINDINGS_PER_REVIEW as _MAX_FINDINGS_PER_REVIEW
     from .settings import ReviewAgentSettings, SettingsError
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
+    from domain.finding import MAX_FINDINGS_PER_REVIEW as _MAX_FINDINGS_PER_REVIEW
     from settings import ReviewAgentSettings, SettingsError
 
 SEVERITY_ORDER = ("Critical", "High", "Medium", "Low")
@@ -20,7 +22,7 @@ SEVERITY_SCORE_GATES = {
 }
 SEVERITIES = set(SEVERITY_ORDER)
 LOWER_PRIORITY_SEVERITIES = {"Medium", "Low"}
-MAX_FINDINGS_PER_REVIEW = 200
+MAX_FINDINGS_PER_REVIEW = _MAX_FINDINGS_PER_REVIEW
 FINDING_TEXT_LIMITS = {
     "title": 160,
     "evidence": 900,

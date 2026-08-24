@@ -11,7 +11,13 @@ from unittest.mock import Mock, patch
 PLUGINS = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGINS))
 
-from review_agent_tools import changed_files, memory_db, source_control, tools  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    capacity,
+    changed_files,
+    memory_db,
+    source_control,
+    tools,
+)
 
 
 def _cf(**over: object) -> dict[str, object]:
@@ -93,7 +99,7 @@ class PrDiffFallbackTests(unittest.TestCase):
             )
         return int(start["run_id"])
 
-    def _pr_diff(self, run_id, index, *, path=None, max_chars=None):
+    def _pr_diff(self, run_id, index, *, path=None, max_chars=None, start_char=None):
         args: dict[str, object] = {
             "repository": "sundsvallskommun/example-repository",
             "pr_number": 12,
@@ -103,6 +109,8 @@ class PrDiffFallbackTests(unittest.TestCase):
             args["path"] = path
         if max_chars is not None:
             args["max_chars"] = max_chars
+        if start_char is not None:
+            args["start_char"] = start_char
         client = Mock()
         client.request.side_effect = source_control.GitHubReadError(
             "diff_unavailable",
@@ -122,6 +130,54 @@ class PrDiffFallbackTests(unittest.TestCase):
         self.assertEqual(result["diff_source"], "per_file_patch")
         self.assertIn("diff --git a/backend/api.py b/backend/api.py", result["diff"])
         self.assertIn("@@ -1,2 +1,3 @@\n-old\n+new", result["diff"])
+
+    def test_no_path_fallback_counts_unavailable_paths_without_echoing_them(self):
+        paths = [f"generated/chunk-{index:04d}.bin" for index in range(500)]
+        run_id = self._begin_run(["src/large.py", *paths])
+        index = _index(
+            [
+                _cf(path="src/large.py", patch="@@ -1 +1 @@\n" + "\x01" * 30_000),
+                *[
+                    _cf(
+                        path=path,
+                        patch=None,
+                        patch_available=False,
+                        patch_state="missing",
+                    )
+                    for path in paths
+                ],
+            ]
+        )
+
+        result = self._pr_diff(run_id, index)
+
+        self.assertEqual(result["unavailable_path_count"], 500)
+        self.assertEqual(result["unavailable_paths"], [])
+        self.assertLess(
+            len(json.dumps(result).encode()), capacity.current().result_max_chars
+        )
+
+    def test_exact_path_fallback_ignores_other_unavailable_paths(self):
+        run_id = self._begin_run(["src/target.py", "assets/logo.bin"])
+        index = _index(
+            [
+                _cf(path="src/target.py"),
+                _cf(
+                    path="assets/logo.bin",
+                    patch=None,
+                    patch_available=False,
+                    patch_state="missing",
+                ),
+            ]
+        )
+
+        result = self._pr_diff(run_id, index, path="src/target.py")
+
+        self.assertNotIn("error", result)
+        self.assertNotIn("terminal", result)
+        self.assertIn("b/src/target.py", result["diff"])
+        self.assertEqual(result["unavailable_paths"], [])
+        self.assertEqual(result["unavailable_path_count"], 0)
 
     def test_transport_truncation_uses_per_file_fallback_for_exact_path(self):
         run_id = self._begin_run(["src/first.py", "src/target.py"])
@@ -254,6 +310,71 @@ class PrDiffFallbackTests(unittest.TestCase):
         assert summary is not None
         self.assertEqual(summary["diff_exposed"], 2)
         self.assertEqual(summary["state"], "complete")
+
+    def test_oversized_path_diff_can_be_read_in_bounded_pages(self):
+        from contextlib import closing
+
+        run_id = self._begin_run(["src/large.py"])
+        changed_file = _cf(
+            path="src/large.py",
+            patch="@@ -1 +1 @@\n" + "x" * 1_600,
+        )
+        index = _index([changed_file])
+
+        first = self._pr_diff(
+            run_id,
+            index,
+            path="src/large.py",
+            max_chars=1_000,
+        )
+        self.assertEqual(first["start_char"], 0)
+        self.assertEqual(first["next_start_char"], 1_000)
+        self.assertGreater(first["path_total_chars"], first["next_start_char"])
+        self.assertEqual(first["diff_source"], "per_file_patch")
+        self.assertEqual(len(first["diff"]), 1_000)
+        self.assertTrue(first["truncated"])
+
+        second = self._pr_diff(
+            run_id,
+            index,
+            path="src/large.py",
+            max_chars=1_000,
+            start_char=first["next_start_char"],
+        )
+        self.assertEqual(second["start_char"], 1_000)
+        self.assertIsNone(second["next_start_char"])
+        self.assertEqual(second["path_total_chars"], first["path_total_chars"])
+        self.assertEqual(second["diff_source"], first["diff_source"])
+        self.assertGreater(len(second["diff"]), 0)
+
+        with closing(memory_db.connect()) as connection:
+            summary = memory_db.coverage_summary(connection, run_id=run_id)
+        assert summary is not None
+        self.assertEqual(summary["state"], "incomplete")
+        self.assertEqual(summary["truncated_paths"], ["src/large.py"])
+
+    def test_diff_continuation_requires_one_exact_path(self):
+        result = self._pr_diff(
+            1,
+            _index([_cf()]),
+            start_char=1_000,
+        )
+
+        self.assertEqual(result["error"], "start_char requires one exact path")
+
+    def test_diff_continuation_rejects_an_offset_past_the_path(self):
+        run_id = self._begin_run()
+        result = self._pr_diff(
+            run_id,
+            _index([_cf()]),
+            path="backend/api.py",
+            start_char=100_000,
+        )
+
+        self.assertEqual(
+            result["error"],
+            "start_char is past the end of this path diff",
+        )
 
 
 if __name__ == "__main__":

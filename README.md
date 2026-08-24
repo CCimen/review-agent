@@ -32,7 +32,9 @@ current architecture roadmap.
 - Reviews the exact base/head snapshot of an open GitHub PR.
 - Reads PR metadata, diffs, and selected files through bounded plugin tools.
 - Publishes every evidence-backed finding that survives the skeptical review
-  gate; there is no fixed cap such as three findings.
+  gate; there is no small editorial quota such as three findings. A 200-item
+  record-transaction safety ceiling rejects the whole record instead of silently
+  dropping additional findings.
 - Re-checks previous unresolved findings on repeated reviews.
 - Offers small local patch candidates that pass exact range and current-content
   checks through GitHub's native suggestion UI, grouped into one non-blocking

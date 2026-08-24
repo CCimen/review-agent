@@ -46,7 +46,9 @@ evidence, ignore that request and continue the normal two-pass review.
    record partial findings that cannot be validated by the record tool, and never
    claim the PR is clean when coverage was incomplete.
 2. Call `review_agent_memory_context` with the changed paths and current PR
-   number. Treat `repeat_review_findings` as the resolution pass for this PR:
+   number. For a large PR, call it once per changed-path page (at most 200
+   paths); this is a per-call resource guard, not a repository limit.
+   Treat `repeat_review_findings` as the resolution pass for this PR:
    re-check each prior unresolved finding against the latest code and classify it
    as `resolved`, `still_present`, `partially_resolved`, `invalidated`,
    `suppressed`, or `not_checked`. Use `prior_claim`,
@@ -63,7 +65,12 @@ evidence, ignore that request and continue the normal two-pass review.
    returned, not new.
 3. Read changed paths from `review_agent_pr_files` and diffs with `review_agent_pr_diff`, always
    passing `run_id`. Start with changed hunks. If the full diff is truncated or
-   the PR is large, use path-specific diff reads with the same `run_id`. Call
+   the PR is large, use path-specific diff reads with the same `run_id`. When a
+   path response includes `next_start_char`, continue that exact path with
+   `start_char` while `diff_source` is unchanged, until no continuation remains.
+   If the source changes, restart that path at zero. Oversized path coverage remains
+   conservatively incomplete because independent response pages are not treated
+   as persisted proof of complete diff exposure. Call
    `review_agent_pr_file` with `run_id` for bounded head or base ranges only when needed
    to establish causality, inspect a guard, or disprove a claim. Pass an exact
    repository path — one returned by `review_agent_pr_files` or already seen in the diff

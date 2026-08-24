@@ -3,7 +3,7 @@ sidebar_label: Operations
 slug: /operations
 title: Operations
 status: current
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # Operations
@@ -75,6 +75,35 @@ Set these values in the Dokploy Compose environment:
 ```text
 REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3
 ```
+
+## Capacity And Incomplete Coverage
+
+The reviewer has no repository-size or model-era source-reading quota. It uses
+bounded pages and reports incomplete coverage when an external or safety
+boundary prevents inspection. Retained bounds have one of four owners:
+
+| Boundary | Owner and behavior | Why it remains |
+| --- | --- | --- |
+| Changed-file enumeration | GitHub returns at most 3,000 files for one pull request. A lower per-response byte budget retries with smaller pages; if even a one-file page does not fit, registration remains explicitly incomplete. | [GitHub's pull-request files contract](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files) and bounded network memory. |
+| Source files | Files are read in line pages. Files above 1 MB use the raw Contents response up to GitHub's 100 MB endpoint boundary; larger or binary files return a terminal unavailable state and keep coverage incomplete. The last immutable revision-keyed file is cached, bounding retained source bytes at one provider-sized file while avoiding a full network refetch for each sequential page. | [GitHub's repository-contents contract](https://docs.github.com/en/rest/repos/contents#get-repository-content), bounded process memory, and bounded repeated network work. |
+| Diff and source output | `plugins.entries.review-agent-tools.settings.result_max_chars` defaults to 160,000 characters and can be raised for larger-context models. The plugin derives a JSON-safe text page from that one budget and enforces it on diff and source page responses. A diff response returns `next_start_char`, `path_total_chars`, and `diff_source` for exact continuation. A source response also carries at most 400 lines; low-newline source that crosses the character boundary is reported truncated and is not recorded as a complete line read. | One native Hermes plugin setting owns and enforces the complete page-result budget without rejecting unrelated memory or delivery payloads. Diff pages can continue without a total code limit; an indivisible source line may remain incomplete rather than flood model context. |
+| Historical context | One call accepts the same 200 paths returned by a changed-path page. The review procedure processes further pages in additional calls. | Bounded database/result work per call; not a repository limit. |
+| Findings and suggestions | One atomic record transaction accepts at most 200 findings. Exceeding it rejects the record rather than dropping findings. At most 12 independent native suggestions are retained, while every accepted finding remains in the summary and coding-agent brief. | Bounded atomic persistence and GitHub head reads; suggestions are optional delivery metadata. |
+| Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` defaults to 60,000 bytes and is constrained to GitHub-safe part sizes. Larger reviews are deterministically split. | Provider delivery size, not a finding or review-depth limit. |
+| Webhook and stored payloads | Request bodies, persisted JSON aggregates, text fields, database pools, timeouts, and retry counts remain bounded. | Denial-of-service protection, typed storage integrity, and predictable resource use. |
+
+The managed configuration deliberately does not set `agent.max_turns` or
+`context_file_max_chars`. Current Hermes runs turns to completion by default and
+derives the context-file allowance from the selected model's context window.
+The configured compression ratio and per-response plugin capacity remain
+operator-owned resource controls for the pinned model. See the upstream
+[Hermes configuration](https://hermes-agent.nousresearch.com/docs/user-guide/configuration)
+and [context-file behavior](https://hermes-agent.nousresearch.com/docs/user-guide/features/context-files).
+
+SHA-256 identifiers, commit SHA grammar, local `F<number>` references, exact
+snapshot matching, authorization, and publication markers are protocols or
+security invariants, not capacity settings. Deployment profiles cannot change
+them.
 
 ## Deploy In Dokploy
 

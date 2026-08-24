@@ -882,6 +882,8 @@ class RunToolTests(unittest.TestCase):
                 },
             )
         self.assertEqual(result["path"], "backend/api.py")
+        self.assertEqual(result["diff_source"], "rendered")
+        self.assertEqual(result["path_total_chars"], len(diff.decode("utf-8")))
 
         with closing(memory_db.connect()) as connection:
             summary = memory_db.coverage_summary(connection, run_id=run_id)

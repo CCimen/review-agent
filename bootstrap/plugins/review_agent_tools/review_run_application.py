@@ -174,7 +174,7 @@ def register_postgres_changed_files(
     registration_complete: bool,
 ) -> postgres_coverage.CoverageRegistration:
     """Persist one pre-fetched changed-file batch in one short transaction."""
-    if len(files) > changed_files.MAX_CHANGED_FILES:
+    if len(files) > changed_files.GITHUB_PR_FILES_LIMIT:
         raise ReviewDomainError("changed-file batch exceeds the supported limit")
     resolved = tuple(
         resolve_changed_file(
@@ -206,7 +206,7 @@ def record_postgres_diff_observation(
     unavailable_reason: str = "",
 ) -> int:
     """Persist one pre-fetched diff outcome without a network callback."""
-    if len(paths) > changed_files.MAX_CHANGED_FILES:
+    if len(paths) > changed_files.GITHUB_PR_FILES_LIMIT:
         raise ReviewDomainError("diff observation exceeds the supported limit")
     observation = resolve_diff_observation(
         paths=paths,
@@ -228,7 +228,7 @@ def record_postgres_file_reads(
     reads: Sequence[PostgresFileRead],
 ) -> postgres_coverage.FileReadBatch:
     """Persist pre-resolved source ranges without changing diff coverage."""
-    if len(reads) > changed_files.MAX_CHANGED_FILES:
+    if len(reads) > changed_files.GITHUB_PR_FILES_LIMIT:
         raise ReviewDomainError("source-read batch exceeds the supported limit")
     resolved = tuple(
         resolve_file_read(

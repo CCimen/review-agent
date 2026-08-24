@@ -1,5 +1,13 @@
 group_sessions_per_user: true
-context_file_max_chars: 24000
+
+# Raise this complete plugin-result budget for larger-context models if desired.
+# Text pages are derived from it and continue by cursor, so it never limits total
+# review depth. Diff and source page serializers enforce the configured value.
+plugins:
+  entries:
+    review-agent-tools:
+      settings:
+        result_max_chars: 160000
 
 # The repository owns the production route. Authentication remains in Hermes'
 # separate auth store, but mutable `hermes model` selections must not survive a
@@ -48,7 +56,6 @@ platform_toolsets:
     - review_agent
 
 agent:
-  max_turns: 90  # Hermes default; 24 was too low and truncated thorough two-pass reviews
   reasoning_effort: xhigh
   disabled_toolsets:
     - browser

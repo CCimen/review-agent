@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import diff_render  # noqa: E402
+from review_agent_tools import capacity, diff_render  # noqa: E402
 
 
 def _cf(**over: object) -> dict[str, object]:
@@ -328,6 +329,33 @@ class AssembleRenderedDiffTests(unittest.TestCase):
         self.assertEqual(result.exposed_paths, [])
         self.assertEqual(result.truncated_paths, ["big.py"])
         self.assertLessEqual(len(result.text), 1000)
+        self.assertEqual(result.next_start_char, 1000)
+
+        continuation = diff_render.assemble_rendered_diff(
+            text,
+            only_path="big.py",
+            max_chars=5000,
+            start_char=result.next_start_char,
+        )
+
+        self.assertGreater(len(continuation.text), 0)
+        self.assertIsNone(continuation.next_start_char)
+        self.assertEqual(continuation.truncated_paths, ["big.py"])
+
+    def test_page_budget_survives_worst_case_json_escaping(self):
+        payload = json.dumps(
+            {
+                "next_start_char": capacity.current().text_page_max_chars,
+                "path_total_chars": capacity.current().text_page_max_chars + 1,
+                "diff": "\x01" * capacity.current().text_page_max_chars,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+        self.assertLess(
+            len(payload.encode("utf-8")), capacity.current().result_max_chars
+        )
 
 if __name__ == "__main__":
     unittest.main()

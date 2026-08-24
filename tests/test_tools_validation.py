@@ -13,6 +13,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools import (  # noqa: E402
+    capacity,
     memory_db,
     review_finding_application,
     review_publisher,
@@ -25,8 +26,12 @@ import review_agent_tools  # noqa: E402
 
 
 class _FakeRegistry:
-    def __init__(self):
+    def __init__(self, settings=None):
         self.tools = {}
+        self.settings = settings or {}
+
+    def get_config(self, key, default=None):
+        return self.settings.get(key, default)
 
     def register_tool(self, *, name, toolset, schema, handler):
         self.tools[name] = {
@@ -75,6 +80,7 @@ class _FakeGitHub:
 
 class ToolValidationTests(unittest.TestCase):
     def setUp(self):
+        tools._file_at_revision.cache_clear()
         self.temp = tempfile.TemporaryDirectory()
         self.db = str(Path(self.temp.name) / "memory.sqlite3")
         self.env = {
@@ -286,6 +292,27 @@ class ToolValidationTests(unittest.TestCase):
             self.assertIsInstance(item["schema"], dict)
             self.assertEqual(item["schema"]["name"], name)
             self.assertTrue(callable(item["handler"]))
+
+    def test_plugin_text_page_capacity_is_operator_configurable(self):
+        registry = _FakeRegistry({"result_max_chars": 320_000})
+
+        def restore_default_capacity():
+            limits = capacity.configure(
+                result_max_chars=capacity.DEFAULT_RESULT_MAX_CHARS
+            )
+            schemas.apply_capacity(limits)
+
+        self.addCleanup(restore_default_capacity)
+
+        review_agent_tools.register(registry)
+
+        self.assertEqual(capacity.current().result_max_chars, 320_000)
+        self.assertEqual(capacity.current().text_page_max_chars, 45_714)
+        max_chars = registry.tools["review_agent_pr_diff"]["schema"]["parameters"][
+            "properties"
+        ]["max_chars"]
+        self.assertEqual(max_chars["maximum"], 45_714)
+        self.assertEqual(max_chars["default"], 45_714)
 
     def test_non_allowlisted_repository_is_denied_before_network(self):
         with patch.dict(os.environ, self.env, clear=False):
@@ -1301,6 +1328,64 @@ class ToolValidationTests(unittest.TestCase):
         reader.assert_called_once_with("contributor/platform-fork", "backend/app.py", "a" * 40)
         self.assertEqual(result["source_repository"], "contributor/platform-fork")
 
+    def test_pr_file_reports_single_line_character_truncation_honestly(self):
+        raw = ("x" * (capacity.current().text_page_max_chars * 2)).encode()
+        with (
+            patch.dict(os.environ, self.env, clear=False),
+            patch.object(tools, "_pr", return_value=self._pull()),
+            patch.object(tools, "_changed_files", return_value=[]),
+            patch.object(tools, "_file_at_revision", return_value=raw),
+        ):
+            run_id = self.start_run()
+            result = json.loads(
+                tools.pr_file(
+                    {
+                        "repository": "sundsvallskommun/example-repository",
+                        "pr_number": 1,
+                        "path": "frontend/minified.js",
+                        "side": "head",
+                        "run_id": run_id,
+                    }
+                )
+            )
+
+        self.assertEqual(
+            result["characters_returned"], capacity.current().text_page_max_chars
+        )
+        self.assertEqual(
+            len(result["content"]), capacity.current().text_page_max_chars
+        )
+        self.assertEqual(result["complete_lines_returned"], 0)
+        self.assertEqual(result["end_line"], 1)
+        self.assertTrue(result["truncated"])
+
+    def test_pr_file_exact_page_fill_still_reports_omitted_line(self):
+        line = "x" * (capacity.current().text_page_max_chars - len("1: "))
+        raw = f"{line}\ntail\n".encode()
+        with (
+            patch.dict(os.environ, self.env, clear=False),
+            patch.object(tools, "_pr", return_value=self._pull()),
+            patch.object(tools, "_changed_files", return_value=[]),
+            patch.object(tools, "_file_at_revision", return_value=raw),
+        ):
+            run_id = self.start_run()
+            result = json.loads(
+                tools.pr_file(
+                    {
+                        "repository": "sundsvallskommun/example-repository",
+                        "pr_number": 1,
+                        "path": "frontend/exact.js",
+                        "run_id": run_id,
+                    }
+                )
+            )
+
+        self.assertEqual(result["complete_lines_returned"], 1)
+        self.assertEqual(
+            result["characters_returned"], capacity.current().text_page_max_chars
+        )
+        self.assertTrue(result["truncated"])
+
     # --- stable not-found and path/side contract ---
 
     def _pull(self):
@@ -1613,7 +1698,7 @@ class ToolValidationTests(unittest.TestCase):
             "type": "file",
             "encoding": "none",
             "content": "",
-            "size": tools._MAX_FILE_BYTES + 1,
+            "size": tools.GITHUB_CONTENTS_FILE_MAX_BYTES + 1,
             "sha": "a" * 40,
         }
         with (

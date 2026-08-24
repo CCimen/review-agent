@@ -4,7 +4,7 @@ slug: /how-reviews-work
 title: How reviews work
 description: The trusted path from a review request to deterministic GitHub publication.
 status: current
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # How reviews work
@@ -50,8 +50,10 @@ pass tries to disprove each candidate with surrounding code, tests, invariants,
 and changed behavior. Only independent findings that survive the evidence and
 severity gates are recorded.
 
-Coverage remains explicit. If a file, range, or concern could not be checked,
-the reviewer reports that limitation instead of implying complete review.
+Coverage remains explicit. Changed paths and source ranges are pageable, and an
+oversized path diff returns an exact continuation position. If GitHub's provider
+limits or a resource guard still prevents complete inspection, the reviewer
+reports incomplete coverage instead of implying a clean or complete review.
 
 ## Publish deterministically
 

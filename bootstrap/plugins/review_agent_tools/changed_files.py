@@ -26,8 +26,8 @@ IndexState = Literal["complete", "incomplete", "api_limit", "budget_exceeded"]
 
 # Descending page sizes tried in order; every full pass uses one constant size.
 DEFAULT_PER_PAGE_SEQUENCE: tuple[int, ...] = (100, 50, 25, 10, 5, 2)
-# GitHub's PR-files API lists at most this many files.
-MAX_CHANGED_FILES = 3000
+# GitHub's PR-files API contract returns at most this many files.
+GITHUB_PR_FILES_LIMIT = 3000
 # Per-page transport budget for enumeration (patches inline can be large).
 ENUMERATION_MAX_BYTES = 3_000_000
 
@@ -183,7 +183,7 @@ def enumerate_changed_files(
     number: int,
     *,
     reported: int,
-    max_files: int = MAX_CHANGED_FILES,
+    max_files: int = GITHUB_PR_FILES_LIMIT,
     per_page_sequence: tuple[int, ...] = DEFAULT_PER_PAGE_SEQUENCE,
     max_bytes: int = ENUMERATION_MAX_BYTES,
 ) -> ChangedFileIndex:

@@ -510,6 +510,8 @@ class DocsContractTests(unittest.TestCase):
     def test_large_prs_are_not_rejected_by_fixed_size_budget(self):
         canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
         skill = read("bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md")
+        config = read("bootstrap/config.yaml")
+        operations = read("docs/OPERATIONS.md")
         canonical_words = re.sub(r"\s+", " ", canonical)
         self.assertIn("Do not reject a PR because", skill)
         self.assertIn("it is large", skill)
@@ -517,6 +519,13 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("risk-rank the paths", skill)
         self.assertIn("Follow AGENTS.md for the complete", skill)
         self.assertIn("coverage was incomplete", skill)
+        self.assertIn("next_start_char", skill)
+        self.assertIn("at most 200 paths", words(skill))
+        self.assertNotIn("context_file_max_chars:", config)
+        self.assertNotIn("max_turns:", config)
+        self.assertIn("no repository-size or model-era source-reading quota", operations)
+        self.assertIn("GitHub's 100 MB endpoint boundary", operations)
+        self.assertIn("keep coverage incomplete", operations)
         self.assertIn(
             "Coverage is complete only when every changed file was at least diff-reviewed",
             canonical_words,

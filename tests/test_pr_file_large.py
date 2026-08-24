@@ -13,8 +13,10 @@ from review_agent_tools import tools  # noqa: E402
 
 
 class FileAtRevisionLargeFileTests(unittest.TestCase):
-    """_file_at_revision reads <=1 MB files from the Contents API (base64) and larger files
-    from the Git Blob API raw media type, bounded by _MAX_FILE_BYTES (a raw-byte cap)."""
+    """File reads use base64 for small files and raw Contents API media up to its limit."""
+
+    def setUp(self):
+        tools._file_at_revision.cache_clear()
 
     def _contents(self, **over):
         base = {"type": "file", "encoding": "base64", "content": "", "size": 0, "sha": "a" * 40}
@@ -28,31 +30,52 @@ class FileAtRevisionLargeFileTests(unittest.TestCase):
              patch.object(tools, "_request") as raw_get:
             result = tools._file_at_revision("example-org/example-repository", "backend/a.py", "a" * 40)
         self.assertEqual(result, raw)
-        raw_get.assert_not_called()  # no blob fetch for a small (<=1 MB) file
+        raw_get.assert_not_called()  # no second raw fetch for a small (<=1 MB) file
 
-    def test_large_file_reads_blob_raw(self):
+    def test_large_file_reads_contents_raw(self):
         raw = b"line one\nline two\nline three\n"
-        contents = self._contents(encoding="none", content="", size=1_103_743, sha="b" * 40)
+        contents = self._contents(
+            encoding="none",
+            content="",
+            size=50_000_000,
+            sha="b" * 40,
+        )
         with patch.object(tools, "_request_json", side_effect=[contents]), \
              patch.object(tools, "_request", return_value=(raw, False, {})) as raw_get:
             result = tools._file_at_revision("example-org/example-repository", "frontend/schema.d.ts", "a" * 40)
+            repeated = tools._file_at_revision("example-org/example-repository", "frontend/schema.d.ts", "a" * 40)
         self.assertEqual(result, raw)
+        self.assertEqual(repeated, raw)
         self.assertEqual(raw_get.call_count, 1)
-        self.assertIn("git/blobs/" + "b" * 40, raw_get.call_args.args[0])
+        self.assertIn("/contents/frontend/schema.d.ts?ref=", raw_get.call_args.args[0])
         self.assertEqual(raw_get.call_args.kwargs.get("accept"), "application/vnd.github.raw+json")
+        self.assertEqual(
+            raw_get.call_args.kwargs.get("max_bytes"),
+            tools.GITHUB_CONTENTS_FILE_MAX_BYTES,
+        )
 
     def test_file_over_cap_punts_to_diff_without_blob_fetch(self):
-        contents = self._contents(encoding="none", content="", size=tools._MAX_FILE_BYTES + 1, sha="b" * 40)
+        contents = self._contents(
+            encoding="none",
+            content="",
+            size=tools.GITHUB_CONTENTS_FILE_MAX_BYTES + 1,
+            sha="b" * 40,
+        )
         with patch.object(tools, "_request_json", side_effect=[contents]), \
              patch.object(tools, "_request") as raw_get:
             with self.assertRaises(tools.ToolInputError) as ctx:
                 tools._file_at_revision("example-org/example-repository", "data/huge.json", "a" * 40)
         self.assertIn("review_agent_pr_diff", str(ctx.exception))
-        raw_get.assert_not_called()  # cap checked before any blob fetch
+        raw_get.assert_not_called()  # provider limit checked before a raw fetch
 
-    def test_truncated_blob_punts_to_diff(self):
+    def test_truncated_raw_response_punts_to_diff(self):
         # size metadata is within the cap, but the raw response truncates -> treat as too large.
-        contents = self._contents(encoding="none", content="", size=tools._MAX_FILE_BYTES - 10, sha="b" * 40)
+        contents = self._contents(
+            encoding="none",
+            content="",
+            size=tools.GITHUB_CONTENTS_FILE_MAX_BYTES - 10,
+            sha="b" * 40,
+        )
         with patch.object(tools, "_request_json", side_effect=[contents]), \
              patch.object(tools, "_request", return_value=(b"x" * 4096, True, {})):
             with self.assertRaises(tools.ToolInputError) as ctx:

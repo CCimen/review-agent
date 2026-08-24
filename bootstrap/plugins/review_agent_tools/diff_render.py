@@ -22,6 +22,10 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
     from memory_validation import ReviewMemoryError, normalize_path
 
 
+class DiffPageError(ValueError):
+    """A continuation does not belong to the selected path diff."""
+
+
 @dataclass(frozen=True)
 class AssembledDiff:
     text: str
@@ -36,6 +40,10 @@ class AssembledDiff:
     # truncated, or their coverage could never complete.
     more_paths_available: bool
     path_present: bool
+    # Exact continuation for an oversized path. Coverage stays conservatively
+    # truncated because independent pages are not persisted as a complete set.
+    next_start_char: int | None = None
+    path_total_chars: int | None = None
 
 
 @dataclass(frozen=True)
@@ -330,36 +338,44 @@ def _assemble_chunks(
     *,
     only_path: str | None,
     max_chars: int,
+    start_char: int = 0,
     unavailable_paths: list[str] | None = None,
 ) -> AssembledDiff:
     unavailable = unavailable_paths or []
     if only_path is not None:
+        selected_unavailable = [only_path] if only_path in unavailable else []
         match = next((chunk for chunk in chunks if chunk.path == only_path), None)
         if match is None:
             return AssembledDiff(
                 "",
                 [],
                 [],
-                unavailable,
+                selected_unavailable,
                 False,
                 path_present=only_path in unavailable,
             )
-        if len(match.text) > max_chars:
+        if start_char >= len(match.text) and start_char > 0:
+            raise DiffPageError("start_char is past the end of this path diff")
+        end_char = min(start_char + max_chars, len(match.text))
+        if start_char > 0 or len(match.text) > max_chars:
             return AssembledDiff(
-                match.text[:max_chars],
+                match.text[start_char:end_char],
                 [],
                 [only_path],
-                unavailable,
+                selected_unavailable,
                 False,
                 path_present=True,
+                next_start_char=end_char if end_char < len(match.text) else None,
+                path_total_chars=len(match.text),
             )
         return AssembledDiff(
             match.text,
             [only_path],
             [],
-            unavailable,
+            selected_unavailable,
             False,
             path_present=True,
+            path_total_chars=len(match.text),
         )
 
     parts: list[str] = []
@@ -389,11 +405,14 @@ def _assemble_chunks(
 
 
 def assemble_rendered_diff(
-    text: str, *, only_path: str | None, max_chars: int
+    text: str, *, only_path: str | None, max_chars: int, start_char: int = 0
 ) -> AssembledDiff:
     """Select and pack exact file blocks from a complete GitHub-rendered diff."""
     return _assemble_chunks(
-        _rendered_chunks(text), only_path=only_path, max_chars=max_chars
+        _rendered_chunks(text),
+        only_path=only_path,
+        max_chars=max_chars,
+        start_char=start_char,
     )
 
 
@@ -417,7 +436,11 @@ def synthesize_file_diff(changed_file: ChangedFile) -> str | None:
 
 
 def assemble_fallback_diff(
-    files: list[ChangedFile], *, only_path: str | None, max_chars: int
+    files: list[ChangedFile],
+    *,
+    only_path: str | None,
+    max_chars: int,
+    start_char: int = 0,
 ) -> AssembledDiff:
     """Pack per-file synthesized diffs for the 406 fallback.
 
@@ -440,5 +463,6 @@ def assemble_fallback_diff(
         chunks,
         only_path=only_path,
         max_chars=max_chars,
+        start_char=start_char,
         unavailable_paths=unavailable,
     )

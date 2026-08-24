@@ -7,6 +7,8 @@ from typing import Any, Callable, Protocol
 
 
 class ToolRegistry(Protocol):
+    def get_config(self, key: str, default: object = None) -> object: ...
+
     def register_tool(
         self,
         *,
@@ -20,7 +22,15 @@ class ToolRegistry(Protocol):
 def register(ctx: ToolRegistry) -> None:
     # Keep package import light: static package imports here trip pyright's
     # import-cycle gate because schemas/tools import the memory facade.
+    capacity = import_module(f"{__name__}.capacity")
+    limits = capacity.configure(
+        result_max_chars=ctx.get_config(
+            "result_max_chars",
+            default=capacity.DEFAULT_RESULT_MAX_CHARS,
+        )
+    )
     schemas = import_module(f"{__name__}.schemas")
+    schemas.apply_capacity(limits)
     tools = import_module(f"{__name__}.tools")
 
     ctx.register_tool(

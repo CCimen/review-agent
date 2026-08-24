@@ -7,32 +7,34 @@
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits
   and pushes to `CCimen/review-agent` `main` are authorized.
 - T102-T104 are complete at `4474d71fce7c970c4f9577931e8f926fe2d51219`.
-  PostgreSQL is the only Review Agent application store; controlled
-  backup/restore is proven and the SQLite implementation is deleted.
+  PostgreSQL application persistence and controlled backup/restore are proven.
 - T105 is complete at `4042ddf0d03fec8d538241775caeb0e3aead12bc`.
   Durable jobs are one-to-one extensions of run-owned acceptance identity, with
   atomic fenced claim, queued supersession, and recovery-safe lease history.
-- T106 is the sole active task: add worker lifecycle, heartbeat, crash recovery,
-  retry/dead-letter transitions, graceful shutdown, and bounded metrics.
+- T106 is the sole active task: add fenced heartbeat, retry/dead-letter,
+  bounded expiry recovery, and atomic two-way run/job reconciliation without
+  deploying a worker or enabling the Hermes API server.
 - Public identity is “Review Agent.” `sundsvall-standard` remains a selectable
   municipal profile, not the product identity. Model-era review-depth ceilings
   are gone; pageable or honestly incomplete contracts own large inputs.
 
 ## T106 execution boundary
 
-- Add only the concrete claim/heartbeat/complete/fail/reap lifecycle, deterministic
-  retry versus dead-letter behavior, graceful shutdown, and bounded metrics.
-- Reuse the exact-snapshot review application and the concrete PostgreSQL job
-  owner. Do not duplicate orchestration or add a scheduler, broker, or queue port.
-- Keep supersession/fairness/operator controls in T107 and publication outbox
-  behavior in T108.
-- Prove process-death recovery without a second active review or publication;
-  update public docs when current deploy or operator behavior changes.
+- Keep review_runs as outcome owner and review_jobs as execution-state owner;
+  compose their short transactions in review_run_application with pull-request,
+  run, then job lock ordering and set-based sweep reconciliation.
+- Every claim consumes attempt budget. Add no execution key, recovery counter,
+  metrics surface, reaper daemon, scheduler, broker, or queue port.
+- Keep API_SERVER_ENABLED=false. T110 owns the non-deployed worker and pinned
+  Hermes continuation proof; T107 owns activation, durable ingress, fairness,
+  cancellation, and operator controls; T108 owns publication outbox behavior.
+- Update the public roadmap after T106 without claiming that a worker is live.
 
 ## Remaining order
 
-T106 worker lifecycle/recovery → T107 supersession/fairness/fast enqueue → T108
-publication outbox → T109 final audit.
+T106 atomic lifecycle/recovery → T110 non-deployed worker proof → T107
+activation/supersession/fairness/fast enqueue → T108 publication outbox → T109
+final audit.
 Security-scanner and Codex Security integrations remain explicitly deferred.
 
 ## Verification continuity
@@ -55,6 +57,7 @@ Security-scanner and Codex Security integrations remain explicitly deferred.
   `review-agent-t105-durable-jobs` (UUID
   `fbf41768-47f2-4631-8941-518111bd54f3`) and the re-sliced constraint gate
   `review-agent-t105-constraint-final` (UUID
-  `1d4c3167-0193-4c9e-9632-e9a137aa0cfd`). Exact-commit CI is pending.
+  `1d4c3167-0193-4c9e-9632-e9a137aa0cfd`). Exact-commit run `32750859418`
+  passed all required jobs.
 - Preserve user-owned `refactor-plan1.md`.
 - Stop all Codex and Claude work by 23:50 Europe/Stockholm; resume at 06:00.

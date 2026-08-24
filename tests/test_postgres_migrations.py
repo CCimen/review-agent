@@ -34,7 +34,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
 
     def test_applies_once_and_records_the_exact_source_checksum(self) -> None:
         with psycopg.connect(DSN) as connection:
-            self.assertEqual(runner.apply_migrations(connection), (1, 2))
+            self.assertEqual(runner.apply_migrations(connection), (1, 2, 3))
             self.assertEqual(runner.apply_migrations(connection), ())
             rows = connection.execute(
                 """
@@ -60,6 +60,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                 for version, name in (
                     (1, "001_initial.sql"),
                     (2, "002_review_jobs.sql"),
+                    (3, "003_review_job_lifecycle.sql"),
                 )
             ],
         )
@@ -93,7 +94,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (2,))
+        self.assertEqual(count, (3,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

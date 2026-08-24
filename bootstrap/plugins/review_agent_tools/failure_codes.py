@@ -21,6 +21,18 @@ SUPERSEDED_DUPLICATE_MIGRATION: Final = "superseded_duplicate_migration"
 REVIEW_DELIVER_ERROR: Final = "review_deliver_error"
 # review_deliver raised an unexpected error before publishing.
 UNEXPECTED_REVIEW_DELIVER_FAILURE: Final = "unexpected_review_deliver_failure"
+# GitHub cannot render the exact pull-request diff for this snapshot.
+GITHUB_DIFF_UNAVAILABLE: Final = "github_diff_406"
+# A durable job consumed its configured attempt budget.
+JOB_RETRY_EXHAUSTED: Final = "job_retry_exhausted"
+# A durable job reported a non-retryable execution failure.
+JOB_EXECUTION_FAILED: Final = "job_execution_failed"
+
+# Job-row causes are deliberately separate from final review-run outcomes.
+JOB_LEASE_EXPIRED: Final = "job_lease_expired"
+JOB_RETRYABLE_EXECUTION: Final = "job_retryable_execution"
+JOB_TERMINAL_EXECUTION: Final = "job_terminal_execution"
+JOB_RUN_FAILED: Final = "job_run_failed"
 
 # The complete set, for validation/telemetry callers that want to enumerate codes.
 ALL: Final = frozenset(
@@ -31,5 +43,17 @@ ALL: Final = frozenset(
         SUPERSEDED_DUPLICATE_MIGRATION,
         REVIEW_DELIVER_ERROR,
         UNEXPECTED_REVIEW_DELIVER_FAILURE,
+        GITHUB_DIFF_UNAVAILABLE,
+        JOB_RETRY_EXHAUSTED,
+        JOB_EXECUTION_FAILED,
+    }
+)
+
+JOB_ALL: Final = frozenset(
+    {
+        JOB_LEASE_EXPIRED,
+        JOB_RETRYABLE_EXECUTION,
+        JOB_TERMINAL_EXECUTION,
+        JOB_RUN_FAILED,
     }
 )

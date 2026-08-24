@@ -27,29 +27,32 @@ last_verified: 2026-08-24
 - Direct PostgreSQL review, feedback, publication, stale-run recovery, and
   operator command paths. Network and model calls never hold database
   connections.
+- Durable PostgreSQL job records with atomic lease claims, exact heartbeats,
+  bounded retry and dead-letter transitions, expiry recovery, and atomic
+  review-run reconciliation. They are not yet connected to the live request
+  path.
 - Repository-scoped exports with an operator-selected per-table row budget.
 - One validated deployment-profile selector with `sundsvall-standard` as the
   shipped municipal profile. Profiles own voice, stable rules, presentation,
   and an explicit reviewed-skill list; runtime security invariants remain in
   the engine.
 
-PostgreSQL is the only application persistence backend. The project has no
-backend selector, dual write, fallback, import bridge, or compatibility layer.
-Hermes `HERMES_HOME` remains separate profile-local runtime state.
+PostgreSQL owns application persistence. Hermes `HERMES_HOME` remains separate
+profile-local runtime state.
 
 ## Remaining reliability work
 
-1. Add a durable PostgreSQL job lifecycle with leases, fencing, heartbeats,
-   retries, dead-letter handling, supersession, and fair bounded concurrency.
-2. Acknowledge review requests after durable enqueue so a gateway interruption
-   cannot lose accepted work.
+1. Prove the concrete worker's exact-run continuation, heartbeat isolation,
+   graceful shutdown, and safe recovery from an interrupted model turn.
+2. Activate durable request admission and the worker together, with fast
+   acknowledgement, old-head cancellation, fairness, and operator controls.
 3. Persist publication intent and exact payloads atomically, then deliver them
    through a recoverable outbox worker without holding database connections
    during GitHub calls.
 
 ## Planned platform capabilities
 
-- durable jobs, retries, leases, and an outbox for external delivery;
+- activated durable workers and an outbox for external delivery;
 - GitHub App installation tokens and webhook-based repository lifecycle;
 - trusted base-branch `.github/review-agent.yaml` and `AGENTS.md` context;
 - operator-facing repository and policy management;

@@ -17,6 +17,7 @@ from .domain.finding import (
     resolve_fingerprint_query,
 )
 from .domain.review import JsonObject, ReviewRunId
+from . import review_run_application
 from .postgres import coaching as postgres_coaching
 from .postgres import decisions as postgres_decisions
 from .postgres import findings as postgres_findings
@@ -327,7 +328,7 @@ def mark_stalled_runs(
     moment = _now(now)
     cutoff = moment - timedelta(minutes=age)
     with runtime.transaction() as connection:
-        run_ids = postgres_review_runs.mark_stale_runs_failed(
+        run_ids = review_run_application.mark_stale_runs_failed_in_transaction(
             connection,
             cutoff=cutoff,
             repository=normalized_repository,

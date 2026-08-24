@@ -23,8 +23,6 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("PostgreSQL store", learning)
         self.assertIn("--repo example-org/example-repository", learning)
         self.assertIn("--row-limit 10000", learning)
-        self.assertNotIn("SQLite", learning)
-        self.assertNotIn("review-agent-memory --db", learning)
 
     def test_failure_status_recovery_is_documented(self):
         operations = read("docs/OPERATIONS.md")

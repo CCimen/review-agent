@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -12,6 +13,7 @@ from psycopg import errors
 from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
+from .. import failure_codes
 from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
 
 
@@ -27,10 +29,23 @@ class ReviewJobNotFound(ReviewJobError):
     """The requested review job does not exist."""
 
 
+class ReviewJobLeaseLost(ReviewJobError):
+    """The exact lease no longer owns a mutable job."""
+
+    current_job: "ReviewJob"
+
+    def __init__(self, current_job: "ReviewJob") -> None:
+        super().__init__("review job lease is no longer current")
+        self.current_job = current_job
+
+
 class ReviewJobStatus(str, Enum):
     QUEUED = "queued"
     LEASED = "leased"
     SUPERSEDED = "superseded"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    DEAD_LETTER = "dead_letter"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +61,7 @@ class ReviewJob:
     lease_generation: int
     lease_expires_at: datetime | None
     last_heartbeat_at: datetime | None
+    failure_code: str | None
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
@@ -64,6 +80,7 @@ class _ReviewJobRow:
     lease_generation: int
     lease_expires_at: datetime | None
     last_heartbeat_at: datetime | None
+    failure_code: str | None
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
@@ -74,6 +91,26 @@ class _ReviewRunScopeRow:
     id: ReviewRunId
     pull_request_id: PullRequestId
     status: str
+
+
+@dataclass(frozen=True, slots=True)
+class _RecoveredJobRow:
+    id: int
+    review_run_id: ReviewRunId
+    status: str
+    priority: int
+    available_at: datetime
+    attempt_count: int
+    max_attempts: int
+    lease_owner: str | None
+    lease_generation: int
+    lease_expires_at: datetime | None
+    last_heartbeat_at: datetime | None
+    failure_code: str | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    run_status: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +126,22 @@ class DuplicateJob:
 JobEnqueue: TypeAlias = EnqueuedJob | DuplicateJob
 
 
+@dataclass(frozen=True, slots=True)
+class JobFailureResult:
+    job: ReviewJob
+    run_failure_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryBatch:
+    jobs: tuple[ReviewJob, ...]
+    run_ids_to_fail: tuple[ReviewRunId, ...]
+
+
 _JOB_COLUMNS = """
     id, review_run_id, status, priority, available_at, attempt_count,
     max_attempts, lease_owner, lease_generation, lease_expires_at,
-    last_heartbeat_at, created_at, started_at, completed_at
+    last_heartbeat_at, failure_code, created_at, started_at, completed_at
 """
 
 
@@ -118,6 +167,7 @@ def _job(row: _ReviewJobRow) -> ReviewJob:
         lease_generation=row.lease_generation,
         lease_expires_at=row.lease_expires_at,
         last_heartbeat_at=row.last_heartbeat_at,
+        failure_code=row.failure_code,
         created_at=row.created_at,
         started_at=row.started_at,
         completed_at=row.completed_at,
@@ -130,6 +180,13 @@ def _integer(value: object, *, field: str, minimum: int | None = None) -> int:
     if minimum is not None and value < minimum:
         raise ReviewJobError(f"{field} must be at least {minimum}")
     return value
+
+
+def _failure_code(value: str) -> str:
+    code = value.strip()
+    if code not in failure_codes.JOB_ALL:
+        raise ReviewJobError("failure_code is not a canonical job failure code")
+    return code
 
 
 def _by_run(
@@ -167,7 +224,7 @@ def enqueue_run(
     priority: int,
     max_attempts: int,
 ) -> JobEnqueue:
-    """Create one queue record for an active run and supersede older queued work."""
+    """Create one queue record for an active run."""
     _require_transaction(connection)
     resolved_run_id = ReviewRunId(
         _integer(review_run_id, field="review_run_id", minimum=1)
@@ -210,21 +267,6 @@ def enqueue_run(
     existing = _by_run(connection, resolved_run_id)
     if existing is not None:
         return DuplicateJob(existing)
-
-    try:
-        connection.execute(
-            """
-            UPDATE review_agent.review_jobs AS job
-            SET status = 'superseded', completed_at = statement_timestamp()
-            FROM review_agent.review_runs AS run
-            WHERE run.id = job.review_run_id
-              AND run.pull_request_id = %s
-              AND job.status = 'queued'
-            """,
-            (run.pull_request_id,),
-        )
-    except errors.LockNotAvailable as exc:
-        raise ReviewJobBusy("queued review work is busy") from exc
 
     try:
         with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
@@ -293,6 +335,7 @@ def claim_next_job(
                 lease_generation = job.lease_generation + 1,
                 lease_expires_at = statement_timestamp() + %s,
                 last_heartbeat_at = statement_timestamp(),
+                failure_code = NULL,
                 started_at = COALESCE(job.started_at, statement_timestamp())
             FROM candidate
             WHERE job.id = candidate.id AND job.status = 'queued'
@@ -301,3 +344,275 @@ def claim_next_job(
             (owner, lease_duration),
         ).fetchone()
     return _job(row) if row is not None else None
+
+
+def heartbeat_job(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    job_id: int,
+    lease_owner: str,
+    lease_generation: int,
+    lease_duration: timedelta,
+) -> ReviewJob:
+    """Extend one live exact lease or report the current terminal state."""
+    _require_transaction(connection)
+    resolved_job_id = _integer(job_id, field="job_id", minimum=1)
+    owner = lease_owner.strip()
+    if not owner:
+        raise ReviewJobError("lease_owner is required")
+    generation = _integer(
+        lease_generation, field="lease_generation", minimum=1
+    )
+    if lease_duration <= timedelta(0):
+        raise ReviewJobError("lease_duration must be positive")
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            UPDATE review_agent.review_jobs
+            SET last_heartbeat_at = statement_timestamp(),
+                lease_expires_at = statement_timestamp() + %s
+            WHERE id = %s
+              AND status = 'leased'
+              AND lease_owner = %s
+              AND lease_generation = %s
+              AND lease_expires_at > statement_timestamp()
+            RETURNING {_JOB_COLUMNS}
+            """,
+            (lease_duration, resolved_job_id, owner, generation),
+        ).fetchone()
+    if row is None:
+        raise ReviewJobLeaseLost(get_job(connection, resolved_job_id))
+    return _job(row)
+
+
+def fail_claimed_job(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    job_id: int,
+    lease_owner: str,
+    lease_generation: int,
+    failure_code: str,
+    retryable: bool,
+    retry_delay: timedelta | None,
+) -> JobFailureResult:
+    """Apply one exact fenced failure without deciding the owning run outcome."""
+    _require_transaction(connection)
+    resolved_job_id = _integer(job_id, field="job_id", minimum=1)
+    owner = lease_owner.strip()
+    if not owner:
+        raise ReviewJobError("lease_owner is required")
+    generation = _integer(
+        lease_generation, field="lease_generation", minimum=1
+    )
+    code = _failure_code(failure_code)
+    if retryable:
+        if retry_delay is None or retry_delay <= timedelta(0):
+            raise ReviewJobError("retry_delay must be positive for retryable failure")
+        delay = retry_delay
+    else:
+        if retry_delay is not None:
+            raise ReviewJobError("retry_delay belongs only to retryable failure")
+        delay = timedelta(0)
+
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            UPDATE review_agent.review_jobs AS job
+            SET status = CASE
+                    WHEN %s AND job.attempt_count < job.max_attempts THEN 'queued'
+                    WHEN %s THEN 'dead_letter'
+                    ELSE 'failed'
+                END,
+                available_at = CASE
+                    WHEN %s AND job.attempt_count < job.max_attempts
+                    THEN statement_timestamp() + %s
+                    ELSE job.available_at
+                END,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                last_heartbeat_at = NULL,
+                failure_code = %s,
+                completed_at = CASE
+                    WHEN %s AND job.attempt_count < job.max_attempts THEN NULL
+                    ELSE statement_timestamp()
+                END
+            WHERE job.id = %s
+              AND job.status = 'leased'
+              AND job.lease_owner = %s
+              AND job.lease_generation = %s
+              AND job.lease_expires_at > statement_timestamp()
+            RETURNING {_JOB_COLUMNS}
+            """,
+            (
+                retryable,
+                retryable,
+                retryable,
+                delay,
+                code,
+                retryable,
+                resolved_job_id,
+                owner,
+                generation,
+            ),
+        ).fetchone()
+    if row is None:
+        raise ReviewJobLeaseLost(get_job(connection, resolved_job_id))
+    job = _job(row)
+    run_failure_code = (
+        failure_codes.JOB_RETRY_EXHAUSTED
+        if job.status is ReviewJobStatus.DEAD_LETTER
+        else (
+            failure_codes.JOB_EXECUTION_FAILED
+            if job.status is ReviewJobStatus.FAILED
+            else None
+        )
+    )
+    return JobFailureResult(job=job, run_failure_code=run_failure_code)
+
+
+def reconcile_run_jobs(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_ids: Sequence[ReviewRunId],
+    status: ReviewStatus,
+) -> tuple[ReviewJob, ...]:
+    """Terminalize non-terminal jobs after their owning runs become terminal."""
+    _require_transaction(connection)
+    if not run_ids:
+        return ()
+    if status is ReviewStatus.RUNNING:
+        raise ReviewJobError("an active run cannot terminalize its job")
+    job_status = {
+        ReviewStatus.COMPLETED: ReviewJobStatus.SUCCEEDED,
+        ReviewStatus.FAILED: ReviewJobStatus.FAILED,
+        ReviewStatus.SUPERSEDED: ReviewJobStatus.SUPERSEDED,
+    }[status]
+    job_failure_code = (
+        failure_codes.JOB_RUN_FAILED if status is ReviewStatus.FAILED else None
+    )
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        rows = cursor.execute(
+            f"""
+            UPDATE review_agent.review_jobs
+            SET status = %s,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                last_heartbeat_at = NULL,
+                failure_code = %s,
+                completed_at = statement_timestamp()
+            WHERE review_run_id = ANY(%s::bigint[])
+              AND status IN ('queued', 'leased')
+            RETURNING {_JOB_COLUMNS}
+            """,
+            (job_status.value, job_failure_code, [int(item) for item in run_ids]),
+        ).fetchall()
+    return tuple(sorted((_job(row) for row in rows), key=lambda item: item.id))
+
+
+def recover_expired_leases(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    limit: int,
+) -> RecoveryBatch:
+    """Recover a bounded expiry batch after locking runs before job rows."""
+    _require_transaction(connection)
+    row_limit = _integer(limit, field="limit", minimum=1)
+    recovered_columns = """
+                job.id, job.review_run_id, job.status, job.priority,
+                job.available_at, job.attempt_count, job.max_attempts,
+                job.lease_owner, job.lease_generation, job.lease_expires_at,
+                job.last_heartbeat_at, job.failure_code, job.created_at,
+                job.started_at, job.completed_at, run.status AS run_status
+    """
+    with connection.cursor(row_factory=class_row(_RecoveredJobRow)) as cursor:
+        rows = cursor.execute(
+            f"""
+            WITH candidate_runs AS MATERIALIZED (
+                SELECT run.id
+                FROM review_agent.review_runs AS run
+                JOIN review_agent.review_jobs AS job
+                  ON job.review_run_id = run.id
+                WHERE job.status = 'leased'
+                  AND job.lease_expires_at <= statement_timestamp()
+                ORDER BY job.lease_expires_at, job.id
+                FOR UPDATE OF run SKIP LOCKED
+                LIMIT %s
+            )
+            UPDATE review_agent.review_jobs AS job
+            SET status = CASE
+                    WHEN run.status = 'completed' THEN 'succeeded'
+                    WHEN run.status = 'failed' THEN 'failed'
+                    WHEN run.status = 'superseded' THEN 'superseded'
+                    WHEN job.attempt_count < job.max_attempts THEN 'queued'
+                    ELSE 'dead_letter'
+                END,
+                available_at = CASE
+                    WHEN run.status = 'running'
+                     AND job.attempt_count < job.max_attempts
+                    THEN statement_timestamp()
+                    ELSE job.available_at
+                END,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                last_heartbeat_at = NULL,
+                failure_code = CASE
+                    WHEN run.status = 'completed' THEN NULL
+                    WHEN run.status = 'superseded' THEN NULL
+                    WHEN run.status = 'failed' THEN %s
+                    ELSE %s
+                END,
+                completed_at = CASE
+                    WHEN run.status = 'running'
+                     AND job.attempt_count < job.max_attempts
+                    THEN NULL
+                    ELSE statement_timestamp()
+                END
+            FROM candidate_runs AS candidate
+            JOIN review_agent.review_runs AS run ON run.id = candidate.id
+            WHERE job.review_run_id = candidate.id
+              AND job.status = 'leased'
+              AND job.lease_expires_at <= statement_timestamp()
+            RETURNING {recovered_columns}
+            """,
+            (
+                row_limit,
+                failure_codes.JOB_RUN_FAILED,
+                failure_codes.JOB_LEASE_EXPIRED,
+            ),
+        ).fetchall()
+    jobs = tuple(
+        sorted(
+            (
+                _job(
+                    _ReviewJobRow(
+                        id=row.id,
+                        review_run_id=row.review_run_id,
+                        status=row.status,
+                        priority=row.priority,
+                        available_at=row.available_at,
+                        attempt_count=row.attempt_count,
+                        max_attempts=row.max_attempts,
+                        lease_owner=row.lease_owner,
+                        lease_generation=row.lease_generation,
+                        lease_expires_at=row.lease_expires_at,
+                        last_heartbeat_at=row.last_heartbeat_at,
+                        failure_code=row.failure_code,
+                        created_at=row.created_at,
+                        started_at=row.started_at,
+                        completed_at=row.completed_at,
+                    )
+                )
+                for row in rows
+            ),
+            key=lambda item: item.id,
+        )
+    )
+    failures = tuple(
+        sorted(
+            row.review_run_id
+            for row in rows
+            if row.run_status == ReviewStatus.RUNNING
+            and row.status == ReviewJobStatus.DEAD_LETTER
+        )
+    )
+    return RecoveryBatch(jobs=jobs, run_ids_to_fail=failures)

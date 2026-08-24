@@ -118,9 +118,8 @@ rules are engine configuration and cannot be changed by a profile. The visible
 review protocol also remains deterministic; localizing its fixed headings and
 markers requires an engine change rather than a free-form profile template.
 
-The runtime uses one PostgreSQL database per environment with no backend
-selector, import bridge, fallback, or dual-write path. See the
-[current roadmap](docs/ROADMAP.md) for the remaining durable-job work.
+The runtime stores application state in one PostgreSQL database per environment.
+See the [current roadmap](docs/ROADMAP.md) for the remaining durable-job work.
 
 ## Developer Workflow
 

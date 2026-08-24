@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Generic, Literal, TypeVar, cast
+
+import psycopg
+from psycopg.rows import TupleRow
 
 from . import changed_files, failure_codes
 from .domain.review import (
@@ -13,10 +16,13 @@ from .domain.review import (
     FileDomain,
     FileSide as PostgresFileSide,
     JsonObject,
+    PullRequestId,
     ReviewDomainError,
     ReviewMode,
     ReviewPhase,
     ReviewRunId,
+    ReviewStatus,
+    ReviewSubjectId,
     classify_file_domain,
     classify_review_mode,
     resolve_changed_file,
@@ -27,6 +33,7 @@ from .domain.review import (
 )
 from .postgres import registry as postgres_registry
 from .postgres import coverage as postgres_coverage
+from .postgres import jobs as postgres_jobs
 from .postgres import review_runs as postgres_review_runs
 from .postgres.coverage import RunFileLookup
 from .postgres.runtime import PostgreSQLRuntime
@@ -123,6 +130,154 @@ class DuplicateRun:
 RunStart = StartedRun | DuplicateRun
 
 
+def start_run_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    pull_request_id: PullRequestId,
+    review_subject_id: ReviewSubjectId,
+    request_key: str,
+    trigger_comment_id: int | None = None,
+    trigger_user: str = "",
+) -> postgres_review_runs.RunStart:
+    """Start one run and reconcile any prior exact job in the same transaction."""
+    result = postgres_review_runs.start_run(
+        connection,
+        pull_request_id=pull_request_id,
+        review_subject_id=review_subject_id,
+        request_key=request_key,
+        trigger_comment_id=trigger_comment_id,
+        trigger_user=trigger_user,
+    )
+    if (
+        isinstance(result, postgres_review_runs.StartedRun)
+        and result.superseded_run_id is not None
+    ):
+        postgres_jobs.reconcile_run_jobs(
+            connection,
+            run_ids=(result.superseded_run_id,),
+            status=ReviewStatus.SUPERSEDED,
+        )
+    return result
+
+
+def complete_run_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    run_id: ReviewRunId,
+    *,
+    findings_count: int,
+) -> postgres_review_runs.ReviewRun:
+    """Complete one review and its optional durable job atomically."""
+    run = postgres_review_runs.complete_run(
+        connection, run_id, findings_count=findings_count
+    )
+    postgres_jobs.reconcile_run_jobs(
+        connection, run_ids=(run.id,), status=run.status
+    )
+    return run
+
+
+def fail_run_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    run_id: ReviewRunId,
+    *,
+    failure_code: str,
+    findings_count: int | None = None,
+) -> postgres_review_runs.ReviewRun:
+    """Fail one review and its optional durable job atomically."""
+    run = postgres_review_runs.fail_run(
+        connection,
+        run_id,
+        failure_code=failure_code,
+        findings_count=findings_count,
+    )
+    postgres_jobs.reconcile_run_jobs(
+        connection, run_ids=(run.id,), status=run.status
+    )
+    return run
+
+
+def mark_superseded_in_transaction(
+    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
+) -> postgres_review_runs.ReviewRun:
+    """Supersede one review and its optional durable job atomically."""
+    run = postgres_review_runs.mark_superseded(connection, run_id)
+    postgres_jobs.reconcile_run_jobs(
+        connection, run_ids=(run.id,), status=run.status
+    )
+    return run
+
+
+def fail_claimed_job_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    job_id: int,
+    lease_owner: str,
+    lease_generation: int,
+    failure_code: str,
+    retryable: bool,
+    retry_delay: timedelta | None,
+) -> postgres_jobs.JobFailureResult:
+    """Fail one claim after locking its run before its job row."""
+    current_job = postgres_jobs.get_job(connection, job_id)
+    run = postgres_review_runs.lock_run(connection, current_job.review_run_id)
+    if run.status is not ReviewStatus.RUNNING:
+        changed = postgres_jobs.reconcile_run_jobs(
+            connection, run_ids=(run.id,), status=run.status
+        )
+        job = changed[0] if changed else postgres_jobs.get_job(connection, job_id)
+        return postgres_jobs.JobFailureResult(job=job, run_failure_code=None)
+
+    outcome = postgres_jobs.fail_claimed_job(
+        connection,
+        job_id=job_id,
+        lease_owner=lease_owner,
+        lease_generation=lease_generation,
+        failure_code=failure_code,
+        retryable=retryable,
+        retry_delay=retry_delay,
+    )
+    if outcome.run_failure_code is not None:
+        postgres_review_runs.fail_active_runs(
+            connection,
+            run_ids=(run.id,),
+            failure_code=outcome.run_failure_code,
+        )
+    return outcome
+
+
+def recover_expired_jobs_in_transaction(
+    connection: psycopg.Connection[TupleRow], *, limit: int
+) -> postgres_jobs.RecoveryBatch:
+    """Recover one bounded expiry batch and release exhausted active runs."""
+    recovered = postgres_jobs.recover_expired_leases(connection, limit=limit)
+    postgres_review_runs.fail_active_runs(
+        connection,
+        run_ids=recovered.run_ids_to_fail,
+        failure_code=failure_codes.JOB_RETRY_EXHAUSTED,
+    )
+    return recovered
+
+
+def mark_stale_runs_failed_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    cutoff: datetime,
+    repository: str | None,
+    pr_number: int | None,
+) -> tuple[ReviewRunId, ...]:
+    """Fail stale runs and reconcile all related jobs with one batch update."""
+    run_ids = postgres_review_runs.mark_stale_runs_failed(
+        connection,
+        cutoff=cutoff,
+        repository=repository,
+        pr_number=pr_number,
+    )
+    postgres_jobs.reconcile_run_jobs(
+        connection, run_ids=run_ids, status=ReviewStatus.FAILED
+    )
+    return run_ids
+
+
 def start_postgres_review(
     runtime: PostgreSQLRuntime, request: PostgresRunRequest
 ) -> postgres_review_runs.RunStart:
@@ -154,7 +309,7 @@ def start_postgres_review(
         subject = postgres_registry.create_or_get_subject(
             connection, pull_request.id, subject_definition
         )
-        return postgres_review_runs.start_run(
+        return start_run_in_transaction(
             connection,
             pull_request_id=pull_request.id,
             review_subject_id=subject.id,
@@ -407,6 +562,12 @@ def load_live_snapshot(
                     phase=resolve_review_phase(phase),
                 )
             )
+            if newly_terminalized:
+                postgres_jobs.reconcile_run_jobs(
+                    connection,
+                    run_ids=(ReviewRunId(subject.run_id),),
+                    status=ReviewStatus.SUPERSEDED,
+                )
         except postgres_review_runs.ReviewRunError as exc:
             raise ReviewRunError(str(exc)) from exc
     if not current:
@@ -559,7 +720,7 @@ def fail_live_run(
     try:
         _require_live_scope(runtime, subject)
         with runtime.transaction() as connection:
-            postgres_review_runs.fail_run(
+            fail_run_in_transaction(
                 connection,
                 ReviewRunId(subject.run_id),
                 failure_code=failure_code,

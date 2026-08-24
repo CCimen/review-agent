@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, LiteralString, TypeAlias, cast
@@ -94,6 +95,7 @@ class _ReviewRunScopeRow:
 @dataclass(frozen=True, slots=True)
 class StartedRun:
     run: ReviewRun
+    superseded_run_id: ReviewRunId | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,6 +260,17 @@ def get_run(
     """Return one typed review run at any lifecycle state."""
     _require_transaction(connection)
     run = _by_id(connection, run_id)
+    if run is None:
+        raise ReviewRunNotFound("review run does not exist")
+    return run
+
+
+def lock_run(
+    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
+) -> ReviewRun:
+    """Return and lock one run before a related job mutation."""
+    _require_transaction(connection)
+    run = _by_id(connection, run_id, for_update=True)
     if run is None:
         raise ReviewRunNotFound("review run does not exist")
     return run
@@ -604,11 +617,12 @@ def start_run(
             review_subject_id=review_subject_id,
         )
 
+    superseded_run_id: ReviewRunId | None = None
     active = _active_run(connection, pull_request_id)
     if active is not None:
         if active.review_subject_id == review_subject_id:
             return DuplicateRun(run=active, reason="active_run")
-        mark_superseded(connection, active.id)
+        superseded_run_id = mark_superseded(connection, active.id).id
 
     with connection.cursor(row_factory=class_row(_ReviewRunRow)) as cursor:
         row = cursor.execute(
@@ -633,7 +647,9 @@ def start_run(
             ),
         ).fetchone()
     if row is not None:
-        return StartedRun(run=_run(row))
+        return StartedRun(
+            run=_run(row), superseded_run_id=superseded_run_id
+        )
 
     existing_request = _by_request_key(connection, request_key)
     if existing_request is not None:
@@ -792,6 +808,34 @@ def fail_run(
     return _run(row)
 
 
+def fail_active_runs(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_ids: Sequence[ReviewRunId],
+    failure_code: str,
+) -> tuple[ReviewRun, ...]:
+    """Fail a bounded run set, ignoring rows already terminalized."""
+    _require_transaction(connection)
+    if not run_ids:
+        return ()
+    code = failure_code.strip()
+    if not code or len(code) > 80:
+        raise ReviewRunError("failure_code must contain at most 80 characters")
+    with connection.cursor(row_factory=class_row(_ReviewRunRow)) as cursor:
+        rows = cursor.execute(
+            f"""
+            UPDATE review_agent.review_runs
+            SET status = 'failed', phase = 'failed', failure_code = %s,
+                completed_at = statement_timestamp(),
+                last_heartbeat_at = statement_timestamp()
+            WHERE id = ANY(%s::bigint[]) AND status = 'running'
+            RETURNING {_RUN_COLUMNS}
+            """,
+            (code, [int(run_id) for run_id in run_ids]),
+        ).fetchall()
+    return tuple(sorted((_run(row) for row in rows), key=lambda run: run.id))
+
+
 def mark_superseded(
     connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
 ) -> ReviewRun:
@@ -827,6 +871,12 @@ def mark_stale_runs_failed(
     conditions = [
         "run.status = 'running'",
         "run.last_heartbeat_at < %s",
+        "NOT EXISTS ("
+        "SELECT 1 FROM review_agent.review_jobs AS live_job "
+        "WHERE live_job.review_run_id = run.id "
+        "AND live_job.status = 'leased' "
+        "AND live_job.lease_expires_at > statement_timestamp()"
+        ")",
     ]
     parameters: list[object] = [cutoff]
     if repository is not None:

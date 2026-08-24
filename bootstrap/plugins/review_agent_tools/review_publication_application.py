@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .postgres.runtime import PostgreSQLRuntime
 
-from . import failure_codes
+from . import failure_codes, review_run_application
 from .domain.publication import PublicationPartType
 from .github.publication import (
     GitHubPublicationError,
@@ -378,7 +378,6 @@ def publish_postgres_publication(
         extract_publication_key,
     )
     from .postgres import publications as postgres_publications
-    from .postgres import review_runs as postgres_review_runs
 
     resolved_id = PublicationId(publication_id)
     with runtime.transaction() as connection:
@@ -494,7 +493,7 @@ def publish_postgres_publication(
                 failure_code=failure_code,
                 stale=True,
             )
-            postgres_review_runs.fail_run(
+            review_run_application.fail_run_in_transaction(
                 connection,
                 publication.review_run_id,
                 failure_code=failure_code,
@@ -627,7 +626,7 @@ def publish_postgres_publication(
             publication_id=resolved_id,
             posting_started_at=posting_started_at,
         )
-        postgres_review_runs.complete_run(
+        review_run_application.complete_run_in_transaction(
             connection,
             publication.review_run_id,
             findings_count=findings_count,
@@ -685,12 +684,18 @@ _FAILURE_REASONS = {
     failure_codes.STALE_TIMEOUT: (
         "the review run stopped responding and was marked stale"
     ),
-    "github_diff_406": (
+    failure_codes.GITHUB_DIFF_UNAVAILABLE: (
         "GitHub could not render this pull request's diff (it is very large)"
     ),
     failure_codes.REVIEW_DELIVER_ERROR: "the review failed during delivery",
     failure_codes.UNEXPECTED_REVIEW_DELIVER_FAILURE: (
         "the review failed unexpectedly during delivery"
+    ),
+    failure_codes.JOB_RETRY_EXHAUSTED: (
+        "the review worker exhausted its configured recovery attempts"
+    ),
+    failure_codes.JOB_EXECUTION_FAILED: (
+        "the review worker encountered a non-retryable execution failure"
     ),
 }
 

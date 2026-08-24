@@ -111,7 +111,7 @@ concurrency:
 
 
 class MigrationReadinessDocumentationTests(unittest.TestCase):
-    def test_public_status_names_the_clean_postgresql_replacement(self):
+    def test_public_status_names_the_current_postgresql_contract(self):
         roadmap = ROADMAP.read_text(encoding="utf-8")
         homepage = HOMEPAGE.read_text(encoding="utf-8")
         readme = README.read_text(encoding="utf-8")
@@ -122,22 +122,22 @@ class MigrationReadinessDocumentationTests(unittest.TestCase):
             "Bounded PR reads",
             "Checksum-verified PostgreSQL migrations",
             "Direct PostgreSQL review",
+            "Durable PostgreSQL job records",
             "Repository-scoped exports",
         ):
             self.assertIn(current_capability, normalized_roadmap)
 
         for current_invariant in (
             "One PostgreSQL database per environment",
-            "PostgreSQL is the only application persistence backend",
-            "no backend selector",
+            "PostgreSQL owns application persistence",
             "Hermes `HERMES_HOME` remains separate",
             "Network and model calls never hold database connections",
         ):
             self.assertIn(current_invariant, normalized_roadmap)
 
         for planned_reliability in (
-            "durable PostgreSQL job lifecycle",
-            "Acknowledge review requests after durable enqueue",
+            "exact-run continuation",
+            "Activate durable request admission",
             "recoverable outbox worker",
         ):
             self.assertIn(planned_reliability, normalized_roadmap)

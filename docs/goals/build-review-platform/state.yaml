@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "The PostgreSQL-only runtime and durable fenced job foundation are complete; worker lifecycle and crash recovery are active."
+  tranche: "The PostgreSQL-only runtime and fenced job foundation are complete; atomic job lifecycle and recovery are active."
   status: active
 
 rules:
@@ -1919,32 +1919,58 @@ tasks:
     assignee: PM
     status: active
     reasoning_hint: high
-    objective: "Add the durable review-worker lifecycle, heartbeat, crash recovery, retry classification, dead letter, and graceful shutdown on the PostgreSQL queue."
+    objective: "Add atomic PostgreSQL job heartbeat, retry, dead-letter, expiry recovery, and two-way review-run reconciliation without deploying a worker."
     constraints:
-      - "Reuse the existing exact-snapshot review application; do not duplicate review orchestration in the worker."
-      - "Keep this slice to claim/heartbeat/complete/fail/reap lifecycle and bounded metrics; supersession and fairness belong to T107."
-      - "Do not add a scheduler framework or another message broker."
+      - "Keep review_runs as the review-outcome owner, review_jobs as the execution-state owner, and compose cross-table transactions in review_run_application."
+      - "Use pull-request then run then job lock order; recovery must not lock a job and then wait for its run."
+      - "Every claim consumes the bounded attempt budget; do not add an execution key, recovery counter, metrics surface, reaper daemon, scheduler, or broker."
+      - "Keep the Hermes API server disabled and do not add a worker service or public request-path change."
     expected_output:
-      - "Worker claim/heartbeat/complete/fail lifecycle"
-      - "Lease-expiry reaper and retry/dead-letter behavior"
-      - "Graceful shutdown and bounded lifecycle metrics"
-      - "Crash-recovery process contract"
+      - "Exact fenced heartbeat and typed lease-loss behavior"
+      - "Retry, failed, dead-letter, and bounded lease-expiry recovery transitions"
+      - "Atomic run/job success, failure, and supersession reconciliation"
+      - "One canonical failure-code vocabulary and no stranded per-PR active run"
     verify:
-      - "Killing a worker during provider work makes the job claimable after expiry without creating a second active review or publication."
-      - "Retryable and terminal failures transition deterministically and graceful shutdown stops new claims."
-      - "Run focused process/concurrency/recovery tests, the canonical bundle, docs/site checks, and one Claude Opus/high gate with score >= 8."
+      - "Stale owner/generation/expiry cannot mutate a reclaimed job and lease loss returns the current terminal status."
+      - "Terminal job failure releases an active run; terminal run transitions reconcile one job in the same transaction, including leased supersession."
+      - "Recovery is bounded, attempt-counted, lock-ordered, and never requeues work for a terminal run."
+      - "Run real PostgreSQL lifecycle/concurrency tests, migration and backup/restore checks, the canonical bundle, docs/site checks, and one Claude Opus/high gate with score >= 8."
     stop_if:
-      - "Hermes cannot execute a claimed durable job without an upstream contract decision."
-      - "The slice requires supersession/fairness policy, scanners, GitHub App, Slack, or another broker."
+      - "Atomic two-way reconciliation requires a circular import, per-row sweep loop, or second lifecycle owner."
+      - "The slice requires a worker, Hermes API enablement, fairness policy, scanners, GitHub App, Slack, or another broker."
+    receipt: null
+  - id: T110
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: high
+    objective: "Prove and implement one non-deployed Review Agent worker with exact-run continuation, heartbeat isolation, bounded retry, and graceful shutdown."
+    constraints:
+      - "Reuse the exact-snapshot review application and one canonical profile skill; do not duplicate orchestration or prompt ownership."
+      - "Treat Hermes idempotency as a same-lease transport optimization only; PostgreSQL fences and run/publication constraints own correctness."
+      - "Prove that reclaim cannot leave two concurrent Hermes turns mutating one run before activation."
+      - "Keep API_SERVER_ENABLED=false and do not add the worker to Compose until T107 creates a real durable ingress."
+    expected_output:
+      - "Pinned Hermes API, toolset, SOUL/AGENTS, cancellation, and timeout evidence"
+      - "Dedicated worker database role and explicit HTTP/heartbeat failure boundaries"
+      - "Exact-run continuation through the existing review application and profile skill"
+      - "Graceful stop that stops claims and leaves unfinished work recoverable"
+    verify:
+      - "A lost lease reports its current job/run outcome and never converts successful run terminalization into a retry."
+      - "Process-death recovery cannot produce two concurrent agent turns against one run."
+      - "Run focused process and pinned-adapter tests, the canonical bundle, docs checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "Pinned Hermes cannot cancel or fence a prior turn, layer the selected profile safely, or execute an existing exact run without duplicate ownership."
+      - "The worker requires a deployed API surface, fairness policy, another broker, or publication outbox behavior."
     receipt: null
   - id: T107
     type: pm
     assignee: PM
     status: queued
     reasoning_hint: high
-    objective: "Add old-head supersession, per-repository fairness, fast durable request acknowledgement, priority aging, and operator queue inspection."
+    objective: "Activate durable admission and the proven worker with old-head cancellation, per-repository fairness, fast acknowledgement, priority aging, and operator queue inspection."
     constraints:
-      - "Use the concrete PostgreSQL job owner and existing operator CLI; do not add a scheduler or administration framework."
+      - "Enable the authenticated internal Hermes API and worker only with the real durable ingress; use the concrete PostgreSQL job owner and existing operator CLI."
       - "Start with one active review per repository and a bounded global queue; tune concurrency only from measured queue age and provider capacity."
       - "Old-head queued or running work must never publish after supersession."
     expected_output:

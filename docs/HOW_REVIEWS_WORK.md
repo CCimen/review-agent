@@ -10,7 +10,7 @@ last_verified: 2026-08-24
 # How reviews work
 
 > **Current** — This page describes the live request, review, persistence, and
-> publication path. The GitHub App and durable job architecture are planned
+> publication path. Durable worker activation and the GitHub App remain planned
 > work.
 
 The reviewer separates model reasoning from authorization, state transitions,

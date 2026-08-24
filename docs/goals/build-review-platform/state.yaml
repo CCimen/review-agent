@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "PostgreSQL operational parity is complete; the atomic PostgreSQL-only runtime and Compose cutover is active."
+  tranche: "The PostgreSQL-only runtime, controlled recovery proof, and SQLite deletion are complete; durable job schema is active."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 10
+  completed_write_tasks_in_thread: 13
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T13:39:07Z"
-  last_verified_revision: "a7de8fa03742d00babda8265ed65f881aac1ea01"
+  last_handoff_at: "2026-08-24T15:33:52Z"
+  last_verified_revision: "4474d71fce7c970c4f9577931e8f926fe2d51219"
 
-active_task: T102
+active_task: T105
 
 tasks:
   - id: T001
@@ -1769,7 +1769,7 @@ tasks:
   - id: T102
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Switch the packaged review and feedback runtimes plus Compose atomically to PostgreSQL as the only active Review Agent application store."
     constraints:
@@ -1792,11 +1792,19 @@ tasks:
       - "Atomic cutover would leave a live operation with no PostgreSQL equivalent."
       - "Rollback would require SQLite or a dual-backend window."
       - "A PostgreSQL connection must remain open across provider or model work."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T102-T104-postgresql-only-cutover.md"
+      summary: "Switched review, publication, feedback, operator, and Compose callers atomically to one bounded PostgreSQL runtime with migration/readiness ordering and no dual backend."
+      commit: "4474d71fce7c970c4f9577931e8f926fe2d51219"
+      evidence:
+        - "Every live Review Agent application caller resolves through REVIEW_AGENT_DATABASE_URL; Compose has no SQLite initializer, volume, or public PostgreSQL port."
+        - "Strict Pyright, the 304-test bundle, 104 real PostgreSQL tests, documentation contracts, Compose validation, and the Node 24 Pages build passed."
+        - "Claude Opus/high commit gate reached green at score 8 with no blockers."
   - id: T103
     type: pm
     assignee: PM
-    status: queued
+    status: done
     reasoning_hint: high
     objective: "Prove the fresh PostgreSQL runtime, deterministic recovery, feedback, backup, restore, and first-cutover recovery as one controlled end-to-end contract."
     constraints:
@@ -1817,11 +1825,19 @@ tasks:
     stop_if:
       - "The proof requires unpublished production credentials or destructive external operations."
       - "The restored database cannot satisfy the same revision's migration and readiness contract."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T102-T104-postgresql-only-cutover.md"
+      summary: "Proved fresh migration, deterministic publication recovery, feedback/reporting paths, and backup/restore of known application state against a fresh PostgreSQL 17 instance."
+      commit: "4474d71fce7c970c4f9577931e8f926fe2d51219"
+      evidence:
+        - "Publication process-death recovery and historical supersession contracts passed on real PostgreSQL."
+        - "pg_dump and pg_restore into a fresh instance preserved both the migration ledger and the recovery/probe application canary."
+        - "The restored database passed the same revision's migrate and readiness commands."
   - id: T104
     type: pm
     assignee: PM
-    status: queued
+    status: done
     reasoning_hint: high
     objective: "Delete the now-unreachable Review Agent SQLite implementation, compatibility facade, operational contract, and implementation-detail tests."
     constraints:
@@ -1840,11 +1856,19 @@ tasks:
     stop_if:
       - "A live behavior still has only a SQLite owner."
       - "Deletion would remove a pure behavior contract without a PostgreSQL/application replacement."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T102-T104-postgresql-only-cutover.md"
+      summary: "Deleted the unreachable Review Agent SQLite implementation, compatibility facade, operational contract, and implementation-detail tests while retaining pure behavior owners."
+      commit: "4474d71fce7c970c4f9577931e8f926fe2d51219"
+      evidence:
+        - "Deleted 15 SQLite persistence/publication modules and 18 implementation-detail test modules."
+        - "Current source and public documentation contain no Review Agent SQLite contract; Hermes profile-local state remains separate."
+        - "Focused tool, lifecycle, publication, and docs contracts protect the surviving observable behavior."
   - id: T105
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Add the minimal PostgreSQL durable-job schema, idempotent enqueue, and atomic lease-generation claim contract."
     constraints:

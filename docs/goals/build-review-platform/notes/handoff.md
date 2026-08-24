@@ -6,40 +6,28 @@
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits
   and pushes to `CCimen/review-agent` `main` are authorized.
-- T101 is complete across `e9042e5a33f0ac57dfab82c286188aef6452c09d`
-  and `a7de8fa03742d00babda8265ed65f881aac1ea01`. PostgreSQL owns
-  historical supersession, failure-status state, explicit operator decisions,
-  bounded repeatable-read reporting/export, stale recovery, publication and
-  coverage inspection, verifier input, and coach receipts.
-- T102 is the sole active task: atomically switch review, publication, feedback,
-  operator, and Compose callers to PostgreSQL.
+- T102-T104 are complete at `4474d71fce7c970c4f9577931e8f926fe2d51219`.
+  PostgreSQL is the only Review Agent application store; controlled
+  backup/restore is proven and the SQLite implementation is deleted.
+- T105 is the sole active task: add the minimal PostgreSQL durable-job schema,
+  idempotent enqueue, and atomic lease-generation claim contract.
 - Public identity is “Review Agent.” `sundsvall-standard` remains a selectable
   municipal profile, not the product identity. Model-era review-depth ceilings
   are gone; pageable or honestly incomplete contracts own large inputs.
 
-## T102 execution boundary
+## T105 execution boundary
 
-- Use the existing concrete PostgreSQL runtime and operation modules. Replace
-  `REVIEW_AGENT_DB`, the SQLite initializer, and the SQLite application volume
-  with `REVIEW_AGENT_DATABASE_URL`, the authoritative migration service,
-  readiness, and explicit bounded-pool startup/shutdown ownership.
-- Keep Hermes `HERMES_HOME` state separate and unchanged.
-- Preserve exact tool responses, snapshot protection, finding references,
-  publication bytes, feedback authorization, failure status, supersession,
-  explicit decision targeting, and bounded exports.
-- When enabling export version 16, reject `complete: false` in the same change;
-  accepting version 16 alone would make partial exports look complete.
-- No backend selector, SQLite fallback, importer, dual write, compatibility
-  schema, or rollback window. The product has no production SQLite data.
-- Never hold a PostgreSQL connection across GitHub or model calls. Preserve
-  short feedback transactions and publication lock ordering; recover explicitly
-  if a lock timeout follows an external GitHub post.
-- Update current-state operations/security/public docs and deploy Pages from the
-  same reviewed revision.
+- Add only the durable job fields required for idempotent enqueue, atomic claim,
+  lease generation, and queued old-head supersession.
+- Reuse PostgreSQL row locking and existing repository, pull-request, and exact
+  review-subject identities. Do not add a generic queue port or external broker.
+- Keep worker execution, heartbeat/reaping, retry classification, graceful
+  shutdown, fairness, and publication outbox behavior in T106-T108.
+- Prove concurrent claim ownership and invalid transitions on real PostgreSQL;
+  update public docs only where current behavior changes.
 
 ## Remaining order
 
-T102 atomic cutover → T103 controlled recovery proof → T104 SQLite deletion →
 T105 durable queue schema → T106 worker lifecycle/recovery → T107
 supersession/fairness/fast enqueue → T108 publication outbox → T109 final audit.
 Security-scanner and Codex Security integrations remain explicitly deferred.
@@ -54,6 +42,10 @@ Security-scanner and Codex Security integrations remain explicitly deferred.
   `review-agent-t101-operator-parity` (UUID
   `e3825c18-a74f-44f0-b9f0-ba335ca4a71e`). Exact-commit Python run
   `32733756788` and Pages run `32733756671` passed.
+- T102-T104: PostgreSQL 104 tests, strict Pyright, 304-test bundle, docs/Compose/
+  site checks, and Claude Opus/high green 8. Session
+  `review-agent-t102-postgresql-cutover` (UUID
+  `71ee5913-d171-444c-a608-0df179d463b5`). Exact-commit CI and Pages checks are
+  pending.
 - Preserve user-owned `refactor-plan1.md`.
 - Stop all Codex and Claude work by 23:50 Europe/Stockholm; resume at 06:00.
-

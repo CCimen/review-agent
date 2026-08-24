@@ -6,54 +6,44 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits
   and pushes to `CCimen/review-agent` `main` are authorized.
-- T028 is live at `682736e7c43ce222c3fccbb4da997e1966b6df8b`.
-  Publication partitioning, lifecycle orchestration, environment composition,
-  and GitHub delivery now have separate owners with byte-equivalent behavior.
-- T029 is active for refactor-plan1.md Phase 3 Slice 3B: persist one immutable
-  exact publication plan, parts, and finding outcomes in PostgreSQL, then prove
-  short claim/ack transactions and crash-safe delivery recovery. The active
-  reviewer remains on SQLite; no runtime switch occurs in T029.
+- T029 is live at `204c2626c305201414b42fc6a9658400f6236151`.
+  PostgreSQL now owns immutable exact publication plans, finding outcomes, typed
+  delivery parts, short claim/ack transactions, retryable partial delivery, and
+  publication-scoped crash recovery. No live caller or backend switch exists.
+- T090 is active: make the public product organization-neutral “Review Agent”
+  and add the smallest useful Hermes-native operator profile workflow. Retain
+  `sundsvall-standard` and legitimate `sundsvallskommun` deployment examples.
+- T091 is queued next to audit actual operational capacity ceilings. Identifier
+  regexes remain protocol grammar; arbitrary or duplicated model-era limits do
+  not. Retained provider, storage, and denial-of-service bounds need one owner
+  and rationale.
 
 ## Execution boundary
 
-- Reuse the pure renderer and partition owner from T028. Add typed PostgreSQL
-  publication operations around cohesive preparation, claim, acknowledge,
-  failure, stale, and recovery transitions; do not create a generic store or
-  backend switch.
-- Preparation must atomically persist the exact rendered body/blocks/hash,
-  relational current/closed/not-checked outcomes, and exact structured part
-  payloads/hashes. A PostgreSQL connection must never remain held during GitHub
-  calls.
-- Direct external-ID recovery is primary; marker recovery handles a lost
-  acknowledgement. Prove a process death after GitHub success cannot produce a
-  duplicate delivery.
-- Keep feedback, settings, Compose, deployment, runtime cutover, SQLite deletion,
-  jobs, and outbox out of T029.
-- Ponytail lite remains active: deepen the publication owners already created;
-  do not add a provider framework, generic repository, or speculative policy
-  surface.
+- Generic engine/product copy may change to “Review Agent.” The shipped profile
+  directory and municipal examples are not generic product branding and remain.
+- Use Hermes-native `SOUL.md` for identity/voice, `AGENTS.md` for stable rules,
+  and reviewed skills for procedure. Add only a small validated profile contract
+  where deterministic rendering needs language/presentation values.
+- Profiles cannot alter authorization, tools, prompt trust, snapshots, durable
+  state, delivery routes, markers, provider/model selection, or lifecycle rules.
+- Reuse installer and profile-bundle primitives. Do not add inheritance,
+  marketplace, dynamic loading, template language, plugin framework, or admin UI.
+- Ponytail lite remains active: remove hard-coded product identity and deepen
+  the existing profile owner without creating speculative configuration.
 
 ## Continuity
 
-- T028 evidence: 141 affected tests, strict Pyright, the 569-test full bundle,
-  parent/candidate byte-equivalence digest `2fc1c734131260060c4fbd8118c709c2885039002bd47b9dce09380c6a1d17a4`,
-  live Python run `32705578215`, and docs run `32705578272` passed.
-- Claude session `review-agent-t028-publication-ownership`, UUID
-  `3fe3d43d-80be-41a4-9064-8b264e561757`, converged from score 7 to green at
-  score 8. Start one new resumable Opus/high session for T029's stable gate.
-- T029 must decide whether partition failures get a publication-domain error
-  instead of the GitHub transport error, and reassess failure-status ownership
-  plus duplicate stale guards after PostgreSQL lifecycle ownership is concrete.
-  Keep the historical literal `\\n` correction as a separate visible-output
-  change. Keep GitHub read-client consolidation separate.
-- Carry T027's runtime decision: reconciliation lock contention can surface as
-  fail-closed `LockNotAvailable` under the two-second pool timeout. The later
-  runtime caller must own fail-run versus bounded retry.
-- Product direction: public engine/product naming becomes generic “Review
-  Agent”; `sundsvall-standard` remains the first shipped municipal profile. A
-  later bounded task owns simple Hermes-native profile selection/customization
-  for `SOUL.md`, language, presentation, rules, and reviewed skills. Fixed
-  authorization, tool, snapshot, persistence, publication, and security
-  invariants remain non-configurable. Do not build a generic plugin framework.
+- T029 evidence: real PostgreSQL 83 tests, strict Pyright, 584-test full bundle,
+  59 focused active-publication tests, docs contract, and site typecheck passed.
+- Claude session `review-agent-t029-postgresql-publications`, UUID
+  `92fe6e53-5c85-4375-a8b3-c01c5981f2c4`, converged from score 4 to green at
+  score 8 in one correction and resume. Start one new Opus/high session only at
+  T090's stable architecture/commit gate.
+- The runtime caller later owns retry/reap policy for interrupted publication.
+  PostgreSQL historical supersession rendering remains required before cutover.
+- T090 must remove unnecessary public/code “Sundsvall” product naming while
+  retaining the real Sundsvall deployment profile. T091 then audits actual
+  source/model capacity separately from fixed provider and security ceilings.
 - Preserve user-owned `refactor-plan1.md`. Stop all Codex and Claude work by
   23:50 Europe/Stockholm; resume at 06:00.

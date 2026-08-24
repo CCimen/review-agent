@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Publication ownership separation is complete; immutable PostgreSQL publication persistence is the next active task."
+  tranche: "Crash-safe PostgreSQL publication persistence is complete; generic product identity and bounded Hermes-native profile customization are active."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 5
+  completed_write_tasks_in_thread: 6
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T08:22:00Z"
-  last_verified_revision: "682736e7c43ce222c3fccbb4da997e1966b6df8b"
+  last_handoff_at: "2026-08-24T09:32:33Z"
+  last_verified_revision: "204c2626c305201414b42fc6a9658400f6236151"
 
-active_task: T029
+active_task: T090
 
 tasks:
   - id: T001
@@ -1451,7 +1451,7 @@ tasks:
   - id: T029
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Persist immutable exact PostgreSQL publication plans, finding outcomes, and delivery parts with short claim/ack transactions and crash-safe GitHub recovery."
     constraints:
@@ -1513,10 +1513,22 @@ tasks:
       - "A generic persistence abstraction, backend switch, dual write, fallback, importer, provider call in a transaction, or broad exception framework appears necessary."
       - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
       - "The Stockholm time is too close to 23:50 to finish the current safe unit; write a durable handoff and stop."
+    receipt:
+      result: done
+      note: "notes/T029-postgresql-publications.md"
+      summary: "Persisted immutable exact PostgreSQL publication plans and typed delivery parts with short transactions, publication-scoped crash recovery, retryable partial delivery, and atomic supersession without a live runtime caller."
+      implementation_revision: "204c2626c305201414b42fc6a9658400f6236151"
+      evidence:
+        - "Real PostgreSQL 17 contract passed 83 tests, including concurrent claim, crash recovery, retry, and two-review supersession behavior."
+        - "Strict Pyright, the 584-test canonical bundle, docs contract, and site typecheck passed."
+        - "Claude Opus/high session review-agent-t029-postgresql-publications converged from score 4 to green at score 8 in one correction and resume."
+      spawned_tasks:
+        - T090
+        - T091
   - id: T090
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Generalize the public Review Agent product and make the shipped Hermes deployment profile straightforward to select and customize without weakening fixed runtime invariants."
     constraints:
@@ -1543,6 +1555,34 @@ tasks:
       - "A profile can alter authorization, platform toolsets, delivery mode, prompt-trust rules, publication markers, persistence, or lifecycle protocols."
       - "Language or presentation cannot vary without weakening deterministic publication or introducing free-form protocol templates; escalate that exact surface instead."
     receipt: null
+  - id: T091
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: high
+    objective: "Audit hard-coded operational capacity ceilings and remove model-era assumptions while retaining explicit provider, storage, and resource-safety bounds."
+    constraints:
+      - "Inventory source-read, changed-file enumeration, diff assembly, suggestion, publication, provider-payload, database-storage, and resource-safety ceilings with one canonical owner and concrete rationale for every retained number."
+      - "Distinguish model/context evolution from GitHub/API contracts, database constraints, request-body limits, and denial-of-service protection; do not make security or resource guards unbounded."
+      - "Prefer pagination, streaming, honest incomplete-coverage state, provider/model capability derivation, or one small typed operator setting where it has demonstrated value; remove duplicate and arbitrary ceilings first."
+      - "Do not expose security ceilings through SOUL.md or the deployment profile, and do not create a generic limits framework, policy engine, provider abstraction, or administration UI."
+      - "Keep identifier grammar such as SHA-256 IDs and local finding references fixed as protocols rather than misclassifying them as capacity limits."
+      - "Run one Claude Opus/high commit gate after the stable candidate and stop all work during the 23:50–06:00 Europe/Stockholm blackout."
+    expected_output:
+      - "Capacity-limit inventory and decision ledger"
+      - "Removal or consolidation of arbitrary and duplicate model-era ceilings"
+      - "Honest bounded behavior for large repositories and files"
+      - "Documentation of retained provider, storage, and resource-safety bounds"
+    verify:
+      - "Prove large repositories or files are never reported as fully reviewed when a safety or provider ceiling prevents complete inspection."
+      - "Prove retained resource guards fail honestly without unbounded memory, network, database, or model use."
+      - "Run proportional large-input, contract, bundle, documentation, and site checks."
+      - "Run one Claude Opus/high commit gate with score >= 8."
+    stop_if:
+      - "A provider or model capability cannot be discovered or configured without a product decision or a new provider abstraction."
+      - "A proposed configurable value can weaken authorization, prompt trust, snapshot enforcement, persistence integrity, or denial-of-service protection."
+      - "The implementation requires a generic limits framework, policy engine, dynamic plugin, or administration UI."
+    receipt: null
   - id: T999
     type: judge
     assignee: Judge
@@ -1558,6 +1598,7 @@ tasks:
       - "Do not silently narrow success to completed early tranches."
       - "Security integrations are excluded while the explicit deferral remains active."
       - "Treat product-neutral naming and the bounded operator profile workflow in T090 as required direct-owner scope, while rejecting a generic plugin framework or configurable security invariants."
+      - "Treat the capacity-limit inventory and model-era ceiling audit in T091 as required direct-owner scope while retaining justified provider, storage, and resource-safety bounds."
     expected_output:
       - "complete | not_complete"
       - "Requirement-by-requirement evidence"
@@ -1565,13 +1606,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-682736e7"
+  dirty_fingerprint: "control-files-only-after-204c2626"
   last_verification:
     result: pass
-    task: T028
+    task: T029
     commands:
-      - "141 affected publication, failure-status, tool, suggestion, ownership, and direct-application tests"
-      - "Strict Pyright and 569-test canonical bundle"
-      - "Parent/candidate three-part publication plus supersession payloads byte-identical"
-      - "Claude Opus/high session review-agent-t028-publication-ownership green at score 8"
-      - "Live Python bundle run 32705578215 and Publish documentation run 32705578272 green"
+      - "Real PostgreSQL 17 schema and integration contract: 83 tests"
+      - "Strict Pyright and 584-test canonical bundle"
+      - "Active SQLite publication and failure behavior: 59 focused tests"
+      - "Claude Opus/high session review-agent-t029-postgresql-publications green at score 8"
+      - "Documentation contract and website typecheck green"

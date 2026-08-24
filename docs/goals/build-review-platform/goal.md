@@ -17,8 +17,10 @@ weakening the proven review contract.
 The PostgreSQL repository-to-review-run transaction, normalized coverage,
 finding memory, optional suggestions, human decisions, verification,
 reconciliation, and coaching are complete. Publication ownership is separated.
-PostgreSQL publication persistence is active next; feedback, configuration and
-Compose switching, runtime cutover, and SQLite deletion remain later slices.
+PostgreSQL publication persistence is complete. Product-neutral naming and the
+bounded Hermes-native deployment profile are active next, followed by an audit
+of model-era operational ceilings. Feedback, configuration and Compose
+switching, runtime cutover, and SQLite deletion remain later slices.
 
 ## Approved Sequencing Input
 

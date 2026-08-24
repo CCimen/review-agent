@@ -1,25 +1,70 @@
 services:
-  review-memory-init:
+  review-postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: review_agent
+      POSTGRES_USER: review_agent
+      POSTGRES_PASSWORD: "${REVIEW_AGENT_POSTGRES_PASSWORD:?set REVIEW_AGENT_POSTGRES_PASSWORD}"
+    volumes:
+      - review_postgres_data:/var/lib/postgresql/data
+    networks:
+      - review-database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U review_agent -d review_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  review-profile-install:
     build:
       context: .
       args:
         HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
     restart: "no"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >
-        /opt/review-agent-bootstrap/install.sh --force-agents
-        && chmod 0750 /opt/data/review-memory
-        && chmod 0640 /opt/data/review-memory/review_memory.sqlite3*
+    entrypoint: ["/opt/review-agent-bootstrap/install.sh"]
+    command: ["--force-agents"]
     environment:
       HERMES_HOME: /opt/data
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
-      REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - hermes_review_data:/opt/data
-      - review_memory_data:/opt/data/review-memory
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+
+  review-db-migrate:
+    build:
+      context: .
+      args:
+        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+    restart: "no"
+    user: "10000:10000"
+    entrypoint: ["/usr/local/bin/review-agent-database"]
+    command: ["migrate"]
+    depends_on:
+      review-postgres:
+        condition: service_healthy
+    environment:
+      REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    networks:
+      - review-database
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=64m
 
@@ -31,7 +76,9 @@ services:
     restart: unless-stopped
     command: gateway run
     depends_on:
-      review-memory-init:
+      review-profile-install:
+        condition: service_completed_successfully
+      review-db-migrate:
         condition: service_completed_successfully
     environment:
       TZ: "${TZ:-Europe/Stockholm}"
@@ -43,7 +90,7 @@ services:
       REVIEW_AGENT_PUBLISH_GH_TOKEN: "${REVIEW_AGENT_PUBLISH_GH_TOKEN:?set REVIEW_AGENT_PUBLISH_GH_TOKEN}"
       REVIEW_AGENT_PUBLISH_MAX_BYTES: "${REVIEW_AGENT_PUBLISH_MAX_BYTES:-60000}"
       REVIEW_AGENT_ALLOWED_REPOSITORIES: "${REVIEW_AGENT_ALLOWED_REPOSITORIES:?set REVIEW_AGENT_ALLOWED_REPOSITORIES}"
-      REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3
+      REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
       REVIEW_AGENT_FEEDBACK_ENABLED: "${REVIEW_AGENT_FEEDBACK_ENABLED:-false}"
       HERMES_DASHBOARD: "${HERMES_DASHBOARD:-0}"
       API_SERVER_ENABLED: "${API_SERVER_ENABLED:-false}"
@@ -53,20 +100,12 @@ services:
       - "8644"
     networks:
       - dokploy-network
+      - review-database
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      # Fallback ONLY if the Dokploy Domains UI fails to route after deploy:
-      # - "traefik.http.routers.review-agent.rule=Host(`review.example.org`)"
-      # - "traefik.http.routers.review-agent.entrypoints=websecure"
-      # - "traefik.http.routers.review-agent.tls.certResolver=letsencrypt"
-      # - "traefik.http.services.review-agent.loadbalancer.server.port=8644"
     volumes:
       - hermes_review_data:/opt/data
-      - review_memory_data:/opt/data/review-memory
-    # `no-new-privileges` is intentionally NOT set: it is incompatible with the
-    # Hermes image's s6-overlay init, which must drop root -> hermes (uid 10000)
-    # at startup. The gateway still runs unprivileged via that s6 privilege drop.
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=256m
     stop_grace_period: 90s
@@ -95,13 +134,13 @@ services:
     restart: unless-stopped
     user: "10000:10000"
     entrypoint: ["/usr/local/bin/review-agent-feedback-bridge"]
-    command: ["serve", "--host", "0.0.0.0", "--port", "8645", "--hold-on-config-error"]
+    command: ["serve", "--host", "0.0.0.0", "--port", "8645"]
     depends_on:
-      review-memory-init:
+      review-db-migrate:
         condition: service_completed_successfully
     environment:
       TZ: "${TZ:-Europe/Stockholm}"
-      REVIEW_AGENT_DB: /review-memory/review_memory.sqlite3
+      REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
       REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET: "${REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET:?set REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET}"
       REVIEW_AGENT_FEEDBACK_GH_TOKEN: "${REVIEW_AGENT_FEEDBACK_GH_TOKEN:?set REVIEW_AGENT_FEEDBACK_GH_TOKEN}"
       REVIEW_AGENT_ALLOWED_REPOSITORIES: "${REVIEW_AGENT_ALLOWED_REPOSITORIES:?set REVIEW_AGENT_ALLOWED_REPOSITORIES}"
@@ -112,13 +151,10 @@ services:
       - "8645"
     networks:
       - dokploy-network
+      - review-database
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      # Prefer a separate Dokploy domain or path routed to service port 8645.
-      # Fallback labels can mirror hermes-review with a distinct router/service.
-    volumes:
-      - review_memory_data:/review-memory
     read_only: true
     cap_drop:
       - ALL
@@ -147,7 +183,9 @@ services:
 networks:
   dokploy-network:
     external: true
+  review-database:
+    internal: true
 
 volumes:
   hermes_review_data:
-  review_memory_data:
+  review_postgres_data:

@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import closing
 import hashlib
 import hmac
 import json
 import os
-import sqlite3
 from typing import Literal, Protocol, cast
 import urllib.error
 import urllib.parse
@@ -27,13 +25,13 @@ try:
         FEEDBACK_STALE_CONTEXT,
         FEEDBACK_UNSUPPORTED_COMMAND,
     )
-    from .memory_feedback import (
-        FeedbackStatus,
-        feedback_event,
-        record_review_feedback_comment,
+    from .domain.feedback import FeedbackStatus
+    from .postgres.runtime import PostgreSQLRuntime, PostgreSQLRuntimeRole
+    from .review_feedback_application import (
+        ReviewFeedbackError,
+        record_postgres_feedback,
     )
-    from .memory_schema import connect_existing, verify_database_ready
-    from .memory_validation import ReviewMemoryError
+    from .settings import PostgresDatabaseUrl, ReviewAgentSettings, SettingsError
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
     from feedback_authorization import (
         FEEDBACK_ALLOWED_ACTOR_IDS_ENV,
@@ -47,13 +45,13 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
         FEEDBACK_STALE_CONTEXT,
         FEEDBACK_UNSUPPORTED_COMMAND,
     )
-    from memory_feedback import (
-        FeedbackStatus,
-        feedback_event,
-        record_review_feedback_comment,
+    from domain.feedback import FeedbackStatus
+    from postgres.runtime import PostgreSQLRuntime, PostgreSQLRuntimeRole
+    from review_feedback_application import (
+        ReviewFeedbackError,
+        record_postgres_feedback,
     )
-    from memory_schema import connect_existing, verify_database_ready
-    from memory_validation import ReviewMemoryError
+    from settings import PostgresDatabaseUrl, ReviewAgentSettings, SettingsError
 
 Reaction = Literal["+1", "confused"]
 
@@ -63,6 +61,7 @@ DEFAULT_PORT = 8645
 MAX_BODY_BYTES = 64 * 1024
 GITHUB_API = "https://api.github.com"
 FEEDBACK_TOKEN_ENV = "REVIEW_AGENT_FEEDBACK_GH_TOKEN"
+__all__ = ("PostgreSQLRuntime", "PostgreSQLRuntimeRole")
 
 
 class BridgeError(Exception):
@@ -133,13 +132,13 @@ class BridgeConfig:
         token: str,
         allowed_repositories: frozenset[str],
         allowed_actor_ids: frozenset[str],
-        database_path: str | None,
+        database_url: PostgresDatabaseUrl,
     ) -> None:
         self.secret = secret
         self.token = token
         self.allowed_repositories = allowed_repositories
         self.allowed_actor_ids = allowed_actor_ids
-        self.database_path = database_path
+        self.database_url = database_url
 
 
 class BridgeResponse:
@@ -209,6 +208,10 @@ def load_config() -> BridgeConfig:
     )
     if not allowed_actor_ids:
         raise SystemExit(f"{FEEDBACK_ALLOWED_ACTOR_IDS_ENV} is empty; deny by default")
+    try:
+        database_url = ReviewAgentSettings.from_environment().postgres_database_url
+    except SettingsError as exc:
+        raise SystemExit(str(exc)) from exc
     return BridgeConfig(
         secret=secret,
         token=token,
@@ -216,12 +219,16 @@ def load_config() -> BridgeConfig:
             os.environ.get("REVIEW_AGENT_ALLOWED_REPOSITORIES", "")
         ),
         allowed_actor_ids=allowed_actor_ids,
-        database_path=os.environ.get("REVIEW_AGENT_DB") or None,
+        database_url=database_url,
     )
 
 
-def ready_check(config: BridgeConfig) -> dict[str, object]:
-    verify_database_ready(config.database_path)
+def ready_check(
+    config: BridgeConfig, runtime: PostgreSQLRuntime
+) -> dict[str, object]:
+    if config.database_url != runtime.database_url:
+        raise BridgeError("feedback runtime does not match its configured database")
+    runtime.readiness()
     return {"status": "ready"}
 
 
@@ -416,22 +423,6 @@ def confirm_success(
     return BridgeResponse(status="recorded", public_response=False)
 
 
-def stored_replay_outcome(
-    connection: sqlite3.Connection,
-    event_id: str,
-) -> FeedbackStatus:
-    event = feedback_event(connection, event_id)
-    outcome = str(event.get("outcome", "")) if event else ""
-    if outcome in {
-        "recorded",
-        "no_mapping",
-        "not_current",
-        "stale",
-    }:
-        return cast(FeedbackStatus, outcome)
-    return "ignored"
-
-
 def confirm_status(
     status: FeedbackStatus,
     *,
@@ -458,6 +449,7 @@ def process_feedback(
     payload: object,
     config: BridgeConfig,
     github: GitHubClient,
+    runtime: PostgreSQLRuntime,
 ) -> BridgeResponse:
     repository, pr_number, comment_id = event_lookup(payload)
     if repository.casefold() not in config.allowed_repositories:
@@ -494,35 +486,31 @@ def process_feedback(
         )
 
     event_id = f"github:issue-comment:{comment_id}"
-    with closing(connect_existing(config.database_path)) as connection:
-        try:
-            result = record_review_feedback_comment(
-                connection,
-                event_id=event_id,
-                repository=repository,
-                pr_number=pr_number,
-                body=comment.body,
-                actor_user_id=comment.actor_id,
-                actor_login=comment.actor_login,
-                author_association=comment.author_association,
-                source_comment_id=comment.comment_id,
-                source_comment_url=comment.html_url,
-                allowed_actor_ids=config.allowed_actor_ids,
-            )
-        except ReviewMemoryError as exc:
-            return confirm_error(
-                github,
-                repository=repository,
-                issue_number=issue_number,
-                comment_id=comment_id,
-                message=help_message(str(exc)),
-            )
-        status = result.status
-        if status == "replay":
-            status = stored_replay_outcome(connection, event_id)
+    try:
+        result = record_postgres_feedback(
+            runtime,
+            event_id=event_id,
+            repository=repository,
+            pr_number=pr_number,
+            body=comment.body,
+            actor_user_id=comment.actor_id,
+            actor_login=comment.actor_login,
+            author_association=comment.author_association,
+            source_comment_id=comment.comment_id,
+            source_comment_url=comment.html_url,
+            allowed_actor_ids=config.allowed_actor_ids,
+        )
+    except ReviewFeedbackError as exc:
+        return confirm_error(
+            github,
+            repository=repository,
+            issue_number=issue_number,
+            comment_id=comment_id,
+            message=help_message(str(exc)),
+        )
 
     return confirm_status(
-        status,
+        result.status,
         github=github,
         repository=repository,
         issue_number=issue_number,

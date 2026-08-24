@@ -1,852 +1,339 @@
 #!/usr/bin/env python3
-"""Human administration for the review-memory SQLite database."""
+"""Human administration for the Review Agent PostgreSQL store."""
 
 from __future__ import annotations
 
 import argparse
-import importlib
+from dataclasses import asdict, is_dataclass
+from datetime import datetime
+from enum import Enum
 import json
 import os
-import sqlite3
-import sys
-from collections.abc import Mapping, Sequence
-from contextlib import closing
-from datetime import datetime
 from pathlib import Path
-from types import ModuleType
-from typing import TYPE_CHECKING, Protocol, cast
+import sys
+from typing import NoReturn, cast
 
-from review_agent_coach_proposals import ProposalBundle
-from review_agent_coach_proposals import ProposalVerification
 from review_agent_coach_run import build_coach_run_artifacts
-from review_agent_learning import LearningReport
 from review_agent_private_io import write_private_file
-from review_agent_replay import ReplayValidationResult
 
-if TYPE_CHECKING:
-    from review_agent_tools.memory_coach import (
-        CoachCandidateInput as MemoryCoachCandidateInput,
-        CoachRunDecision as MemoryCoachRunDecision,
-        CoachRunInput as MemoryCoachRunInput,
+
+def _plugin_parent() -> Path:
+    candidates = (
+        Path("/opt/review-agent-bootstrap/plugins"),
+        Path(os.environ.get("HERMES_HOME", "/opt/data")) / "plugins",
+        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
     )
-
-JsonObject = Mapping[str, object]
-STATS_RULE_DISPLAY_LIMIT = 15
-
-
-class CoachRunRow(Protocol):
-    def to_json_obj(self) -> dict[str, object]: ...
-
-
-class MemoryDbModule(Protocol):
-    ReviewMemoryError: type[Exception]
-    CoachCandidateInput: type[MemoryCoachCandidateInput]
-    CoachRunInput: type[MemoryCoachRunInput]
-
-    def connect(self, explicit: str | None = None) -> sqlite3.Connection: ...
-    def connect_existing(self, explicit: str | None = None) -> sqlite3.Connection: ...
-    def database_path(self, explicit: str | None = None) -> Path: ...
-    def json_dumps(self, value: object) -> str: ...
-    def migrate_volume(
-        self,
-        source: str,
-        destination: str,
-        *,
-        owner_uid: int | None = None,
-        owner_gid: int | None = None,
-    ) -> Mapping[str, object]: ...
-    def list_findings(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        repository: str | None = None,
-        limit: int = 50,
-        include_suppressed: bool = True,
-    ) -> list[dict[str, object]]: ...
-    def resolve_fingerprint(
-        self, connection: sqlite3.Connection, prefix: str
-    ) -> str: ...
-    def active_suppression(
-        self, connection: sqlite3.Connection, fingerprint: str
-    ) -> dict[str, object] | None: ...
-    def add_decision(
-        self,
-        connection: sqlite3.Connection,
-        fingerprint_or_prefix: str,
-        decision: str,
-        reason: str,
-        actor: str,
-        *,
-        expires_days: int | None = None,
-        observation_id: int | None = None,
-        repository: str | None = None,
-        pr_number: int | None = None,
-        local_reference: str = "",
-        latest: bool = False,
-    ) -> dict[str, object]: ...
-    def export_state(self, connection: sqlite3.Connection) -> dict[str, object]: ...
-    def compute_stats(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        repository: str | None = None,
-        expiring_within_days: int = 30,
-    ) -> dict[str, object]: ...
-    def run_stats(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        repository: str | None = None,
-        days: int = 30,
-    ) -> dict[str, object]: ...
-    def list_runs(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        repository: str | None = None,
-        limit: int = 50,
-    ) -> list[dict[str, object]]: ...
-    def list_publications(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        repository: str | None = None,
-        pr_number: int | None = None,
-        limit: int = 50,
-    ) -> list[dict[str, object]]: ...
-    def coverage_summary(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        run_id: int | None,
-    ) -> dict[str, object] | None: ...
-    def verification_export_source(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        review_run_id: int,
-    ) -> Mapping[str, object]: ...
-    def mark_stale_runs_failed(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        older_than_minutes: int = 30,
-        repository: str | None = None,
-        pr_number: int | None = None,
-        now: datetime | None = None,
-    ) -> dict[str, object]: ...
-    def failed_runs_needing_status(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        repository: str | None = None,
-        pr_number: int | None = None,
-    ) -> list[dict[str, object]]: ...
-    def run_is_stale(self, run: Mapping[str, object]) -> bool: ...
-    def record_coach_run(
-        self, connection: sqlite3.Connection, item: MemoryCoachRunInput
-    ) -> CoachRunRow: ...
-
-
-class LearningModule(Protocol):
-    def load_export(self, path: Path) -> Mapping[str, object]: ...
-    def build_learning_report(
-        self, state: Mapping[str, object], *, repository: str | None = None
-    ) -> LearningReport: ...
-    def render_markdown(self, report: LearningReport) -> str: ...
-
-
-class CoachModule(Protocol):
-    def build_coach_export(
-        self,
-        state: Mapping[str, object],
-        *,
-        repository: str | None = None,
-        after_decision_id: int = 0,
-        after_feedback_id: int = 0,
-        include_incomplete: bool = False,
-    ) -> dict[str, object]: ...
-    def dumps_coach_export(self, payload: Mapping[str, object]) -> str: ...
-
-
-class CoachProposalsModule(Protocol):
-    def load_coach_export(self, path: Path) -> Mapping[str, object]: ...
-    def load_proposal_bundle(self, path: Path) -> ProposalBundle: ...
-    def verify_proposal_bundle(self, bundle: ProposalBundle) -> ProposalVerification: ...
-    def build_proposal(
-        self,
-        coach_export: Mapping[str, object],
-        *,
-        max_candidates: int = 3,
-        min_independent_episodes: int = 2,
-    ) -> ProposalBundle: ...
-    def dumps_proposal_bundle(self, bundle: ProposalBundle) -> str: ...
-    def render_markdown(self, bundle: ProposalBundle) -> str: ...
-
-
-class ReplayModule(Protocol):
-    def validate_replay_path(self, path: Path) -> tuple[ReplayValidationResult, ...]: ...
-
-
-class VerificationModule(Protocol):
-    def build_verification_export(
-        self,
-        source: Mapping[str, object],
-        *,
-        coverage: Mapping[str, object] | None,
-    ) -> dict[str, object]: ...
-    def dumps_verification_export(self, payload: Mapping[str, object]) -> str: ...
-
-
-def _import_module(name: str) -> ModuleType:
-    return importlib.import_module(name)
-
-
-def memory_module_candidates() -> tuple[Path, ...]:
-    return (
-        Path("/opt/review-agent-bootstrap/plugins/review_agent_tools"),
-        Path(os.environ.get("HERMES_HOME", "/opt/data")) / "plugins" / "review_agent_tools",
-        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "review_agent_tools",
-    )
-
-
-def _module_is_from_candidate(module: ModuleType, candidate: Path) -> bool:
-    raw = getattr(module, "__file__", None)
-    if not isinstance(raw, str) or not raw:
-        return False
-    try:
-        path = Path(raw).resolve()
-        root = candidate.resolve()
-    except OSError:
-        return False
-    return path == root or root in path.parents
-
-
-def _evict_stale_memory_modules(candidate: Path) -> None:
-    for name in (
-        "memory_db",
-        "memory_schema",
-        "memory_migration",
-        "memory_coverage",
-        "memory_identity",
-        "memory_decisions",
-        "memory_findings",
-        "memory_publications",
-        "memory_feedback",
-        "memory_reporting",
-        "memory_runs",
-        "memory_coach",
-        "memory_validation",
-        "feedback_authorization",
-        "feedback_commands",
-        "feedback_contract",
-    ):
-        module = sys.modules.get(name)
-        if module is not None and not _module_is_from_candidate(module, candidate):
-            sys.modules.pop(name, None)
-
-
-def _describe_memory_source(module: ModuleType, candidate: Path) -> None:
-    raw = getattr(module, "__file__", "unknown")
-    print(
-        f"review memory plugin source: {raw} (path={candidate})",
-        file=sys.stderr,
-        flush=True,
-    )
-
-
-def load_memory_module() -> MemoryDbModule:
-    for candidate in memory_module_candidates():
-        if (candidate / "memory_db.py").exists():
-            # Installed Hermes plugins are path-loaded as top-level modules; the
-            # Protocol above keeps this dynamic boundary explicit and typed.
+    for candidate in candidates:
+        if (candidate / "review_agent_tools" / "operator_application.py").exists():
             sys.path.insert(0, str(candidate))
-            _evict_stale_memory_modules(candidate)
-            module = _import_module("memory_db")
-            _describe_memory_source(module, candidate)
-            return cast(MemoryDbModule, module)
-    raise SystemExit("Could not locate the review_agent_tools plugin")
+            return candidate
+    raise SystemExit("Could not locate the review_agent_tools package")
 
 
-class ReviewPublisherModule(Protocol):
-    def publish_run_failure_status(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        run_id: int,
-        failure_code: str,
-        github: object | None = None,
-    ) -> dict[str, object]: ...
+_plugin_parent()
+
+from review_agent_tools import operator_application  # noqa: E402
+from review_agent_tools.domain.coaching import CoachCandidateInput  # noqa: E402
+from review_agent_tools.github.publication import GitHubIssueCommentGateway  # noqa: E402
+from review_agent_tools.postgres.runtime import (  # noqa: E402
+    PostgreSQLRuntime,
+    PostgreSQLRuntimeRole,
+)
+from review_agent_tools.review_publication_application import (  # noqa: E402
+    publish_postgres_run_failure_status,
+)
+from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
 
 
-def load_review_publisher() -> ReviewPublisherModule:
-    try:
-        return cast(ReviewPublisherModule, _import_module("review_publisher"))
-    except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the review publisher module") from exc
+def _json_default(value: object) -> object:
+    if isinstance(value, datetime):
+        return value.isoformat().replace("+00:00", "Z")
+    if isinstance(value, Enum):
+        return value.value
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+    raise TypeError(f"{type(value).__name__} is not JSON serializable")
 
 
-def reap_and_publish(
-    connection: sqlite3.Connection,
-    memory_db: MemoryDbModule,
-    publisher: ReviewPublisherModule,
-    *,
-    repository: str | None = None,
-    pr_number: int | None = None,
-    older_than_minutes: int = 30,
-    github: object | None = None,
-) -> dict[str, object]:
-    """Mark stale runs failed, then post a deterministic failure-status comment for every
-    failed run lacking one. Orchestration lives in the CLI, never in the memory layer."""
-    marked = memory_db.mark_stale_runs_failed(
-        connection,
-        repository=repository,
-        pr_number=pr_number,
-        older_than_minutes=older_than_minutes,
+def _json(value: object, *, pretty: bool = False) -> str:
+    return json.dumps(
+        value,
+        default=_json_default,
+        ensure_ascii=False,
+        indent=2 if pretty else None,
+        separators=None if pretty else (",", ":"),
+        sort_keys=True,
     )
-    targets = memory_db.failed_runs_needing_status(
-        connection, repository=repository, pr_number=pr_number
+
+
+def _runtime() -> PostgreSQLRuntime:
+    runtime = PostgreSQLRuntime(
+        ReviewAgentSettings.from_environment().postgres_database_url,
+        role=PostgreSQLRuntimeRole.OPERATOR,
     )
-    posted = 0
-    failures: list[dict[str, object]] = []
-    for run in targets:
-        run_id = int(cast(int, run["id"]))
-        code = str(run.get("failure_code") or "review_failed")
-        try:
-            publisher.publish_run_failure_status(
-                connection,
-                run_id=run_id,
-                failure_code=code,
-                github=github,
-            )
-            posted += 1
-        except Exception as exc:  # noqa: BLE001 - one bad post must not hide the rest.
-            failures.append({"run_id": run_id, "error": str(exc)})
-    return {
-        "marked_failed": int(cast(int, marked["failed_count"])),
-        "status_posted": posted,
-        "status_failed": failures,
-    }
+    runtime.open()
+    return runtime
 
 
-def load_learning_module() -> LearningModule:
-    try:
-        return cast(LearningModule, _import_module("review_agent_learning"))
-    except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the learning report module") from exc
+def _write_or_print(content: str, output: str | None) -> None:
+    if output:
+        destination = Path(output)
+        write_private_file(destination, content)
+        print(destination)
+    else:
+        print(content, end="" if content.endswith("\n") else "\n")
 
 
-def load_coach_module() -> CoachModule:
-    try:
-        return cast(CoachModule, _import_module("review_agent_coach"))
-    except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the coach export module") from exc
-
-
-def load_coach_proposals_module() -> CoachProposalsModule:
-    try:
-        return cast(CoachProposalsModule, _import_module("review_agent_coach_proposals"))
-    except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the coach proposal module") from exc
-
-
-def load_replay_module() -> ReplayModule:
-    try:
-        return cast(ReplayModule, _import_module("review_agent_replay"))
-    except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the replay validator module") from exc
-
-
-def load_verification_module() -> VerificationModule:
-    try:
-        return cast(VerificationModule, _import_module("review_agent_verification"))
-    except ModuleNotFoundError as exc:
-        raise SystemExit("Could not locate the verification export module") from exc
-
-
-def _nested(row: JsonObject, key: str) -> JsonObject:
-    value = row.get(key, {})
-    return cast(JsonObject, value) if isinstance(value, Mapping) else {}
-
-
-def _coach_run_decision(value: str) -> MemoryCoachRunDecision:
-    if value == "propose":
-        return "propose"
-    if value == "no_change":
-        return "no_change"
-    raise SystemExit(f"coach proposal returned unsupported decision: {value}")
-
-
-def print_table(items: Sequence[JsonObject]) -> None:
-    if not items:
-        print("No findings.")
-        return
-    for item in items:
-        marker = "SUPPRESSED" if item.get("suppressed") else "OPEN"
-        line = item.get("line") or "?"
-        print(
-            f"{str(item['fingerprint'])[:12]}  {marker:10}  {str(item['severity']):8}  "
-            f"{item.get('category', '-'):15} score={item.get('publication_score', '-')}  "
-            f"{item['repository']}  {item['path']}:{line}  {item['title']}"
+def _complete_export(path: str) -> dict[str, object]:
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise SystemExit("export must contain a JSON object")
+    state = cast(dict[str, object], value)
+    if state.get("complete") is not True:
+        raise SystemExit(
+            "export is incomplete; rerun with a larger --row-limit before learning "
+            f"or coaching (truncated_tables={state.get('truncated_tables', [])})"
         )
-        decision = _nested(item, "latest_decision")
-        if decision:
-            print(
-                f"  decision={decision['decision']} actor={decision['actor']} "
-                f"expires={decision.get('expires_at') or '-'} reason={decision['reason']}"
-            )
+    return state
 
 
-def print_stats(stats: JsonObject) -> None:
-    repo = stats.get("repository") or "(all repositories)"
-    print(f"Review agent memory - {repo}  (as of {stats['generated_at']})")
-    print(f"  findings: {stats['findings_total']}  (no decision: {stats['findings_without_decision']})")
-    by_severity = _nested(stats, "findings_by_severity")
-    by_category = _nested(stats, "findings_by_category")
-    by_rule = _nested(stats, "findings_by_rule")
-    quality_feedback = _nested(stats, "quality_feedback_by_category")
-    latest_decisions = _nested(stats, "latest_decision_by_type")
-    print("  by severity:  " + ", ".join(f"{k}={v}" for k, v in by_severity.items()))
-    cats = ", ".join(f"{k}={v}" for k, v in by_category.items() if v) or "(none)"
-    print(f"  by category:  {cats}")
-    ranked_rules = sorted(
-        (
-            (rule_id, value)
-            for rule_id, value in by_rule.items()
-            if isinstance(value, int)
-        ),
-        key=lambda item: (-item[1], item[0]),
-    )
-    displayed_rules = ranked_rules[:STATS_RULE_DISPLAY_LIMIT]
-    rules = ", ".join(f"{rule_id}={count}" for rule_id, count in displayed_rules)
-    hidden_rules = len(ranked_rules) - len(displayed_rules)
-    if hidden_rules:
-        rules += f", (+{hidden_rules} more)"
-    rules = rules or "(none)"
-    print(f"  by rule:  {rules}")
-    feedback = (
-        ", ".join(f"{k}={v}" for k, v in quality_feedback.items() if v) or "(none)"
-    )
-    print(f"  quality feedback:  {feedback}")
-    decs = ", ".join(f"{k}={v}" for k, v in latest_decisions.items() if v) or "(none)"
-    print(f"  latest decision:  {decs}")
-    print(
-        f"  active suppressions: {stats['active_suppressions']} "
-        f"(nearing expiry <={stats['active_suppressions_expiring_within_days']}d: "
-        f"{stats['active_suppressions_nearing_expiry']})"
-    )
-    print(f"  repeats after a human decision (approx): {stats['repeats_after_decision_approx']}")
-
-
-def print_runs(memory_db: MemoryDbModule, runs: Sequence[JsonObject]) -> None:
-    if not runs:
-        print("No review runs.")
-        return
-    for run in runs:
-        findings = run["findings_count"] if run["findings_count"] is not None else "-"
-        status = "stalled" if memory_db.run_is_stale(run) else run["status"]
-        phase = run.get("phase") or "-"
-        heartbeat = run.get("last_heartbeat_at") or "-"
-        failure = run.get("failure_code") or "-"
-        detail = run.get("failure_detail") or ""
-        print(
-            f"#{run['id']:<5} {status:8} {run['repository']}#{run['pr_number']}  "
-            f"findings={findings}  started={run['started_at']}  "
-            f"completed={run['completed_at'] or '-'}"
-        )
-        line = f"       phase={phase}  heartbeat={heartbeat}  failure={failure}"
-        if detail:
-            line += f"  detail={detail}"
-        print(line)
-
-
-def print_mark_stalled_result(result: JsonObject) -> None:
-    count = result["failed_count"]
-    print(
-        f"Marked {count} stale running review run(s) as failed "
-        f"(older than {result['older_than_minutes']}m, cutoff={result['cutoff']})."
-    )
-    runs = cast(Sequence[JsonObject], result.get("runs", ()))
-    for run in runs:
-        print(
-            f"#{run['id']:<5} failed   {run['repository']}#{run['pr_number']}  "
-            f"started={run['started_at']}  completed={run['completed_at']}"
-        )
-
-
-def print_publications(publications: Sequence[JsonObject]) -> None:
-    if not publications:
-        print("No review publications.")
-        return
-    for item in publications:
-        run_id = item["review_run_id"] if item.get("review_run_id") is not None else "-"
-        comment_id = item["comment_id"] if item.get("comment_id") is not None else "-"
-        failure_code = item.get("failure_code") or "-"
-        print(
-            f"#{item['id']:<5} {str(item['delivery_status']):14} "
-            f"{item['repository']}#{item['pr_number']}  run={run_id}  "
-            f"comment={comment_id}  failure={failure_code}"
-        )
-        print(
-            f"       generated={item.get('generated_at') or '-'}  "
-            f"posting={item.get('posting_started_at') or '-'}  "
-            f"posted={item.get('posted_at') or '-'}  "
-            f"failed={item.get('publish_failed_at') or '-'}"
-        )
-        suggestion_status = item.get("suggestion_delivery_status") or "none"
-        if suggestion_status != "none":
-            print(
-                f"       suggestions={suggestion_status}  "
-                f"review={item.get('suggestion_review_id') or '-'}  "
-                f"started={item.get('suggestion_posting_started_at') or '-'}  "
-                f"posted={item.get('suggestion_posted_at') or '-'}  "
-                f"failure={item.get('suggestion_failure_code') or '-'}"
-            )
-        verification_status = item.get("verification_status") or "-"
-        if verification_status != "-":
-            print(
-                f"       verification={verification_status}  "
-                f"mode={item.get('verification_mode') or '-'}  "
-                f"provider={item.get('verification_provider') or '-'}  "
-                f"failure={item.get('verification_failure_code') or '-'}"
-            )
-
-
-def print_coverage(summary: JsonObject | None) -> None:
-    if summary is None or summary.get("state") == "unknown":
-        print("No coverage ledger recorded for this run.")
-        return
-    print(f"review context coverage: {summary['state']}")
-    print(f"  changed paths: {summary['changed_paths']}")
-    print(f"  diff exposed:  {summary['diff_exposed']}")
-    print(f"  context paths: {summary['context_paths_read']}")
-    print(f"  context ranges: {summary['context_ranges_read']}")
-    print(f"  unavailable:   {summary['unavailable']}")
-    print(f"  truncated:     {summary['diff_truncated']}")
-    unavailable_paths = cast(Sequence[object], summary.get("unavailable_paths", ()))
-    if unavailable_paths:
-        print("  unavailable paths: " + ", ".join(str(path) for path in unavailable_paths))
-    truncated_paths = cast(Sequence[object], summary.get("truncated_paths", ()))
-    if truncated_paths:
-        print("  truncated paths: " + ", ".join(str(path) for path in truncated_paths))
-    print(f"  hash:          {summary['coverage_hash']}")
-
-
-def print_run_stats(stats: JsonObject) -> None:
-    repo = stats.get("repository") or "(all repositories)"
-    print(f"Review agent runs - {repo}  (last {stats['window_days']}d, as of {stats['generated_at']})")
-    print("  (run lifecycle state recorded by the reviewer; treat counts as approximate)")
-    print(f"  total: {stats['total']}")
-    by_status = _nested(stats, "by_status")
-    print("  by status:  " + ", ".join(f"{k}={v}" for k, v in by_status.items()))
-    print(f"  stalled (running but likely crashed): {stats['stalled_running']}")
-    tta = _nested(stats, "time_to_answer_seconds")
-    print(f"  time to answer (s):  p50={tta['p50']}  p95={tta['p95']}")
-    print(f"  avg findings / completed run:  {stats['avg_findings_per_completed_run']}")
-
-
-def main() -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", help="Override REVIEW_AGENT_DB for this command.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    commands = parser.add_subparsers(dest="command", required=True)
+    listing = commands.add_parser("list", help="List recent findings.")
+    listing.add_argument("--repo")
+    listing.add_argument("--limit", type=int, default=50)
+    listing.add_argument("--open-only", action="store_true")
+    show = commands.add_parser("show", help="Show one finding and its decisions.")
+    show.add_argument("fingerprint")
+    show.add_argument("--repo", required=True)
+    decide = commands.add_parser("decide", help="Append a human decision.")
+    decide.add_argument("fingerprint")
+    decide.add_argument("decision")
+    decide.add_argument("--repo", required=True)
+    decide.add_argument("--reason", required=True)
+    decide.add_argument("--actor", required=True)
+    decide.add_argument("--expires-days", type=int)
+    decide.add_argument("--adr-id", default="")
+    decide.add_argument("--occurrence-id", type=int)
+    decide.add_argument("--pr", type=int)
+    decide.add_argument("--local-reference", default="")
+    decide.add_argument("--latest", action="store_true")
+    export = commands.add_parser("export", help="Export one repository as JSON.")
+    export.add_argument("--repo", required=True)
+    export.add_argument("--row-limit", type=int, required=True)
+    export.add_argument("--output")
+    stats = commands.add_parser("stats", help="Summarize finding state.")
+    stats.add_argument("--repo")
+    stats.add_argument("--expiring-within-days", type=int, default=30)
+    runs = commands.add_parser("runs", help="Inspect or recover review runs.")
+    runs.add_argument("--repo")
+    runs.add_argument("--pr", type=int)
+    runs.add_argument("--limit", type=int, default=50)
+    runs.add_argument("--failed", action="store_true")
+    runs.add_argument("--stats", action="store_true")
+    runs.add_argument("--days", type=int, default=30)
+    runs.add_argument("--stale-after-minutes", type=int, default=30)
+    runs.add_argument("--mark-stalled", action="store_true")
+    runs.add_argument("--publish-failure-status", action="store_true")
+    publications = commands.add_parser("publications", help="List publications.")
+    publications.add_argument("--repo")
+    publications.add_argument("--pr", type=int)
+    publications.add_argument("--limit", type=int, default=50)
+    coverage = commands.add_parser("coverage", help="Show run coverage.")
+    coverage.add_argument("--run-id", type=int, required=True)
+    verification = commands.add_parser(
+        "verification-export", help="Write a private verification bundle."
+    )
+    verification.add_argument("--run-id", type=int, required=True)
+    verification.add_argument("--output", required=True)
+    learning = commands.add_parser(
+        "learning-report", help="Build a report from a complete export."
+    )
+    learning.add_argument("--export", required=True)
+    learning.add_argument("--repo")
+    learning.add_argument("--output")
+    replay = commands.add_parser("validate-replay", help="Validate replay fixtures.")
+    replay.add_argument("path", type=Path)
+    coach_export = commands.add_parser("coach-export", help="Build coach events.")
+    coach_export.add_argument("--export", required=True)
+    coach_export.add_argument("--repo")
+    coach_export.add_argument("--after-decision-id", type=int, default=0)
+    coach_export.add_argument("--after-feedback-id", type=int, default=0)
+    coach_export.add_argument("--include-incomplete", action="store_true")
+    coach_export.add_argument("--output", required=True)
+    propose = commands.add_parser("coach-propose", help="Build coach proposals.")
+    propose.add_argument("--events", required=True)
+    propose.add_argument("--output-dir", required=True)
+    propose.add_argument("--max-candidates", type=int, default=3)
+    propose.add_argument("--min-independent-episodes", type=int, default=2)
+    verify = commands.add_parser(
+        "coach-verify-proposal", help="Verify a coach proposal."
+    )
+    verify.add_argument("--proposal", required=True)
+    coach_run = commands.add_parser("coach-run", help="Run and record the coach.")
+    coach_run.add_argument("--export")
+    coach_run.add_argument("--repo", required=True)
+    coach_run.add_argument("--row-limit", type=int, default=10_000)
+    coach_run.add_argument("--output-dir", required=True)
+    coach_run.add_argument("--after-decision-id", type=int, default=0)
+    coach_run.add_argument("--after-feedback-id", type=int, default=0)
+    coach_run.add_argument("--include-incomplete", action="store_true")
+    coach_run.add_argument("--max-candidates", type=int, default=3)
+    coach_run.add_argument("--min-independent-episodes", type=int, default=2)
+    return parser
 
-    sub.add_parser("init", help="Create or migrate the database schema.")
 
-    migrate_parser = sub.add_parser(
-        "migrate-volume",
-        help="Safely copy an initialized review-memory database into a new volume.",
-    )
-    migrate_parser.add_argument("--source", required=True)
-    migrate_parser.add_argument("--destination", required=True)
-    migrate_parser.add_argument("--owner-uid", type=int)
-    migrate_parser.add_argument("--owner-gid", type=int)
-
-    list_parser = sub.add_parser("list", help="List recent findings.")
-    list_parser.add_argument("--repo", help="Limit to owner/repository.")
-    list_parser.add_argument("--limit", type=int, default=50)
-    list_parser.add_argument("--open-only", action="store_true")
-    list_parser.add_argument("--json", action="store_true")
-
-    show_parser = sub.add_parser("show", help="Show one finding and its decision history.")
-    show_parser.add_argument("fingerprint")
-
-    decide_parser = sub.add_parser("decide", help="Append a human triage decision.")
-    decide_parser.add_argument(
-        "fingerprint",
-        help="Finding fingerprint or prefix used to verify the explicit target.",
-    )
-    decide_parser.add_argument(
-        "decision",
-        help="Decision value validated by the review-memory database.",
-    )
-    decide_parser.add_argument("--reason", required=True)
-    decide_parser.add_argument("--actor", required=True)
-    decide_parser.add_argument("--expires-days", type=int)
-    decide_parser.add_argument(
-        "--observation-id",
-        type=int,
-        help="Exact finding_observations.id to attach this decision to.",
-    )
-    decide_parser.add_argument(
-        "--repo",
-        help="Repository for a PR-local finding reference target.",
-    )
-    decide_parser.add_argument(
-        "--pr",
-        type=int,
-        help="Pull request number for a PR-local finding reference target.",
-    )
-    decide_parser.add_argument(
-        "--local-reference",
-        help="PR-local finding reference such as F1.",
-    )
-    decide_parser.add_argument(
-        "--latest",
-        action="store_true",
-        help="Explicitly target the latest observation for the fingerprint.",
-    )
-
-    export_parser = sub.add_parser("export", help="Export findings and decisions as JSON.")
-    export_parser.add_argument("--output", help="Write to a file instead of stdout.")
-
-    stats_parser = sub.add_parser(
-        "stats",
-        help="Summarize findings, human decisions, and review-quality feedback.",
-    )
-    stats_parser.add_argument("--repo", help="Limit to owner/repository.")
-    stats_parser.add_argument("--expiring-within-days", type=int, default=30)
-    stats_parser.add_argument("--json", action="store_true")
-
-    runs_parser = sub.add_parser("runs", help="List recent review runs, or --stats for run metrics.")
-    runs_parser.add_argument("--repo", help="Limit to owner/repository.")
-    runs_parser.add_argument(
-        "--pr",
-        type=int,
-        help="Limit --mark-stalled to one pull request. Requires --repo.",
-    )
-    runs_parser.add_argument("--limit", type=int, default=50)
-    runs_parser.add_argument(
-        "--stats", action="store_true", help="Show aggregate run metrics instead of a list."
-    )
-    runs_parser.add_argument(
-        "--mark-stalled",
-        action="store_true",
-        help="Mark stale running runs as failed, then print the affected runs.",
-    )
-    runs_parser.add_argument(
-        "--older-than-minutes",
-        type=int,
-        default=30,
-        help="Age threshold for --mark-stalled. Default: 30.",
-    )
-    runs_parser.add_argument(
-        "--publish-failure-status",
-        action="store_true",
-        help=(
-            "Mark stale runs failed, then post a deterministic failure-status comment "
-            "for every failed run lacking one. Exits non-zero if any post fails."
-        ),
-    )
-    runs_parser.add_argument("--days", type=int, default=30, help="Window in days for --stats.")
-    runs_parser.add_argument(
-        "--failed",
-        action="store_true",
-        help="List only runs that failed (with their failure code/detail).",
-    )
-    runs_parser.add_argument("--json", action="store_true")
-
-    publications_parser = sub.add_parser(
-        "publications",
-        help="List generated, posted, stale, and failed review publications.",
-    )
-    publications_parser.add_argument("--repo", help="Limit to owner/repository.")
-    publications_parser.add_argument(
-        "--pr",
-        type=int,
-        help="Limit to one pull request. Requires --repo.",
-    )
-    publications_parser.add_argument("--limit", type=int, default=50)
-    publications_parser.add_argument("--json", action="store_true")
-
-    coverage_parser = sub.add_parser(
-        "coverage",
-        help="Show objective changed-path context coverage for one review run.",
-    )
-    coverage_parser.add_argument("--run-id", type=int, required=True)
-    coverage_parser.add_argument("--json", action="store_true")
-
-    verification_parser = sub.add_parser(
-        "verification-export",
-        help="Generate a bounded private verification bundle for one completed review run.",
-    )
-    verification_parser.add_argument("--run-id", type=int, required=True)
-    verification_parser.add_argument("--output", required=True, help="Write JSON to this file.")
-
-    learning_parser = sub.add_parser(
-        "learning-report",
-        help="Generate a private learning-candidate report from an export JSON.",
-    )
-    learning_parser.add_argument(
-        "--export",
-        required=True,
-        help="Path created by `review-agent-memory export --output`.",
-    )
-    learning_parser.add_argument("--repo", help="Limit to owner/repository.")
-    learning_parser.add_argument("--output", help="Write Markdown to a file instead of stdout.")
-
-    replay_parser = sub.add_parser(
-        "validate-replay",
-        help="Validate typed replay fixture files.",
-    )
-    replay_parser.add_argument(
-        "path",
-        type=Path,
-        help="Replay fixture file or directory containing *.json fixtures.",
-    )
-
-    coach_parser = sub.add_parser(
-        "coach-export",
-        help="Generate a bounded untrusted JSON bundle for the private review coach.",
-    )
-    coach_parser.add_argument(
-        "--export",
-        required=True,
-        help="Path created by `review-agent-memory export --output`.",
-    )
-    coach_parser.add_argument("--repo", help="Limit to owner/repository.")
-    coach_parser.add_argument("--after-decision-id", type=int, default=0)
-    coach_parser.add_argument("--after-feedback-id", type=int, default=0)
-    coach_parser.add_argument("--include-incomplete", action="store_true")
-    coach_parser.add_argument("--output", required=True, help="Write JSON to this file.")
-
-    coach_propose_parser = sub.add_parser(
-        "coach-propose",
-        help="Select deterministic private coach improvement candidates from a coach export.",
-    )
-    coach_propose_parser.add_argument(
-        "--events",
-        required=True,
-        help="Path created by `review-agent-memory coach-export --output`.",
-    )
-    coach_propose_parser.add_argument(
-        "--output-dir",
-        required=True,
-        help="Directory for proposal.json and SUMMARY.md.",
-    )
-    coach_propose_parser.add_argument("--max-candidates", type=int, default=3)
-    coach_propose_parser.add_argument("--min-independent-episodes", type=int, default=2)
-
-    coach_verify_parser = sub.add_parser(
-        "coach-verify-proposal",
-        help="Strictly read and verify a private coach proposal artifact.",
-    )
-    coach_verify_parser.add_argument(
-        "--proposal",
-        required=True,
-        help="Path created by `review-agent-memory coach-propose` or `coach-run`.",
-    )
-
-    coach_run_parser = sub.add_parser(
-        "coach-run",
-        help="Run the private coach pipeline in dry-run mode and record the result.",
-    )
-    coach_run_parser.add_argument(
-        "--export",
-        help="Optional historical export; defaults to the live review-memory database.",
-    )
-    coach_run_parser.add_argument(
-        "--output-dir",
-        required=True,
-        help="Directory for coach-export.json, proposal.json, and SUMMARY.md.",
-    )
-    coach_run_parser.add_argument("--repo", help="Limit to owner/repository.")
-    coach_run_parser.add_argument("--after-decision-id", type=int, default=0)
-    coach_run_parser.add_argument("--after-feedback-id", type=int, default=0)
-    coach_run_parser.add_argument("--include-incomplete", action="store_true")
-    coach_run_parser.add_argument("--max-candidates", type=int, default=3)
-    coach_run_parser.add_argument("--min-independent-episodes", type=int, default=2)
-
-    args = parser.parse_args()
-
+def _offline_command(args: argparse.Namespace) -> int | None:
     if args.command == "learning-report":
-        learning = load_learning_module()
-        state = learning.load_export(Path(args.export))
-        report = learning.build_learning_report(state, repository=args.repo)
-        content = learning.render_markdown(report)
-        if args.output:
-            destination = Path(args.output)
-            write_private_file(destination, content)
-            print(destination)
-        else:
-            print(content, end="")
+        import review_agent_learning as learning
+        report = learning.build_learning_report(
+            _complete_export(args.export), repository=args.repo
+        )
+        _write_or_print(learning.render_markdown(report), args.output)
         return 0
-
     if args.command == "validate-replay":
-        replay = load_replay_module()
-        cwd = str(Path.cwd())
-        if cwd not in sys.path:
-            sys.path.insert(0, cwd)
+        import review_agent_replay as replay
         results = replay.validate_replay_path(args.path)
         for result in results:
             print(f"Replay OK: {result.fixture_id} ({result.path})")
         print(f"Validated {len(results)} replay fixture(s).")
         return 0
-
     if args.command == "coach-export":
-        learning = load_learning_module()
-        coach = load_coach_module()
-        state = learning.load_export(Path(args.export))
+        import review_agent_coach as coach
         payload = coach.build_coach_export(
-            state,
+            _complete_export(args.export),
             repository=args.repo,
             after_decision_id=args.after_decision_id,
             after_feedback_id=args.after_feedback_id,
             include_incomplete=args.include_incomplete,
         )
-        destination = Path(args.output)
-        write_private_file(destination, coach.dumps_coach_export(payload))
-        print(destination)
+        _write_or_print(coach.dumps_coach_export(payload), args.output)
         return 0
-
     if args.command == "coach-propose":
-        proposals = load_coach_proposals_module()
-        payload = proposals.load_coach_export(Path(args.events))
+        import review_agent_coach_proposals as proposals
         bundle = proposals.build_proposal(
-            payload,
+            proposals.load_coach_export(Path(args.events)),
             max_candidates=args.max_candidates,
             min_independent_episodes=args.min_independent_episodes,
         )
         output_dir = Path(args.output_dir)
         write_private_file(
-            output_dir / "proposal.json",
-            proposals.dumps_proposal_bundle(bundle),
+            output_dir / "proposal.json", proposals.dumps_proposal_bundle(bundle)
         )
         write_private_file(output_dir / "SUMMARY.md", proposals.render_markdown(bundle))
         print(output_dir)
         return 0
-
     if args.command == "coach-verify-proposal":
-        proposals = load_coach_proposals_module()
+        import review_agent_coach_proposals as proposals
         bundle = proposals.load_proposal_bundle(Path(args.proposal))
-        verification = proposals.verify_proposal_bundle(bundle)
-        print(json.dumps(verification.to_json_obj(), sort_keys=True, indent=2))
+        print(_json(proposals.verify_proposal_bundle(bundle).to_json_obj(), pretty=True))
         return 0
+    return None
 
-    if args.command == "coach-run":
-        memory_db = load_memory_module()
-        if args.export:
-            learning = load_learning_module()
-            state = learning.load_export(Path(args.export))
+
+def _fatal(exc: Exception) -> NoReturn:
+    raise SystemExit(str(exc)) from exc
+
+
+def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
+    result: object
+    if args.command == "list":
+        result = operator_application.list_findings(
+            runtime, repository=args.repo, limit=args.limit,
+            include_suppressed=not args.open_only,
+        )
+    elif args.command == "show":
+        result = operator_application.show_finding(
+            runtime, repository=args.repo, fingerprint=args.fingerprint
+        )
+    elif args.command == "decide":
+        result = operator_application.decide_finding(
+            runtime,
+            operator_application.OperatorDecisionRequest(
+                repository=args.repo, fingerprint=args.fingerprint,
+                decision=args.decision, reason=args.reason, actor=args.actor,
+                occurrence_id=args.occurrence_id, pr_number=args.pr,
+                local_reference=args.local_reference, latest=args.latest,
+                expires_days=args.expires_days, adr_id=args.adr_id,
+            ),
+        )
+    elif args.command == "export":
+        export = operator_application.export_repository(
+            runtime, repository=args.repo, row_limit=args.row_limit
+        )
+        _write_or_print(_json(export.to_json_obj(), pretty=True) + "\n", args.output)
+        return 0
+    elif args.command == "stats":
+        result = operator_application.finding_stats(
+            runtime, repository=args.repo,
+            expiring_within_days=args.expiring_within_days,
+        )
+    elif args.command == "runs":
+        if args.publish_failure_status:
+            queue = operator_application.prepare_failure_status_queue(
+                runtime, repository=args.repo, pr_number=args.pr,
+                older_than_minutes=args.stale_after_minutes, limit=args.limit,
+            )
+            configured = ReviewAgentSettings.from_environment()
+            github = GitHubIssueCommentGateway(
+                configured.github_publish_token,
+                read_token=configured.github_read_token,
+            )
+            failures: list[dict[str, object]] = []
+            posted = 0
+            for target in queue.targets:
+                try:
+                    publish_postgres_run_failure_status(
+                        runtime, run_id=int(target.run_id), github=github
+                    )
+                    posted += 1
+                except Exception as exc:
+                    failures.append({"run_id": int(target.run_id), "error": str(exc)})
+            print(_json({"marked_failed": queue.marked.failed_count,
+                         "status_posted": posted, "status_failed": failures}, pretty=True))
+            return 1 if failures else 0
+        if args.mark_stalled:
+            result = operator_application.mark_stalled_runs(
+                runtime, repository=args.repo, pr_number=args.pr,
+                older_than_minutes=args.stale_after_minutes,
+            )
+        elif args.stats:
+            result = operator_application.run_stats(
+                runtime, repository=args.repo, days=args.days,
+                stale_after_minutes=args.stale_after_minutes,
+            )
         else:
-            try:
-                with closing(memory_db.connect_existing(args.db)) as connection:
-                    state = memory_db.export_state(connection)
-            except memory_db.ReviewMemoryError as exc:
-                raise SystemExit(str(exc)) from exc
+            result = operator_application.list_runs(
+                runtime, repository=args.repo, limit=args.limit,
+                failed_only=args.failed,
+            )
+    elif args.command == "publications":
+        result = operator_application.list_publications(
+            runtime, repository=args.repo, pr_number=args.pr, limit=args.limit
+        )
+    elif args.command == "coverage":
+        result = operator_application.coverage(runtime, run_id=args.run_id)
+    elif args.command == "verification-export":
+        import review_agent_verification as verification
+        source = operator_application.verification_export_source(
+            runtime, run_id=args.run_id
+        )
+        payload = verification.build_verification_export(source, coverage=None)
+        _write_or_print(verification.dumps_verification_export(payload), args.output)
+        return 0
+    elif args.command == "coach-run":
+        if args.export:
+            state = _complete_export(args.export)
+        else:
+            export = operator_application.export_repository(
+                runtime, repository=args.repo, row_limit=args.row_limit
+            )
+            state = cast(dict[str, object], export.to_json_obj())
+            if state.get("complete") is not True:
+                raise SystemExit("live coach export is incomplete; increase --row-limit")
         artifacts = build_coach_run_artifacts(
-            state=state,
-            output_dir=Path(args.output_dir),
-            repository=args.repo,
+            state=state, output_dir=Path(args.output_dir), repository=args.repo,
             after_decision_id=args.after_decision_id,
             after_feedback_id=args.after_feedback_id,
             include_incomplete=args.include_incomplete,
@@ -854,261 +341,44 @@ def main() -> int:
             min_independent_episodes=args.min_independent_episodes,
         )
         candidates = tuple(
-            memory_db.CoachCandidateInput(
-                candidate_key=candidate.candidate_key,
-                target_owner=candidate.target_owner,
-                suggested_route=candidate.suggested_route,
-                event_type=candidate.event_type,
-                independent_episode_count=candidate.independent_episode_count,
-                evidence_event_ids=candidate.evidence_event_ids,
-                evidence_events_total=candidate.evidence_events_total,
-            )
-            for candidate in artifacts.bundle.candidates
+            CoachCandidateInput(
+                candidate_key=item.candidate_key, target_owner=item.target_owner,
+                suggested_route=item.suggested_route, event_type=item.event_type,
+                independent_episode_count=item.independent_episode_count,
+                evidence_event_ids=item.evidence_event_ids,
+                evidence_events_total=item.evidence_events_total,
+            ) for item in artifacts.bundle.candidates
         )
-        run_input = memory_db.CoachRunInput(
-            repository=artifacts.bundle.repository_untrusted,
+        run = operator_application.record_coach_run(
+            runtime, repository=artifacts.bundle.repository_untrusted,
             source_event_set_id=artifacts.bundle.source_event_set_id,
             source_snapshot_id=artifacts.bundle.source_snapshot_id,
             proposal_set_id=artifacts.bundle.proposal_set_id,
-            decision=_coach_run_decision(artifacts.bundle.decision),
             events_considered=artifacts.bundle.events_considered,
-            artifact_dir=str(artifacts.paths.output_dir),
-            candidates=candidates,
+            artifact_dir=str(artifacts.paths.output_dir), candidates=candidates,
         )
-        try:
-            with closing(memory_db.connect_existing(args.db)) as connection:
-                run = memory_db.record_coach_run(connection, run_input)
-        except memory_db.ReviewMemoryError as exc:
-            raise SystemExit(str(exc)) from exc
-        print(
-            memory_db.json_dumps(
-                {
-                    "run": run.to_json_obj(),
-                    "artifacts": artifacts.paths.to_json_obj(),
-                }
-            )
-        )
-        return 0
+        result = {"run": run, "artifacts": artifacts.paths.to_json_obj()}
+    else:
+        raise SystemExit(f"unsupported command: {args.command}")
+    print(_json(result, pretty=True))
+    return 0
 
-    memory_db = load_memory_module()
-    if args.command == "migrate-volume":
-        try:
-            result = memory_db.migrate_volume(
-                args.source,
-                args.destination,
-                owner_uid=args.owner_uid,
-                owner_gid=args.owner_gid,
-            )
-        except memory_db.ReviewMemoryError as exc:
-            raise SystemExit(str(exc)) from exc
-        print(memory_db.json_dumps(result))
-        return 0
 
-    opener = memory_db.connect if args.command == "init" else memory_db.connect_existing
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    offline = _offline_command(args)
+    if offline is not None:
+        return offline
     try:
-        connection = opener(args.db)
-    except memory_db.ReviewMemoryError as exc:
-        raise SystemExit(str(exc)) from exc
-    with closing(connection) as connection:
-        if args.command == "init":
-            print(f"Ready: {memory_db.database_path(args.db)}")
-            return 0
-
-        if args.command == "list":
-            items = memory_db.list_findings(
-                connection,
-                repository=args.repo,
-                limit=args.limit,
-                include_suppressed=not args.open_only,
-            )
-            if args.json:
-                print(memory_db.json_dumps(items))
-            else:
-                print_table(items)
-            return 0
-
-        if args.command == "show":
-            try:
-                fingerprint = memory_db.resolve_fingerprint(connection, args.fingerprint)
-            except memory_db.ReviewMemoryError as exc:
-                raise SystemExit(str(exc)) from exc
-            finding = connection.execute(
-                "SELECT * FROM findings WHERE fingerprint = ?", (fingerprint,)
-            ).fetchone()
-            if not finding:
-                raise SystemExit("Unknown fingerprint")
-            decisions = [
-                dict(row)
-                for row in connection.execute(
-                    "SELECT * FROM decisions WHERE fingerprint = ? ORDER BY id", (fingerprint,)
-                )
-            ]
-            print(
-                memory_db.json_dumps(
-                    {
-                        "finding": dict(finding),
-                        "decisions": decisions,
-                        "active_suppression": memory_db.active_suppression(connection, fingerprint),
-                    }
-                )
-            )
-            return 0
-
-        if args.command == "decide":
-            try:
-                result = memory_db.add_decision(
-                    connection,
-                    args.fingerprint,
-                    args.decision,
-                    args.reason,
-                    args.actor,
-                    expires_days=args.expires_days,
-                    observation_id=args.observation_id,
-                    repository=args.repo,
-                    pr_number=args.pr,
-                    local_reference=args.local_reference or "",
-                    latest=args.latest,
-                )
-            except memory_db.ReviewMemoryError as exc:
-                raise SystemExit(str(exc)) from exc
-            print(memory_db.json_dumps(result))
-            return 0
-
-        if args.command == "export":
-            content = memory_db.json_dumps(memory_db.export_state(connection)) + "\n"
-            if args.output:
-                destination = Path(args.output)
-                write_private_file(destination, content)
-                print(destination)
-            else:
-                print(content, end="")
-            return 0
-
-        if args.command == "stats":
-            stats = memory_db.compute_stats(
-                connection,
-                repository=args.repo,
-                expiring_within_days=args.expiring_within_days,
-            )
-            if args.json:
-                print(memory_db.json_dumps(stats))
-            else:
-                print_stats(stats)
-            return 0
-
-        if args.command == "runs":
-            if args.publish_failure_status:
-                if args.stats:
-                    raise SystemExit(
-                        "--publish-failure-status cannot be combined with --stats"
-                    )
-                if args.pr is not None and not args.repo:
-                    raise SystemExit("--pr requires --repo")
-                publisher = load_review_publisher()
-                try:
-                    summary = reap_and_publish(
-                        connection,
-                        memory_db,
-                        publisher,
-                        repository=args.repo,
-                        pr_number=args.pr,
-                        older_than_minutes=args.older_than_minutes,
-                    )
-                except memory_db.ReviewMemoryError as exc:
-                    raise SystemExit(str(exc)) from exc
-                if args.json:
-                    print(memory_db.json_dumps(summary))
-                else:
-                    failed = cast(Sequence[object], summary["status_failed"])
-                    print(
-                        f"marked_failed={summary['marked_failed']} "
-                        f"status_posted={summary['status_posted']} "
-                        f"status_failed={len(failed)}"
-                    )
-                # Watcher-of-the-watcher: a failed post must surface to the operator.
-                return 1 if summary["status_failed"] else 0
-            if args.mark_stalled:
-                if args.stats:
-                    raise SystemExit("--mark-stalled cannot be combined with --stats")
-                if args.pr is not None and not args.repo:
-                    raise SystemExit("--pr requires --repo")
-                try:
-                    result = memory_db.mark_stale_runs_failed(
-                        connection,
-                        repository=args.repo,
-                        pr_number=args.pr,
-                        older_than_minutes=args.older_than_minutes,
-                    )
-                except memory_db.ReviewMemoryError as exc:
-                    raise SystemExit(str(exc)) from exc
-                if args.json:
-                    print(memory_db.json_dumps(result))
-                else:
-                    print_mark_stalled_result(result)
-            elif args.stats:
-                run_metrics = memory_db.run_stats(connection, repository=args.repo, days=args.days)
-                if args.json:
-                    print(memory_db.json_dumps(run_metrics))
-                else:
-                    print_run_stats(run_metrics)
-            else:
-                runs = memory_db.list_runs(connection, repository=args.repo, limit=args.limit)
-                if args.failed:
-                    runs = [run for run in runs if run.get("status") == "failed"]
-                if args.json:
-                    print(memory_db.json_dumps(runs))
-                else:
-                    print_runs(memory_db, runs)
-            return 0
-
-        if args.command == "publications":
-            if args.pr is not None and not args.repo:
-                raise SystemExit("--pr requires --repo")
-            publications = memory_db.list_publications(
-                connection,
-                repository=args.repo,
-                pr_number=args.pr,
-                limit=args.limit,
-            )
-            if args.json:
-                print(memory_db.json_dumps(publications))
-            else:
-                print_publications(publications)
-            return 0
-
-        if args.command == "coverage":
-            try:
-                summary = memory_db.coverage_summary(connection, run_id=args.run_id)
-            except memory_db.ReviewMemoryError as exc:
-                raise SystemExit(str(exc)) from exc
-            if args.json:
-                print(memory_db.json_dumps(summary or {}))
-            else:
-                print_coverage(summary)
-            return 0
-
-        if args.command == "verification-export":
-            verification = load_verification_module()
-            try:
-                source = memory_db.verification_export_source(
-                    connection,
-                    review_run_id=args.run_id,
-                )
-                payload = verification.build_verification_export(
-                    source,
-                    coverage=memory_db.coverage_summary(connection, run_id=args.run_id),
-                )
-            except (ValueError, memory_db.ReviewMemoryError) as exc:
-                raise SystemExit(str(exc)) from exc
-            destination = Path(args.output)
-            write_private_file(
-                destination,
-                verification.dumps_verification_export(payload),
-            )
-            print(destination)
-            return 0
-
-    return 1
+        runtime = _runtime()
+    except Exception as exc:
+        _fatal(exc)
+    try:
+        return _run_live(args, runtime)
+    except Exception as exc:
+        _fatal(exc)
+    finally:
+        runtime.close()
 
 
 if __name__ == "__main__":

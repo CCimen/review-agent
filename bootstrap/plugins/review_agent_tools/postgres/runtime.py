@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 
 import psycopg
 from psycopg.rows import TupleRow
@@ -14,10 +15,6 @@ from ..postgres_migrations import runner
 from ..settings import PostgresDatabaseUrl
 
 
-_APPLICATION_NAME = "review-agent-reviewer"
-_POOL_MIN_SIZE = 1
-_POOL_MAX_SIZE = 4
-_POOL_MAX_WAITING = 8
 _POOL_CHECKOUT_TIMEOUT_SECONDS = 2.0
 _POOL_RECONNECT_TIMEOUT_SECONDS = 10.0
 _CONNECTION_OPTIONS = " ".join(
@@ -43,6 +40,26 @@ class PostgreSQLNotReady(PostgreSQLRuntimeError):
     """PostgreSQL is reachable but not ready for this application image."""
 
 
+class PostgreSQLRuntimeRole(StrEnum):
+    REVIEWER = "reviewer"
+    FEEDBACK = "feedback"
+    OPERATOR = "operator"
+
+
+@dataclass(frozen=True, slots=True)
+class _PoolShape:
+    minimum_size: int
+    maximum_size: int
+    maximum_waiting: int
+
+
+_POOL_SHAPES = {
+    PostgreSQLRuntimeRole.REVIEWER: _PoolShape(1, 4, 8),
+    PostgreSQLRuntimeRole.FEEDBACK: _PoolShape(1, 4, 8),
+    PostgreSQLRuntimeRole.OPERATOR: _PoolShape(0, 1, 1),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class PostgreSQLReadiness:
     server_version: int
@@ -63,26 +80,39 @@ class PostgreSQLPoolMetrics:
 class PostgreSQLRuntime:
     """Own one bounded, explicitly opened reviewer connection pool."""
 
-    def __init__(self, database_url: PostgresDatabaseUrl) -> None:
+    def __init__(
+        self,
+        database_url: PostgresDatabaseUrl,
+        *,
+        role: PostgreSQLRuntimeRole = PostgreSQLRuntimeRole.REVIEWER,
+    ) -> None:
         self._open_attempted = False
+        self._database_url = database_url
+        self._role = role
+        shape = _POOL_SHAPES[role]
+        application_name = f"review-agent-{role.value}"
         self._pool: ConnectionPool[psycopg.Connection[TupleRow]] = ConnectionPool(
             conninfo=database_url,
             connection_class=psycopg.Connection[TupleRow],
             kwargs={
-                "application_name": _APPLICATION_NAME,
+                "application_name": application_name,
                 # Keep checkouts idle; operation owners define transactions.
                 "autocommit": True,
                 "options": _CONNECTION_OPTIONS,
             },
-            min_size=_POOL_MIN_SIZE,
-            max_size=_POOL_MAX_SIZE,
+            min_size=shape.minimum_size,
+            max_size=shape.maximum_size,
             open=False,
             check=ConnectionPool.check_connection,
-            name=_APPLICATION_NAME,
+            name=application_name,
             timeout=_POOL_CHECKOUT_TIMEOUT_SECONDS,
-            max_waiting=_POOL_MAX_WAITING,
+            max_waiting=shape.maximum_waiting,
             reconnect_timeout=_POOL_RECONNECT_TIMEOUT_SECONDS,
         )
+
+    @property
+    def database_url(self) -> PostgresDatabaseUrl:
+        return self._database_url
 
     def open(self, *, timeout: float = 10.0) -> PostgreSQLReadiness:
         """Open once, establish the minimum pool, and fail closed if unready."""
@@ -131,7 +161,7 @@ class PostgreSQLRuntime:
                         )::interval = interval '60 seconds',
                         current_setting('server_version_num')::integer
                     """,
-                    (_APPLICATION_NAME,),
+                    (f"review-agent-{self._role.value}",),
                 ).fetchone()
                 if session is None or session[:6] != (
                     True,

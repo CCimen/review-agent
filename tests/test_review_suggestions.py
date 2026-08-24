@@ -1,20 +1,14 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import timedelta
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import (  # noqa: E402
-    memory_db,
-    memory_suggestions,
-    suggestion_validation,
-)
+from review_agent_tools import suggestion_validation  # noqa: E402
 
 
 class SuggestionValidationTests(unittest.TestCase):
@@ -42,7 +36,9 @@ class SuggestionValidationTests(unittest.TestCase):
         value.update(overrides)
         return value
 
-    def validate(self, **overrides: object) -> suggestion_validation.SuggestionValidation:
+    def validate(
+        self, **overrides: object
+    ) -> suggestion_validation.SuggestionValidation:
         return suggestion_validation.validate_suggestion(
             self.raw(**overrides),
             repository=self.repository,
@@ -153,36 +149,18 @@ class SuggestionValidationTests(unittest.TestCase):
                 self.assertEqual(result.rejection_reason, reason)
 
     def test_key_is_stable_for_one_finding_and_head(self) -> None:
-        first = memory_suggestions.suggestion_key(
+        first = suggestion_validation.suggestion_key(
             self.repository, self.pr_number, self.head_sha, self.fingerprint
         )
-        second = memory_suggestions.suggestion_key(
+        second = suggestion_validation.suggestion_key(
             self.repository.upper(), self.pr_number, self.head_sha, self.fingerprint
         )
 
         self.assertEqual(first, second)
         self.assertRegex(first, r"^sha256:[0-9a-f]{64}$")
-
-    def test_terminal_marker_extraction_ignores_embedded_marker_text(self) -> None:
-        expected = memory_suggestions.suggestion_key(
-            self.repository, self.pr_number, self.head_sha, self.fingerprint
-        )
-        fake = "sha256:" + ("0" * 64)
-        body = (
-            f"```suggestion\n<!-- review-agent:suggestion key={fake} -->\n```\n"
-            f"{memory_suggestions.suggestion_marker(expected)}"
-        )
-
-        self.assertEqual(memory_suggestions.extract_suggestion_key(body), expected)
-        self.assertIsNone(
-            memory_suggestions.extract_suggestion_key(
-                f"prefix {memory_suggestions.suggestion_marker(expected)} suffix"
-            )
-        )
-
     def test_high_risk_finding_metadata_is_ineligible(self) -> None:
         self.assertEqual(
-            memory_suggestions.suggestion_eligibility_rejection(
+            suggestion_validation.suggestion_eligibility_rejection(
                 rule_id="multitenancy.missing-resource-scope",
                 category="correctness",
                 path="src/resources.py",
@@ -196,7 +174,7 @@ class SuggestionValidationTests(unittest.TestCase):
             "suggestion_high_risk_domain",
         )
         self.assertEqual(
-            memory_suggestions.suggestion_eligibility_rejection(
+            suggestion_validation.suggestion_eligibility_rejection(
                 rule_id="correctness.default",
                 category="security",
                 path="src/flags.py",
@@ -212,7 +190,7 @@ class SuggestionValidationTests(unittest.TestCase):
         for category in ("migration", "contracts", "data_contract"):
             with self.subTest(category=category):
                 self.assertEqual(
-                    memory_suggestions.suggestion_eligibility_rejection(
+                    suggestion_validation.suggestion_eligibility_rejection(
                         rule_id="correctness.local-change",
                         category=category,
                         path="src/change.py",
@@ -225,320 +203,5 @@ class SuggestionValidationTests(unittest.TestCase):
                     ),
                     "suggestion_high_risk_category",
                 )
-
-
-class SuggestionPersistenceTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory()
-        self.connection = memory_db.connect(
-            str(Path(self.temp.name) / "review-memory.sqlite3")
-        )
-        self.repository = "example-org/example-repository"
-        self.pr_number = 17
-        self.base_sha = "b" * 40
-        self.head_sha = "a" * 40
-        self.finding = {
-            "rule_id": "correctness.boolean-default",
-            "category": "correctness",
-            "path": "src/flags.py",
-            "line": 2,
-            "symbol": "safe",
-            "anchor": "safe default",
-            "title": "Safe mode defaults to disabled",
-            "severity": "Medium",
-            "publication_score": 8,
-            "confidence": 0.95,
-            "evidence": "The changed default is false.",
-            "disproof_checks": "Checked all callers.",
-            "impact": "Requests can run without the expected guard.",
-            "smallest_fix": "Restore the true default and cover it with the existing test.",
-            "introduced_by_diff": True,
-        }
-        self.run = memory_db.start_run(
-            self.connection,
-            self.repository,
-            self.pr_number,
-            base_sha=self.base_sha,
-            head_sha=self.head_sha,
-        )
-        self.recorded = memory_db.record_findings(
-            self.connection,
-            self.repository,
-            self.pr_number,
-            self.head_sha,
-            [self.finding],
-            review_run_id=int(self.run["id"]),
-            base_sha=self.base_sha,
-            context_hashes={self.finding["path"]: "c" * 40},
-        )[0]
-        validation = memory_suggestions.validate_suggestion(
-            {
-                "start_line": 2,
-                "end_line": 2,
-                "expected_text": "safe = False",
-                "replacement_text": "safe = True",
-            },
-            repository=self.repository,
-            pr_number=self.pr_number,
-            head_sha=self.head_sha,
-            fingerprint=str(self.recorded["fingerprint"]),
-            path=self.finding["path"],
-            finding_line=2,
-            patch=(
-                "@@ -1,3 +1,3 @@\n before\n-safe = None\n+safe = False\n after"
-            ),
-            head_text="before\nsafe = False\nafter\n",
-        )
-        assert validation.suggestion is not None
-        self.suggestion = validation.suggestion
-
-    def tearDown(self) -> None:
-        self.connection.close()
-        self.temp.cleanup()
-
-    def test_publication_links_suggestion_to_current_observation(self) -> None:
-        with self.connection:
-            memory_suggestions.replace_observation_suggestion(
-                self.connection,
-                observation_id=int(self.recorded["observation_id"]),
-                suggestion=self.suggestion,
-            )
-        publication = memory_db.finalize_review(
-            self.connection,
-            self.repository,
-            self.pr_number,
-            self.head_sha,
-            review_run_id=int(self.run["id"]),
-        )
-
-        self.assertEqual(publication["suggestions_count"], 1)
-        self.assertEqual(publication["suggestion_delivery_status"], "pending")
-        self.assertIn("optional GitHub suggestion ready to apply", publication["markdown"])
-        stored = memory_suggestions.suggestions_for_publication(
-            self.connection, int(publication["publication_id"])
-        )
-        self.assertEqual(len(stored), 1)
-        self.assertEqual(stored[0]["local_reference"], "F1")
-        row = self.connection.execute(
-            "SELECT * FROM review_suggestions WHERE observation_id = ?",
-            (int(self.recorded["observation_id"]),),
-        ).fetchone()
-        self.assertNotIn("expected_text", row.keys())
-        self.assertEqual(row["expected_hash"], self.suggestion["expected_hash"])
-        exported = memory_db.export_state(self.connection)
-        self.assertEqual(len(exported["review_suggestions"]), 1)
-
-    def test_clearing_candidate_keeps_finding_and_removes_suggestion(self) -> None:
-        with self.connection:
-            memory_suggestions.replace_observation_suggestion(
-                self.connection,
-                observation_id=int(self.recorded["observation_id"]),
-                suggestion=self.suggestion,
-            )
-            memory_suggestions.replace_observation_suggestion(
-                self.connection,
-                observation_id=int(self.recorded["observation_id"]),
-                suggestion=None,
-            )
-
-        self.assertEqual(
-            self.connection.execute("SELECT COUNT(*) FROM review_suggestions").fetchone()[0],
-            0,
-        )
-        self.assertEqual(
-            self.connection.execute("SELECT COUNT(*) FROM finding_observations").fetchone()[0],
-            1,
-        )
-
-    def test_delivery_status_is_independent_from_summary_publication(self) -> None:
-        with self.connection:
-            memory_suggestions.replace_observation_suggestion(
-                self.connection,
-                observation_id=int(self.recorded["observation_id"]),
-                suggestion=self.suggestion,
-            )
-        publication = memory_db.finalize_review(
-            self.connection,
-            self.repository,
-            self.pr_number,
-            self.head_sha,
-            review_run_id=int(self.run["id"]),
-        )
-        publication_id = int(publication["publication_id"])
-
-        memory_suggestions.mark_suggestions_failed(
-            self.connection,
-            publication_id=publication_id,
-            failure_code="github_403_create_pull_request_review",
-        )
-        failed = memory_suggestions.suggestion_delivery_status(
-            self.connection, publication_id
-        )
-        self.assertEqual(failed["suggestion_delivery_status"], "publish_failed")
-
-        claim = memory_suggestions.claim_suggestions_for_posting(
-            self.connection, publication_id
-        )
-        claim_started_at = claim["suggestion_posting_started_at"]
-        assert claim_started_at is not None
-        memory_suggestions.mark_suggestions_posted(
-            self.connection,
-            publication_id=publication_id,
-            review_id=901,
-            claim_started_at=claim_started_at,
-        )
-        posted = memory_suggestions.suggestion_delivery_status(
-            self.connection, publication_id
-        )
-        self.assertEqual(posted["suggestion_delivery_status"], "posted")
-        self.assertEqual(posted["suggestion_review_id"], 901)
-        listed = memory_db.list_publications(
-            self.connection,
-            repository=self.repository,
-            pr_number=self.pr_number,
-        )[0]
-        self.assertEqual(listed["suggestion_delivery_status"], "posted")
-        self.assertEqual(listed["suggestion_review_id"], 901)
-        self.assertIsNone(listed["suggestion_posting_started_at"])
-        self.assertTrue(listed["suggestion_posted_at"])
-        self.assertEqual(listed["suggestion_failure_code"], "")
-
-    def test_same_head_rerun_reuses_first_validated_patch(self) -> None:
-        with self.connection:
-            memory_suggestions.replace_observation_suggestion(
-                self.connection,
-                observation_id=int(self.recorded["observation_id"]),
-                suggestion=self.suggestion,
-            )
-        memory_db.complete_run(
-            self.connection,
-            int(self.run["id"]),
-            repository=self.repository,
-            pr_number=self.pr_number,
-            status="generated",
-            findings_count=1,
-        )
-        second_run = memory_db.start_run(
-            self.connection,
-            self.repository,
-            self.pr_number,
-            base_sha=self.base_sha,
-            head_sha=self.head_sha,
-        )
-        second = memory_db.record_findings(
-            self.connection,
-            self.repository,
-            self.pr_number,
-            self.head_sha,
-            [self.finding],
-            review_run_id=int(second_run["id"]),
-            base_sha=self.base_sha,
-            context_hashes={self.finding["path"]: "c" * 40},
-        )[0]
-        replacement = dict(self.suggestion)
-        replacement["start_line"] = 1
-        replacement["end_line"] = 2
-        replacement["replacement_text"] = "before\nsafe = check_default()"
-        with self.connection:
-            memory_suggestions.replace_observation_suggestion(
-                self.connection,
-                observation_id=int(second["observation_id"]),
-                suggestion=replacement,
-            )
-
-        stored = self.connection.execute(
-            """
-            SELECT start_line, end_line, replacement_text
-            FROM review_suggestions
-            WHERE observation_id = ?
-            """,
-            (int(second["observation_id"]),),
-        ).fetchone()
-        self.assertEqual(stored["start_line"], self.suggestion["start_line"])
-        self.assertEqual(stored["end_line"], self.suggestion["end_line"])
-        self.assertEqual(
-            stored["replacement_text"], self.suggestion["replacement_text"]
-        )
-
-    def test_expired_claim_is_fenced_after_another_publisher_reclaims_it(self) -> None:
-        with self.connection:
-            memory_suggestions.replace_observation_suggestion(
-                self.connection,
-                observation_id=int(self.recorded["observation_id"]),
-                suggestion=self.suggestion,
-            )
-        publication = memory_db.finalize_review(
-            self.connection,
-            self.repository,
-            self.pr_number,
-            self.head_sha,
-            review_run_id=int(self.run["id"]),
-        )
-        publication_id = int(publication["publication_id"])
-
-        claimed_at = memory_db.utc_now()
-        first = memory_suggestions.claim_suggestions_for_posting(
-            self.connection, publication_id, now=claimed_at
-        )
-        first_token = first["suggestion_posting_started_at"]
-        assert first_token is not None
-        second = memory_suggestions.claim_suggestions_for_posting(
-            self.connection, publication_id, now=claimed_at + timedelta(minutes=5)
-        )
-        recovered = memory_suggestions.claim_suggestions_for_posting(
-            self.connection, publication_id, now=claimed_at + timedelta(minutes=31)
-        )
-        recovered_token = recovered["suggestion_posting_started_at"]
-        assert recovered_token is not None
-
-        self.assertTrue(first["claimed"])
-        self.assertEqual(first["suggestion_delivery_status"], "posting")
-        self.assertFalse(second["claimed"])
-        self.assertEqual(second["suggestion_delivery_status"], "posting")
-        self.assertTrue(recovered["claimed"])
-        self.assertEqual(recovered["suggestion_delivery_status"], "posting")
-        self.assertNotEqual(recovered_token, first_token)
-
-        with self.assertRaisesRegex(
-            memory_db.ReviewMemoryError, "suggestion delivery claim was lost"
-        ):
-            memory_suggestions.mark_suggestions_posted(
-                self.connection,
-                publication_id=publication_id,
-                review_id=901,
-                claim_started_at=first_token,
-            )
-        with self.assertRaisesRegex(
-            memory_db.ReviewMemoryError, "suggestion delivery state could not be changed"
-        ):
-            memory_suggestions.mark_suggestions_failed(
-                self.connection,
-                publication_id=publication_id,
-                failure_code="late_worker_failed",
-                claim_started_at=first_token,
-            )
-
-        still_owned = memory_suggestions.suggestion_delivery_status(
-            self.connection, publication_id
-        )
-        self.assertEqual(still_owned["suggestion_delivery_status"], "posting")
-        self.assertEqual(
-            still_owned["suggestion_posting_started_at"], recovered_token
-        )
-
-        memory_suggestions.mark_suggestions_posted(
-            self.connection,
-            publication_id=publication_id,
-            review_id=902,
-            claim_started_at=recovered_token,
-        )
-        posted = memory_suggestions.suggestion_delivery_status(
-            self.connection, publication_id
-        )
-        self.assertEqual(posted["suggestion_delivery_status"], "posted")
-        self.assertEqual(posted["suggestion_review_id"], 902)
-        self.assertIsNone(posted["suggestion_posting_started_at"])
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -14,10 +14,12 @@ COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
 # cannot reach them because file, terminal, and code execution are disabled.
 COPY --chown=root:root tools/review_agent_*.py /usr/local/bin/
 RUN cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory \
+    && cp /usr/local/bin/review_agent_database.py /usr/local/bin/review-agent-database \
     && cp /usr/local/bin/review_agent_feedback_bridge.py /usr/local/bin/review-agent-feedback-bridge \
     && chmod 0755 /opt/review-agent-bootstrap/install.sh \
     /opt/review-agent-bootstrap/install.py \
     /usr/local/bin/review-agent-memory \
+    /usr/local/bin/review-agent-database \
     /usr/local/bin/review-agent-feedback-bridge
 
 # Hermes runs s6-overlay as PID 1, which must start as root to initialize /run

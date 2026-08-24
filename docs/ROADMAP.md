@@ -9,137 +9,43 @@ last_verified: 2026-08-24
 
 # Current and planned capabilities
 
-> **Current and target** — “Available now” is current behavior. Every later
-> section is an approved direction, not a deployed capability or release
-> promise.
-
-This roadmap describes direction, not release promises. Current behavior is the
-behavior documented in the repository and verified by the shipped bundle.
+> **Current and target** — “Available now” describes the shipped repository.
+> Later sections describe approved direction, not release promises.
 
 ## Available now
 
 - One shared reviewer per environment with an exact repository allowlist.
 - Trusted GitHub Actions request workflow and HMAC-signed webhooks.
-- Full Python bundle CI for pull requests and changes to `main`.
-- A corrected first-write PostgreSQL schema, checksum-verifying migration
-  runner, bounded runtime foundation, and a real PostgreSQL 17 CI contract for
-  repository, immutable-subject, review-run, coverage, finding-memory,
-  suggestion, human-decision, verification, reconciliation, and coaching
-  operations, plus exact publication planning and crash-recoverable delivery
-  integration, historical supersession, failure-status ownership, and bounded
-  operator reporting.
 - Bounded PR reads against an exact base/head snapshot.
-- Two-pass evidence review with honest coverage reporting.
-- SQLite review memory, stable finding references, and repeated review rounds.
+- Two-pass evidence review with explicit incomplete-coverage reporting.
 - Deterministic GitHub summaries and validated optional native suggestions.
 - Human-governed feedback plus private, operator-run learning and verification.
-- Central typed runtime settings, a bounded GitHub read client, and typed run and
-  finding application owners.
+- One PostgreSQL database per environment for review runs, coverage, findings,
+  decisions, publication, feedback, verification, reconciliation, and coaching.
+- Checksum-verified PostgreSQL migrations, bounded role-specific connection
+  pools, readiness checks, and PostgreSQL 17 integration tests.
+- Direct PostgreSQL review, feedback, publication, stale-run recovery, and
+  operator command paths. Network and model calls never hold database
+  connections.
+- Repository-scoped exports with an operator-selected per-table row budget.
 - One validated deployment-profile selector with `sundsvall-standard` as the
-  shipped municipal profile; profiles own voice, stable rules, presentation,
-  and an explicit reviewed-skill list, never runtime security invariants.
+  shipped municipal profile. Profiles own voice, stable rules, presentation,
+  and an explicit reviewed-skill list; runtime security invariants remain in
+  the engine.
 
-## PostgreSQL replacement milestones
+PostgreSQL is the only application persistence backend. The project has no
+backend selector, dual write, fallback, import bridge, or compatibility layer.
+Hermes `HERMES_HOME` remains separate profile-local runtime state.
 
-The repository owner confirmed on 2026-08-21 that the reviewer has no production
-deployment or persisted production review state. Its packaged SQLite runtime is
-temporary and disposable. The approved target—not a deployed capability—is one
-PostgreSQL database per environment. No per-repository databases will be
-introduced, and there will be no permanent dual writes. The initial PostgreSQL
-schema, migration runner, and read-only PostgreSQL runtime foundation milestone
-are implemented. That foundation is now deepened with the first cohesive
-repository-to-review-run transaction and normalized changed-file and
-content-read coverage operations. Rename-stable finding identities, batched
-occurrences, repository-scoped resolution, pull-request-local references,
-bounded repeat history, best-effort validated suggestions, and context-matched
-audited decisions now run in CI too. Provider-neutral verifier attempts reject
-duplicate candidate verdicts and cross-run evidence, reconciliations freeze when
-publication preparation starts, and each coach run retains its exact immutable
-candidate set. PostgreSQL is not deployed: the active reviewer still uses
-SQLite. The runtime owns the typed database URL, explicitly opened bounded pool,
-connection safeguards, readiness, migration health, short transaction scope,
-and pool metrics. The application owner can exercise registry, review-run, inventory,
-diff-observation, source-range, finding-memory, optional-suggestion, and
-human-decision operations in integration tests without adding a backend switch,
-dual write, or fallback. It can also atomically freeze exact publication bytes,
-structured parts, canonical hashes, and finding outcomes, then claim and
-acknowledge GitHub delivery through short transactions. Direct stored IDs are
-reused first; marker recovery closes a lost acknowledgement after process death
-without duplicating output. Suggestion validation reads trusted head content
-with no database connection held, persists accepted patches in a separate
-best-effort transaction, and keeps deletion patches valid. A suppressive human
-decision applies only to the exact reviewed context hash, while its decision and
-authorization audit commit or roll back together.
+## Remaining reliability work
 
-The active SQLite publication path now has separate owners for environment
-composition, lifecycle orchestration, deterministic payload partitioning, and
-GitHub HTTP delivery. This is an internal ownership change only: rendered bytes,
-delivery behavior, and public tool responses are unchanged. The PostgreSQL
-publication lifecycle is integration-only and has no tool or deployed runtime
-caller yet.
-
-Four gates protect the first authoritative PostgreSQL write:
-
-- **Stable finding identity:** fingerprints must use stable local finding fields,
-  while every full or abbreviated lookup is scoped by the repository's internal
-  ID. The integration owner and PostgreSQL 17 behavior contract now enforce this
-  before runtime cutover.
-- **Request idempotency:** the schema now requires one globally unique durable
-  request key for each review command.
-- **Checksum migration ownership:** one advisory-locked runner verifies exact
-  migration checksums and owns the migration transaction and ledger insertion.
-- **Publication provenance:** the schema now records every current, resolved,
-  invalidated, suppressed, and not-checked outcome with its exact source
-  occurrence and review run.
-
-The PostgreSQL feedback application transaction is now implemented in the
-integration contract but remains unreachable from the packaged runtime. It
-resolves only the current posted publication and exact current finding
-reference, commits an event with its decision or quality signal and audit in one
-short transaction, and returns the stored outcome for duplicate deliveries.
-GitHub reads and reactions remain outside that transaction.
-
-PostgreSQL operational parity is also implemented behind that inactive
-boundary. One concrete reporting owner now supplies finding inspection,
-explicit operator decisions, set-based finding and run statistics, stale-run
-recovery, publication inspection, coverage, verification input, and coach-run
-receipts. Repository exports require both an exact repository and an explicit
-per-table row budget chosen by the operator; the product has no hidden export or
-review-depth ceiling. The row budget bounds the in-memory JSON artifact, while
-the existing statement and idle-transaction timeouts fail closed if database or
-conversion work exceeds its operational window. A truncated PostgreSQL export
-uses a new contract version, declares `complete: false`, and cannot be mistaken
-for a complete SQLite-era coach snapshot. Historical review comments can be
-rewritten from persisted publication bytes, and failure-status comments have
-durable PostgreSQL IDs and cleanup state. The packaged CLI still uses SQLite
-until the review, feedback, operator, and Compose callers switch together.
-
-The remaining milestones are:
-
-1. Define the initial PostgreSQL replacement recovery path as a deployable
-   contract and finish the runtime settings. At the first PostgreSQL cutover,
-   recovery means restoring PostgreSQL and redeploying the same compatible
-   revision. From the next PostgreSQL revision onward, the previous
-   PostgreSQL-compatible application image can run against the same database.
-   The runtime caller must retry `publish_failed` publications and reclaim
-   `posting` only after the prior poster is known to have stopped. Durable jobs
-   later own reaping runs left in `publishing` after a process exit.
-2. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
-   review against a fresh database. The bounded provider repository ID
-   acquisition must use trusted PR metadata before the repository-to-run
-   transaction opens; no network or model call may hold a database connection.
-3. Delete the SQLite application persistence, migrations, volume, environment
-   settings, and SQLite-only tests after the cutover passes. Before deletion,
-   PostgreSQL publication delivery must render the superseded historical form
-   after recording database supersession; the active SQLite owner retains that
-   visible-comment behavior until cutover.
-4. Add durable jobs and an outbox as separate work after PostgreSQL owns the
-   application state.
-
-This clean runtime replacement preserves observable review behavior without
-preserving SQLite IDs, schema versions, local test data, or a compatibility
-backend. Hermes `HERMES_HOME` state is separate profile-local runtime state and
-is not part of this application persistence replacement.
+1. Add a durable PostgreSQL job lifecycle with leases, fencing, heartbeats,
+   retries, dead-letter handling, supersession, and fair bounded concurrency.
+2. Acknowledge review requests after durable enqueue so a gateway interruption
+   cannot lose accepted work.
+3. Persist publication intent and exact payloads atomically, then deliver them
+   through a recoverable outbox worker without holding database connections
+   during GitHub calls.
 
 ## Planned platform capabilities
 
@@ -151,8 +57,7 @@ is not part of this application persistence replacement.
 
 ## Explicitly deferred
 
-The PostgreSQL runtime cutover, trusted project context and policy overlays,
-GitHub App migration, live feedback switching, Codex Security, scanner workers,
-SARIF aggregation, and security artifact storage are deferred. Existing
-security controls stay in place, and deterministic scanners should continue to
-run independently in repository CI.
+Trusted project context and policy overlays, GitHub App migration, Codex
+Security, scanner workers, SARIF aggregation, and security artifact storage are
+deferred. Existing security controls stay in place, and deterministic scanners
+should continue to run independently in repository CI.

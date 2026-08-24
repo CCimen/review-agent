@@ -36,7 +36,7 @@ VALID_FIXTURE = """{
     {
       "id": "stable-fingerprint",
       "covered_by": [
-        "tests.test_memory_db.ReviewMemoryTests.test_fingerprint_is_stable_across_line_moves"
+        "tests.test_postgres_findings.PostgreSQLFindingDomainTests.test_fingerprint_is_independent_of_repository_name"
       ]
     }
   ],
@@ -66,7 +66,7 @@ class ReplayValidationTests(unittest.TestCase):
             path = Path(temp) / "fixture.json"
             path.write_text(
                 VALID_FIXTURE.replace(
-                    "test_fingerprint_is_stable_across_line_moves",
+                    "test_fingerprint_is_independent_of_repository_name",
                     "test_does_not_exist",
                 ),
                 encoding="utf-8",

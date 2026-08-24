@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import psycopg
+from psycopg import sql
 from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
@@ -16,6 +17,7 @@ from ..domain.review import (
     FileReadDefinition,
     ReviewRunId,
     resolve_changed_file_count,
+    resolve_review_path,
 )
 
 
@@ -67,6 +69,45 @@ class CoverageSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class RunFile:
+    path: str
+    change_status: str
+    previous_path: str
+    domain: str
+    review_mode: str
+    diff_state: DiffState
+    is_changed_path: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RunFilePage:
+    run_id: ReviewRunId
+    repository: str
+    pr_number: int
+    limit: int
+    next_cursor: str | None
+    total_matching: int
+    items: tuple[RunFile, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RunFileLookup:
+    item: RunFile | None
+    registration_complete: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FileIndexSummary:
+    changed_files_reported: int | None
+    changed_files_registered: int
+    registration_complete: bool
+    by_domain: tuple[tuple[str, int], ...]
+    by_review_mode: tuple[tuple[str, int], ...]
+    by_change_status: tuple[tuple[str, int], ...]
+    sample_paths: tuple[RunFile, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _RunCoverageRow:
     status: str
     changed_files_reported: int | None
@@ -104,6 +145,31 @@ class _SummaryRow:
     truncated_paths: int
 
 
+@dataclass(frozen=True, slots=True)
+class _RunIdentityRow:
+    repository: str
+    pr_number: int
+    status: str
+    changed_files_reported: int | None
+    registration_complete: bool
+
+
+def _file(row: _RunFileRow) -> RunFile:
+    try:
+        state = DiffState(row.diff_state)
+    except ValueError as exc:
+        raise CoverageError("stored changed file has an invalid diff state") from exc
+    return RunFile(
+        path=row.path,
+        change_status=row.change_status or "",
+        previous_path=row.previous_path or "",
+        domain=row.domain or "general",
+        review_mode=row.review_mode,
+        diff_state=state,
+        is_changed_path=row.is_changed_path,
+    )
+
+
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
     if connection.info.transaction_status != TransactionStatus.INTRANS:
         raise CoverageError("coverage operations require an active transaction")
@@ -128,6 +194,203 @@ def _run_for_write(
     if row.status != "running":
         raise CoverageRunNotActive("coverage writes require an active review run")
     return row
+
+
+def _run_identity(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    repository: str | None = None,
+    pr_number: int | None = None,
+    active: bool,
+) -> _RunIdentityRow:
+    with connection.cursor(row_factory=class_row(_RunIdentityRow)) as cursor:
+        row = cursor.execute(
+            """
+            SELECT repository.full_name AS repository,
+                   pull_request.number AS pr_number, run.status,
+                   run.changed_files_reported,
+                   run.changed_file_registration_complete AS registration_complete
+            FROM review_agent.review_runs AS run
+            JOIN review_agent.pull_requests AS pull_request
+              ON pull_request.id = run.pull_request_id
+            JOIN review_agent.repositories AS repository
+              ON repository.id = pull_request.repository_id
+            WHERE run.id = %s
+            """,
+            (run_id,),
+        ).fetchone()
+    if row is None:
+        raise CoverageError("review run does not exist")
+    if repository is not None and row.repository != repository:
+        raise CoverageError("run_id does not match this repository and PR")
+    if pr_number is not None and row.pr_number != pr_number:
+        raise CoverageError("run_id does not match this repository and PR")
+    if active and row.status != "running":
+        raise CoverageRunNotActive("coverage reads require an active review run")
+    return row
+
+
+def _counter(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    column: str,
+) -> tuple[tuple[str, int], ...]:
+    allowed = {"domain", "review_mode", "change_status"}
+    if column not in allowed:
+        raise CoverageError("unsupported changed-file counter")
+    field = sql.Identifier(column)
+    rows = connection.execute(
+        sql.SQL(
+            "SELECT {field}, count(*)::integer "
+            "FROM review_agent.review_run_files "
+            "WHERE review_run_id = %s AND is_changed_path "
+            "GROUP BY {field} ORDER BY {field}"
+        ).format(field=field),
+        (run_id,),
+    ).fetchall()
+    return tuple((str(row[0] or ""), int(row[1])) for row in rows)
+
+
+def file_index_summary(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    sample_limit: int = 40,
+) -> FileIndexSummary:
+    _require_transaction(connection)
+    identity = _run_identity(connection, run_id=run_id, active=True)
+    limit = max(0, min(sample_limit, 80))
+    with connection.cursor(row_factory=class_row(_RunFileRow)) as cursor:
+        rows = cursor.execute(
+            """
+            SELECT id, path, change_status, previous_path, is_changed_path,
+                   domain, review_mode, diff_state
+            FROM review_agent.review_run_files
+            WHERE review_run_id = %s AND is_changed_path
+            ORDER BY path LIMIT %s
+            """,
+            (run_id, limit),
+        ).fetchall()
+    registered = connection.execute(
+        "SELECT count(*)::integer FROM review_agent.review_run_files "
+        "WHERE review_run_id = %s AND is_changed_path",
+        (run_id,),
+    ).fetchone()
+    return FileIndexSummary(
+        changed_files_reported=identity.changed_files_reported,
+        changed_files_registered=int(registered[0]) if registered else 0,
+        registration_complete=identity.registration_complete,
+        by_domain=_counter(connection, run_id=run_id, column="domain"),
+        by_review_mode=_counter(connection, run_id=run_id, column="review_mode"),
+        by_change_status=_counter(connection, run_id=run_id, column="change_status"),
+        sample_paths=tuple(_file(row) for row in rows),
+    )
+
+
+def lookup_run_file(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    repository: str,
+    pr_number: int,
+    path: str,
+) -> RunFileLookup:
+    _require_transaction(connection)
+    identity = _run_identity(
+        connection,
+        run_id=run_id,
+        repository=repository,
+        pr_number=pr_number,
+        active=True,
+    )
+    resolved_path = resolve_review_path(path)
+    with connection.cursor(row_factory=class_row(_RunFileRow)) as cursor:
+        row = cursor.execute(
+            """
+            SELECT id, path, change_status, previous_path, is_changed_path,
+                   domain, review_mode, diff_state
+            FROM review_agent.review_run_files
+            WHERE review_run_id = %s AND path = %s
+            """,
+            (run_id, resolved_path),
+        ).fetchone()
+    return RunFileLookup(
+        item=_file(row) if row is not None else None,
+        registration_complete=identity.registration_complete,
+    )
+
+
+def list_run_files(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    repository: str,
+    pr_number: int,
+    limit: int,
+    cursor: str = "",
+    domain: str = "",
+    review_mode: str = "",
+    changed_only: bool = True,
+) -> RunFilePage:
+    _require_transaction(connection)
+    _run_identity(
+        connection,
+        run_id=run_id,
+        repository=repository,
+        pr_number=pr_number,
+        active=True,
+    )
+    if isinstance(limit, bool) or limit < 1 or limit > 200:
+        raise CoverageError("limit must be between 1 and 200")
+    cursor_path = resolve_review_path(cursor) if cursor else ""
+    clauses = [sql.SQL("review_run_id = %s")]
+    parameters: list[object] = [run_id]
+    if changed_only:
+        clauses.append(sql.SQL("is_changed_path"))
+    if domain:
+        clauses.append(sql.SQL("domain = %s"))
+        parameters.append(domain)
+    if review_mode:
+        clauses.append(sql.SQL("review_mode = %s"))
+        parameters.append(review_mode)
+    base_where = sql.SQL(" AND ").join(clauses)
+    total = connection.execute(
+        sql.SQL(
+            "SELECT count(*)::integer FROM review_agent.review_run_files WHERE "
+        )
+        + base_where,
+        tuple(parameters),
+    ).fetchone()
+    page_clauses = list(clauses)
+    page_parameters = list(parameters)
+    if cursor_path:
+        page_clauses.append(sql.SQL("path > %s"))
+        page_parameters.append(cursor_path)
+    page_parameters.append(limit + 1)
+    with connection.cursor(row_factory=class_row(_RunFileRow)) as page_cursor:
+        rows = page_cursor.execute(
+            sql.SQL(
+                "SELECT id, path, change_status, previous_path, is_changed_path, "
+                "domain, review_mode, diff_state "
+                "FROM review_agent.review_run_files WHERE "
+            )
+            + sql.SQL(" AND ").join(page_clauses)
+            + sql.SQL(" ORDER BY path LIMIT %s"),
+            tuple(page_parameters),
+        ).fetchall()
+    has_next = len(rows) > limit
+    items = tuple(_file(row) for row in rows[:limit])
+    return RunFilePage(
+        run_id=run_id,
+        repository=repository,
+        pr_number=pr_number,
+        limit=limit,
+        next_cursor=items[-1].path if has_next and items else None,
+        total_matching=int(total[0]) if total else 0,
+        items=items,
+    )
 
 
 def insert_changed_files(

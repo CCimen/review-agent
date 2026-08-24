@@ -173,6 +173,32 @@ def resolve_review_path(value: str) -> str:
     return value
 
 
+def classify_file_domain(path: str) -> FileDomain:
+    resolved = resolve_review_path(path)
+    if resolved.startswith("backend/"):
+        return FileDomain.BACKEND
+    if resolved.startswith("frontend/"):
+        return FileDomain.FRONTEND
+    if resolved.startswith(".github/") or resolved in {"compose.yaml", "Dockerfile"}:
+        return FileDomain.INFRASTRUCTURE
+    return FileDomain.GENERAL
+
+
+def classify_review_mode(path: str, change_status: str) -> ReviewMode:
+    resolved = resolve_review_path(path)
+    if change_status == "removed":
+        return ReviewMode.NORMAL
+    if "alembic" in resolved or "migration" in resolved.lower():
+        return ReviewMode.MIGRATION
+    if resolved.endswith((".yaml", ".yml", ".toml", ".json")) or resolved.startswith(
+        ".github/"
+    ):
+        return ReviewMode.CONFIGURATION
+    if "generated" in resolved or resolved.endswith(".d.ts"):
+        return ReviewMode.GENERATED_CONTRACT
+    return ReviewMode.NORMAL
+
+
 def _bounded_label(
     value: str,
     *,

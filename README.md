@@ -3,7 +3,7 @@ sidebar_label: Repository overview
 slug: /overview
 title: Repository overview
 status: current
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # Review Agent
@@ -18,7 +18,7 @@ the deterministic publisher posts a structured PR summary and, when safe, native
 GitHub suggested changes.
 
 The reusable part is the review engine: webhook routing, bounded GitHub reads,
-SQLite finding memory, human feedback, deterministic publication, and operational
+PostgreSQL review state, human feedback, deterministic publication, and operator
 tooling. Organization and repository policy belongs in the review profile:
 `bootstrap/profiles/sundsvall-standard/SOUL.md`,
 `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md`, and `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md`.
@@ -39,7 +39,8 @@ current architecture roadmap.
 - Offers small local patch candidates that pass exact range and current-content
   checks through GitHub's native suggestion UI, grouped into one non-blocking
   review; coordinated changes stay in the copyable coding-agent brief.
-- Stores findings, review runs, publication state, and human feedback in SQLite.
+- Stores findings, review runs, publication state, and human feedback in
+  PostgreSQL.
 - Can show deterministic `/review ...` feedback commands so allowlisted
   developers can report false positives, scope confusion, and missed issues.
 - Keeps comment delivery deterministic through `review_agent_deliver`, not through
@@ -72,7 +73,7 @@ flowchart TD
     B --> C["HMAC-signed webhook"]
     C --> D["Hermes + Codex review run"]
     D --> E["Bounded GitHub PR tools"]
-    D --> F["SQLite review memory"]
+    D --> F["PostgreSQL review state"]
     D --> G["Deterministic renderer + publisher"]
     G --> H["Structured summary + optional native suggestions"]
     H --> I["Developer feedback commands"]
@@ -83,7 +84,7 @@ The model proposes and challenges findings. Plugin code owns the durable state,
 publication, feedback parsing, snapshot checks, and GitHub writes.
 
 Private verification and learning remain outside this live path. An operator can
-run the coach against SQLite and use a separate, non-production Hermes profile
+run the coach against PostgreSQL and use a separate, non-production Hermes profile
 to turn a scrubbed proposal into a staged `/learn` draft. The live reviewer
 profile keeps file and skill tools disabled. Approved lessons move through the
 canonical repository and focused replay validation. Neither private path can
@@ -95,7 +96,7 @@ gate pull requests.
 | --- | --- | --- |
 | Webhook transport | `bootstrap/config.yaml`, `compose.yaml`, `examples/github/ai-review-request.yml` | Registers the review route and authenticates review and feedback requests before Hermes runs. |
 | GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
-| Review memory | `review_memory_data` SQLite volume | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
+| Review state | PostgreSQL database | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
 | Publication | `review_agent_deliver` | Verifies snapshot and writes deterministic PR comments. |
 | Reviewer identity | `bootstrap/profiles/sundsvall-standard/SOUL.md` | Tone, evidence posture, and identity. |
 | Review contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
@@ -117,11 +118,9 @@ rules are engine configuration and cannot be changed by a profile. The visible
 review protocol also remains deterministic; localizing its fixed headings and
 markers requires an engine change rather than a free-form profile template.
 
-The persistence target is one PostgreSQL database per environment. The current
-runtime bundle uses one shared SQLite database, but that runtime is temporary
-and disposable: the reviewer has no production deployment or persisted
-production review state. PostgreSQL will replace SQLite directly. See the
-[current migration sequence](docs/ROADMAP.md) for the guarded replacement plan.
+The runtime uses one PostgreSQL database per environment with no backend
+selector, import bridge, fallback, or dual-write path. See the
+[current roadmap](docs/ROADMAP.md) for the remaining durable-job work.
 
 ## Developer Workflow
 
@@ -163,7 +162,7 @@ Common status commands in the `hermes-review` container:
 ```bash
 review-agent-memory runs --repo <org>/<repo> --limit 10
 review-agent-memory publications --repo <org>/<repo> --pr <number>
-review-agent-memory coverage --run-id <id> --json
+review-agent-memory coverage --run-id <id>
 review-agent-memory verification-export --run-id <id> \
   --output /opt/data/review-memory/verification/run-<id>.json
 ```

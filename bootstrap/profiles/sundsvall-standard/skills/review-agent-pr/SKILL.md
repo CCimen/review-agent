@@ -2,7 +2,7 @@
 name: review-agent-pr
 description: >
   Perform a two-pass, evidence-gated pull-request review using bounded
-  read-only GitHub context and human-curated SQLite finding memory. Use only for
+  read-only GitHub context and human-curated finding history. Use only for
   an allowlisted /review webhook request.
 version: 2.1.2
 metadata:

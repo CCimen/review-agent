@@ -74,7 +74,7 @@ class ProfileBundleTests(unittest.TestCase):
         existing_config: dict[str, object] | None = None,
         profiles_source: Path | None = None,
         profile_environment: str | None = "sundsvall-standard",
-    ) -> tuple[int, mock.Mock, mock.Mock]:
+    ) -> tuple[int, mock.Mock]:
         existing_config = existing_config or {}
 
         def load_config(path: Path) -> dict[str, object]:
@@ -84,10 +84,6 @@ class ProfileBundleTests(unittest.TestCase):
                 return self.managed_config
             raise AssertionError(f"unexpected config path: {path}")
 
-        connection = mock.Mock()
-        connect = mock.Mock(return_value=connection)
-        memory_db = types.ModuleType("memory_db")
-        memory_db.connect = connect
         completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
 
         with (
@@ -112,7 +108,6 @@ class ProfileBundleTests(unittest.TestCase):
                 "run",
                 return_value=completed,
             ) as run,
-            mock.patch.dict(sys.modules, {"memory_db": memory_db}),
             mock.patch.object(
                 sys,
                 "argv",
@@ -121,8 +116,7 @@ class ProfileBundleTests(unittest.TestCase):
         ):
             result = self.install.main()
 
-        connection.close.assert_called_once_with()
-        return result, run, connect
+        return result, run
 
     def assert_profile_assets_installed(self, hermes_home: Path) -> None:
         self.assertEqual(
@@ -161,7 +155,7 @@ class ProfileBundleTests(unittest.TestCase):
                 "operator": {"keep": True},
             }
 
-            first, enable, _connect = self.run_installer(
+            first, enable = self.run_installer(
                 hermes_home,
                 existing_config=existing_config,
             )
@@ -210,7 +204,7 @@ class ProfileBundleTests(unittest.TestCase):
                 "stale = True\n", encoding="utf-8"
             )
 
-            repeated, repeated_enable, _connect = self.run_installer(
+            repeated, repeated_enable = self.run_installer(
                 hermes_home,
                 existing_config=installed_config,
             )
@@ -227,7 +221,7 @@ class ProfileBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             hermes_home = Path(temp) / "hermes-home"
 
-            installed, _enable, _connect = self.run_installer(hermes_home)
+            installed, _enable = self.run_installer(hermes_home)
             self.assertEqual(0, installed)
 
             soul_target = hermes_home / "SOUL.md"
@@ -235,7 +229,7 @@ class ProfileBundleTests(unittest.TestCase):
             soul_target.write_bytes(b"operator soul\n")
             agents_target.write_bytes(b"operator agents\n")
 
-            preserved, _enable, _connect = self.run_installer(
+            preserved, _enable = self.run_installer(
                 hermes_home,
                 "--preserve-soul",
             )
@@ -244,7 +238,7 @@ class ProfileBundleTests(unittest.TestCase):
             self.assertEqual(b"operator soul\n", soul_target.read_bytes())
             self.assertEqual(b"operator agents\n", agents_target.read_bytes())
 
-            forced, _enable, _connect = self.run_installer(
+            forced, _enable = self.run_installer(
                 hermes_home,
                 "--preserve-soul",
                 "--force-agents",
@@ -265,7 +259,7 @@ class ProfileBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             hermes_home = Path(temp) / "hermes-home"
 
-            completed, enable, _connect = self.run_installer(
+            completed, enable = self.run_installer(
                 hermes_home,
                 "--skip-plugin-enable",
             )
@@ -301,18 +295,18 @@ class ProfileBundleTests(unittest.TestCase):
             )
             hermes_home = root / "hermes-home"
 
-            initial, _enable, _connect = self.run_installer(
+            initial, _enable = self.run_installer(
                 hermes_home,
                 profiles_source=profiles,
             )
-            selected, _enable, _connect = self.run_installer(
+            selected, _enable = self.run_installer(
                 hermes_home,
                 "--profile",
                 "team-standard",
                 profiles_source=profiles,
                 profile_environment=None,
             )
-            repeated, _enable, _connect = self.run_installer(
+            repeated, _enable = self.run_installer(
                 hermes_home,
                 profiles_source=profiles,
                 profile_environment=None,
@@ -411,7 +405,7 @@ class ProfileBundleTests(unittest.TestCase):
                 '{"profile": "truncated"}', encoding="utf-8"
             )
 
-            completed, _enable, _connect = self.run_installer(
+            completed, _enable = self.run_installer(
                 hermes_home,
                 "--profile",
                 "sundsvall-standard",

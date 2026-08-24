@@ -5,26 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict
 
-try:
-    from . import memory_publications
-    from .domain.publication import PublicationDomainError
-    from .review_identity import CONTINUATION_LEAD, REVIEW_COMMENT_TITLE
-    from .review_renderer import (
-        ReviewBlock,
-        review_blocks_from_json,
-        review_blocks_to_json,
-        review_markdown_from_blocks,
-    )
-except ImportError:  # pragma: no cover - supports direct module imports in tests.
-    import memory_publications  # type: ignore[no-redef]
-    from domain.publication import PublicationDomainError
-    from review_identity import CONTINUATION_LEAD, REVIEW_COMMENT_TITLE
-    from review_renderer import (  # type: ignore[no-redef]
-        ReviewBlock,
-        review_blocks_from_json,
-        review_blocks_to_json,
-        review_markdown_from_blocks,
-    )
+from .domain.publication import PublicationDomainError, publication_marker
+from .review_identity import CONTINUATION_LEAD, REVIEW_COMMENT_TITLE
+from .review_renderer import (
+    ReviewBlock,
+    review_blocks_from_json,
+    review_markdown_from_blocks,
+)
 
 _HISTORICAL_TRUNCATION_NOTICE = (
     "_Historical details were shortened to fit GitHub comment limits; "
@@ -53,7 +40,7 @@ class HistoricalPublication(TypedDict):
 
 def _part_marker(publication_key: str, part_number: int, total_parts: int) -> str:
     return (
-        f"{memory_publications.publication_marker(publication_key)} "
+        f"{publication_marker(publication_key)} "
         f"part={part_number}/{total_parts}"
     )
 
@@ -82,7 +69,7 @@ def _pack_blocks(blocks: list[str], max_bytes: int) -> list[str]:
 def _publication_blocks(
     body: str, *, rendered_blocks_json: str, publication_key: str
 ) -> list[str]:
-    marker = memory_publications.publication_marker_html(publication_key)
+    marker = f"<!-- {publication_marker(publication_key)} -->"
     if rendered_blocks_json:
         try:
             blocks = review_blocks_from_json(
@@ -137,8 +124,12 @@ def split_publication_body(
     max_comment_bytes: int,
     rendered_blocks_json: str = "",
 ) -> list[PublicationPart]:
-    if publication_body_size(body) <= max_comment_bytes:
-        return [PublicationPart(part_number=1, body=body)]
+    single_body = (
+        f"{body.rstrip()}\n\n"
+        f"<!-- {_part_marker(publication_key, 1, 1)} -->\n"
+    )
+    if publication_body_size(single_body) <= max_comment_bytes:
+        return [PublicationPart(part_number=1, body=single_body)]
 
     heading = _publication_heading(body)
     reserved = publication_body_size(
@@ -178,7 +169,7 @@ def _comment_url(repository: str, pr_number: int, comment_id: int) -> str:
 def _historical_content_blocks(
     publication: HistoricalPublication,
 ) -> list[str]:
-    marker = memory_publications.publication_marker_html(publication["publication_key"])
+    marker = f"<!-- {publication_marker(publication['publication_key'])} -->"
     blocks_json = publication["rendered_blocks_json"]
     if blocks_json:
         blocks = review_blocks_from_json(
@@ -328,25 +319,3 @@ def extra_superseded_body(
     )
 
 
-def publication_parts_for_suggestion_state(
-    publication: memory_publications.PublicationForPosting,
-    *,
-    suggestions_published: bool,
-    max_comment_bytes: int,
-) -> list[PublicationPart]:
-    body = publication["rendered_markdown"]
-    blocks_json = publication["rendered_blocks_json"]
-    if blocks_json and not suggestions_published:
-        try:
-            blocks = review_blocks_from_json(blocks_json, fallback_markdown=body)
-        except ValueError as exc:
-            raise PublicationDomainError("rendered_blocks_invalid") from exc
-        filtered = tuple(block for block in blocks if block.kind != "suggestion_help")
-        body = review_markdown_from_blocks(filtered)
-        blocks_json = review_blocks_to_json(filtered)
-    return split_publication_body(
-        body,
-        publication_key=publication["publication_key"],
-        max_comment_bytes=max_comment_bytes,
-        rendered_blocks_json=blocks_json,
-    )

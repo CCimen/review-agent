@@ -6,6 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 import psycopg
 from psycopg import errors
@@ -158,6 +159,403 @@ class SupersessionResult:
     failure_code: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class PreparationFinding:
+    finding_id: int
+    occurrence_id: int
+    source_run_id: int
+    local_reference: str
+    fingerprint: str
+    rule_id: str
+    path: str
+    line: int
+    title: str
+    severity: str
+    category: str
+    publication_score: int
+    confidence: float
+    context_hash: str
+    evidence: str
+    disproof_checks: str
+    impact: str
+    smallest_fix: str
+    suppressed: bool
+    suggestion: PreparationSuggestion | None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparationSuggestion:
+    path: str
+    start_line: int
+    end_line: int
+    replacement_text: str
+    suggestion_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreviousPublicationFinding:
+    finding_id: int
+    occurrence_id: int
+    source_run_id: int
+    local_reference: str
+    fingerprint: str
+    title: str
+    context_hash: str
+    suppressed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PreparationCoverage:
+    state: str
+    changed_files_reported: int | None
+    changed_files_registered: int
+    registration_complete: bool
+    changed_paths_with_complete_diff: int
+    changed_paths_with_source_reads: int
+    supporting_context_paths_read: int
+    context_ranges_read: int
+    unavailable_paths: tuple[str, ...]
+    truncated_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationPreparationContext:
+    run_id: int
+    repository: str
+    pr_number: int
+    base_sha: str
+    head_sha: str
+    policy_revision: str
+    review_number: int
+    previous_review_number: int | None
+    previous_head_sha: str
+    current: tuple[PreparationFinding, ...]
+    previous: tuple[PreviousPublicationFinding, ...]
+    published_fingerprints: frozenset[str]
+    dropped_occurrence_ids: frozenset[int]
+    dropped_reasons: tuple[tuple[int, str], ...]
+    coverage: PreparationCoverage
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparationScopeRow:
+    repository: str
+    pr_number: int
+    base_sha: str
+    head_sha: str
+    policy_revision: str
+    review_number: int
+    previous_review_number: int | None
+    previous_head_sha: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparationFindingRow:
+    finding_id: int
+    occurrence_id: int
+    source_run_id: int
+    local_reference: str
+    fingerprint: str
+    rule_id: str
+    path: str
+    line: int
+    title: str
+    severity: str
+    category: str
+    publication_score: int
+    confidence: Decimal
+    context_hash: str
+    evidence: str
+    disproof_checks: str
+    impact: str
+    smallest_fix: str
+    suppressed: bool
+    suggestion_path: str | None
+    suggestion_start_line: int | None
+    suggestion_end_line: int | None
+    suggestion_replacement_text: str | None
+    suggestion_key: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _PreviousFindingRow:
+    finding_id: int
+    occurrence_id: int
+    source_run_id: int
+    local_reference: str
+    fingerprint: str
+    title: str
+    context_hash: str
+    suppressed: bool
+
+
+def preparation_context(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId
+) -> PublicationPreparationContext:
+    """Lock one run and load every fact needed to freeze its publication."""
+    _require_transaction(connection)
+    scope_lock = _run_scope(connection, run_id)
+    with connection.cursor(row_factory=class_row(_PreparationScopeRow)) as cursor:
+        scope = cursor.execute(
+            """
+            SELECT repository.full_name AS repository,
+                   pull_request.number AS pr_number,
+                   subject.base_sha, subject.head_sha, subject.policy_revision,
+                   COALESCE(max(all_publication.review_number), 0) + 1 AS review_number,
+                   current_publication.review_number AS previous_review_number,
+                   previous_subject.head_sha AS previous_head_sha
+            FROM review_agent.review_runs AS run
+            JOIN review_agent.pull_requests AS pull_request
+              ON pull_request.id = run.pull_request_id
+            JOIN review_agent.repositories AS repository
+              ON repository.id = pull_request.repository_id
+            JOIN review_agent.review_subjects AS subject
+              ON subject.id = run.review_subject_id
+            LEFT JOIN review_agent.publications AS all_publication
+              ON all_publication.pull_request_id = run.pull_request_id
+            LEFT JOIN review_agent.publications AS current_publication
+              ON current_publication.pull_request_id = run.pull_request_id
+             AND current_publication.status = 'posted'
+             AND current_publication.superseded_by_publication_id IS NULL
+            LEFT JOIN review_agent.review_runs AS previous_run
+              ON previous_run.id = current_publication.review_run_id
+            LEFT JOIN review_agent.review_subjects AS previous_subject
+              ON previous_subject.id = previous_run.review_subject_id
+            WHERE run.id = %s
+            GROUP BY repository.full_name, pull_request.number,
+                     subject.base_sha, subject.head_sha, subject.policy_revision,
+                     current_publication.review_number, previous_subject.head_sha
+            """,
+            (run_id,),
+        ).fetchone()
+    if scope is None:
+        raise PublicationConflict("review run scope does not exist")
+    if scope_lock.pull_request_id < 1:
+        raise PublicationConflict("review run has an invalid pull request")
+
+    with connection.cursor(row_factory=class_row(_PreparationFindingRow)) as cursor:
+        current_rows = cursor.execute(
+            """
+            SELECT identity.id AS finding_id, occurrence.id AS occurrence_id,
+                   occurrence.review_run_id AS source_run_id,
+                   reference.local_reference, identity.fingerprint,
+                   identity.rule_id, identity.path, occurrence.line,
+                   occurrence.title, occurrence.severity, occurrence.category,
+                   occurrence.publication_score, occurrence.confidence,
+                   occurrence.context_hash, occurrence.evidence,
+                   occurrence.disproof_checks, occurrence.impact,
+                   occurrence.smallest_fix,
+                   COALESCE(
+                       decision.decision IN (
+                           'false_positive', 'intentional_by_design',
+                           'accepted_risk', 'duplicate'
+                       )
+                       AND decision.context_hash = occurrence.context_hash
+                       AND (
+                           decision.expires_at IS NULL
+                           OR decision.expires_at > statement_timestamp()
+                       ), false
+                   ) AS suppressed,
+                   identity.path AS suggestion_path,
+                   suggestion.start_line AS suggestion_start_line,
+                   suggestion.end_line AS suggestion_end_line,
+                   suggestion.replacement_text AS suggestion_replacement_text,
+                   suggestion.suggestion_key
+            FROM review_agent.finding_occurrences AS occurrence
+            JOIN review_agent.finding_identities AS identity
+              ON identity.id = occurrence.finding_id
+            JOIN review_agent.pull_request_finding_references AS reference
+              ON reference.pull_request_id = occurrence.pull_request_id
+             AND reference.finding_id = occurrence.finding_id
+            LEFT JOIN LATERAL (
+                SELECT finding_decision.decision,
+                       finding_decision.context_hash,
+                       finding_decision.expires_at
+                FROM review_agent.finding_decisions AS finding_decision
+                WHERE finding_decision.finding_id = occurrence.finding_id
+                ORDER BY finding_decision.id DESC LIMIT 1
+            ) AS decision ON true
+            LEFT JOIN review_agent.finding_suggestions AS suggestion
+              ON suggestion.finding_occurrence_id = occurrence.id
+            WHERE occurrence.review_run_id = %s
+            ORDER BY reference.local_reference
+            """,
+            (run_id,),
+        ).fetchall()
+
+    with connection.cursor(row_factory=class_row(_PreviousFindingRow)) as cursor:
+        previous_rows = cursor.execute(
+            """
+            SELECT identity.id AS finding_id,
+                   item.source_finding_occurrence_id AS occurrence_id,
+                   item.source_review_run_id AS source_run_id,
+                   item.local_reference, identity.fingerprint,
+                   occurrence.title, occurrence.context_hash,
+                   COALESCE(
+                       decision.decision IN (
+                           'false_positive', 'intentional_by_design',
+                           'accepted_risk', 'duplicate'
+                       )
+                       AND decision.context_hash = occurrence.context_hash
+                       AND (
+                           decision.expires_at IS NULL
+                           OR decision.expires_at > statement_timestamp()
+                       ), false
+                   ) AS suppressed
+            FROM review_agent.publications AS publication
+            JOIN review_agent.publication_findings AS item
+              ON item.publication_id = publication.id
+            JOIN review_agent.finding_identities AS identity
+              ON identity.id = item.finding_id
+            JOIN review_agent.finding_occurrences AS occurrence
+              ON occurrence.id = item.source_finding_occurrence_id
+            LEFT JOIN LATERAL (
+                SELECT finding_decision.decision,
+                       finding_decision.context_hash,
+                       finding_decision.expires_at
+                FROM review_agent.finding_decisions AS finding_decision
+                WHERE finding_decision.finding_id = item.finding_id
+                ORDER BY finding_decision.id DESC LIMIT 1
+            ) AS decision ON true
+            WHERE publication.pull_request_id = %s
+              AND publication.status = 'posted'
+              AND publication.superseded_by_publication_id IS NULL
+              AND item.outcome IN ('current', 'not_checked')
+            ORDER BY item.local_reference
+            """,
+            (scope_lock.pull_request_id,),
+        ).fetchall()
+
+    published_fingerprint_rows = connection.execute(
+        """
+        SELECT DISTINCT identity.fingerprint
+        FROM review_agent.publications AS publication
+        JOIN review_agent.publication_findings AS item
+          ON item.publication_id = publication.id
+        JOIN review_agent.finding_identities AS identity
+          ON identity.id = item.finding_id
+        WHERE publication.pull_request_id = %s
+          AND publication.status = 'posted'
+        """,
+        (scope_lock.pull_request_id,),
+    ).fetchall()
+
+    reconciliation_rows = connection.execute(
+        """
+        SELECT finding_occurrence_id, COALESCE(reason, '')
+        FROM review_agent.candidate_reconciliations
+        WHERE review_run_id = %s AND final_decision = 'drop'
+        ORDER BY finding_occurrence_id
+        """,
+        (run_id,),
+    ).fetchall()
+
+    from . import coverage as postgres_coverage
+
+    coverage = postgres_coverage.summarize(connection, run_id)
+    path_rows = connection.execute(
+        """
+        SELECT path, diff_state
+        FROM review_agent.review_run_files
+        WHERE review_run_id = %s
+          AND diff_state IN ('unavailable', 'truncated')
+        ORDER BY path LIMIT 20
+        """,
+        (run_id,),
+    ).fetchall()
+
+    def suggestion(row: _PreparationFindingRow) -> PreparationSuggestion | None:
+        if row.suggestion_key is None:
+            return None
+        if (
+            row.suggestion_path is None
+            or row.suggestion_start_line is None
+            or row.suggestion_end_line is None
+            or row.suggestion_replacement_text is None
+        ):
+            raise PublicationConflict("stored suggestion is incomplete")
+        return PreparationSuggestion(
+            path=row.suggestion_path,
+            start_line=row.suggestion_start_line,
+            end_line=row.suggestion_end_line,
+            replacement_text=row.suggestion_replacement_text,
+            suggestion_key=row.suggestion_key,
+        )
+
+    return PublicationPreparationContext(
+        run_id=int(run_id),
+        repository=scope.repository,
+        pr_number=scope.pr_number,
+        base_sha=scope.base_sha,
+        head_sha=scope.head_sha,
+        policy_revision=scope.policy_revision,
+        review_number=scope.review_number,
+        previous_review_number=scope.previous_review_number,
+        previous_head_sha=scope.previous_head_sha or "",
+        current=tuple(
+            PreparationFinding(
+                finding_id=row.finding_id,
+                occurrence_id=row.occurrence_id,
+                source_run_id=row.source_run_id,
+                local_reference=row.local_reference,
+                fingerprint=row.fingerprint,
+                rule_id=row.rule_id,
+                path=row.path,
+                line=row.line,
+                title=row.title,
+                severity=row.severity,
+                category=row.category,
+                publication_score=row.publication_score,
+                confidence=float(row.confidence),
+                context_hash=row.context_hash,
+                evidence=row.evidence,
+                disproof_checks=row.disproof_checks,
+                impact=row.impact,
+                smallest_fix=row.smallest_fix,
+                suppressed=row.suppressed,
+                suggestion=suggestion(row),
+            )
+            for row in current_rows
+        ),
+        previous=tuple(
+            PreviousPublicationFinding(
+                finding_id=row.finding_id,
+                occurrence_id=row.occurrence_id,
+                source_run_id=row.source_run_id,
+                local_reference=row.local_reference,
+                fingerprint=row.fingerprint,
+                title=row.title,
+                context_hash=row.context_hash,
+                suppressed=row.suppressed,
+            )
+            for row in previous_rows
+        ),
+        published_fingerprints=frozenset(
+            str(row[0]) for row in published_fingerprint_rows
+        ),
+        dropped_occurrence_ids=frozenset(int(row[0]) for row in reconciliation_rows),
+        dropped_reasons=tuple(
+            (int(row[0]), str(row[1])) for row in reconciliation_rows
+        ),
+        coverage=PreparationCoverage(
+            state=coverage.state.value,
+            changed_files_reported=coverage.changed_files_reported,
+            changed_files_registered=coverage.changed_files_registered,
+            registration_complete=coverage.registration_complete,
+            changed_paths_with_complete_diff=coverage.changed_paths_with_complete_diff,
+            changed_paths_with_source_reads=coverage.changed_paths_with_source_reads,
+            supporting_context_paths_read=coverage.supporting_context_paths_read,
+            context_ranges_read=coverage.context_ranges_read,
+            unavailable_paths=tuple(
+                str(row[0]) for row in path_rows if str(row[1]) == "unavailable"
+            ),
+            truncated_paths=tuple(
+                str(row[0]) for row in path_rows if str(row[1]) == "truncated"
+            ),
+        ),
+    )
+
+
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
     if connection.info.transaction_status != TransactionStatus.INTRANS:
         raise PublicationStoreError(
@@ -229,8 +627,8 @@ def _part_rows(
             WHERE publication_id = %s
             ORDER BY
                 CASE part_type
-                    WHEN 'summary' THEN 0
-                    WHEN 'continuation' THEN 1
+                    WHEN 'suggestion_review' THEN 0
+                    WHEN 'summary' THEN 1
                     ELSE 2
                 END,
                 part_number

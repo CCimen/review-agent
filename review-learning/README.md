@@ -5,29 +5,30 @@ not installed into the public webhook reviewer and it is not a policy source.
 
 The public review-agent profile stays locked down: `bootstrap/config.yaml`
 disables local file access, shell/code execution, session search, web, memory
-writes, skill writes, and delegation. The reviewer writes bounded SQLite
-observations through the review plugin. A private review-coach workflow may
+writes, skill writes, and delegation. The reviewer writes durable observations
+to its PostgreSQL store through the review plugin. A private review-coach workflow may
 read exported observations, propose improvements, and produce normal Git
 changes for humans to review.
 
 ## First slice
 
-The preferred operator path reads the live SQLite database directly and writes
+The preferred operator path reads the live PostgreSQL store directly and writes
 only bounded private coach artifacts:
 
 ```bash
-review-agent-memory --db /opt/data/review-memory/review_memory.sqlite3 \
-  coach-run \
-  --repo Sundsvallskommun/example-repository \
+review-agent-memory coach-run \
+  --repo example-org/example-repository \
+  --row-limit 10000 \
   --output-dir /opt/data/review-memory/coach-run
 ```
 
-`coach-run` records a receipt in SQLite and emits `coach-export.json`,
+`coach-run` records a receipt in PostgreSQL and emits `coach-export.json`,
 `proposal.json`, and `SUMMARY.md` with mode `0600`. The evidence pairs the
-reviewer's original claim and disproof checks with the maintainer's
+reviewer’s original claim and disproof checks with the maintainer’s
 counter-evidence. If fewer than two independent episodes support the same stable
 finding identity, the correct result is `no_change`.
-Coach/proposal schema v1 artifacts are not migrated; regenerate them from SQLite.
+Coach/proposal schema v1 artifacts are not migrated; regenerate them from the
+current PostgreSQL evidence.
 
 Use the lower-level export commands below only for historical snapshots or
 diagnosis; the normal coach path does not need a raw database export on disk.
@@ -36,6 +37,8 @@ Generate an export from the operator CLI:
 
 ```bash
 review-agent-memory export \
+  --repo example-org/example-repository \
+  --row-limit 10000 \
   --output /opt/data/review-memory/export.json
 ```
 
@@ -44,7 +47,7 @@ Then generate a private candidate report from that export:
 ```bash
 review-agent-memory learning-report \
   --export /opt/data/review-memory/export.json \
-  --repo Sundsvallskommun/example-repository \
+  --repo example-org/example-repository \
   --output /opt/data/review-memory/learning-candidates.md
 ```
 
@@ -59,7 +62,7 @@ feeding raw exports or Markdown to an LLM:
 ```bash
 review-agent-memory coach-export \
   --export /opt/data/review-memory/export.json \
-  --repo Sundsvallskommun/example-repository \
+  --repo example-org/example-repository \
   --after-decision-id 0 \
   --after-feedback-id 0 \
   --output /opt/data/review-memory/coach-export.json
@@ -166,7 +169,7 @@ Weak signals are ignored:
 
 ## Promotion ladder
 
-1. `captured`: a decision or feedback row exists in SQLite.
+1. `captured`: a decision or feedback row exists in PostgreSQL.
 2. `candidate`: the export report surfaces it as an improvement candidate.
 3. `replay-tested`: a historical replay case proves the current reviewer would
    make the same mistake or should preserve the same useful behavior.
@@ -183,7 +186,7 @@ Weak signals are ignored:
 Do not create a second always-on policy file for production. Fold approved
 lessons into the narrowest canonical owner:
 
-- exact finding decisions stay in SQLite;
+- exact finding decisions stay in PostgreSQL;
 - architectural context becomes an accepted ADR;
 - visible review shape belongs in `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md`;
 - review procedure belongs in `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md`;

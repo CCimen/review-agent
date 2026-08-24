@@ -12,9 +12,8 @@ import os
 from pathlib import Path
 import sys
 import threading
-import time
 from types import ModuleType
-from typing import NoReturn, Protocol, cast
+from typing import Protocol, cast
 
 REQUEST_TIMEOUT_SECONDS = 10.0
 MAX_CONCURRENT_REQUESTS = 8
@@ -23,7 +22,7 @@ CONFIG_ENV_NAMES = (
     "REVIEW_AGENT_FEEDBACK_GH_TOKEN",
     "REVIEW_AGENT_ALLOWED_REPOSITORIES",
     "REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS",
-    "REVIEW_AGENT_DB",
+    "REVIEW_AGENT_DATABASE_URL",
 )
 DIAGNOSTIC_ENV_NAMES = CONFIG_ENV_NAMES + (
     "GH_TOKEN",
@@ -42,7 +41,9 @@ class FeedbackBridgeModule(Protocol):
     UnauthorizedFeedback: type[Exception]
 
     def load_config(self) -> object: ...
-    def ready_check(self, config: object) -> Mapping[str, object]: ...
+    def ready_check(
+        self, config: object, runtime: object
+    ) -> Mapping[str, object]: ...
     def verify_signature(self, body: bytes, signature: str, secret: str) -> bool: ...
     def decode_request_body(self, body: bytes) -> object: ...
     def process_feedback(
@@ -51,6 +52,7 @@ class FeedbackBridgeModule(Protocol):
         payload: object,
         config: object,
         github: object,
+        runtime: object,
     ) -> "BridgeResponseLike": ...
     def response_body(self, status: str, message: str = "") -> bytes: ...
 
@@ -66,6 +68,16 @@ class GitHubClientClass(Protocol):
 class ConfigLike(Protocol):
     secret: str
     token: str
+    database_url: object
+
+
+class RuntimeLike(Protocol):
+    def open(self) -> object: ...
+    def close(self) -> None: ...
+
+
+class RuntimeClass(Protocol):
+    def __call__(self, database_url: object, *, role: object) -> RuntimeLike: ...
 
 
 def _import_module(name: str) -> ModuleType:
@@ -156,17 +168,6 @@ def load_config_or_explain(bridge: FeedbackBridgeModule) -> ConfigLike:
         raise SystemExit(_exit_code(exc)) from None
 
 
-def hold_after_config_error() -> NoReturn:
-    print(
-        "feedback bridge startup halted; fix Dokploy env and redeploy or restart "
-        "the container",
-        file=sys.stderr,
-        flush=True,
-    )
-    while True:
-        time.sleep(3600)
-
-
 class FeedbackRequestHandler(BaseHTTPRequestHandler):
     def setup(self) -> None:
         super().setup()
@@ -174,13 +175,13 @@ class FeedbackRequestHandler(BaseHTTPRequestHandler):
         self.connection.settimeout(server.request_timeout_seconds)
 
     def do_GET(self) -> None:
-        bridge, config, _ = self._state()
+        bridge, config, _, runtime = self._state()
         if self.path == "/health":
             self._write(200, b'{"status":"ok"}')
             return
         if self.path == "/ready":
             try:
-                self._write(200, _json_body(bridge.ready_check(config)))
+                self._write(200, _json_body(bridge.ready_check(config, runtime)))
             except Exception as exc:
                 print(f"feedback bridge readiness failed: {exc}", file=sys.stderr)
                 self._write(503, b'{"status":"not_ready"}')
@@ -190,7 +191,7 @@ class FeedbackRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         server = cast(FeedbackServer, self.server)
         if not server.acquire_request_slot():
-            bridge, _, _ = self._state()
+            bridge, _, _, _ = self._state()
             self._write(503, bridge.response_body("busy"))
             return
         try:
@@ -199,7 +200,7 @@ class FeedbackRequestHandler(BaseHTTPRequestHandler):
             server.release_request_slot()
 
     def _do_POST(self) -> None:
-        bridge, config, github = self._state()
+        bridge, config, github, runtime = self._state()
         if self.path != bridge.DEFAULT_PATH:
             self._write(404, bridge.response_body("not_found"))
             return
@@ -227,6 +228,7 @@ class FeedbackRequestHandler(BaseHTTPRequestHandler):
                 payload=bridge.decode_request_body(body),
                 config=config,
                 github=github,
+                runtime=runtime,
             )
             self._write(200, response.to_json())
         except bridge.UnauthorizedFeedback:
@@ -241,9 +243,11 @@ class FeedbackRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         print(format % args, file=sys.stderr)
 
-    def _state(self) -> tuple[FeedbackBridgeModule, ConfigLike, object]:
+    def _state(
+        self,
+    ) -> tuple[FeedbackBridgeModule, ConfigLike, object, RuntimeLike]:
         server = cast(FeedbackServer, self.server)
-        return server.bridge, server.config, server.github
+        return server.bridge, server.config, server.github, server.runtime
 
     def _write(self, status: int, body: bytes) -> None:
         self.send_response(status)
@@ -261,6 +265,7 @@ class FeedbackServer(ThreadingHTTPServer):
         bridge: FeedbackBridgeModule,
         config: ConfigLike,
         github: object,
+        runtime: RuntimeLike,
         request_timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
         max_concurrent_requests: int = MAX_CONCURRENT_REQUESTS,
     ) -> None:
@@ -268,6 +273,7 @@ class FeedbackServer(ThreadingHTTPServer):
         self.bridge = bridge
         self.config = config
         self.github = github
+        self.runtime = runtime
         self.request_timeout_seconds = request_timeout_seconds
         self._request_slots = threading.BoundedSemaphore(max_concurrent_requests)
 
@@ -282,28 +288,30 @@ def serve(
     host: str,
     port: int,
     bridge: FeedbackBridgeModule | None = None,
-    *,
-    hold_on_config_error: bool = False,
 ) -> None:
     bridge = bridge or load_feedback_bridge()
-    try:
-        config = load_config_or_explain(bridge)
-    except SystemExit:
-        if hold_on_config_error:
-            hold_after_config_error()
-        raise
+    config = load_config_or_explain(bridge)
     github_client_class = cast(
         GitHubClientClass,
         getattr(bridge, "GitHubApiClient"),
     )
+    runtime_class = cast(RuntimeClass, getattr(bridge, "PostgreSQLRuntime"))
+    runtime_role = getattr(getattr(bridge, "PostgreSQLRuntimeRole"), "FEEDBACK")
+    runtime = runtime_class(config.database_url, role=runtime_role)
+    runtime.open()
     server = FeedbackServer(
         (host, port),
         bridge=bridge,
         config=config,
         github=github_client_class(config.token),
+        runtime=runtime,
     )
     print(f"Review agent feedback bridge listening on {host}:{port}", flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        runtime.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -312,22 +320,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["serve", "verify-config"])
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=bridge.DEFAULT_PORT)
-    parser.add_argument(
-        "--hold-on-config-error",
-        action="store_true",
-        help="Keep the sidecar alive after startup config failure so logs stay inspectable.",
-    )
     args = parser.parse_args(argv)
     if args.command == "verify-config":
         config = load_config_or_explain(bridge)
-        bridge.ready_check(config)
-        print("ok")
-        return 0
+        runtime_class = cast(RuntimeClass, getattr(bridge, "PostgreSQLRuntime"))
+        runtime_role = getattr(getattr(bridge, "PostgreSQLRuntimeRole"), "FEEDBACK")
+        runtime = runtime_class(config.database_url, role=runtime_role)
+        runtime.open()
+        try:
+            bridge.ready_check(config, runtime)
+            print("ok")
+            return 0
+        finally:
+            runtime.close()
     serve(
         str(args.host),
         int(args.port),
         bridge,
-        hold_on_config_error=bool(args.hold_on_config_error),
     )
     return 0
 

@@ -1,6 +1,6 @@
 name: review-agent-tools
 version: 2.1.0
-description: Bounded GitHub PR context plus human-curated SQLite finding memory
+description: Bounded GitHub PR context plus durable PostgreSQL review state
 provides_tools:
   - review_agent_begin
   - review_agent_pr_diff
@@ -10,6 +10,9 @@ provides_tools:
   - review_agent_memory_record
   - review_agent_deliver
 requires_env:
+  - name: REVIEW_AGENT_DATABASE_URL
+    description: PostgreSQL connection URL for the shared review database
+    secret: true
   - name: REVIEW_AGENT_ALLOWED_REPOSITORIES
     description: Exact comma-separated GitHub repositories this plugin may read
     secret: false

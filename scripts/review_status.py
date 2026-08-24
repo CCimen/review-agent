@@ -5,7 +5,7 @@ Read-only and side-effect-free: it only queries GitHub (via `gh`) and the public
 health endpoint. No secrets, no writes, nothing that can affect the live reviewer.
 
   python3 scripts/review_status.py \
-    --repo Sundsvallskommun/example-repository \
+    --repo example-org/example-repository \
     --health-url https://review.example.org/health
 
 Shows: gateway health, recent /review workflow outcomes, and where to drill in

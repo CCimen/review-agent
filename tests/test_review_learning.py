@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,9 +17,7 @@ from review_agent_learning import (
     build_learning_report,
     render_markdown,
 )
-from review_agent_export import SUPPORTED_SCHEMA_VERSIONS
 from memory_validation import DECISIONS, REVIEW_FEEDBACK_CATEGORIES, SUPPRESSIVE_DECISIONS
-import memory_db
 
 
 def state_with(
@@ -181,7 +178,6 @@ class ReviewLearningReportTests(unittest.TestCase):
         self.assertEqual(handled_decisions, set(DECISIONS))
         self.assertEqual(handled_feedback, set(REVIEW_FEEDBACK_CATEGORIES))
         self.assertEqual(CONTRADICTORY_DECISIONS, set(SUPPRESSIVE_DECISIONS))
-        self.assertIn(memory_db.SCHEMA_VERSION, SUPPORTED_SCHEMA_VERSIONS)
 
     def test_decision_chain_uses_latest_effective_state_once(self) -> None:
         report = build_learning_report(
@@ -383,84 +379,6 @@ class ReviewLearningReportTests(unittest.TestCase):
         self.assertEqual(candidate.signal_strength, "incomplete")
         self.assertFalse(candidate.promotion_eligible)
         self.assertIn("exact observation provenance", candidate.missing_evidence)
-
-    def test_decision_provenance_uses_original_observation_not_latest_finding(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            connection = memory_db.connect(str(Path(temp) / "memory.sqlite3"))
-            try:
-                finding_payload = {
-                    "rule_id": "authorization.missing-context",
-                    "category": "security",
-                    "path": "src/api/resources.py",
-                    "line": 42,
-                    "symbol": "create_resource",
-                    "anchor": "create resource",
-                    "title": "Write operation omits authorization context",
-                    "severity": "High",
-                    "publication_score": 9,
-                    "confidence": 0.93,
-                    "evidence": "The authorization guard is missing.",
-                    "disproof_checks": "Checked repository construction.",
-                    "impact": "A user can write outside the authorized scope.",
-                    "smallest_fix": "Bind scope from verified request context.",
-                    "introduced_by_diff": True,
-                }
-                first_run = memory_db.start_run(
-                    connection,
-                    "example-org/example-repository",
-                    17,
-                    base_sha="b" * 40,
-                    head_sha="a" * 40,
-                )
-                first = memory_db.record_findings(
-                    connection,
-                    "example-org/example-repository",
-                    17,
-                    "a" * 40,
-                    [finding_payload],
-                    review_run_id=int(first_run["id"]),
-                    base_sha="b" * 40,
-                    context_hashes={finding_payload["path"]: "d" * 40},
-                )[0]
-                memory_db.add_decision(
-                    connection,
-                    first["fingerprint"],
-                    "false_positive",
-                    "Existing repository constructor binds verified scope.",
-                    "github:alice",
-                    latest=True,
-                )
-                second_run = memory_db.start_run(
-                    connection,
-                    "example-org/example-repository",
-                    99,
-                    base_sha="a" * 40,
-                    head_sha="b" * 40,
-                )
-                memory_db.record_findings(
-                    connection,
-                    "example-org/example-repository",
-                    99,
-                    "b" * 40,
-                    [finding_payload],
-                    review_run_id=int(second_run["id"]),
-                    base_sha="a" * 40,
-                    context_hashes={finding_payload["path"]: "e" * 40},
-                )
-
-                report = build_learning_report(memory_db.export_state(connection))
-            finally:
-                connection.close()
-
-        self.assertEqual(len(report.decision_candidates), 1)
-        candidate = report.decision_candidates[0]
-        self.assertEqual(candidate.pr_number, 17)
-        self.assertIsNotNone(candidate.provenance)
-        assert candidate.provenance is not None
-        self.assertEqual(candidate.provenance.observation_id, first["observation_id"])
-        markdown = render_markdown(report)
-        self.assertIn("example-org/example-repository #17", markdown)
-        self.assertNotIn("example-org/example-repository #99", markdown)
 
 
 if __name__ == "__main__":

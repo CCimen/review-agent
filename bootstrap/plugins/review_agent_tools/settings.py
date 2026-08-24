@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import NewType
 from urllib.parse import urlsplit
 
-DEFAULT_DATABASE_NAME = "review_memory.sqlite3"
+DEFAULT_PROFILE = "sundsvall-standard"
 DEFAULT_POLICY_REVISION = "policy-v1"
 DEFAULT_PUBLISH_MAX_BYTES = 60_000
 MIN_PUBLISH_MAX_BYTES = 1_000
 MAX_PUBLISH_MAX_BYTES = 65_000
 PostgresDatabaseUrl = NewType("PostgresDatabaseUrl", str)
+_PROFILE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 class SettingsError(ValueError):
@@ -82,15 +83,6 @@ class ReviewAgentSettings:
             ) from exc
         return max(MIN_PUBLISH_MAX_BYTES, min(value, MAX_PUBLISH_MAX_BYTES))
 
-    def database_path(self, explicit: str | None = None) -> Path:
-        raw = explicit or self.environment.get("REVIEW_AGENT_DB")
-        if raw:
-            return Path(raw).expanduser()
-        hermes_home = Path(
-            self.environment.get("HERMES_HOME", "~/.hermes")
-        ).expanduser()
-        return hermes_home / "review-memory" / DEFAULT_DATABASE_NAME
-
     def policy_revision(self, explicit: str | None = None) -> str:
         raw = explicit or self.environment.get(
             "REVIEW_AGENT_POLICY_REVISION", DEFAULT_POLICY_REVISION
@@ -100,6 +92,15 @@ class ReviewAgentSettings:
             raise SettingsError("policy_revision is required")
         if len(value) > 120:
             raise SettingsError("policy_revision exceeds 120 characters")
+        return value
+
+    @property
+    def profile(self) -> str:
+        value = self.environment.get("REVIEW_AGENT_PROFILE", DEFAULT_PROFILE).strip()
+        if len(value) > 80 or _PROFILE_RE.fullmatch(value) is None:
+            raise SettingsError(
+                "REVIEW_AGENT_PROFILE must use lower-case words and hyphens"
+            )
         return value
 
     @property

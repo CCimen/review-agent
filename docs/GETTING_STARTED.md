@@ -4,7 +4,7 @@ slug: /getting-started
 title: Getting started
 description: Deploy the shared reviewer, add a repository, and run the first review.
 status: current
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # Getting started
@@ -15,6 +15,7 @@ last_verified: 2026-08-21
 Review Agent is deployed once per environment and serves an explicit
 repository allowlist. Adding a repository changes configuration around that
 shared platform; it does not create another reviewer, database, or profile.
+The environment stores application state in one private PostgreSQL database.
 
 ## Before you begin
 

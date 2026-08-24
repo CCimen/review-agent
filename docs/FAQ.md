@@ -4,7 +4,7 @@ slug: /faq
 title: Frequently asked questions
 description: Practical answers about access, findings, feedback, storage, and failures.
 status: current
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # Frequently asked questions
@@ -49,7 +49,7 @@ No. Human feedback is stored as evidence. It cannot rewrite prompts, skills, or
 policy automatically, and the model cannot dismiss its own findings. Operators
 evaluate repeated evidence through private, reviewed learning workflows.
 
-## What is stored in SQLite?
+## What is stored in PostgreSQL?
 
 Review runs, findings, coverage, publication and suggestion state, human
 decisions, and review-quality feedback. The database can contain unpublished

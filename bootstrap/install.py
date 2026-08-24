@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from contextlib import closing
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -212,7 +211,6 @@ def main() -> int:
 
     HERMES_HOME.mkdir(parents=True, exist_ok=True)
     (HERMES_HOME / "workspace").mkdir(parents=True, exist_ok=True)
-    (HERMES_HOME / "review-memory").mkdir(parents=True, exist_ok=True)
 
     # Preserve unrelated operator settings while the managed profile remains
     # authoritative for the reviewer route, model, and security boundaries.
@@ -264,13 +262,6 @@ def main() -> int:
         )
         + "\n",
     )
-
-    plugin_dir = HERMES_HOME / "plugins" / "review_agent_tools"
-    sys.path.insert(0, str(plugin_dir))
-    import memory_db  # type: ignore
-
-    with closing(memory_db.connect()):
-        pass
 
     if not args.skip_plugin_enable:
         result = subprocess.run(

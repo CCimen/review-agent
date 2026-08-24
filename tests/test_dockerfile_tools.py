@@ -6,10 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr
 from fnmatch import fnmatch
-import io
-import importlib
 import importlib.util
 from pathlib import Path
 import types
@@ -66,18 +63,6 @@ def _copy_source_covers(source: str, relative_path: str) -> bool:
 class DockerfileToolsTests(unittest.TestCase):
     def tearDown(self) -> None:
         for name in (
-            "memory_db",
-            "memory_schema",
-            "memory_migration",
-            "memory_identity",
-            "memory_decisions",
-            "memory_findings",
-            "memory_suggestions",
-            "memory_publications",
-            "memory_feedback",
-            "memory_reporting",
-            "memory_runs",
-            "memory_coach",
             "memory_validation",
             "feedback_authorization",
             "feedback_commands",
@@ -144,17 +129,21 @@ class DockerfileToolsTests(unittest.TestCase):
             source = root / "source"
             target = root / "target"
             (source / "__pycache__").mkdir(parents=True)
-            (source / "memory_schema.py").write_text("SCHEMA_VERSION = 8\n", encoding="utf-8")
-            (source / "__pycache__" / "memory_schema.cpython-313.pyc").write_bytes(b"stale")
+            (source / "operator_application.py").write_text(
+                "OWNER = 'postgresql'\n", encoding="utf-8"
+            )
+            (source / "__pycache__" / "operator_application.cpython-313.pyc").write_bytes(
+                b"stale"
+            )
             (target / "__pycache__").mkdir(parents=True)
-            (target / "old_module.py").write_text("SCHEMA_VERSION = 6\n", encoding="utf-8")
+            (target / "old_module.py").write_text("OWNER = 'retired'\n", encoding="utf-8")
             (target / "__pycache__" / "old_module.cpython-313.pyc").write_bytes(b"old")
 
             install.copy_managed_tree(source, target)
 
             self.assertEqual(
-                "SCHEMA_VERSION = 8\n",
-                (target / "memory_schema.py").read_text(encoding="utf-8"),
+                "OWNER = 'postgresql'\n",
+                (target / "operator_application.py").read_text(encoding="utf-8"),
             )
             self.assertFalse((target / "old_module.py").exists())
             self.assertFalse((target / "__pycache__").exists())
@@ -201,6 +190,10 @@ class DockerfileToolsTests(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
+                env={
+                    "HERMES_HOME": str(ROOT / "bootstrap"),
+                    "PYTHONPATH": str(ROOT / "bootstrap" / "plugins"),
+                },
             )
             bridge_completed = subprocess.run(
                 [
@@ -211,69 +204,14 @@ class DockerfileToolsTests(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
-                env={"PYTHONPATH": str(ROOT / "bootstrap" / "plugins")},
+                env={
+                    "HERMES_HOME": str(ROOT / "bootstrap"),
+                    "PYTHONPATH": str(ROOT / "bootstrap" / "plugins"),
+                },
             )
 
         self.assertEqual(0, completed.returncode, completed.stderr)
         self.assertEqual(0, bridge_completed.returncode, bridge_completed.stderr)
-
-    def test_memory_cli_can_discover_image_bootstrap_plugin(self) -> None:
-        sys.path.insert(0, str(ROOT / "tools"))
-        try:
-            import review_agent_memory
-
-            with mock.patch.dict("os.environ", {}, clear=True):
-                candidates = review_agent_memory.memory_module_candidates()
-        finally:
-            sys.path.remove(str(ROOT / "tools"))
-
-        self.assertIn(
-            Path("/opt/review-agent-bootstrap/plugins/review_agent_tools"),
-            candidates,
-        )
-
-    def test_memory_cli_prefers_image_plugin_and_evicts_stale_import(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            stale = root / "stale"
-            fresh = root / "fresh"
-            stale.mkdir()
-            fresh.mkdir()
-            (stale / "memory_db.py").write_text("MARKER = 'stale'\n", encoding="utf-8")
-            (fresh / "memory_db.py").write_text(
-                "MARKER = 'fresh'\n"
-                "class ReviewMemoryError(Exception): pass\n"
-                "def connect(explicit=None): return None\n"
-                "def connect_existing(explicit=None): return None\n",
-                encoding="utf-8",
-            )
-
-            sys.path.insert(0, str(stale))
-            try:
-                stale_module = importlib.import_module("memory_db")
-                self.assertEqual(stale_module.MARKER, "stale")
-            finally:
-                sys.path.remove(str(stale))
-
-            sys.path.insert(0, str(ROOT / "tools"))
-            try:
-                import review_agent_memory
-
-                stderr = io.StringIO()
-                with mock.patch.object(
-                    review_agent_memory,
-                    "memory_module_candidates",
-                    return_value=(fresh, stale),
-                ):
-                    with redirect_stderr(stderr):
-                        loaded = review_agent_memory.load_memory_module()
-            finally:
-                sys.path.remove(str(ROOT / "tools"))
-
-        self.assertEqual(getattr(loaded, "MARKER"), "fresh")
-        self.assertTrue(hasattr(loaded, "connect_existing"))
-        self.assertIn(str(fresh), stderr.getvalue())
-
 
 if __name__ == "__main__":
     unittest.main()

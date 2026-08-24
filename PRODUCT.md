@@ -40,17 +40,16 @@ scan, with long-form reading treated as the primary task.
 - GitHub Actions authorizes trusted commenters and sends HMAC-signed webhooks.
 - The live model receives bounded GitHub read tools, no shell, and no arbitrary
   GitHub writer.
-- SQLite owns durable review, publication, and feedback state.
+- PostgreSQL owns durable review, publication, feedback, and operator state.
 - Deterministic code rechecks the PR snapshot and publishes comments and safe
   native suggestions.
 - Reviews are advisory and are not a default merge gate.
 
 ## Roadmap Boundary
 
-Trusted base-branch repository context, PostgreSQL, durable jobs, a GitHub App,
-and broader integrations are planned work. Scanner and Codex Security
-integrations are explicitly deferred. The site must never present these as
-shipped behavior.
+Durable jobs, trusted base-branch repository context, a GitHub App, and broader
+integrations are planned work. Scanner and Codex Security integrations are
+explicitly deferred. The site must never present these as shipped behavior.
 
 ## Content And Language
 

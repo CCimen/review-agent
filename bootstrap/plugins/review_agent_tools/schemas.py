@@ -4,7 +4,7 @@ from typing import Any, cast
 
 from . import capacity
 from . import memory_validation as memory_contract
-from . import memory_suggestions as suggestion_contract
+from . import suggestion_validation as suggestion_contract
 
 CHANGED_FILE_PAGE_MAX_ITEMS = 200
 SOURCE_PAGE_MAX_LINES = 400

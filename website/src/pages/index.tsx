@@ -134,17 +134,16 @@ function Home(): ReactNode {
             </Heading>
             <p>
               Today the platform uses protected GitHub Actions workflows, HMAC
-              webhooks, repository-scoped tokens, Docker/Dokploy, and SQLite.
+              webhooks, repository-scoped tokens, Docker/Dokploy, and one
+              PostgreSQL database per environment.
             </p>
           </div>
           <div>
             <Heading as="h2">Deliberate about what comes next</Heading>
             <p>
-              The initial PostgreSQL schema and real-engine CI contract are in
-              place, while the active reviewer still uses SQLite. The remaining
-              milestones add the runtime owner, cut over one PostgreSQL database
-              per environment, delete SQLite application persistence, and then
-              add durable jobs and an outbox.
+              Next, the project will add durable review jobs with explicit
+              crash recovery, fair bounded concurrency, and a transactional
+              publication outbox.
             </p>
             <Link to="/docs/roadmap">Read the current and planned capabilities</Link>
           </div>

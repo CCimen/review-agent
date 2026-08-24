@@ -3,7 +3,7 @@ sidebar_label: Security model
 slug: /security
 title: Security model
 status: current
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # Security Model
@@ -54,8 +54,8 @@ suppressions, memory decisions, or feedback commands.
 
 The feedback bridge is outside the model path. It refetches the authoritative
 GitHub comment, parses only supported `/review ...` commands, authorizes the
-numeric GitHub actor id, writes SQLite through the memory owner, and posts only a
-reaction or a short deterministic explanation.
+numeric GitHub actor id, writes PostgreSQL through the feedback application,
+and posts only a reaction or a short deterministic explanation.
 
 Human feedback and coach exports may inform future reviewer changes, but they do
 not automatically rewrite prompts, skills, suppressions, or policy. In short:
@@ -74,7 +74,7 @@ model a GitHub write token.
 and writes a bounded private JSON artifact with mode `0600`. The artifact is for
 falsifying current published findings out of band. It contains stable ids,
 base/head SHAs, coverage summary, and bounded `*_untrusted` finding evidence. It
-does not contain raw SQLite rows, rendered Markdown, feedback actor identities,
+does not contain raw database rows, rendered Markdown, feedback actor identities,
 or source comment URLs.
 If an operator gives this artifact to an external model, this bounded finding
 evidence is the intended review-data egress; do not paste raw database exports
@@ -137,7 +137,7 @@ the invariants the ADR requires.
 
 ## Data Handling
 
-The SQLite database stores findings, review runs, publication and suggestion
+The PostgreSQL database stores findings, review runs, publication and suggestion
 metadata, human decisions, and review-quality feedback. It can contain sensitive
 unpublished findings and maintainer-entered reasons. Back it up securely and
 scrub exports before sharing.
@@ -152,7 +152,7 @@ those exports.
 ## Public Documentation Boundary
 
 The GitHub Pages site is static public documentation. It receives no reviewer
-credentials, webhook payloads, SQLite data, unpublished findings, private source
+credentials, webhook payloads, database data, unpublished findings, private source
 excerpts, feedback reasons, model sessions, or production access details. Its
 Docusaurus configuration publishes an explicit Markdown allowlist; goal boards,
 runtime profile files, and private learning artifacts are excluded.

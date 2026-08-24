@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Generic, Literal, TypeVar
+from datetime import datetime
+from typing import Generic, Literal, TypeVar, cast
 
-from . import changed_files, failure_codes, memory_coverage, memory_runs, memory_schema
+from . import changed_files, failure_codes
 from .domain.review import (
     DiffState,
     FileDomain,
@@ -15,26 +15,35 @@ from .domain.review import (
     JsonObject,
     ReviewDomainError,
     ReviewMode,
+    ReviewPhase,
     ReviewRunId,
+    classify_file_domain,
+    classify_review_mode,
     resolve_changed_file,
     resolve_changed_file_count,
     resolve_diff_observation,
     resolve_file_read,
     resolve_review_subject,
 )
-from .memory_coverage import FileIndexSummary, RunFileLookup, RunFilePage
-from .memory_runs import RunPhase
 from .postgres import registry as postgres_registry
 from .postgres import coverage as postgres_coverage
 from .postgres import review_runs as postgres_review_runs
+from .postgres.coverage import RunFileLookup
 from .postgres.runtime import PostgreSQLRuntime
-
-if TYPE_CHECKING:
-    import sqlite3
 
 
 PullPayload = TypeVar("PullPayload")
 FileSide = Literal["head", "base"]
+RunPhase = Literal[
+    "accepted",
+    "fetching_pr",
+    "collecting_diff",
+    "reviewing",
+    "rendering",
+    "publishing",
+    "posted",
+    "failed",
+]
 
 
 class ReviewRunError(ValueError):
@@ -51,16 +60,6 @@ class ReviewRunTerminal(Exception):
         super().__init__(failure_codes.SNAPSHOT_SUPERSEDED)
         self.run_id = run_id
         self.newly_terminalized = newly_terminalized
-
-
-@dataclass(frozen=True, slots=True)
-class RunRequest:
-    repository: str
-    pr_number: int
-    base_sha: str
-    head_sha: str
-    trigger_comment_id: int | None = None
-    trigger_user: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +196,53 @@ def register_postgres_changed_files(
         )
 
 
+def register_live_changed_files(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    files: Sequence[Mapping[str, object]],
+    changed_files_reported: int,
+) -> postgres_coverage.FileIndexSummary:
+    resolved_files = tuple(
+        PostgresChangedFile(
+            path=str(item.get("path", "")),
+            change_status=str(item.get("status", "")),
+            previous_path=(
+                str(previous)
+                if (previous := item.get("previous_path")) is not None
+                else None
+            ),
+            domain=classify_file_domain(str(item.get("path", ""))),
+            review_mode=classify_review_mode(
+                str(item.get("path", "")), str(item.get("status", ""))
+            ),
+        )
+        for item in files
+    )
+    registration_complete = len(files) >= changed_files_reported
+    resolved_reported = resolve_changed_file_count(changed_files_reported)
+    with runtime.transaction() as connection:
+        postgres_coverage.insert_changed_files(
+            connection,
+            run_id=ReviewRunId(subject.run_id),
+            files=tuple(
+                resolve_changed_file(
+                    path=item.path,
+                    change_status=item.change_status,
+                    previous_path=item.previous_path,
+                    domain=item.domain,
+                    review_mode=item.review_mode,
+                )
+                for item in resolved_files
+            ),
+            changed_files_reported=resolved_reported,
+            registration_complete=registration_complete,
+        )
+        return postgres_coverage.file_index_summary(
+            connection, run_id=ReviewRunId(subject.run_id)
+        )
+
+
 def record_postgres_diff_observation(
     runtime: PostgreSQLRuntime,
     *,
@@ -253,6 +299,286 @@ def summarize_postgres_coverage(
         return postgres_coverage.summarize(connection, run_id)
 
 
+def _timestamp(value: datetime) -> str:
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def start_live_review(
+    runtime: PostgreSQLRuntime, request: PostgresRunRequest
+) -> RunStart:
+    """Start the deployed PostgreSQL review while preserving the tool contract."""
+    result = start_postgres_review(runtime, request)
+    run = result.run
+    phase = cast(RunPhase, run.phase.value)
+    if isinstance(result, postgres_review_runs.DuplicateRun):
+        return DuplicateRun(
+            existing_run_id=int(run.id),
+            status="duplicate",
+            phase=phase,
+            started_at=_timestamp(run.started_at),
+            last_heartbeat_at=_timestamp(run.last_heartbeat_at),
+            message="another review is already running for this pull request",
+        )
+    return StartedRun(
+        run_id=int(run.id),
+        status="running",
+        phase=phase,
+        started_at=_timestamp(run.started_at),
+    )
+
+
+def _require_live_scope(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    expected_head_sha: str | None = None,
+) -> postgres_review_runs.ReviewRunScope:
+    with runtime.transaction() as connection:
+        scope = postgres_review_runs.get_run_scope(
+            connection, ReviewRunId(subject.run_id)
+        )
+    if scope.repository != subject.repository or scope.pr_number != subject.pr_number:
+        raise ReviewRunError("run_id does not match this pull request")
+    if expected_head_sha is not None and scope.head_sha != expected_head_sha:
+        raise ReviewRunError("head_sha does not match the active review run")
+    if scope.run.status.value == "superseded":
+        raise ReviewRunTerminal(subject.run_id, newly_terminalized=False)
+    if scope.run.status.value != "running":
+        raise ReviewRunError("run_id is not an active review run")
+    return scope
+
+
+def advance_live_phase(
+    runtime: PostgreSQLRuntime, subject: RunSubject, phase: RunPhase
+) -> None:
+    _require_live_scope(runtime, subject)
+    with runtime.transaction() as connection:
+        try:
+            postgres_review_runs.advance_phase(
+                connection,
+                ReviewRunId(subject.run_id),
+                resolve_review_phase(phase),
+            )
+        except postgres_review_runs.InvalidReviewTransition as exc:
+            raise ReviewRunError(str(exc)) from exc
+
+
+def reopen_live_finding_collection(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    expected_head_sha: str,
+) -> None:
+    """Allow an exact run to correct findings after render validation fails."""
+    _require_live_scope(runtime, subject, expected_head_sha=expected_head_sha)
+    with runtime.transaction() as connection:
+        try:
+            postgres_review_runs.reopen_finding_collection(
+                connection, ReviewRunId(subject.run_id)
+            )
+        except postgres_review_runs.InvalidReviewTransition as exc:
+            raise ReviewRunError(str(exc)) from exc
+
+
+def load_live_snapshot(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    phase: RunPhase,
+    pull_loader: Callable[[], PullSnapshot[PullPayload]],
+    expected_head_sha: str | None = None,
+) -> SnapshotResult[PullPayload]:
+    """Validate one provider snapshot without holding a connection during I/O."""
+    _require_live_scope(
+        runtime, subject, expected_head_sha=expected_head_sha
+    )
+    pull = pull_loader()
+    with runtime.transaction() as connection:
+        try:
+            scope, current, newly_terminalized = (
+                postgres_review_runs.validate_snapshot(
+                    connection,
+                    run_id=ReviewRunId(subject.run_id),
+                    repository=subject.repository,
+                    pr_number=subject.pr_number,
+                    base_sha=pull.base_sha,
+                    head_sha=pull.head_sha,
+                    expected_head_sha=expected_head_sha,
+                    phase=resolve_review_phase(phase),
+                )
+            )
+        except postgres_review_runs.ReviewRunError as exc:
+            raise ReviewRunError(str(exc)) from exc
+    if not current:
+        raise ReviewRunTerminal(
+            subject.run_id, newly_terminalized=newly_terminalized
+        )
+    return SnapshotResult(
+        pull=pull.payload,
+        run=ValidatedRun(base_sha=scope.base_sha, head_sha=scope.head_sha),
+    )
+
+
+def load_live_changed_file_page(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    pull_loader: Callable[[], PullSnapshot[PullPayload]],
+    limit: int,
+    cursor: str = "",
+    domain: str = "",
+    review_mode: str = "",
+    changed_only: bool = True,
+) -> postgres_coverage.RunFilePage:
+    load_live_snapshot(
+        runtime,
+        subject,
+        phase="collecting_diff",
+        pull_loader=pull_loader,
+    )
+    with runtime.transaction() as connection:
+        return postgres_coverage.list_run_files(
+            connection,
+            run_id=ReviewRunId(subject.run_id),
+            repository=subject.repository,
+            pr_number=subject.pr_number,
+            limit=limit,
+            cursor=cursor,
+            domain=domain,
+            review_mode=review_mode,
+            changed_only=changed_only,
+        )
+
+
+def load_live_file_context(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    path: str,
+    pull_loader: Callable[[], PullSnapshot[PullPayload]],
+) -> tuple[SnapshotResult[PullPayload], postgres_coverage.RunFileLookup]:
+    snapshot = load_live_snapshot(
+        runtime,
+        subject,
+        phase="reviewing",
+        pull_loader=pull_loader,
+    )
+    with runtime.transaction() as connection:
+        run_file = postgres_coverage.lookup_run_file(
+            connection,
+            run_id=ReviewRunId(subject.run_id),
+            repository=subject.repository,
+            pr_number=subject.pr_number,
+            path=path,
+        )
+    return snapshot, run_file
+
+
+def record_live_diff_result(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    exposure: DiffExposure,
+    *,
+    phase: RunPhase = "reviewing",
+) -> None:
+    observations = tuple(
+        observation
+        for observation in (
+            resolve_diff_observation(
+                paths=exposure.unavailable_paths,
+                state=DiffState.UNAVAILABLE,
+                unavailable_reason=exposure.unavailable_reason,
+            )
+            if exposure.unavailable_paths
+            else None,
+            resolve_diff_observation(
+                paths=exposure.exposed_paths,
+                state=DiffState.COMPLETE,
+            )
+            if exposure.exposed_paths
+            else None,
+            resolve_diff_observation(
+                paths=exposure.truncated_paths,
+                state=DiffState.TRUNCATED,
+            )
+            if exposure.truncated_paths
+            else None,
+        )
+        if observation is not None
+    )
+    with runtime.transaction() as connection:
+        postgres_review_runs.advance_phase(
+            connection,
+            ReviewRunId(subject.run_id),
+            resolve_review_phase(phase),
+        )
+        for observation in observations:
+            postgres_coverage.record_diff_observation(
+                connection,
+                run_id=ReviewRunId(subject.run_id),
+                observation=observation,
+            )
+
+
+def record_live_source_read(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    path: str,
+    side: FileSide,
+    start_line: int,
+    line_count: int,
+) -> int:
+    if line_count < 0:
+        raise ReviewRunError("line_count must not be negative")
+    end_line = start_line + line_count - 1
+    if line_count == 0:
+        return end_line
+    read = resolve_file_read(
+        path=path,
+        side=PostgresFileSide(side),
+        start_line=start_line,
+        end_line=end_line,
+    )
+    with runtime.transaction() as connection:
+        postgres_coverage.insert_file_reads(
+            connection,
+            run_id=ReviewRunId(subject.run_id),
+            reads=(read,),
+        )
+    return end_line
+
+
+def fail_live_run(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    failure_code: str,
+    findings_count: int | None = None,
+) -> bool:
+    try:
+        _require_live_scope(runtime, subject)
+        with runtime.transaction() as connection:
+            postgres_review_runs.fail_run(
+                connection,
+                ReviewRunId(subject.run_id),
+                failure_code=failure_code,
+                findings_count=findings_count,
+            )
+        return True
+    except ReviewRunTerminal:
+        return False
+    except postgres_review_runs.InvalidReviewTransition:
+        return False
+
+
+def resolve_review_phase(value: RunPhase) -> ReviewPhase:
+    try:
+        return ReviewPhase(value)
+    except ValueError as exc:
+        raise ReviewRunError(f"unknown review phase: {value}") from exc
+
+
 @dataclass(frozen=True, slots=True)
 class PullSnapshot(Generic[PullPayload]):
     payload: PullPayload
@@ -285,302 +611,3 @@ class DiffExposure:
     truncated_paths: tuple[str, ...] = ()
     unavailable_paths: tuple[str, ...] = ()
     unavailable_reason: str = "patch_unavailable"
-
-
-def start_run(request: RunRequest) -> RunStart:
-    """Start one exact review subject or return the active duplicate."""
-    with closing(memory_schema.connect_existing()) as connection:
-        run = memory_runs.start_run(
-            connection,
-            request.repository,
-            request.pr_number,
-            trigger_comment_id=request.trigger_comment_id,
-            trigger_user=request.trigger_user,
-            base_sha=request.base_sha,
-            head_sha=request.head_sha,
-        )
-        if str(run["status"]) == "duplicate":
-            return DuplicateRun(
-                existing_run_id=int(run["existing_run_id"]),
-                status="duplicate",
-                phase=run["phase"],
-                started_at=str(run["started_at"]),
-                last_heartbeat_at=str(run["last_heartbeat_at"]),
-                message=str(run["message"]),
-            )
-    return StartedRun(
-        run_id=int(run["id"]),
-        status="running",
-        phase=run["phase"],
-        started_at=str(run["started_at"]),
-    )
-
-
-def _ensure_active(
-    connection: sqlite3.Connection,
-    subject: RunSubject,
-    *,
-    expected_head_sha: str | None = None,
-) -> Mapping[str, object]:
-    run = memory_runs.get_run(connection, subject.run_id)
-    if run is None:
-        raise ReviewRunError("run_id does not match a recorded review run")
-    if (
-        str(run["repository"]) != subject.repository
-        or int(run["pr_number"]) != subject.pr_number
-    ):
-        raise ReviewRunError("run_id does not match this pull request")
-    recorded_head = str(run.get("head_sha") or "").strip().lower()
-    if (
-        expected_head_sha is not None
-        and recorded_head != expected_head_sha
-    ):
-        raise ReviewRunError("head_sha does not match the active review run")
-    if str(run.get("status")) == "running":
-        return run
-    if str(run.get("failure_code") or "") == failure_codes.SNAPSHOT_SUPERSEDED:
-        raise ReviewRunTerminal(subject.run_id, newly_terminalized=False)
-    raise ReviewRunError("run_id is not an active review run")
-
-
-def _advance_phase(
-    connection: sqlite3.Connection,
-    subject: RunSubject,
-    phase: RunPhase,
-) -> None:
-    updated = memory_runs.update_run_phase(
-        connection,
-        subject.run_id,
-        phase,
-        repository=subject.repository,
-        pr_number=subject.pr_number,
-    )
-    if updated is not None:
-        return
-    _ensure_active(connection, subject)
-    raise ReviewRunError("run_id is not an active review run")
-
-
-def advance_phase(subject: RunSubject, phase: RunPhase) -> None:
-    """Heartbeat an active run at one known application phase."""
-    with closing(memory_schema.connect_existing()) as connection:
-        _advance_phase(connection, subject, phase)
-
-
-def load_snapshot(
-    subject: RunSubject,
-    *,
-    phase: RunPhase,
-    pull_loader: Callable[[], PullSnapshot[PullPayload]],
-    expected_head_sha: str | None = None,
-) -> SnapshotResult[PullPayload]:
-    """Load and heartbeat one exact snapshot, with DB-only terminal reuse."""
-    with closing(memory_schema.connect_existing()) as connection:
-        _ensure_active(
-            connection,
-            subject,
-            expected_head_sha=expected_head_sha,
-        )
-    pull = pull_loader()
-    with closing(memory_schema.connect_existing()) as connection:
-        _ensure_active(
-            connection,
-            subject,
-            expected_head_sha=expected_head_sha,
-        )
-        try:
-            run = memory_runs.validate_run_snapshot(
-                connection,
-                subject.run_id,
-                repository=subject.repository,
-                pr_number=subject.pr_number,
-                base_sha=pull.base_sha,
-                head_sha=pull.head_sha,
-            )
-        except memory_runs.ReviewSnapshotChangedError:
-            completed = memory_runs.complete_run(
-                connection,
-                subject.run_id,
-                repository=subject.repository,
-                pr_number=subject.pr_number,
-                status="failed",
-                failure_code=failure_codes.SNAPSHOT_SUPERSEDED,
-            )
-            if completed is None:
-                _ensure_active(
-                    connection,
-                    subject,
-                    expected_head_sha=expected_head_sha,
-                )
-                raise ReviewRunError("run_id is not an active review run")
-            raise ReviewRunTerminal(subject.run_id, newly_terminalized=True)
-        _advance_phase(connection, subject, phase)
-    return SnapshotResult(
-        pull=pull.payload,
-        run=ValidatedRun(
-            base_sha=str(run.get("base_sha") or "").strip().lower(),
-            head_sha=str(run.get("head_sha") or "").strip().lower(),
-        ),
-    )
-
-
-def fail_run(
-    subject: RunSubject,
-    *,
-    failure_code: str,
-    findings_count: int | None = None,
-) -> bool:
-    """Terminalize one active run without owning failure-status publication."""
-    with closing(memory_schema.connect_existing()) as connection:
-        completed = memory_runs.complete_run(
-            connection,
-            subject.run_id,
-            repository=subject.repository,
-            pr_number=subject.pr_number,
-            status="failed",
-            findings_count=findings_count,
-            failure_code=failure_code,
-        )
-    return completed is not None
-
-
-def register_changed_files(
-    subject: RunSubject,
-    *,
-    files: Sequence[Mapping[str, object]],
-    changed_files_reported: int,
-) -> FileIndexSummary:
-    """Register the immutable changed-file inventory and return its compact index."""
-    with closing(memory_schema.connect_existing()) as connection:
-        memory_coverage.register_changed_files(
-            connection,
-            run_id=subject.run_id,
-            repository=subject.repository,
-            pr_number=subject.pr_number,
-            files=files,
-            changed_files_reported=changed_files_reported,
-            registration_complete=len(files) >= changed_files_reported,
-        )
-        return memory_coverage.file_index_summary(connection, run_id=subject.run_id)
-
-
-def load_changed_file_page(
-    subject: RunSubject,
-    *,
-    pull_loader: Callable[[], PullSnapshot[PullPayload]],
-    limit: int,
-    cursor: str = "",
-    domain: str = "",
-    review_mode: str = "",
-    changed_only: bool = True,
-) -> RunFilePage:
-    load_snapshot(
-        subject,
-        phase="collecting_diff",
-        pull_loader=pull_loader,
-    )
-    with closing(memory_schema.connect_existing()) as connection:
-        return memory_coverage.list_run_files(
-            connection,
-            run_id=subject.run_id,
-            repository=subject.repository,
-            pr_number=subject.pr_number,
-            limit=limit,
-            cursor=cursor,
-            domain=domain,
-            review_mode=review_mode,
-            changed_only=changed_only,
-        )
-
-
-def load_file_context(
-    subject: RunSubject,
-    *,
-    path: str,
-    pull_loader: Callable[[], PullSnapshot[PullPayload]],
-) -> FileContextResult[PullPayload]:
-    snapshot = load_snapshot(
-        subject,
-        phase="reviewing",
-        pull_loader=pull_loader,
-    )
-    with closing(memory_schema.connect_existing()) as connection:
-        run_file = memory_coverage.lookup_run_file(
-            connection,
-            run_id=subject.run_id,
-            repository=subject.repository,
-            pr_number=subject.pr_number,
-            path=path,
-        )
-    return FileContextResult(
-        pull=snapshot.pull,
-        run=snapshot.run,
-        file=run_file,
-    )
-
-
-def record_diff_result(
-    subject: RunSubject,
-    exposure: DiffExposure,
-    *,
-    phase: RunPhase = "reviewing",
-) -> None:
-    """Record one diff exposure result and advance the owning run phase."""
-    with closing(memory_schema.connect_existing()) as connection:
-        if exposure.unavailable_paths:
-            memory_coverage.record_diff_exposure(
-                connection,
-                run_id=subject.run_id,
-                repository=subject.repository,
-                pr_number=subject.pr_number,
-                paths=exposure.unavailable_paths,
-                truncated=False,
-                unavailable_reason=exposure.unavailable_reason,
-            )
-        if exposure.exposed_paths:
-            memory_coverage.record_diff_exposure(
-                connection,
-                run_id=subject.run_id,
-                repository=subject.repository,
-                pr_number=subject.pr_number,
-                paths=exposure.exposed_paths,
-                truncated=False,
-            )
-        if exposure.truncated_paths:
-            memory_coverage.record_diff_exposure(
-                connection,
-                run_id=subject.run_id,
-                repository=subject.repository,
-                pr_number=subject.pr_number,
-                paths=exposure.truncated_paths,
-                truncated=True,
-            )
-        _advance_phase(connection, subject, phase)
-
-
-def record_source_read(
-    subject: RunSubject,
-    *,
-    path: str,
-    side: FileSide,
-    start_line: int,
-    line_count: int,
-) -> int:
-    """Record one non-empty source exposure and return its inclusive end line."""
-    if line_count < 0:
-        raise ReviewRunError("line_count must not be negative")
-    end_line = start_line + line_count - 1
-    if line_count == 0:
-        return end_line
-    with closing(memory_schema.connect_existing()) as connection:
-        memory_coverage.record_file_range(
-            connection,
-            run_id=subject.run_id,
-            repository=subject.repository,
-            pr_number=subject.pr_number,
-            path=path,
-            side=side,
-            start_line=start_line,
-            end_line=end_line,
-        )
-    return end_line

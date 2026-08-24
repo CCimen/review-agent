@@ -17,6 +17,21 @@ def words(text: str) -> str:
 
 
 class DocsContractTests(unittest.TestCase):
+    def test_learning_runbook_uses_the_current_postgresql_cli(self):
+        learning = read("review-learning/README.md")
+
+        self.assertIn("PostgreSQL store", learning)
+        self.assertIn("--repo example-org/example-repository", learning)
+        self.assertIn("--row-limit 10000", learning)
+        self.assertNotIn("SQLite", learning)
+        self.assertNotIn("review-agent-memory --db", learning)
+
+    def test_failure_status_recovery_is_documented(self):
+        operations = read("docs/OPERATIONS.md")
+
+        self.assertIn("runs --publish-failure-status", operations)
+        self.assertIn("exits with status 1", operations)
+
     def test_profile_is_repository_neutral_and_preserves_review_invariants(self):
         soul = read("bootstrap/profiles/sundsvall-standard/SOUL.md")
         canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
@@ -66,11 +81,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("docs/SECURITY.md", readme)
 
         for runbook_detail in [
-            "migrate-volume",
             "review-agent-memory decide",
             "HERMES_REVIEW_URL=",
             "AI_REVIEW_ALLOWED_USERS=alice",
-            "review-memory-init` as `Exited (0)`",
         ]:
             with self.subTest(runbook_detail=runbook_detail):
                 self.assertNotIn(runbook_detail, readme)
@@ -329,7 +342,10 @@ class DocsContractTests(unittest.TestCase):
 
     def test_feedback_sidecar_uses_least_privilege_deployment(self):
         compose = read("compose.yaml")
-        init_section = compose.split("  review-memory-init:", 1)[1].split(
+        profile_section = compose.split("  review-profile-install:", 1)[1].split(
+            "\n  review-db-migrate:", 1
+        )[0]
+        migration_section = compose.split("  review-db-migrate:", 1)[1].split(
             "\n  hermes-review:", 1
         )[0]
         reviewer_section = compose.split("  hermes-review:", 1)[1].split(
@@ -344,32 +360,34 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET", reviewer_section)
         self.assertIn("GITHUB_READ_TOKEN", reviewer_section)
         self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", reviewer_section)
+        self.assertIn("REVIEW_AGENT_DATABASE_URL", reviewer_section)
         self.assertNotIn("\n      GH_TOKEN:", reviewer_section)
         self.assertIn("PYTHONDONTWRITEBYTECODE", reviewer_section)
-        self.assertIn("review_memory_data:/review-memory", feedback_section)
         self.assertNotIn("hermes_review_data:/opt/data", feedback_section)
         self.assertNotIn("env_file:", feedback_section)
         self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", feedback_section)
+        self.assertIn("REVIEW_AGENT_DATABASE_URL", feedback_section)
         self.assertNotIn("\n      GH_TOKEN:", feedback_section)
-        self.assertIn("review_memory_data:/opt/data/review-memory", compose)
         self.assertIn("read_only: true", feedback_section)
         self.assertIn("cap_drop:", feedback_section)
         self.assertIn("no-new-privileges:true", feedback_section)
         self.assertIn("PYTHONDONTWRITEBYTECODE", feedback_section)
         self.assertIn("http://127.0.0.1:8645/ready", feedback_section)
-        self.assertIn("--hold-on-config-error", feedback_section)
-        self.assertIn("  review-memory-init:", compose)
+        self.assertNotIn("--hold-on-config-error", feedback_section)
         self.assertIn("condition: service_completed_successfully", compose)
-        self.assertIn("/opt/review-agent-bootstrap/install.sh --force-agents", init_section)
-        self.assertIn("HERMES_HOME: /opt/data", init_section)
-        self.assertIn(
-            "REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3",
-            init_section,
-        )
-        self.assertIn("PYTHONDONTWRITEBYTECODE", init_section)
-        self.assertIn("REVIEW_AGENT_PROFILE", init_section)
-        self.assertIn("hermes_review_data:/opt/data", init_section)
-        self.assertIn("review_memory_data:/opt/data/review-memory", init_section)
+        self.assertIn('entrypoint: ["/opt/review-agent-bootstrap/install.sh"]', profile_section)
+        self.assertIn('command: ["--force-agents"]', profile_section)
+        self.assertIn("HERMES_HOME: /opt/data", profile_section)
+        self.assertIn("REVIEW_AGENT_PROFILE", profile_section)
+        self.assertIn("hermes_review_data:/opt/data", profile_section)
+        self.assertIn('entrypoint: ["/usr/local/bin/review-agent-database"]', migration_section)
+        self.assertIn('command: ["migrate"]', migration_section)
+        self.assertIn("REVIEW_AGENT_DATABASE_URL", migration_section)
+        self.assertIn("review-postgres:", migration_section)
+        self.assertIn("condition: service_healthy", migration_section)
+        self.assertIn("read_only: true", migration_section)
+        self.assertNotIn("ports:", compose)
+        self.assertIn("review-database:\n    internal: true", compose)
         self.assertNotIn("/opt/review-agent-bootstrap/install.sh", reviewer_section)
 
     def test_operations_own_deploy_time_profile_and_schema_refresh(self):
@@ -377,19 +395,21 @@ class DocsContractTests(unittest.TestCase):
         operations = read("docs/OPERATIONS.md")
 
         for required in [
-            "review-memory-init",
-            "refreshes",
+            "review-profile-install",
+            "review-db-migrate",
+            "applies checksum-verified schema migrations",
             "managed profile",
             "/opt/data",
-            "SQLite",
+            "PostgreSQL",
             "Exited (0)",
             "Manual recovery only",
             "/opt/review-agent-bootstrap/install.sh --force-agents",
-            "review-agent-memory init",
+            "review-agent-database migrate",
+            "review-agent-database ready",
         ]:
             with self.subTest(required=required):
                 self.assertIn(required, operations)
-        self.assertNotIn("review-agent-memory init", readme)
+        self.assertNotIn("review-agent-database migrate", readme)
 
     def test_public_product_name_is_organization_neutral(self):
         for relative in [
@@ -541,7 +561,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("more than 100 files changed", skill)
         self.assertNotIn("additions plus deletions exceed", skill)
 
-    def test_review_memory_deployment_has_single_init_owner(self):
+    def test_postgresql_deployment_has_separate_profile_and_schema_owners(self):
         compose = read("compose.yaml")
         env_example = read(".env.example")
         operations = read("docs/OPERATIONS.md")
@@ -553,12 +573,15 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn(digest, dockerfile)
         self.assertNotIn("nousresearch/hermes-agent:latest", compose)
         self.assertNotIn("nousresearch/hermes-agent:latest", env_example)
-        self.assertNotIn("REVIEW_AGENT_DB=", env_example)
-        self.assertIn("/opt/review-agent-bootstrap/install.sh --force-agents", compose)
-        self.assertIn("REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3", compose)
-        self.assertIn("review-agent-memory migrate-volume", operations)
-        self.assertIn("SQLite's backup API", operations)
-        self.assertIn("`REVIEW_AGENT_DB` is not a public `.env` setting", operations)
+        self.assertIn("POSTGRES_IMAGE=postgres:17-alpine", env_example)
+        self.assertIn("REVIEW_AGENT_POSTGRES_PASSWORD=", env_example)
+        self.assertIn("REVIEW_AGENT_DATABASE_URL=postgresql://", env_example)
+        self.assertIn("  review-profile-install:", compose)
+        self.assertIn("  review-db-migrate:", compose)
+        self.assertIn("review_postgres_data:/var/lib/postgresql/data", compose)
+        self.assertIn("pg_dump", operations)
+        self.assertIn("pg_restore --exit-on-error", operations)
+        self.assertIn("review-agent-database ready", operations)
 
     def test_managed_profile_owns_the_codex_model(self):
         config = read("bootstrap/config.yaml")

@@ -3,22 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import re
-import sqlite3
-from typing import TypeAlias, TypedDict, cast
+from typing import TypeAlias, TypedDict
 
 import psycopg
 
-from . import (
-    memory_findings,
-    memory_schema,
-    memory_suggestions,
-    memory_validation,
-    suggestion_validation,
-)
+from . import memory_validation, suggestion_validation
 from .domain.finding import (
     MAX_FINDINGS_PER_REVIEW,
     FindingDefinition,
@@ -40,6 +32,7 @@ from .domain.review import RepositoryId, ReviewRunId
 from .postgres import (
     decisions as postgres_decisions,
     findings as postgres_findings,
+    reporting as postgres_reporting,
     suggestions as postgres_suggestions,
 )
 from .postgres.runtime import (
@@ -103,6 +96,24 @@ class PostgresFindingRecordResult:
     batch: PostgresFindingBatch
     suggestions_recorded: int
     suggestion_statuses: tuple[suggestion_validation.SuggestionStatus, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LiveRecordedFinding:
+    finding_id: int
+    occurrence_id: int
+    fingerprint: str
+    local_reference: str
+    context_hash: str
+    suppressed: bool
+    decision: str | None
+    suggestion_status: suggestion_validation.SuggestionStatus
+
+
+@dataclass(frozen=True, slots=True)
+class LiveFindingRecordResult:
+    items: tuple[LiveRecordedFinding, ...]
+    suggestions_recorded: int
 
 
 def _postgres_context_hash(changed_file: ChangedFile, head_sha: str) -> str:
@@ -340,6 +351,110 @@ def record_postgres_findings_with_suggestions(
     )
 
 
+def _finding_input(item: Mapping[str, object]) -> FindingInput:
+    def text(field: str) -> str:
+        value = item.get(field)
+        if not isinstance(value, str):
+            raise ReviewFindingError(f"finding {field} must be a string")
+        return value
+
+    def integer(field: str) -> int:
+        value = item.get(field)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ReviewFindingError(f"finding {field} must be an integer")
+        return value
+
+    confidence = item.get("confidence")
+    if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
+        raise ReviewFindingError("finding confidence must be a number")
+    introduced = item.get("introduced_by_diff")
+    if not isinstance(introduced, bool):
+        raise ReviewFindingError("finding introduced_by_diff must be a boolean")
+    return FindingInput(
+        rule_id=text("rule_id"),
+        path=text("path"),
+        line=integer("line"),
+        symbol=text("symbol"),
+        anchor=text("anchor"),
+        title=text("title"),
+        severity=text("severity"),
+        category=text("category"),
+        publication_score=integer("publication_score"),
+        confidence=float(confidence),
+        evidence=text("evidence"),
+        disproof_checks=text("disproof_checks"),
+        impact=text("impact"),
+        smallest_fix=text("smallest_fix"),
+        introduced_by_diff=introduced,
+    )
+
+
+def record_live_findings(
+    runtime: PostgreSQLRuntime,
+    *,
+    run_id: ReviewRunId,
+    head_sha: str,
+    raw_findings: Sequence[Mapping[str, object]],
+    changed_files: Sequence[ChangedFile],
+    head_file_loader: HeadFileLoader | None,
+) -> LiveFindingRecordResult:
+    """Validate the tool payload and return its stable PostgreSQL receipt."""
+    findings = tuple(_finding_input(item) for item in raw_findings)
+    suggestions = tuple(item.get("suggestion") for item in raw_findings)
+    result = record_postgres_findings_with_suggestions(
+        runtime,
+        run_id=run_id,
+        head_sha=head_sha,
+        findings=findings,
+        changed_files=changed_files,
+        suggestions=suggestions,
+        head_file_loader=head_file_loader,
+    )
+    with runtime.transaction() as connection:
+        decisions = postgres_decisions.latest_decisions(
+            connection,
+            finding_ids=tuple(item.finding_id for item in result.batch.items),
+        )
+    changed_by_path = {
+        resolve_finding_path(item.path): item for item in changed_files
+    }
+    moment = datetime.now(timezone.utc)
+    items: list[LiveRecordedFinding] = []
+    for finding, recorded, suggestion_status in zip(
+        findings,
+        result.batch.items,
+        result.suggestion_statuses,
+        strict=True,
+    ):
+        context_hash = _postgres_context_hash(
+            changed_by_path[resolve_finding_path(finding.path)], head_sha
+        )
+        decision = decisions.get(recorded.finding_id)
+        suppressed = decision is not None and suppression_is_active(
+            decision=decision.decision,
+            decision_context_hash=decision.context_hash,
+            current_context_hash=context_hash,
+            expires_at=decision.expires_at,
+            now=moment,
+        )
+        items.append(
+            LiveRecordedFinding(
+                finding_id=int(recorded.finding_id),
+                occurrence_id=int(recorded.occurrence_id),
+                fingerprint=recorded.fingerprint,
+                local_reference=recorded.local_reference,
+                context_hash=context_hash,
+                suppressed=suppressed,
+                decision=decision.decision.value if suppressed and decision else None,
+                suggestion_status=suggestion_status,
+            )
+        )
+    return LiveFindingRecordResult(
+        items=tuple(items),
+        suggestions_recorded=result.suggestions_recorded,
+    )
+
+
 def _validated_decision_audit(audit: DecisionAudit) -> DecisionAudit:
     actor_user_id = audit.actor_user_id.strip()
     if not actor_user_id or len(actor_user_id) > 200:
@@ -427,207 +542,162 @@ def load_postgres_active_suppression(
     ) else None
 
 
-def load_context(query: FindingContextQuery) -> FindingMemoryContext:
-    """Load bounded historical context for one repository and optional pull request."""
-    with closing(memory_schema.connect_existing()) as connection:
-        context = memory_findings.memory_context(
+def load_live_context(
+    runtime: PostgreSQLRuntime, query: FindingContextQuery
+) -> FindingMemoryContext:
+    """Load bounded historical hints from the only active PostgreSQL store."""
+    clean_paths = sorted(
+        {resolve_finding_path(path) for path in query.paths if path.strip()}
+    )
+    moment = datetime.now(timezone.utc)
+    with runtime.transaction() as connection:
+        recent_reports = postgres_reporting.list_findings(
             connection,
-            query.repository,
-            query.paths,
-            pr_number=query.pr_number,
+            repository=query.repository,
+            limit=MAX_FINDINGS_PER_REVIEW,
+            include_suppressed=True,
+            now=moment,
         )
-    return cast(FindingMemoryContext, context)
+        if clean_paths:
+            selected = tuple(item for item in recent_reports if item.path in clean_paths)
+        else:
+            selected = recent_reports
+        selected = selected[:30]
 
+        repeats: tuple[RepeatFinding, ...] = ()
+        active_publication_fingerprints: set[str] | None = None
+        if query.pr_number is not None:
+            active = connection.execute(
+                """
+                SELECT run.id
+                FROM review_agent.review_runs AS run
+                JOIN review_agent.pull_requests AS pull_request
+                  ON pull_request.id = run.pull_request_id
+                JOIN review_agent.repositories AS repository
+                  ON repository.id = pull_request.repository_id
+                WHERE lower(repository.full_name) = lower(%s)
+                  AND pull_request.number = %s AND run.status = 'running'
+                """,
+                (query.repository, query.pr_number),
+            ).fetchone()
+            if active is not None:
+                repeats = postgres_findings.repeat_history(
+                    connection,
+                    run_id=ReviewRunId(int(active[0])),
+                    limit=MAX_FINDINGS_PER_REVIEW,
+                )
+                rows = connection.execute(
+                    """
+                    SELECT identity.fingerprint
+                    FROM review_agent.publications AS publication
+                    JOIN review_agent.publication_findings AS item
+                      ON item.publication_id = publication.id
+                    JOIN review_agent.finding_identities AS identity
+                      ON identity.id = item.finding_id
+                    WHERE publication.pull_request_id = (
+                        SELECT pull_request_id
+                        FROM review_agent.review_runs WHERE id = %s
+                    )
+                      AND publication.status = 'posted'
+                      AND publication.superseded_by_publication_id IS NULL
+                      AND item.outcome IN ('current', 'not_checked')
+                    """,
+                    (int(active[0]),),
+                ).fetchall()
+                if rows:
+                    active_publication_fingerprints = {str(row[0]) for row in rows}
 
-def _string_field(item: Mapping[str, object], field: str) -> str:
-    value = item.get(field)
-    if not isinstance(value, str):
-        raise ReviewFindingError(f"recorded finding {field} is invalid")
-    return value
-
-
-def _integer_field(item: Mapping[str, object], field: str) -> int:
-    value = item.get(field)
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ReviewFindingError(f"recorded finding {field} is invalid")
-    return value
-
-
-def _suggestion_rank(
-    finding: Mapping[str, object], index: int
-) -> tuple[int, int, str, int]:
-    severity = str(finding.get("severity", "")).strip().title()
-    publication_score_value = finding.get("publication_score", 0)
-    try:
-        publication_score = int(cast(int | str, publication_score_value))
-    except (TypeError, ValueError):
-        publication_score = 0
-    return (
-        int(memory_validation.SEVERITY_PRIORITY.get(severity, 99)),
-        -publication_score,
-        str(finding.get("rule_id", "")),
-        index,
-    )
-
-
-def _clear_suggestions(recorded: Sequence[RecordedFinding]) -> None:
-    with closing(memory_schema.connect_existing()) as connection, connection:
-        for item in recorded:
-            memory_suggestions.replace_observation_suggestion(
-                connection,
-                observation_id=_integer_field(item, "observation_id"),
-                suggestion=None,
-            )
-
-
-def _store_suggestions(
-    recorded: Sequence[RecordedFinding],
-    selected: Mapping[int, suggestion_validation.ValidatedSuggestion],
-) -> None:
-    with closing(memory_schema.connect_existing()) as connection, connection:
-        for item in recorded:
-            memory_suggestions.replace_observation_suggestion(
-                connection,
-                observation_id=_integer_field(item, "observation_id"),
-                suggestion=None,
-            )
-        for index, suggestion in selected.items():
-            memory_suggestions.replace_observation_suggestion(
-                connection,
-                observation_id=_integer_field(recorded[index], "observation_id"),
-                suggestion=suggestion,
-            )
-
-
-def _record_optional_suggestions(
-    subject: FindingRecordSubject,
-    findings: Sequence[Mapping[str, object]],
-    recorded: list[RecordedFinding],
-    changed_by_path: Mapping[str, ChangedFile],
-    head_file_loader: HeadFileLoader | None,
-) -> tuple[int, dict[int, suggestion_validation.SuggestionStatus]]:
-    requested = [
-        index for index, finding in enumerate(findings) if "suggestion" in finding
-    ]
-    if not requested:
-        _clear_suggestions(recorded)
-        return 0, {}
-
-    try:
-        key_by_index = {
-            index: suggestion_validation.suggestion_key(
-                subject.repository,
-                subject.pr_number,
-                subject.head_sha,
-                _string_field(recorded[index], "fingerprint"),
-            )
-            for index in requested
-        }
-        with closing(memory_schema.connect_existing()) as connection:
-            canonical_by_key = memory_suggestions.canonical_suggestions(
-                connection, key_by_index.values()
-            )
-    except (memory_validation.ReviewMemoryError, sqlite3.Error):
-        return 0, {index: "suggestion_storage_failed" for index in requested}
-
-    candidates: list[suggestion_validation.SuggestionCandidate] = []
-    for index in requested:
-        finding = findings[index]
-        path = _string_field(recorded[index], "path")
-        candidates.append(
-            suggestion_validation.SuggestionCandidate(
-                index=index,
-                priority=_suggestion_rank(finding, index),
-                repository=subject.repository,
-                pr_number=subject.pr_number,
-                head_sha=subject.head_sha,
-                fingerprint=_string_field(recorded[index], "fingerprint"),
-                path=path,
-                finding_line=_integer_field(finding, "line"),
-                patch=changed_by_path[path].patch,
-                raw=finding.get("suggestion"),
-                canonical=canonical_by_key.get(key_by_index[index]),
-                suppressed=bool(recorded[index].get("suppressed", False)),
-                rule_id=str(finding.get("rule_id", "")),
-                category=str(finding.get("category", "")),
-                symbol=str(finding.get("symbol", "")),
-                anchor=str(finding.get("anchor", "")),
-                title=str(finding.get("title", "")),
-                evidence=str(finding.get("evidence", "")),
-                impact=str(finding.get("impact", "")),
-                smallest_fix=str(finding.get("smallest_fix", "")),
-            )
+    reports_by_fingerprint = {item.fingerprint: item for item in recent_reports}
+    recent: list[dict[str, object]] = []
+    suppressions: list[dict[str, object]] = []
+    for item in selected:
+        latest_decision = (
+            {"decision": item.latest_decision.value}
+            if item.latest_decision is not None
+            else None
         )
-    selection = suggestion_validation.select_suggestions(
-        candidates, head_file_loader=head_file_loader
-    )
-    statuses: dict[int, suggestion_validation.SuggestionStatus] = dict(
-        selection.statuses
-    )
-    selected = selection.selected
-
-    try:
-        _store_suggestions(recorded, selected)
-    except (memory_validation.ReviewMemoryError, sqlite3.Error):
-        for index in requested:
-            statuses[index] = "suggestion_storage_failed"
-        return 0, statuses
-    return len(selected), statuses
-
-
-def record_findings(
-    subject: FindingRecordSubject,
-    *,
-    findings: Sequence[Mapping[str, object]],
-    changed_files: Sequence[ChangedFile],
-    head_file_loader: HeadFileLoader | None,
-) -> FindingRecordResult:
-    """Persist findings and replace their optional same-head atomic suggestions."""
-    changed_by_path = {
-        memory_validation.normalize_path(item.path): item for item in changed_files
-    }
-    context_hashes: dict[str, str] = {}
-    for finding in findings:
-        path = memory_validation.normalize_path(str(finding.get("path", "")))
-        changed_file = changed_by_path.get(path)
-        if changed_file is None:
-            raise ReviewFindingError(
-                "every recorded finding must point to a changed pull-request file"
+        recent.append(
+            {
+                "fingerprint": item.fingerprint,
+                "rule_id": item.rule_id,
+                "path": item.path,
+                "line": item.line,
+                "symbol": item.symbol,
+                "anchor": item.anchor,
+                "title": item.title,
+                "severity": item.severity.value,
+                "category": item.category.value,
+                "publication_score": item.publication_score,
+                "confidence": item.confidence,
+                "context_hash": item.context_hash,
+                "last_seen_at": item.last_seen_at.isoformat(),
+                "evidence": item.evidence,
+                "disproof_checks": item.disproof_checks,
+                "impact": item.impact,
+                "smallest_fix": item.smallest_fix,
+                "suppressed_for_last_seen_file_version": item.suppressed,
+                "latest_decision": latest_decision,
+            }
+        )
+        if item.suppressed and item.latest_decision is not None:
+            suppressions.append(
+                {
+                    "fingerprint": item.fingerprint,
+                    "rule_id": item.rule_id,
+                    "path": item.path,
+                    "symbol": item.symbol,
+                    "anchor": item.anchor,
+                    "decision": item.latest_decision.value,
+                    "warning": (
+                        "Historical hint only; the record tool rechecks the exact current context."
+                    ),
+                }
             )
-        candidate_hash = changed_file.context_hash.strip().lower()
-        context_hashes[path] = (
-            candidate_hash
-            if changed_file.context_hash_source == "blob"
-            and _SHA_RE.fullmatch(candidate_hash)
-            else subject.head_sha
+
+    repeat_payloads: list[dict[str, object]] = []
+    for item in repeats:
+        if (
+            active_publication_fingerprints is not None
+            and item.fingerprint not in active_publication_fingerprints
+        ):
+            continue
+        report = reports_by_fingerprint.get(item.fingerprint)
+        if report is not None and report.suppressed:
+            continue
+        repeat_payloads.append(
+            {
+                "fingerprint": item.fingerprint,
+                "local_reference": item.local_reference,
+                "previous_run_id": int(item.previous_run_id),
+                "previous_head": item.previous_head,
+                "rule_id": item.rule_id,
+                "path": item.path,
+                "line": item.line,
+                "symbol": item.symbol,
+                "anchor": item.anchor,
+                "title": item.title,
+                "severity": item.severity.value,
+                "category": item.category.value,
+                "publication_score": item.publication_score,
+                "confidence": item.confidence,
+                "context_hash": item.context_hash,
+                "prior_claim": item.prior_claim,
+                "prior_disproof_checks": item.prior_disproof_checks,
+                "prior_impact": item.prior_impact,
+                "prior_smallest_fix": item.prior_smallest_fix,
+                "suppressed_for_last_seen_file_version": False,
+                "latest_decision": None,
+            }
         )
 
-    with closing(memory_schema.connect_existing()) as connection:
-        raw_recorded = memory_findings.record_findings(
-            connection,
-            subject.repository,
-            subject.pr_number,
-            subject.head_sha,
-            findings,
-            review_run_id=subject.run_id,
-            base_sha=subject.base_sha,
-            context_hashes=context_hashes,
-        )
-    recorded = cast(list[RecordedFinding], raw_recorded)
-    suggestions_recorded, statuses = _record_optional_suggestions(
-        subject,
-        findings,
-        recorded,
-        changed_by_path,
-        head_file_loader,
-    )
-    for index, reason in statuses.items():
-        recorded[index]["suggestion"] = (
-            {"status": "recorded"}
-            if reason == "recorded"
-            else {"status": "omitted", "reason": reason}
-        )
-    return FindingRecordResult(
-        items=recorded,
-        suggestions_recorded=suggestions_recorded,
+    return FindingMemoryContext(
+        repository=query.repository,
+        paths=clean_paths,
+        policy=(
+            "Human decisions are historical hints during analysis. The record tool "
+            "suppresses only when the exact current context matches the reviewed context."
+        ),
+        historical_suppressions=suppressions,
+        recent_findings=recent,
+        repeat_review_findings=repeat_payloads,
     )

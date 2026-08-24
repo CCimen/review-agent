@@ -66,6 +66,7 @@ class FakePostgresPublicationGitHub:
         self.issue_comments_newest_first = False
         self.create_calls = 0
         self.fail_on_create_call: int | None = None
+        self.fail_on_review_create = False
         self.list_issue_comments_calls = 0
         self.fail_on_list_call: int | None = None
 
@@ -158,6 +159,8 @@ class FakePostgresPublicationGitHub:
         comments: Sequence[InlineReviewComment],
     ) -> PullRequestReview:
         self._outside_transaction()
+        if self.fail_on_review_create:
+            raise GitHubPublicationError("github_unreachable")
         review_id = self.next_review_id
         self.next_review_id += 1
         for index, comment in enumerate(comments, start=1):
@@ -490,6 +493,63 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ),
         )
 
+    @staticmethod
+    def suggestion_plan(
+        batch: review_finding_application.PostgresFindingBatch,
+    ) -> PublicationPlan:
+        finding = batch.items[0]
+        key = "sha256:" + ("8" * 64)
+        return resolve_publication_plan(
+            publication_key=key,
+            rendered_markdown="review with suggestion\n",
+            rendered_blocks_schema_version=1,
+            rendered_blocks=(
+                {"kind": "header", "markdown": "review with suggestion"},
+            ),
+            parts=(
+                PublicationPartInput(
+                    part_type=PublicationPartType.SUMMARY,
+                    part_number=1,
+                    payload_schema_version=1,
+                    payload={
+                        "body": (
+                            "review with suggestion\n\n"
+                            f"<!-- review-agent:canonical publication={key} "
+                            "part=1/1 -->"
+                        )
+                    },
+                ),
+                PublicationPartInput(
+                    part_type=PublicationPartType.SUGGESTION_REVIEW,
+                    part_number=1,
+                    payload_schema_version=1,
+                    payload={
+                        "body": "Optional atomic patch",
+                        "comments": [
+                            {
+                                "path": "backend/changed.py",
+                                "body": (
+                                    "```suggestion\nTrue\n```\n\n"
+                                    f"review-agent:canonical publication={key}"
+                                ),
+                                "line": 7,
+                                "side": "RIGHT",
+                            }
+                        ],
+                    },
+                ),
+            ),
+            findings=(
+                PublicationFindingInput(
+                    finding_id=int(finding.finding_id),
+                    source_finding_occurrence_id=int(finding.occurrence_id),
+                    source_review_run_id=int(batch.run_id),
+                    local_reference=finding.local_reference,
+                    outcome=PublicationFindingOutcome.CURRENT,
+                ),
+            ),
+        )
+
     def test_prepare_atomically_persists_exact_plan_and_provenance(self) -> None:
         run_id, batch = self.start_recorded_run()
         plan = self.plan(batch)
@@ -513,6 +573,39 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 connection, run_id=run_id, plan=plan
             )
         self.assertEqual(same.id, prepared.id)
+
+    def test_application_prepares_and_reuses_the_frozen_postgres_plan(self) -> None:
+        run_id, _ = self.start_recorded_run(
+            request_key="github:issue-comment:application-preparation"
+        )
+
+        first = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=None,
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        repeated = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=None,
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+
+        self.assertEqual(first, repeated)
+        self.assertEqual(first.findings_count, 1)
+        self.assertEqual(first.suggestions_count, 0)
+        with self.runtime.transaction() as connection:
+            stored = publications.get_publication(
+                connection, publications.PublicationId(first.publication_id)
+            )
+        self.assertEqual(stored.status, publications.PublicationStatus.GENERATED)
+        self.assertIn(
+            f"review-agent:canonical publication={stored.plan.publication_key}",
+            stored.parts[0].delivery.body,
+        )
 
     def test_claim_acknowledge_and_complete_use_short_exact_transitions(self) -> None:
         run_id, batch = self.start_recorded_run()
@@ -605,7 +698,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(recovered.status, "posted")
         self.assertEqual(recovered.recovered_parts, 1)
         self.assertEqual(len(github.comments), 2)
-        self.assertEqual(recovered.external_ids, (700, 701))
+        self.assertEqual(
+            tuple(part.external_id for part in recovered.published_parts),
+            (700, 701),
+        )
         self.assertTrue(github.issue_comments_newest_first)
 
         github.fail_on_call = True
@@ -615,7 +711,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             github=github,
             max_comment_bytes=60_000,
         )
-        self.assertEqual(direct.external_ids, (700, 701))
+        self.assertEqual(
+            tuple(part.external_id for part in direct.published_parts),
+            (700, 701),
+        )
 
     def test_posting_reentry_requires_an_explicit_recovery_call(self) -> None:
         run_id, batch = self.start_recorded_run(
@@ -673,7 +772,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(retried.status, "posted")
         self.assertEqual(completed_run.status, ReviewStatus.COMPLETED)
         self.assertEqual(completed_run.phase, ReviewPhase.POSTED)
-        self.assertEqual(retried.external_ids, (700, 701))
+        self.assertEqual(
+            tuple(part.external_id for part in retried.published_parts),
+            (700, 701),
+        )
         self.assertEqual(len(github.comments), 2)
 
     def test_second_posted_review_supersedes_the_first_in_one_transaction(self) -> None:
@@ -975,62 +1077,19 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         run_id, batch = self.start_recorded_run(
             request_key="github:issue-comment:suggestion-publication"
         )
-        finding = batch.items[0]
         key = "sha256:" + ("8" * 64)
-        plan = resolve_publication_plan(
-            publication_key=key,
-            rendered_markdown="review with suggestion\n",
-            rendered_blocks_schema_version=1,
-            rendered_blocks=(
-                {"kind": "header", "markdown": "review with suggestion"},
-            ),
-            parts=(
-                PublicationPartInput(
-                    part_type=PublicationPartType.SUMMARY,
-                    part_number=1,
-                    payload_schema_version=1,
-                    payload={
-                        "body": (
-                            "review with suggestion\n\n"
-                            f"<!-- review-agent:canonical publication={key} "
-                            "part=1/1 -->"
-                        )
-                    },
-                ),
-                PublicationPartInput(
-                    part_type=PublicationPartType.SUGGESTION_REVIEW,
-                    part_number=1,
-                    payload_schema_version=1,
-                    payload={
-                        "body": "Optional atomic patch",
-                        "comments": [
-                            {
-                                "path": "backend/changed.py",
-                                "body": (
-                                    "```suggestion\nTrue\n```\n\n"
-                                    f"review-agent:canonical publication={key}"
-                                ),
-                                "line": 7,
-                                "side": "RIGHT",
-                            }
-                        ],
-                    },
-                ),
-            ),
-            findings=(
-                PublicationFindingInput(
-                    finding_id=int(finding.finding_id),
-                    source_finding_occurrence_id=int(finding.occurrence_id),
-                    source_review_run_id=int(run_id),
-                    local_reference=finding.local_reference,
-                    outcome=PublicationFindingOutcome.CURRENT,
-                ),
-            ),
-        )
+        plan = self.suggestion_plan(batch)
         with self.runtime.transaction() as connection:
             prepared = publications.prepare_publication(
                 connection, run_id=run_id, plan=plan
             )
+        repeated = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=None,
+            feedback_enabled=False,
+            max_comment_bytes=60_000,
+        )
         github = FakePostgresPublicationGitHub(self.runtime)
 
         result = review_publication_application.publish_postgres_publication(
@@ -1040,12 +1099,45 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             max_comment_bytes=60_000,
         )
 
-        self.assertEqual(result.external_ids, (700, 800))
+        self.assertEqual(repeated.suggestions_count, 1)
+        self.assertEqual(
+            tuple(
+                (part.part_type, part.external_id)
+                for part in result.published_parts
+            ),
+            (
+                (PublicationPartType.SUGGESTION_REVIEW, 800),
+                (PublicationPartType.SUMMARY, 700),
+            ),
+        )
         self.assertEqual(
             github.review_comments[0].body,
             "```suggestion\nTrue\n```\n\n"
             + f"review-agent:canonical publication={key}",
         )
+
+    def test_suggestion_failure_does_not_publish_a_misleading_summary(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:suggestion-failure"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection,
+                run_id=run_id,
+                plan=self.suggestion_plan(batch),
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.fail_on_review_create = True
+
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(prepared.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+
+        self.assertEqual(result.status, "publish_failed")
+        self.assertEqual(github.comments, [])
 
     def test_invalid_cross_run_finding_rolls_back_the_whole_plan(self) -> None:
         run_id, batch = self.start_recorded_run()

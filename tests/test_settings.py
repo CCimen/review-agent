@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 PLUGIN_PARENT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGIN_PARENT))
@@ -14,7 +12,7 @@ from review_agent_tools.settings import (  # noqa: E402
     ReviewAgentSettings,
     SettingsError,
 )
-from review_agent_tools import memory_validation, review_publisher  # noqa: E402
+from review_agent_tools import memory_validation  # noqa: E402
 
 
 class ReviewAgentSettingsTests(unittest.TestCase):
@@ -41,7 +39,7 @@ class ReviewAgentSettingsTests(unittest.TestCase):
             SettingsError, "REVIEW_AGENT_DATABASE_URL must be a PostgreSQL URL"
         ):
             ReviewAgentSettings(
-                {"REVIEW_AGENT_DATABASE_URL": "sqlite:///review.sqlite3"}
+                {"REVIEW_AGENT_DATABASE_URL": "https://db.example.test/reviews"}
             ).postgres_database_url
         for incomplete_url in (
             "postgresql://db.example.test",
@@ -105,29 +103,6 @@ class ReviewAgentSettingsTests(unittest.TestCase):
         ):
             invalid.publish_max_bytes
 
-    def test_database_path_preserves_explicit_environment_and_home_fallbacks(self) -> None:
-        settings = ReviewAgentSettings(
-            {
-                "REVIEW_AGENT_DB": "~/configured.sqlite3",
-                "HERMES_HOME": "~/custom-hermes",
-            }
-        )
-
-        self.assertEqual(
-            settings.database_path("~/explicit.sqlite3"),
-            Path("~/explicit.sqlite3").expanduser(),
-        )
-        self.assertEqual(
-            settings.database_path(),
-            Path("~/configured.sqlite3").expanduser(),
-        )
-        self.assertEqual(
-            ReviewAgentSettings(
-                {"HERMES_HOME": "~/custom-hermes"}
-            ).database_path(),
-            Path("~/custom-hermes/review-memory/review_memory.sqlite3").expanduser(),
-        )
-
     def test_policy_revision_and_feedback_preserve_current_semantics(self) -> None:
         settings = ReviewAgentSettings(
             {
@@ -150,18 +125,7 @@ class ReviewAgentSettingsTests(unittest.TestCase):
         ):
             ReviewAgentSettings({}).policy_revision("x" * 121)
 
-    def test_invalid_settings_keep_memory_error_contracts(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"REVIEW_AGENT_PUBLISH_MAX_BYTES": "many"},
-            clear=False,
-        ):
-            with self.assertRaisesRegex(
-                memory_validation.ReviewMemoryError,
-                "REVIEW_AGENT_PUBLISH_MAX_BYTES must be an integer",
-            ):
-                review_publisher._max_comment_bytes()
-
+    def test_invalid_policy_revisions_keep_validation_error_contract(self) -> None:
         for revision, message in (
             (" ", "policy_revision is required"),
             ("x" * 121, "policy_revision exceeds 120 characters"),

@@ -354,6 +354,53 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         self.assertIsNone(cleared.comment_id)
         self.assertEqual(comments, ())
 
+    def test_render_validation_can_reopen_finding_collection_only(self) -> None:
+        started = review_run_application.start_postgres_review(
+            self.runtime,
+            self.request(request_key="github:issue-comment:render-correction"),
+        )
+        assert isinstance(started, postgres_review_runs.StartedRun)
+        run_id = started.run.id
+
+        with self.runtime.transaction() as connection:
+            for phase in (
+                ReviewPhase.FETCHING_PR,
+                ReviewPhase.COLLECTING_DIFF,
+                ReviewPhase.REVIEWING,
+            ):
+                postgres_review_runs.advance_phase(connection, run_id, phase)
+            unchanged = postgres_review_runs.reopen_finding_collection(
+                connection, run_id
+            )
+            postgres_review_runs.advance_phase(
+                connection, run_id, ReviewPhase.RENDERING
+            )
+
+        review_run_application.reopen_live_finding_collection(
+            self.runtime,
+            review_run_application.RunSubject(
+                repository="team/reviewer",
+                pr_number=14,
+                run_id=int(run_id),
+            ),
+            expected_head_sha="a" * 40,
+        )
+        with self.runtime.transaction() as connection:
+            reopened = postgres_review_runs.get_run(connection, run_id)
+
+        self.assertEqual(unchanged.phase, ReviewPhase.REVIEWING)
+        self.assertEqual(reopened.phase, ReviewPhase.REVIEWING)
+
+        with self.runtime.transaction() as connection:
+            postgres_review_runs.advance_phase(
+                connection, run_id, ReviewPhase.RENDERING
+            )
+            postgres_review_runs.advance_phase(
+                connection, run_id, ReviewPhase.PUBLISHING
+            )
+            with self.assertRaises(postgres_review_runs.InvalidReviewTransition):
+                postgres_review_runs.reopen_finding_collection(connection, run_id)
+
     def test_new_exact_subject_supersedes_the_active_run(self) -> None:
         first = review_run_application.start_postgres_review(
             self.runtime, self.request()

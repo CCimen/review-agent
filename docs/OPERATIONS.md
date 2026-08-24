@@ -9,7 +9,7 @@ last_verified: 2026-08-24
 # Operations
 
 > **Current** — These instructions describe the current PAT, GitHub Actions,
-> Docker/Dokploy, and SQLite deployment.
+> Docker/Dokploy, and PostgreSQL deployment.
 
 This document owns setup, configuration, deployment, recovery, and operator
 commands for the Hermes GitHub PR review agent.
@@ -53,6 +53,9 @@ Set these values in the Dokploy Compose environment:
 | Name | Required | Default | Notes |
 | --- | --- | --- | --- |
 | `HERMES_IMAGE` | yes | pinned digest in `.env.example` | Keep image updates reviewed. |
+| `POSTGRES_IMAGE` | yes | `postgres:17-alpine` | Review PostgreSQL image updates. |
+| `REVIEW_AGENT_POSTGRES_PASSWORD` | yes | none | URL-safe database password used to initialize PostgreSQL. |
+| `REVIEW_AGENT_DATABASE_URL` | yes | none | PostgreSQL URL shared by the migration, reviewer, and feedback services. |
 | `TZ` | no | `Europe/Stockholm` | Container timezone. |
 | `WEBHOOK_ENABLED` | yes | `true` | Enables Hermes webhook mode. |
 | `WEBHOOK_PORT` | yes | `8644` | Review webhook port. |
@@ -70,11 +73,15 @@ Set these values in the Dokploy Compose environment:
 | `API_SERVER_ENABLED` | yes | `false` | Keep the OpenAI-compatible API off. |
 | `PYTHONUNBUFFERED` | no | `1` | Easier logs. |
 
-`REVIEW_AGENT_DB` is not a public `.env` setting. Compose sets it explicitly:
+Use one database per environment. The example Compose network keeps PostgreSQL
+private and uses this service-local URL shape:
 
 ```text
-REVIEW_AGENT_DB: /opt/data/review-memory/review_memory.sqlite3
+postgresql://review_agent:<url-safe-password>@review-postgres:5432/review_agent
 ```
+
+Use the same URL-safe value for `REVIEW_AGENT_POSTGRES_PASSWORD` and the URL
+password. A hex value from `openssl rand -hex 32` needs no percent-encoding.
 
 ## Capacity And Incomplete Coverage
 
@@ -125,15 +132,14 @@ The deployment uses two named volumes:
 | Volume | Mounted in | Purpose |
 | --- | --- | --- |
 | `hermes_review_data` | `hermes-review` at `/opt/data` | Hermes config, Codex OAuth state, sessions, managed skills, and plugins. |
-| `review_memory_data` | reviewer at `/opt/data/review-memory`, feedback at `/review-memory` | SQLite review database. |
+| `review_postgres_data` | `review-postgres` at `/var/lib/postgresql/data` | PostgreSQL review state. |
 
 Do not run two Hermes gateways against the same `hermes_review_data` volume.
 
-The `review-memory-init` one-shot service runs before the reviewer and feedback
-sidecar on each deploy. It refreshes the managed profile and plugin under
-`/opt/data`, then runs the idempotent SQLite schema migration. Seeing
-`review-memory-init` as `Exited (0)` is expected. Use its logs only for startup
-failures.
+Two one-shot services run before the live services. `review-profile-install`
+installs the selected managed profile under `/opt/data`. `review-db-migrate`
+waits for PostgreSQL and applies checksum-verified schema migrations. Both
+should finish as `Exited (0)`; inspect their logs when startup stops.
 
 Set `REVIEW_AGENT_PROFILE` to a trusted bundle key under
 `bootstrap/profiles`; the packaged default is `sundsvall-standard`. The init
@@ -151,7 +157,8 @@ Manual recovery only:
 
 ```bash
 /opt/review-agent-bootstrap/install.sh --force-agents
-review-agent-memory init
+review-agent-database migrate
+review-agent-database ready
 ```
 
 Run those commands inside the `hermes-review` container, then restart the
@@ -287,33 +294,42 @@ Inspect recent runs:
 
 ```bash
 review-agent-memory runs --repo <org>/<repo> --limit 10
-review-agent-memory runs --repo <org>/<repo> --stats --json
+review-agent-memory runs --repo <org>/<repo> --stats
 ```
 
 Inspect publication state:
 
 ```bash
 review-agent-memory publications --repo <org>/<repo> --pr <number>
-review-agent-memory publications --repo <org>/<repo> --pr <number> --json
 ```
 
 Inspect coverage for one run:
 
 ```bash
-review-agent-memory coverage --run-id <id> --json
+review-agent-memory coverage --run-id <id>
 ```
 
 Mark stale runs failed after a crash:
 
 ```bash
-review-agent-memory runs --mark-stalled --older-than-minutes 10 --repo <org>/<repo> --pr <number>
+review-agent-memory runs --mark-stalled --stale-after-minutes 10 --repo <org>/<repo> --pr <number>
 ```
+
+Mark stale runs and publish their deterministic failure-status comments:
+
+```bash
+review-agent-memory runs --publish-failure-status --stale-after-minutes 10 --repo <org>/<repo> --pr <number>
+```
+
+This command exits with status 1 if any GitHub status comment fails to publish.
+Its JSON output identifies each failed run so the operator can inspect the cause
+and retry the same bounded command.
 
 Common states:
 
 | Symptom | Meaning |
 | --- | --- |
-| `generated` with no `posting` timestamp | Old review skill did not call the delivery tool. |
+| `running` with an old heartbeat | Review execution stopped before reaching a terminal state. |
 | `publish_failed` | GitHub publication was attempted and failed; inspect `failure=`. |
 | `body_too_large` | Review could not fit within the configured per-comment byte budget. |
 | `stale` | PR base or head changed before posting. |
@@ -334,7 +350,7 @@ review-agent-memory list --repo <org>/<repo>
 Show one finding:
 
 ```bash
-review-agent-memory show <fingerprint-prefix>
+review-agent-memory show <fingerprint-prefix> --repo <org>/<repo>
 ```
 
 Prefer exact observation ids or PR-local references when recording decisions:
@@ -359,26 +375,22 @@ review-agent-memory decide <fingerprint> resolved \
 Other decision values are `accepted_risk`, `duplicate`, and `reopen`. Security
 owns the suppression trust rules in [docs/SECURITY.md](SECURITY.md).
 
-## Backups And Migration
+## Backup And Recovery
 
-Back up the `review_memory_data` volume securely. It may contain unpublished
-findings and human-entered reasons.
-
-If upgrading from an older deployment that stored the database under
-`/opt/data/review-memory` inside `hermes_review_data`, stop the reviewer and
-feedback services before migrating:
+Back up PostgreSQL securely. It may contain unpublished findings and
+human-entered reasons. Create a logical backup from the Compose host:
 
 ```bash
-review-agent-memory migrate-volume \
-  --source /legacy/review_memory.sqlite3 \
-  --destination /review-memory/review_memory.sqlite3 \
-  --owner-uid 10000 \
-  --owner-gid 10000
+docker compose exec -T review-postgres \
+  pg_dump --username=review_agent --dbname=review_agent --format=custom \
+  > review-agent.dump
 ```
 
-The command checkpoints WAL, uses SQLite's backup API, verifies integrity and
-foreign keys, compares table counts, and leaves the source untouched unless the
-new destination was written successfully.
+Test recovery in a fresh database before relying on a backup. Stop the reviewer
+and feedback services, restore with `pg_restore --exit-on-error`, run
+`review-agent-database migrate` and `review-agent-database ready`, then point the
+environment at the restored database and redeploy. Recovery never converts or
+imports another database backend.
 
 ## Private Reviewer-Improvement Exports
 
@@ -386,27 +398,29 @@ Export the registry:
 
 ```bash
 review-agent-memory export \
-  --output /opt/data/review-memory/export.json
+  --repo <org>/<repo> \
+  --row-limit <per-table-row-limit> \
+  --output /opt/data/private-review/export.json
 ```
 
 Generate a learning report:
 
 ```bash
 review-agent-memory learning-report \
-  --export /opt/data/review-memory/export.json \
+  --export /opt/data/private-review/export.json \
   --repo <org>/<repo> \
-  --output /opt/data/review-memory/learning-candidates.md
+  --output /opt/data/private-review/learning-candidates.md
 ```
 
 Generate a bounded coach bundle:
 
 ```bash
 review-agent-memory coach-export \
-  --export /opt/data/review-memory/export.json \
+  --export /opt/data/private-review/export.json \
   --repo <org>/<repo> \
   --after-decision-id 0 \
   --after-feedback-id 0 \
-  --output /opt/data/review-memory/coach-export.json
+  --output /opt/data/private-review/coach-export.json
 ```
 
 Generate a bounded private verification bundle for one completed review run:
@@ -414,7 +428,7 @@ Generate a bounded private verification bundle for one completed review run:
 ```bash
 review-agent-memory verification-export \
   --run-id <id> \
-  --output /opt/data/review-memory/verification/run-<id>.json
+  --output /opt/data/private-review/verification/run-<id>.json
 ```
 
 This is the private verifier slice. The export is a shadow artifact, not a live
@@ -422,7 +436,7 @@ review step. It does not publish comments. The bundle contains stable
 run/publication ids, exact base/head SHAs, coverage summary, and bounded
 `*_untrusted` evidence for the current published findings. A maintainer may hand
 it to Claude or another private review tool and ask for falsification. Verifier
-output can be stored in SQLite for audit, but raw verifier verdicts are not
+output can be stored in PostgreSQL for audit, but raw verifier verdicts are not
 authoritative: only an explicit Codex reconciliation decision for the same run
 can drop a recorded candidate before publication.
 
@@ -431,7 +445,7 @@ profiles can choose Codex-only, advisory verification, or gated verification.
 This repository does not launch Claude from the webhook reviewer in the current
 slice; adding that runner is a separate reviewed runtime change.
 
-Do not paste raw SQLite exports into an LLM. Use `verification-export` for
+Do not paste raw database exports into an LLM. Use `verification-export` for
 review-finding falsification and `coach-export` for reviewer-improvement
 signals.
 
@@ -439,10 +453,9 @@ Run the private coach directly from the live database so a raw export is not
 left on disk:
 
 ```bash
-review-agent-memory --db /opt/data/review-memory/review_memory.sqlite3 \
-  coach-run \
-  --repo sundsvallskommun/example-repository \
-  --output-dir /opt/data/review-memory/coach-run
+review-agent-memory coach-run \
+  --repo <org>/<repo> \
+  --output-dir /opt/data/private-review/coach-run
 ```
 
 The result is deliberately conservative. `no_change` means stop. A `propose`
@@ -464,7 +477,7 @@ share its `HERMES_HOME`, skills directory, or gateway. Keep
 `skills.write_approval` on and treat the staged diff as a draft: add a focused
 replay, port the validated lesson into the canonical repository owner, deploy
 normally, then use `/skills reject <id>`. Never feed `/learn` raw comments, raw
-SQLite exports, or unsanitized session transcripts.
+database exports, or unsanitized session transcripts.
 
 Validate replay fixtures:
 
@@ -490,8 +503,9 @@ the final proof that the subscription is entitled to the model and the OAuth
 route accepts it. The Hermes image does not bundle the standalone Codex CLI;
 this service uses Hermes' `openai-codex` provider directly.
 
-After a source update, redeploy. The `review-memory-init` service refreshes the
-managed `/opt/data` profile and migrates SQLite before the gateway starts.
+After a source update, redeploy. `review-profile-install` refreshes the managed
+profile, and `review-db-migrate` verifies and applies PostgreSQL migrations
+before the gateway starts.
 
 Run local bundle checks:
 

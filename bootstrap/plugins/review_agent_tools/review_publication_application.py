@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .postgres.runtime import PostgreSQLRuntime
 
 try:
     from . import failure_codes, memory_publications, memory_runs, memory_suggestions
+    from .domain.publication import PublicationDomainError
     from .github.publication import (
         GitHubPublicationError,
         GitHubPublicationGateway,
@@ -30,6 +36,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
     import memory_publications  # type: ignore[no-redef]
     import memory_runs  # type: ignore[no-redef]
     import memory_suggestions  # type: ignore[no-redef]
+    from domain.publication import PublicationDomainError
     from github.publication import (
         GitHubPublicationError,
         GitHubPublicationGateway,
@@ -50,6 +57,290 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
     from review_identity import REVIEW_COMMENT_TITLE
 
 _SUGGESTION_RECOVERY_SCAN_PAGES = 10
+
+
+@dataclass(frozen=True, slots=True)
+class PostgresPublicationResult:
+    publication_id: int
+    status: str
+    external_ids: tuple[int, ...]
+    recovered_parts: int
+
+
+def _postgres_target_failure(
+    *, base_sha: str, head_sha: str, pull: PullRequestState
+) -> str | None:
+    if pull.state != "open":
+        return "pr_not_open"
+    if pull.base_sha != base_sha:
+        return "base_sha_changed"
+    if pull.head_sha != head_sha:
+        return "head_sha_changed"
+    return None
+
+
+def publish_postgres_publication(
+    runtime: "PostgreSQLRuntime",
+    *,
+    publication_id: int,
+    github: GitHubPublicationGateway,
+    recover_posting: bool = False,
+) -> PostgresPublicationResult:
+    """Deliver one prepared PostgreSQL plan without holding a database checkout.
+
+    ``recover_posting`` requires the caller to establish that the prior poster
+    is no longer running.
+    """
+    from .domain.publication import (
+        PublicationFindingOutcome,
+        PublicationId,
+        PublicationPartStatus,
+        PublicationPartType,
+        PublicationStatus,
+        SuggestionReviewDelivery,
+        extract_publication_key,
+    )
+    from .postgres import publications as postgres_publications
+    from .postgres import review_runs as postgres_review_runs
+
+    resolved_id = PublicationId(publication_id)
+    with runtime.transaction() as connection:
+        claim = postgres_publications.claim_publication(connection, resolved_id)
+    publication = claim.publication
+    if publication.status is PublicationStatus.POSTED:
+        return PostgresPublicationResult(
+            publication_id=publication_id,
+            status=PublicationStatus.POSTED.value,
+            external_ids=tuple(
+                part.external_id
+                for part in publication.parts
+                if part.external_id is not None
+            ),
+            recovered_parts=0,
+        )
+    if not claim.acquired and not recover_posting:
+        return PostgresPublicationResult(
+            publication_id=publication_id,
+            status=PublicationStatus.POSTING.value,
+            external_ids=tuple(
+                part.external_id
+                for part in publication.parts
+                if part.external_id is not None
+            ),
+            recovered_parts=0,
+        )
+    posting_started_at = publication.posting_started_at
+    if posting_started_at is None:
+        raise postgres_publications.InvalidPublicationTransition(
+            "posting publication has no generation timestamp"
+        )
+
+    recovered = 0
+    findings_count = sum(
+        finding.outcome is PublicationFindingOutcome.CURRENT
+        for finding in publication.plan.findings
+    )
+    author_login = ""
+    issue_comments: dict[int, IssueComment] | None = None
+    review_comments: list[PullRequestReviewComment] | None = None
+
+    def acknowledge(
+        part_type: PublicationPartType, part_number: int, external_id: int
+    ) -> None:
+        with runtime.transaction() as connection:
+            postgres_publications.acknowledge_part(
+                connection,
+                publication_id=resolved_id,
+                part_type=part_type,
+                part_number=part_number,
+                external_id=external_id,
+                posting_started_at=posting_started_at,
+            )
+
+    def stale_failure() -> str | None:
+        pull = github.get_pull_request(publication.repository, publication.pr_number)
+        return _postgres_target_failure(
+            base_sha=publication.base_sha,
+            head_sha=publication.head_sha,
+            pull=pull,
+        )
+
+    def recovered_issue_comments(
+        comments: Sequence[IssueComment],
+    ) -> dict[int, IssueComment]:
+        found: dict[int, IssueComment] = {}
+        for comment in comments:
+            if (
+                comment.author_login.casefold() != author_login.casefold()
+                or extract_publication_key(comment.body)
+                != publication.plan.publication_key
+            ):
+                continue
+            token = " part="
+            token_index = comment.body.find(token)
+            if token_index < 0:
+                continue
+            raw_number = comment.body[token_index + len(token) :].split("/", 1)[0]
+            if not raw_number.isdigit() or int(raw_number) < 1:
+                continue
+            found.setdefault(int(raw_number), comment)
+        return found
+
+    def terminalize_stale(failure_code: str) -> PostgresPublicationResult:
+        with runtime.transaction() as connection:
+            postgres_publications.fail_publication(
+                connection,
+                publication_id=resolved_id,
+                posting_started_at=posting_started_at,
+                failure_code=failure_code,
+                stale=True,
+            )
+            postgres_review_runs.fail_run(
+                connection,
+                publication.review_run_id,
+                failure_code=failure_code,
+                findings_count=findings_count,
+            )
+        return PostgresPublicationResult(
+            publication_id=publication_id,
+            status=PublicationStatus.STALE.value,
+            external_ids=(),
+            recovered_parts=recovered,
+        )
+
+    try:
+        for part in publication.parts:
+            if part.status is PublicationPartStatus.POSTED:
+                continue
+            if not author_login:
+                author_login = github.current_user_login()
+            external_id: int | None = None
+            if part.part_type in {
+                PublicationPartType.SUMMARY,
+                PublicationPartType.CONTINUATION,
+            }:
+                if issue_comments is None:
+                    listed = github.list_issue_comments(
+                        publication.repository,
+                        publication.pr_number,
+                        max_pages=_SUGGESTION_RECOVERY_SCAN_PAGES,
+                        newest_first=True,
+                    )
+                    # `setdefault` in recovery keeps this newest match.
+                    issue_comments = recovered_issue_comments(listed)
+                existing = issue_comments.get(part.part_number)
+                if existing is not None:
+                    external_id = existing.comment_id
+                    recovered += 1
+                else:
+                    stale_code = stale_failure()
+                    if stale_code is not None:
+                        return terminalize_stale(stale_code)
+                    created = github.create_issue_comment(
+                        publication.repository,
+                        publication.pr_number,
+                        part.delivery.body,
+                    )
+                    external_id = created.comment_id
+                    issue_comments[part.part_number] = created
+            else:
+                if not isinstance(part.delivery, SuggestionReviewDelivery):
+                    raise postgres_publications.PublicationConflict(
+                        "stored suggestion part has the wrong delivery shape"
+                    )
+                expected = tuple(
+                    InlineReviewComment(
+                        path=comment.path,
+                        body=comment.body,
+                        line=comment.line,
+                        side=comment.side.value,
+                        start_line=comment.start_line,
+                        start_side=(
+                            comment.start_side.value
+                            if comment.start_side is not None
+                            else None
+                        ),
+                    )
+                    for comment in part.delivery.comments
+                )
+                if review_comments is None:
+                    review_comments = github.list_pull_request_review_comments(
+                        publication.repository,
+                        publication.pr_number,
+                        max_pages=_SUGGESTION_RECOVERY_SCAN_PAGES,
+                    )
+                matches = [
+                    comment
+                    for comment in review_comments
+                    if comment.author_login.casefold() == author_login.casefold()
+                    and comment.commit_id.lower() == publication.head_sha.lower()
+                    and extract_publication_key(comment.body)
+                    == publication.plan.publication_key
+                    and any(
+                        comment.body == candidate.body
+                        and comment.path == candidate.path
+                        and comment.line == candidate.line
+                        and comment.side == candidate.side
+                        and comment.start_line == candidate.start_line
+                        and comment.start_side == candidate.start_side
+                        for candidate in expected
+                    )
+                ]
+                review_ids = {comment.review_id for comment in matches}
+                if len(matches) == len(expected) and len(review_ids) == 1:
+                    external_id = next(iter(review_ids))
+                    recovered += 1
+                else:
+                    stale_code = stale_failure()
+                    if stale_code is not None:
+                        return terminalize_stale(stale_code)
+                    review = github.create_pull_request_review(
+                        publication.repository,
+                        publication.pr_number,
+                        commit_id=publication.head_sha,
+                        body=part.delivery.body,
+                        comments=expected,
+                    )
+                    external_id = review.review_id
+            acknowledge(part.part_type, part.part_number, external_id)
+    except GitHubPublicationError as exc:
+        with runtime.transaction() as connection:
+            failed = postgres_publications.fail_publication(
+                connection,
+                publication_id=resolved_id,
+                posting_started_at=posting_started_at,
+                failure_code=exc.code,
+            )
+        return PostgresPublicationResult(
+            publication_id=publication_id,
+            status=failed.status.value,
+            external_ids=tuple(
+                part.external_id
+                for part in failed.parts
+                if part.external_id is not None
+            ),
+            recovered_parts=recovered,
+        )
+
+    with runtime.transaction() as connection:
+        posted = postgres_publications.complete_publication(
+            connection,
+            publication_id=resolved_id,
+            posting_started_at=posting_started_at,
+        )
+        postgres_review_runs.complete_run(
+            connection,
+            publication.review_run_id,
+            findings_count=findings_count,
+        )
+    return PostgresPublicationResult(
+        publication_id=publication_id,
+        status=posted.status.value,
+        external_ids=tuple(
+            part.external_id for part in posted.parts if part.external_id is not None
+        ),
+        recovered_parts=recovered,
+    )
 
 
 def _verify_pr_target(
@@ -214,10 +505,10 @@ def _render_superseded_publication(
                 github.update_issue_comment(
                     publication["repository"], target.comment_id, body
                 )
-    except (GitHubPublicationError, ValueError) as exc:
+    except (GitHubPublicationError, PublicationDomainError, ValueError) as exc:
         code = (
             exc.code
-            if isinstance(exc, GitHubPublicationError)
+            if isinstance(exc, (GitHubPublicationError, PublicationDomainError))
             else "supersession_failed"
         )
         _mark_supersession_failure(connection, publication["publication_id"], code)
@@ -559,7 +850,7 @@ def publish_review(
                 ),
                 max_comment_bytes=budget,
             )
-        except GitHubPublicationError as exc:
+        except (GitHubPublicationError, PublicationDomainError) as exc:
             if already_posted:
                 result: dict[str, object] = {
                     "published": True,

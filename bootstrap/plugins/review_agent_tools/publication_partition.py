@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 try:
     from . import memory_publications
-    from .github.publication import GitHubPublicationError
+    from .domain.publication import PublicationDomainError
     from .review_identity import CONTINUATION_LEAD, REVIEW_COMMENT_TITLE
     from .review_renderer import (
         ReviewBlock,
@@ -16,7 +16,7 @@ try:
     )
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
     import memory_publications  # type: ignore[no-redef]
-    from github.publication import GitHubPublicationError
+    from domain.publication import PublicationDomainError
     from review_identity import CONTINUATION_LEAD, REVIEW_COMMENT_TITLE
     from review_renderer import (  # type: ignore[no-redef]
         ReviewBlock,
@@ -53,7 +53,7 @@ def _pack_blocks(blocks: list[str], max_bytes: int) -> list[str]:
     current = ""
     for block in blocks:
         if publication_body_size(block) > max_bytes:
-            raise GitHubPublicationError("body_too_large")
+            raise PublicationDomainError("body_too_large")
         candidate = current + block
         if current and publication_body_size(candidate) > max_bytes:
             chunks.append(current)
@@ -75,9 +75,9 @@ def _publication_blocks(
                 rendered_blocks_json, fallback_markdown=body
             )
         except ValueError as exc:
-            raise GitHubPublicationError("rendered_blocks_invalid") from exc
+            raise PublicationDomainError("rendered_blocks_invalid") from exc
         if review_markdown_from_blocks(blocks) != body:
-            raise GitHubPublicationError("rendered_blocks_mismatch")
+            raise PublicationDomainError("rendered_blocks_mismatch")
     else:
         blocks = (ReviewBlock(kind="header", markdown=body),)
 
@@ -135,7 +135,7 @@ def split_publication_body(
     )
     content_budget = max_comment_bytes - reserved
     if content_budget < 200:
-        raise GitHubPublicationError("body_too_large")
+        raise PublicationDomainError("body_too_large")
 
     blocks = _publication_blocks(
         body,
@@ -152,7 +152,7 @@ def split_publication_body(
             f"<!-- {_part_marker(publication_key, index, total_parts)} -->\n"
         )
         if publication_body_size(part_body) > max_comment_bytes:
-            raise GitHubPublicationError("body_too_large")
+            raise PublicationDomainError("body_too_large")
         parts.append(PublicationPart(part_number=index, body=part_body))
     return parts
 
@@ -200,9 +200,9 @@ def _fit_historical_chunks(
     content_blocks: list[str], *, content_budget: int, max_parts: int
 ) -> list[str]:
     if max_parts < 1:
-        raise GitHubPublicationError("superseded_comment_missing")
+        raise PublicationDomainError("superseded_comment_missing")
     if publication_body_size(_HISTORICAL_TRUNCATION_NOTICE) > content_budget:
-        raise GitHubPublicationError("superseded_body_too_large")
+        raise PublicationDomainError("superseded_body_too_large")
 
     retained = list(content_blocks)
     truncated = False
@@ -218,7 +218,7 @@ def _fit_historical_chunks(
             candidate.append(_HISTORICAL_TRUNCATION_NOTICE)
         try:
             chunks = _pack_blocks(candidate, content_budget)
-        except GitHubPublicationError:
+        except PublicationDomainError:
             chunks = []
         if chunks and len(chunks) <= max_parts:
             return chunks
@@ -247,7 +247,7 @@ def historical_bodies(
     )
     content_blocks = _historical_content_blocks(publication)
     if not content_blocks:
-        raise GitHubPublicationError("superseded_body_empty")
+        raise PublicationDomainError("superseded_body_empty")
 
     reserved_template = (
         f"## {REVIEW_COMMENT_TITLE} · {old_label} · Superseded - 999 of 999\n\n"
@@ -262,7 +262,7 @@ def historical_bodies(
     )
     content_budget = max_comment_bytes - publication_body_size(reserved_template)
     if content_budget < 200:
-        raise GitHubPublicationError("superseded_body_too_large")
+        raise PublicationDomainError("superseded_body_too_large")
     chunks = _fit_historical_chunks(
         content_blocks, content_budget=content_budget, max_parts=target_parts
     )
@@ -284,7 +284,7 @@ def historical_bodies(
             f"<!-- {_part_marker(publication['publication_key'], part_number, target_parts)} -->\n"
         )
         if publication_body_size(body) > max_comment_bytes:
-            raise GitHubPublicationError("superseded_body_too_large")
+            raise PublicationDomainError("superseded_body_too_large")
         parts.append(PublicationPart(part_number=part_number, body=body))
     return parts
 
@@ -324,7 +324,7 @@ def publication_parts_for_suggestion_state(
         try:
             blocks = review_blocks_from_json(blocks_json, fallback_markdown=body)
         except ValueError as exc:
-            raise GitHubPublicationError("rendered_blocks_invalid") from exc
+            raise PublicationDomainError("rendered_blocks_invalid") from exc
         filtered = tuple(block for block in blocks if block.kind != "suggestion_help")
         body = review_markdown_from_blocks(filtered)
         blocks_json = review_blocks_to_json(filtered)

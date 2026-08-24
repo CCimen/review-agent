@@ -800,7 +800,7 @@ CREATE TABLE review_agent.publication_parts (
 );
 
 COMMENT ON COLUMN review_agent.publication_parts.payload IS
-    'Structured delivery input; 128 KiB is a storage guard and the publication planner enforces provider limits';
+    'Structured provider request; 128 KiB is a storage guard, not a source-read or model-context limit, and the publication planner enforces provider limits';
 COMMENT ON COLUMN review_agent.publication_parts.payload_hash IS
     'SHA-256 of the UTF-8 RFC 8785 canonical JSON representation of payload';
 

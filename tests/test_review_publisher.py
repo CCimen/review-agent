@@ -24,6 +24,7 @@ from review_agent_tools import (  # noqa: E402
     review_renderer,
 )
 from review_agent_tools.github import publication as github_publication  # noqa: E402
+from review_agent_tools.domain.publication import PublicationDomainError  # noqa: E402
 
 
 # Large enough for one atomic coding-agent brief plus modest wording growth, but
@@ -1035,7 +1036,7 @@ class ReviewPublisherTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(
-            github_publication.GitHubPublicationError, "body_too_large"
+            PublicationDomainError, "body_too_large"
         ):
             publication_partition.split_publication_body(
                 body,

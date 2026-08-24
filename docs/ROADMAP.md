@@ -25,7 +25,8 @@ behavior documented in the repository and verified by the shipped bundle.
   runner, bounded runtime foundation, and a real PostgreSQL 17 CI contract for
   repository, immutable-subject, review-run, coverage, finding-memory,
   suggestion, human-decision, verification, reconciliation, and coaching
-  operations.
+  operations, plus exact publication planning and crash-recoverable delivery
+  integration.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -57,8 +58,12 @@ connection safeguards, readiness, migration health, short transaction scope,
 and pool metrics. The application owner can exercise registry, review-run, inventory,
 diff-observation, source-range, finding-memory, optional-suggestion, and
 human-decision operations in integration tests without adding a backend switch,
-dual write, or fallback. Suggestion validation reads trusted head content with
-no database connection held, persists accepted patches in a separate
+dual write, or fallback. It can also atomically freeze exact publication bytes,
+structured parts, canonical hashes, and finding outcomes, then claim and
+acknowledge GitHub delivery through short transactions. Direct stored IDs are
+reused first; marker recovery closes a lost acknowledgement after process death
+without duplicating output. Suggestion validation reads trusted head content
+with no database connection held, persists accepted patches in a separate
 best-effort transaction, and keeps deletion patches valid. A suppressive human
 decision applies only to the exact reviewed context hash, while its decision and
 authorization audit commit or roll back together.
@@ -66,8 +71,9 @@ authorization audit commit or roll back together.
 The active SQLite publication path now has separate owners for environment
 composition, lifecycle orchestration, deterministic payload partitioning, and
 GitHub HTTP delivery. This is an internal ownership change only: rendered bytes,
-delivery behavior, and public tool responses are unchanged, and PostgreSQL
-publication persistence remains planned.
+delivery behavior, and public tool responses are unchanged. The PostgreSQL
+publication lifecycle is integration-only and has no tool or deployed runtime
+caller yet.
 
 Four gates protect the first authoritative PostgreSQL write:
 
@@ -85,16 +91,24 @@ Four gates protect the first authoritative PostgreSQL write:
 
 The remaining milestones are:
 
-1. Port exact publication payload delivery and feedback transactions.
-2. Define the initial PostgreSQL replacement recovery path before switching.
-   Recovery after PostgreSQL writes uses the previous PostgreSQL-compatible
-   application image against the same database.
+1. Port feedback transactions without coupling them to publication delivery.
+2. Finish the runtime settings and deployment recovery contract. Recovery after
+   PostgreSQL writes uses the previous PostgreSQL-compatible application image
+   against the same database. The milestone “Define the initial PostgreSQL
+   replacement recovery path” is complete for publication delivery; this
+   remaining work makes that recovery contract deployable. The runtime caller
+   must retry `publish_failed` publications and reclaim `posting` only after the
+   prior poster is known to have stopped. Durable jobs later own reaping runs
+   left in `publishing` after a process exit.
 3. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
    review against a fresh database. The bounded provider repository ID
    acquisition must use trusted PR metadata before the repository-to-run
    transaction opens; no network or model call may hold a database connection.
 4. Delete the SQLite application persistence, migrations, volume, environment
-   settings, and SQLite-only tests after the cutover passes.
+   settings, and SQLite-only tests after the cutover passes. Before deletion,
+   PostgreSQL publication delivery must render the superseded historical form
+   after recording database supersession; the active SQLite owner retains that
+   visible-comment behavior until cutover.
 5. Add durable jobs and an outbox as separate work after PostgreSQL owns the
    application state.
 
@@ -113,7 +127,7 @@ is not part of this application persistence replacement.
 
 ## Explicitly deferred
 
-PostgreSQL publication persistence, trusted project context and policy overlays,
+The PostgreSQL runtime cutover, trusted project context and policy overlays,
 GitHub App migration, new feedback work, Codex Security, scanner workers, SARIF
 aggregation, and security artifact storage are deferred. Existing security
 controls stay in place, and deterministic scanners should continue to run

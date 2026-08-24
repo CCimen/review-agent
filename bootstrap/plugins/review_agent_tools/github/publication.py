@@ -84,7 +84,12 @@ class GitHubPublicationGateway(Protocol):
     def get_pull_request(self, repository: str, pr_number: int) -> PullRequestState: ...
 
     def list_issue_comments(
-        self, repository: str, issue_number: int, *, max_pages: int = 3
+        self,
+        repository: str,
+        issue_number: int,
+        *,
+        max_pages: int = 3,
+        newest_first: bool = False,
     ) -> list[IssueComment]: ...
 
     def update_issue_comment(
@@ -370,15 +375,21 @@ class GitHubIssueCommentGateway:
         return self._current_user_login
 
     def list_issue_comments(
-        self, repository: str, issue_number: int, *, max_pages: int = 3
+        self,
+        repository: str,
+        issue_number: int,
+        *,
+        max_pages: int = 3,
+        newest_first: bool = False,
     ) -> list[IssueComment]:
         comments: list[IssueComment] = []
+        ordering = "&sort=created&direction=desc" if newest_first else ""
         for page in range(1, max_pages + 1):
             page_items = _json_list(
                 self._request_json(
                     "GET",
                     f"/repos/{_owner_repo(repository)}/issues/{issue_number}/comments"
-                    f"?per_page=100&page={page}",
+                    f"?per_page=100&page={page}{ordering}",
                     auth="read",
                     operation="list_issue_comments",
                 ),

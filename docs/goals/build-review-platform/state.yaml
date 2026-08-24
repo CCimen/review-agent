@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "The PostgreSQL-only runtime, controlled recovery proof, and SQLite deletion are complete; durable job schema is active."
+  tranche: "The PostgreSQL-only runtime and durable fenced job foundation are complete; worker lifecycle and crash recovery are active."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 13
+  completed_write_tasks_in_thread: 14
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T15:33:52Z"
-  last_verified_revision: "4474d71fce7c970c4f9577931e8f926fe2d51219"
+  last_handoff_at: "2026-08-24T16:25:00Z"
+  last_verified_revision: "4042ddf0d03fec8d538241775caeb0e3aead12bc"
 
-active_task: T105
+active_task: T106
 
 tasks:
   - id: T001
@@ -1868,7 +1868,7 @@ tasks:
   - id: T105
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add the minimal PostgreSQL durable-job schema, idempotent enqueue, and atomic lease-generation claim contract."
     constraints:
@@ -1887,11 +1887,37 @@ tasks:
     stop_if:
       - "The schema requires speculative analyzer, tenant, artifact, or notification concepts."
       - "A non-PostgreSQL broker or generic queue abstraction appears necessary."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T105-postgresql-durable-jobs.md"
+      summary: "Shipped one-to-one PostgreSQL durable jobs with run-owned idempotency, atomic fenced claims, queued supersession, and recovery-safe lease history."
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/reporting.py"
+        - "bootstrap/plugins/review_agent_tools/postgres_migrations/002_review_jobs.sql"
+        - "scripts/check_postgres_schema.sh"
+        - "tests/test_postgres_jobs.py"
+        - "tests/test_postgres_migrations.py"
+        - "tests/test_postgres_runtime.py"
+        - "tests/test_postgres_schema.py"
+      commands:
+        - cmd: "./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "116 PostgreSQL 17 tests plus migration backup/restore passed."
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright and 316 tests passed."
+        - cmd: "python3 scripts/check_docs.py"
+          status: pass
+          summary: "Nine-document public contract passed; no public behavior changed."
+        - cmd: "Claude Opus/high commit gates"
+          status: pass
+          summary: "Ownership gate converged through a narrow final constraint gate, green at score 8."
+      revision: "4042ddf0d03fec8d538241775caeb0e3aead12bc"
   - id: T106
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Add the durable review-worker lifecycle, heartbeat, crash recovery, retry classification, dead letter, and graceful shutdown on the PostgreSQL queue."
     constraints:

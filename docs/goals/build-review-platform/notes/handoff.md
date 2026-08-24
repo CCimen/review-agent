@@ -9,27 +9,30 @@
 - T102-T104 are complete at `4474d71fce7c970c4f9577931e8f926fe2d51219`.
   PostgreSQL is the only Review Agent application store; controlled
   backup/restore is proven and the SQLite implementation is deleted.
-- T105 is the sole active task: add the minimal PostgreSQL durable-job schema,
-  idempotent enqueue, and atomic lease-generation claim contract.
+- T105 is complete at `4042ddf0d03fec8d538241775caeb0e3aead12bc`.
+  Durable jobs are one-to-one extensions of run-owned acceptance identity, with
+  atomic fenced claim, queued supersession, and recovery-safe lease history.
+- T106 is the sole active task: add worker lifecycle, heartbeat, crash recovery,
+  retry/dead-letter transitions, graceful shutdown, and bounded metrics.
 - Public identity is “Review Agent.” `sundsvall-standard` remains a selectable
   municipal profile, not the product identity. Model-era review-depth ceilings
   are gone; pageable or honestly incomplete contracts own large inputs.
 
-## T105 execution boundary
+## T106 execution boundary
 
-- Add only the durable job fields required for idempotent enqueue, atomic claim,
-  lease generation, and queued old-head supersession.
-- Reuse PostgreSQL row locking and existing repository, pull-request, and exact
-  review-subject identities. Do not add a generic queue port or external broker.
-- Keep worker execution, heartbeat/reaping, retry classification, graceful
-  shutdown, fairness, and publication outbox behavior in T106-T108.
-- Prove concurrent claim ownership and invalid transitions on real PostgreSQL;
-  update public docs only where current behavior changes.
+- Add only the concrete claim/heartbeat/complete/fail/reap lifecycle, deterministic
+  retry versus dead-letter behavior, graceful shutdown, and bounded metrics.
+- Reuse the exact-snapshot review application and the concrete PostgreSQL job
+  owner. Do not duplicate orchestration or add a scheduler, broker, or queue port.
+- Keep supersession/fairness/operator controls in T107 and publication outbox
+  behavior in T108.
+- Prove process-death recovery without a second active review or publication;
+  update public docs when current deploy or operator behavior changes.
 
 ## Remaining order
 
-T105 durable queue schema → T106 worker lifecycle/recovery → T107
-supersession/fairness/fast enqueue → T108 publication outbox → T109 final audit.
+T106 worker lifecycle/recovery → T107 supersession/fairness/fast enqueue → T108
+publication outbox → T109 final audit.
 Security-scanner and Codex Security integrations remain explicitly deferred.
 
 ## Verification continuity
@@ -45,7 +48,13 @@ Security-scanner and Codex Security integrations remain explicitly deferred.
 - T102-T104: PostgreSQL 104 tests, strict Pyright, 304-test bundle, docs/Compose/
   site checks, and Claude Opus/high green 8. Session
   `review-agent-t102-postgresql-cutover` (UUID
-  `71ee5913-d171-444c-a608-0df179d463b5`). Exact-commit CI and Pages checks are
-  pending.
+  `71ee5913-d171-444c-a608-0df179d463b5`). Exact-commit Python run
+  `32745614488`, Pages run `32745614610`, and board run `32745849829` passed.
+- T105: PostgreSQL 116 tests, strict Pyright, 316-test bundle, nine-document
+  manifest, and final Claude Opus/high green 8. Sessions
+  `review-agent-t105-durable-jobs` (UUID
+  `fbf41768-47f2-4631-8941-518111bd54f3`) and the re-sliced constraint gate
+  `review-agent-t105-constraint-final` (UUID
+  `1d4c3167-0193-4c9e-9632-e9a137aa0cfd`). Exact-commit CI is pending.
 - Preserve user-owned `refactor-plan1.md`.
 - Stop all Codex and Claude work by 23:50 Europe/Stockholm; resume at 06:00.

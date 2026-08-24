@@ -4,10 +4,10 @@
 version: 2
 
 goal:
-  title: "Build the Sundsvall review platform"
+  title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "PostgreSQL behavior through coaching is complete; publication ownership separation is the next active task."
+  tranche: "Publication ownership separation is complete; immutable PostgreSQL publication persistence is the next active task."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 4
+  completed_write_tasks_in_thread: 5
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T07:35:34Z"
-  last_verified_revision: "72f599c1292ecbf7362795adb19d7d994adcc7f5"
+  last_handoff_at: "2026-08-24T08:22:00Z"
+  last_verified_revision: "682736e7c43ce222c3fccbb4da997e1966b6df8b"
 
-active_task: T028
+active_task: T029
 
 tasks:
   - id: T001
@@ -1377,7 +1377,7 @@ tasks:
   - id: T028
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Split surviving publication behavior into concrete partition, application-orchestration, and GitHub-delivery owners while preserving byte-equivalent output and the active SQLite lifecycle."
     constraints:
@@ -1436,6 +1436,113 @@ tasks:
       - "The implementation needs a file outside allowed_files."
       - "A focused failure repeats twice for a non-mechanical reason."
       - "The Stockholm time is too close to 23:50 to finish the current safe unit; write a durable handoff and stop."
+    receipt:
+      result: done
+      note: "notes/T028-publication-ownership-split.md"
+      summary: "Separated deterministic partitioning, lifecycle orchestration, environment composition, and GitHub delivery while preserving exact publication behavior and the installed runtime import path."
+      implementation_revision: "682736e7c43ce222c3fccbb4da997e1966b6df8b"
+      evidence:
+        - "141 affected tests, strict Pyright, and the 569-test full bundle passed; the parent/candidate three-part plus supersession comparison was byte-identical."
+        - "Claude Opus/high session review-agent-t028-publication-ownership converged from score 7 to green at score 8."
+        - "Live Python bundle run 32705578215 and Publish documentation run 32705578272 passed; the hosted roadmap is current."
+      spawned_tasks:
+        - T029
+        - T090
+  - id: T029
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Persist immutable exact PostgreSQL publication plans, finding outcomes, and delivery parts with short claim/ack transactions and crash-safe GitHub recovery."
+    constraints:
+      - "Follow refactor-plan1.md Phase 3 Slice 3B and deepen the T028 publication owners; do not create a generic repository, backend interface, unit-of-work abstraction, or provider framework."
+      - "Prepare one publication atomically with exact rendered Markdown, versioned blocks, rendered hash, relational current/closed/not-checked findings, and exact versioned structured part payloads plus canonical hashes."
+      - "Use the existing PostgreSQL initial schema as first-write truth; change it only for a constraint or index correction required by the named lifecycle. No production data exists."
+      - "Claim and acknowledge/fail/stale operations use short transactions. Never hold a database connection during GitHub, renderer, model, or source-control work."
+      - "PostgreSQL publication operations remain integration-only with no tool or live runtime caller; the active SQLite publication path keeps its current code path and gains no backend conditional."
+      - "Make direct stored external-ID recovery primary and marker recovery secondary for a lost acknowledgement. Prove a process death after GitHub success recovers without duplicate output."
+      - "A publication already in posting may re-enter the same idempotent recovery operation, which checks stored external IDs and markers before writing and serializes on the publication row before applying the probe result; do not add a lease or second claim model."
+      - "A stale-head check must immediately precede external writes. Keep exact bytes, markers, suggestions, supersession, failure status, and public tool JSON unchanged."
+      - "Decide in this slice whether pure partition failures receive a publication-domain error vocabulary; preserve exact failure codes and avoid a broad exception hierarchy."
+      - "Keep SQL and row mapping in postgres/publications.py and lifecycle orchestration in the established review_publication_application.py owner; do not re-form a mixed SQL/HTTP module."
+      - "Reassess duplicate stale guards and failure-status ownership only after the PostgreSQL lifecycle shape is concrete. Do not perform unrelated cleanup or fix the visible literal-backslash notice in this slice."
+      - "Carry T027's LockNotAvailable decision: keep PostgreSQL operations typed and fail closed; the later runtime caller still owns bounded retry versus fail-run."
+      - "Keep feedback, settings, Compose, deployment, runtime cutover, SQLite deletion, jobs, outbox, GitHub read-client consolidation, and product/profile generalization unchanged."
+      - "Run Claude Opus/high at the stable commit gate and stop all work during the 23:50–06:00 Europe/Stockholm blackout."
+    expected_output:
+      - "Typed immutable publication preparation with explicit relational finding provenance"
+      - "Exact versioned publication-part payloads and hashes"
+      - "Short claim, acknowledgement, stale, failure, and recovery transitions"
+      - "Crash-recovery proof with no duplicate GitHub delivery"
+      - "One reviewable implementation commit and live CI receipt"
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/publication.py
+      - bootstrap/plugins/review_agent_tools/postgres/publications.py
+      - bootstrap/plugins/review_agent_tools/postgres/__init__.py
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/001_initial.sql
+      - bootstrap/plugins/review_agent_tools/publication_partition.py
+      - bootstrap/plugins/review_agent_tools/review_publication_application.py
+      - bootstrap/plugins/review_agent_tools/github/publication.py
+      - scripts/check_postgres_schema.sh
+      - tests/test_postgres_publications.py
+      - tests/test_review_publication_application.py
+      - tests/test_review_publisher.py
+      - tests/test_memory_module_boundaries.py
+      - docs/ROADMAP.md
+      - docs/goals/build-review-platform/goal.md
+      - docs/goals/build-review-platform/state.yaml
+      - docs/goals/build-review-platform/notes/handoff.md
+      - docs/goals/build-review-platform/notes/T029-postgresql-publications.md
+    verify:
+      - "Prove atomic preparation, exact payload/hash recovery, all explicit finding outcomes, and current-run occurrence provenance."
+      - "Prove concurrent claim ownership, no connection across GitHub, direct-ID-first recovery, marker fallback, stale-head rejection, and kill-after-success recovery without duplicates."
+      - "Prove invalid transitions and cross-run/cross-PR facts roll back without partial state."
+      - "./scripts/check_postgres_schema.sh"
+      - "python3 -m unittest tests.test_review_publication_application tests.test_review_publisher tests.test_failure_status tests.test_memory_module_boundaries"
+      - "Repeat the T028 parent/candidate exact-output comparison for any T029 change to partitioning, delivery ordering, markers, or the active publication modules."
+      - "./scripts/check_bundle.sh"
+      - "python3 scripts/check_docs.py"
+      - "npm --prefix website run typecheck"
+      - "Validate Goal Maker state"
+      - "Run one skeptical Claude Opus/high peer gate at the stable commit candidate and require green with score >= 8."
+      - "After push, verify the live Python bundle and documentation publication workflows."
+    stop_if:
+      - "Exact publication or recovery semantics require a product decision not settled by current behavior and the approved plan."
+      - "The implementation requires runtime switching, feedback, settings, Compose, SQLite deletion, jobs, outbox, or profile/product changes."
+      - "A PostgreSQL publication operation becomes reachable from a tool or live runtime caller, or the active SQLite path gains a backend conditional."
+      - "A generic persistence abstraction, backend switch, dual write, fallback, importer, provider call in a transaction, or broad exception framework appears necessary."
+      - "A focused real PostgreSQL failure repeats twice for a non-mechanical reason."
+      - "The Stockholm time is too close to 23:50 to finish the current safe unit; write a durable handoff and stop."
+  - id: T090
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: high
+    objective: "Generalize the public Review Agent product and make the shipped Hermes deployment profile straightforward to select and customize without weakening fixed runtime invariants."
+    constraints:
+      - "Use the generic product name Review Agent; retain sundsvall-standard and legitimate sundsvallskommun deployment examples as the initial municipal profile."
+      - "Follow Hermes-native ownership: SOUL.md for durable identity and voice, AGENTS.md for stable review rules/context, and reviewed skills for procedure."
+      - "Support language and presentation only through a small validated profile contract where deterministic rendering needs it; do not let free-form templates alter markers or lifecycle protocols."
+      - "Keep authorization, tool availability, snapshot checks, persistence, publication, and security ceilings fixed outside profile control."
+      - "A selected profile may contribute only explicitly validated presentation and reviewed-skill keys; managed config keeps precedence and profiles never merge authorization, toolset, route delivery, model/provider, prompt-trust, marker, or lifecycle settings."
+      - "Prefer one operator-selected profile bundle and existing installer primitives. Do not create a marketplace, dynamic code loader, plugin framework, generic template engine, or administration UI."
+      - "Run one Claude Opus/high architecture and commit gate when this task becomes active."
+    expected_output:
+      - "Organization-neutral product and documentation identity"
+      - "One simple documented deployment-profile selection/customization workflow"
+      - "Durable operator-owned SOUL.md, rules, language/presentation, and reviewed-skill ownership"
+      - "Sundsvall profile retained as a first-class shipped example"
+    verify:
+      - "Prove generic product naming does not rename the sundsvall-standard profile or legitimate municipal configuration."
+      - "Prove redeploy preserves the selected operator profile and rejects an unknown or invalid profile clearly."
+      - "Prove profile input cannot change authorization, enabled platform toolsets, delivery mode, snapshot checks, publication markers, or lifecycle protocols."
+      - "Run focused profile-bundle, installer, documentation-contract, site typecheck/build, and security-boundary tests."
+      - "Run one Claude Opus/high architecture and commit gate with score >= 8."
+    stop_if:
+      - "The implementation requires a marketplace, dynamic code loader, generic plugin or template framework, profile inheritance graph, or administration UI."
+      - "A profile can alter authorization, platform toolsets, delivery mode, prompt-trust rules, publication markers, persistence, or lifecycle protocols."
+      - "Language or presentation cannot vary without weakening deterministic publication or introducing free-form protocol templates; escalate that exact surface instead."
+    receipt: null
   - id: T999
     type: judge
     assignee: Judge
@@ -1450,6 +1557,7 @@ tasks:
       - "Read-only; do not implement."
       - "Do not silently narrow success to completed early tranches."
       - "Security integrations are excluded while the explicit deferral remains active."
+      - "Treat product-neutral naming and the bounded operator profile workflow in T090 as required direct-owner scope, while rejecting a generic plugin framework or configurable security invariants."
     expected_output:
       - "complete | not_complete"
       - "Requirement-by-requirement evidence"
@@ -1457,13 +1565,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "control-files-only-after-72f599c"
+  dirty_fingerprint: "control-files-only-after-682736e7"
   last_verification:
     result: pass
-    task: T027
+    task: T028
     commands:
-      - "69 real PostgreSQL 17 verification, reconciliation, coaching, concurrency, and rollback tests"
-      - "Python 3.11 strict Pyright and 567-test canonical bundle"
-      - "Node documentation type-check/build and published roadmap route checks"
-      - "Claude Opus/high session review-agent-t027-verification-coaching green at score 8"
-      - "Live Python bundle run 32701966716 and Publish documentation run 32701966733 green"
+      - "141 affected publication, failure-status, tool, suggestion, ownership, and direct-application tests"
+      - "Strict Pyright and 569-test canonical bundle"
+      - "Parent/candidate three-part publication plus supersession payloads byte-identical"
+      - "Claude Opus/high session review-agent-t028-publication-ownership green at score 8"
+      - "Live Python bundle run 32705578215 and Publish documentation run 32705578272 green"

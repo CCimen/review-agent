@@ -1,11 +1,12 @@
-# Build the Sundsvall Review Platform
+# Build the Review Agent Platform
 
 ## Objective
 
-Build the maintainable, organization-wide Sundsvall Review Agent described by
-the approved refactor plans. Start by publishing clear, attractive operator and
-developer documentation, then continue through the maintainability-first
-architecture tranches without weakening the proven review contract.
+Build a maintainable, reusable Review Agent platform, with
+`sundsvall-standard` as the first shipped deployment profile for Sundsvalls
+kommun. Start by publishing clear operator and developer documentation, then
+continue through the maintainability-first architecture tranches without
+weakening the proven review contract.
 
 ## Goal Kind
 
@@ -13,11 +14,10 @@ architecture tranches without weakening the proven review contract.
 
 ## Current Tranche
 
-The PostgreSQL repository-to-review-run transaction, normalized coverage, stable
-finding memory, best-effort optional suggestions, context-matched human
-decisions, provider-neutral verification, immutable reconciliation, and exact
-coach-run evidence are complete. Publication ownership separation is the next
-active slice. PostgreSQL publication persistence, feedback, configuration and
+The PostgreSQL repository-to-review-run transaction, normalized coverage,
+finding memory, optional suggestions, human decisions, verification,
+reconciliation, and coaching are complete. Publication ownership is separated.
+PostgreSQL publication persistence is active next; feedback, configuration and
 Compose switching, runtime cutover, and SQLite deletion remain later slices.
 
 ## Approved Sequencing Input
@@ -42,9 +42,20 @@ scanner/Codex Security integration is deferred until the owner resumes it.
   deterministic publication.
 - Prioritize a maintainable modular monolith. Add a seam only for a real current
   variation or boundary; do not scaffold a directory tree for appearances.
-- The platform owns one municipal `SOUL.md`. Repository-specific review context
-  will come from trusted base-branch configuration and `AGENTS.md`, never from a
-  PR-head `SOUL.md` or repository-name conditionals.
+- Keep the engine and public product identity organization-neutral. Ship
+  `sundsvall-standard` as the initial profile rather than hard-coding Sundsvall
+  into engine behavior or the product name.
+- A deployment profile owns the Hermes `SOUL.md`, stable review rules, procedure,
+  language and presentation choices, and explicitly enabled reviewed skills.
+  Authorization, tool limits, exact-snapshot enforcement, durable state,
+  deterministic publication, and security ceilings remain fixed engine/runtime
+  invariants that a profile cannot weaken.
+- Make profile customization a later bounded operator workflow using Hermes'
+  native `HERMES_HOME` files and existing profile bundle. Do not build a generic
+  plugin framework, template language, dynamic code loader, or administration
+  UI without demonstrated need. Repository-specific context will come from the
+  trusted base branch and `AGENTS.md`, never a PR-head `SOUL.md` or
+  repository-name conditionals.
 - PostgreSQL is the approved canonical store: one database per environment,
   never one database per repository. The owner confirmed on 2026-08-21 that the
   reviewer has no production deployment or persisted production review state,

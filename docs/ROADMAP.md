@@ -24,7 +24,8 @@ behavior documented in the repository and verified by the shipped bundle.
 - A corrected first-write PostgreSQL schema, checksum-verifying migration
   runner, bounded runtime foundation, and a real PostgreSQL 17 CI contract for
   repository, immutable-subject, review-run, coverage, finding-memory,
-  suggestion, and human-decision operations.
+  suggestion, human-decision, verification, reconciliation, and coaching
+  operations.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -47,11 +48,13 @@ repository-to-review-run transaction and normalized changed-file and
 content-read coverage operations. Rename-stable finding identities, batched
 occurrences, repository-scoped resolution, pull-request-local references,
 bounded repeat history, best-effort validated suggestions, and context-matched
-audited decisions now run in CI too. PostgreSQL is not deployed: the active
-reviewer still uses SQLite. The runtime
-owns the typed database URL, explicitly opened bounded pool, connection
-safeguards, readiness, migration health, short transaction scope, and pool
-metrics. The application owner can exercise registry, review-run, inventory,
+audited decisions now run in CI too. Provider-neutral verifier attempts reject
+duplicate candidate verdicts and cross-run evidence, reconciliations freeze when
+publication preparation starts, and each coach run retains its exact immutable
+candidate set. PostgreSQL is not deployed: the active reviewer still uses
+SQLite. The runtime owns the typed database URL, explicitly opened bounded pool,
+connection safeguards, readiness, migration health, short transaction scope,
+and pool metrics. The application owner can exercise registry, review-run, inventory,
 diff-observation, source-range, finding-memory, optional-suggestion, and
 human-decision operations in integration tests without adding a backend switch,
 dual write, or fallback. Suggestion validation reads trusted head content with
@@ -76,8 +79,7 @@ Four gates protect the first authoritative PostgreSQL write:
 
 The remaining milestones are:
 
-1. Port verification, reconciliation, and coaching, followed by exact
-   publication payload delivery and feedback transactions.
+1. Port exact publication payload delivery and feedback transactions.
 2. Define the initial PostgreSQL replacement recovery path before switching.
    Recovery after PostgreSQL writes uses the previous PostgreSQL-compatible
    application image against the same database.

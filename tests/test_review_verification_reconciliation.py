@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "review_agent_tools"
@@ -111,6 +112,67 @@ class VerificationReconciliationTests(unittest.TestCase):
 
         self.assertEqual(publication["findings_count"], 1)
         self.assertIn(self.finding["title"], str(publication["markdown"]))
+
+    def test_verification_values_reject_invalid_evidence_before_persistence(
+        self,
+    ) -> None:
+        run_id = self.start_run()
+        recorded = self.record_finding(run_id)
+
+        with self.assertRaisesRegex(memory_db.ReviewMemoryError, "bundle_hash"):
+            memory_db.record_verification_run(
+                self.connection,
+                review_run_id=run_id,
+                bundle_hash="not-a-sha256-id",
+            )
+        with self.assertRaisesRegex(memory_db.ReviewMemoryError, "only applies"):
+            memory_db.record_verification_run(
+                self.connection,
+                review_run_id=run_id,
+                status="completed",
+                failure_code="timeout",
+            )
+        with self.assertRaisesRegex(memory_db.ReviewMemoryError, "required"):
+            memory_db.record_verification_run(
+                self.connection,
+                review_run_id=run_id,
+                status="failed",
+            )
+        with self.assertRaisesRegex(memory_db.ReviewMemoryError, "timezone"):
+            memory_db.record_verification_run(
+                self.connection,
+                review_run_id=run_id,
+                now=datetime(2026, 8, 24, 8, 0),
+            )
+
+        verifier = memory_db.record_verification_run(
+            self.connection,
+            review_run_id=run_id,
+        )
+        with self.assertRaisesRegex(memory_db.ReviewMemoryError, "between 0 and 1"):
+            memory_db.record_candidate_verification(
+                self.connection,
+                verification_run_id=int(verifier["id"]),
+                observation_id=int(recorded["observation_id"]),
+                verdict="confirmed",
+                confidence=1.1,
+            )
+        with self.assertRaisesRegex(memory_db.ReviewMemoryError, "required"):
+            memory_db.record_candidate_verification(
+                self.connection,
+                verification_run_id=int(verifier["id"]),
+                observation_id=int(recorded["observation_id"]),
+                verdict="refuted",
+                confidence=0.9,
+            )
+
+        attempts = self.connection.execute(
+            "SELECT count(*) FROM review_verification_runs"
+        ).fetchone()[0]
+        verdicts = self.connection.execute(
+            "SELECT count(*) FROM candidate_verifications"
+        ).fetchone()[0]
+        self.assertEqual((attempts, verdicts), (1, 0))
 
     def test_reconciliation_drop_excludes_candidate_from_publication(self) -> None:
         run_id = self.start_run()

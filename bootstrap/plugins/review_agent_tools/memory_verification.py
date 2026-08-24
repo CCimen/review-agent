@@ -4,50 +4,46 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime
-from typing import Any, Literal, cast, get_args
+from typing import Any
 
 try:
+    from .domain.verification import (
+        CandidateVerdict as CandidateVerdict,
+        ReconciliationDecision as ReconciliationDecision,
+        VerificationDomainError,
+        VerificationMode as VerificationMode,
+        VerificationStatus as VerificationStatus,
+        resolve_candidate_verification,
+        resolve_reconciliation,
+        resolve_verification_run,
+    )
     from .memory_validation import (
         ReviewMemoryError,
-        clean_multiline,
-        clean_text,
         isoformat,
+        utc_now,
     )
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
+    from domain.verification import (
+        CandidateVerdict as CandidateVerdict,
+        ReconciliationDecision as ReconciliationDecision,
+        VerificationDomainError,
+        VerificationMode as VerificationMode,
+        VerificationStatus as VerificationStatus,
+        resolve_candidate_verification,
+        resolve_reconciliation,
+        resolve_verification_run,
+    )
     from memory_validation import (
         ReviewMemoryError,
-        clean_multiline,
-        clean_text,
         isoformat,
+        utc_now,
     )
-
-
-VerificationMode = Literal["shadow", "advise", "gate"]
-VerificationStatus = Literal[
-    "skipped", "unavailable", "running", "completed", "failed"
-]
-CandidateVerdict = Literal["confirmed", "refuted", "needs_more_evidence"]
-ReconciliationDecision = Literal["publish", "drop"]
-
-VERIFICATION_MODES = frozenset(get_args(VerificationMode))
-VERIFICATION_STATUSES = frozenset(get_args(VerificationStatus))
-CANDIDATE_VERDICTS = frozenset(get_args(CandidateVerdict))
-RECONCILIATION_DECISIONS = frozenset(get_args(ReconciliationDecision))
 
 
 def _positive_id(value: int, *, field: str) -> int:
     if isinstance(value, bool) or int(value) < 1:
         raise ReviewMemoryError(f"{field} must be a positive integer")
     return int(value)
-
-
-def _one_of(value: str, *, field: str, allowed: frozenset[str]) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized not in allowed:
-        raise ReviewMemoryError(
-            f"{field} must be one of: {', '.join(sorted(allowed))}"
-        )
-    return normalized
 
 
 def _run_row(connection: sqlite3.Connection, review_run_id: int) -> dict[str, Any]:
@@ -121,24 +117,22 @@ def record_verification_run(
     """
     review_run_id = _positive_id(review_run_id, field="review_run_id")
     _run_row(connection, review_run_id)
-    verified_mode = cast(
-        VerificationMode,
-        _one_of(mode, field="mode", allowed=VERIFICATION_MODES),
+    try:
+        definition = resolve_verification_run(
+            provider=provider,
+            model=model,
+            mode=mode,
+            status=status,
+            bundle_hash=bundle_hash,
+            failure_code=failure_code,
+            now=now or utc_now(),
+        )
+    except VerificationDomainError as exc:
+        raise ReviewMemoryError(str(exc)) from exc
+    moment = isoformat(definition.started_at)
+    completed_at = (
+        isoformat(definition.completed_at) if definition.completed_at else None
     )
-    verified_status = cast(
-        VerificationStatus,
-        _one_of(status, field="status", allowed=VERIFICATION_STATUSES),
-    )
-    provider = clean_text(provider, field="provider", maximum=80, required=False)
-    model = clean_text(model, field="model", maximum=120, required=False)
-    bundle_hash = clean_text(
-        bundle_hash, field="bundle_hash", maximum=120, required=False
-    )
-    failure_code = clean_text(
-        failure_code, field="failure_code", maximum=120, required=False
-    )
-    moment = isoformat(now)
-    completed_at = None if verified_status == "running" else moment
     cursor = connection.execute(
         """
         INSERT INTO review_verification_runs (
@@ -148,12 +142,12 @@ def record_verification_run(
         """,
         (
             review_run_id,
-            provider,
-            model,
-            verified_mode,
-            verified_status,
-            bundle_hash,
-            failure_code,
+            definition.provider or "",
+            definition.model or "",
+            definition.mode,
+            definition.status,
+            definition.bundle_hash or "",
+            definition.failure_code or "",
             moment,
             completed_at,
         ),
@@ -185,27 +179,16 @@ def record_candidate_verification(
         review_run_id=review_run_id,
         observation_id=observation_id,
     )
-    verified_verdict = cast(
-        CandidateVerdict,
-        _one_of(verdict, field="verdict", allowed=CANDIDATE_VERDICTS),
-    )
     try:
-        confidence_value = float(confidence)
-    except (TypeError, ValueError) as exc:
-        raise ReviewMemoryError("confidence must be a number") from exc
-    if confidence_value < 0 or confidence_value > 1:
-        raise ReviewMemoryError("confidence must be between 0 and 1")
-    cleaned_counter = clean_multiline(
-        counter_evidence,
-        field="counter_evidence",
-        maximum=4000,
-        required=False,
-    )
-    if verified_verdict == "refuted" and not cleaned_counter:
-        raise ReviewMemoryError("refuted verdicts require counter_evidence")
-    cleaned_notes = clean_multiline(
-        notes, field="notes", maximum=2000, required=False
-    )
+        definition = resolve_candidate_verification(
+            verdict=verdict,
+            confidence=confidence,
+            counter_evidence=counter_evidence,
+            notes=notes,
+            now=now or utc_now(),
+        )
+    except VerificationDomainError as exc:
+        raise ReviewMemoryError(str(exc)) from exc
     cursor = connection.execute(
         """
         INSERT INTO candidate_verifications (
@@ -218,11 +201,11 @@ def record_candidate_verification(
             review_run_id,
             observation_id,
             observation["fingerprint"],
-            verified_verdict,
-            confidence_value,
-            cleaned_counter,
-            cleaned_notes,
-            isoformat(now),
+            definition.verdict,
+            definition.confidence,
+            definition.counter_evidence or "",
+            definition.notes or "",
+            isoformat(definition.created_at),
         ),
     )
     connection.commit()
@@ -255,20 +238,14 @@ def record_candidate_reconciliation(
         review_run_id=review_run_id,
         observation_id=observation_id,
     )
-    decision = cast(
-        ReconciliationDecision,
-        _one_of(
-            final_decision,
-            field="final_decision",
-            allowed=RECONCILIATION_DECISIONS,
-        ),
-    )
-    cleaned_reason = clean_multiline(
-        reason,
-        field="reason",
-        maximum=4000,
-        required=decision == "drop",
-    )
+    try:
+        definition = resolve_reconciliation(
+            final_decision=final_decision,
+            reason=reason,
+            now=now or utc_now(),
+        )
+    except VerificationDomainError as exc:
+        raise ReviewMemoryError(str(exc)) from exc
     verification_id: int | None = None
     if verification_run_id is not None:
         verification_id = _positive_id(
@@ -296,10 +273,10 @@ def record_candidate_reconciliation(
             review_run_id,
             observation_id,
             observation["fingerprint"],
-            decision,
-            cleaned_reason,
+            definition.final_decision,
+            definition.reason or "",
             verification_id,
-            isoformat(now),
+            isoformat(definition.created_at),
         ),
     )
     connection.commit()

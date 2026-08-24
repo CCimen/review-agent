@@ -23,6 +23,7 @@ _POOL_RECONNECT_TIMEOUT_SECONDS = 10.0
 _CONNECTION_OPTIONS = " ".join(
     (
         "-c timezone=UTC",
+        "-c default_transaction_isolation=read\\ committed",
         "-c statement_timeout=15000",
         "-c lock_timeout=2000",
         "-c idle_in_transaction_session_timeout=60000",
@@ -119,6 +120,8 @@ class PostgreSQLRuntime:
                     SELECT
                         current_setting('TimeZone') = 'UTC',
                         current_setting('application_name') = %s,
+                        current_setting('default_transaction_isolation')
+                            = 'read committed',
                         current_setting('statement_timeout')::interval
                             = interval '15 seconds',
                         current_setting('lock_timeout')::interval
@@ -130,11 +133,18 @@ class PostgreSQLRuntime:
                     """,
                     (_APPLICATION_NAME,),
                 ).fetchone()
-                if session is None or session[:5] != (True, True, True, True, True):
+                if session is None or session[:6] != (
+                    True,
+                    True,
+                    True,
+                    True,
+                    True,
+                    True,
+                ):
                     raise PostgreSQLNotReady(
                         "PostgreSQL connection settings do not match runtime invariants"
                     )
-                server_version = session[5]
+                server_version = session[6]
                 if not isinstance(server_version, int):
                     raise PostgreSQLNotReady(
                         "PostgreSQL server version could not be read"

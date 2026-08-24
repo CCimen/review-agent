@@ -83,6 +83,9 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
         self.assertEqual(readiness.server_version // 10_000, 17)
         self.assertEqual(readiness.applied_migration_version, 1)
         self.assertFalse(readiness.database_ahead)
+        with runtime.transaction() as connection:
+            isolation = connection.execute("SHOW transaction_isolation").fetchone()
+        self.assertEqual(isolation, ("read committed",))
         metrics = runtime.pool_metrics()
         self.assertTrue(metrics.open)
         self.assertGreaterEqual(metrics.size, 1)

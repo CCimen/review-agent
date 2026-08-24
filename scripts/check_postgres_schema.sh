@@ -59,6 +59,7 @@ REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/r
         tests.test_postgres_coverage \
         tests.test_postgres_findings \
         tests.test_postgres_publications \
+        tests.test_postgres_feedback \
         tests.test_postgres_suggestions_decisions \
         tests.test_postgres_verification_coaching
 

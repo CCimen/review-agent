@@ -91,17 +91,25 @@ Four gates protect the first authoritative PostgreSQL write:
   invalidated, suppressed, and not-checked outcome with its exact source
   occurrence and review run.
 
+The PostgreSQL feedback application transaction is now implemented in the
+integration contract but remains unreachable from the packaged runtime. It
+resolves only the current posted publication and exact current finding
+reference, commits an event with its decision or quality signal and audit in one
+short transaction, and returns the stored outcome for duplicate deliveries.
+GitHub reads and reactions remain outside that transaction.
+
 The remaining milestones are:
 
-1. Port feedback transactions without coupling them to publication delivery.
-2. Finish the runtime settings and deployment recovery contract. Recovery after
-   PostgreSQL writes uses the previous PostgreSQL-compatible application image
-   against the same database. The milestone “Define the initial PostgreSQL
-   replacement recovery path” is complete for publication delivery; this
-   remaining work makes that recovery contract deployable. The runtime caller
-   must retry `publish_failed` publications and reclaim `posting` only after the
-   prior poster is known to have stopped. Durable jobs later own reaping runs
-   left in `publishing` after a process exit.
+1. Complete PostgreSQL operational parity for historical publication
+   supersession, failure-status comments, and the bounded operator CLI.
+2. Define the initial PostgreSQL replacement recovery path as a deployable
+   contract and finish the runtime settings. At the first PostgreSQL cutover,
+   recovery means restoring PostgreSQL and redeploying the same compatible
+   revision. From the next PostgreSQL revision onward, the previous
+   PostgreSQL-compatible application image can run against the same database.
+   The runtime caller must retry `publish_failed` publications and reclaim
+   `posting` only after the prior poster is known to have stopped. Durable jobs
+   later own reaping runs left in `publishing` after a process exit.
 3. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
    review against a fresh database. The bounded provider repository ID
    acquisition must use trusted PR metadata before the repository-to-run
@@ -130,7 +138,7 @@ is not part of this application persistence replacement.
 ## Explicitly deferred
 
 The PostgreSQL runtime cutover, trusted project context and policy overlays,
-GitHub App migration, new feedback work, Codex Security, scanner workers, SARIF
-aggregation, and security artifact storage are deferred. Existing security
-controls stay in place, and deterministic scanners should continue to run
-independently in repository CI.
+GitHub App migration, live feedback switching, Codex Security, scanner workers,
+SARIF aggregation, and security artifact storage are deferred. Existing
+security controls stay in place, and deterministic scanners should continue to
+run independently in repository CI.

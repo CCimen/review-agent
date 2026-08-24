@@ -1660,10 +1660,14 @@ tasks:
       - bootstrap/plugins/review_agent_tools/postgres/decisions.py
       - bootstrap/plugins/review_agent_tools/postgres/feedback.py
       - bootstrap/plugins/review_agent_tools/postgres/publications.py
+      - bootstrap/plugins/review_agent_tools/postgres/runtime.py
       - bootstrap/plugins/review_agent_tools/review_feedback_application.py
       - tests/test_postgres_feedback.py
+      - tests/test_postgres_runtime.py
       - tests/test_postgres_schema.py
       - tests/test_feedback_ingestion.py
+      - scripts/check_postgres_schema.sh
+      - docs/ROADMAP.md
       - docs/goals/build-review-platform/**
     expected_output:
       - "Idempotent PostgreSQL feedback event transaction"
@@ -1718,6 +1722,7 @@ tasks:
       - "Keep Hermes HERMES_HOME state separate and unchanged."
       - "No backend selector, SQLite fallback, importer, dual write, or network/model call inside a database transaction."
       - "Preserve exact tool responses, snapshot protection, finding references, publication bytes, feedback authorization, failure status, supersession, and operator behavior."
+      - "Preserve short feedback transactions and publication lock ordering; recover explicitly if a lock timeout follows an external GitHub post."
     expected_output:
       - "PostgreSQL-only active review, publication, feedback, and operator callers"
       - "PostgreSQL-backed Compose deployment with migration/readiness ordering"

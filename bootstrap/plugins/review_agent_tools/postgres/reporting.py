@@ -39,6 +39,7 @@ from . import decisions as postgres_decisions
 
 
 EXPORT_SCHEMA_VERSION = 16
+VERIFICATION_SOURCE_SCHEMA_VERSION = 1
 
 
 class ReportingError(ValueError):
@@ -1038,13 +1039,6 @@ def verification_export_source(
 ) -> JsonObject:
     """Build the existing bounded private-verifier input from normalized rows."""
     _require_transaction(connection)
-    schema_version = connection.execute(
-        "SELECT max(version) FROM review_agent.schema_migrations"
-    ).fetchone()
-    if schema_version is None or not isinstance(schema_version[0], int):
-        raise VerificationExportUnavailable(
-            "PostgreSQL schema version could not be resolved"
-        )
     run = connection.execute(
         """
         SELECT run.id, repository.full_name, pull_request.number,
@@ -1097,7 +1091,7 @@ def verification_export_source(
         (publication[0],),
     ).fetchall()
     return {
-        "source_schema_version": schema_version[0],
+        "source_schema_version": VERIFICATION_SOURCE_SCHEMA_VERSION,
         "run": {
             "id": int(run[0]),
             "repository": str(run[1]),

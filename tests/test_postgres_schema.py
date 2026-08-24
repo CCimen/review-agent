@@ -15,6 +15,7 @@ from feedback_authorization import feedback_allowlist_version  # noqa: E402
 
 
 MIGRATION = PLUGIN / "postgres_migrations" / "001_initial.sql"
+MIGRATIONS = tuple(sorted((PLUGIN / "postgres_migrations").glob("*.sql")))
 CONTAINER = os.environ.get("REVIEW_AGENT_POSTGRES_CONTAINER", "")
 
 
@@ -52,9 +53,10 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         if not MIGRATION.is_file():
             raise AssertionError("PostgreSQL migration 001 is missing")
-        applied = psql(MIGRATION.read_text(encoding="utf-8"), check=False)
-        if applied.returncode != 0:
-            raise AssertionError(applied.stderr.strip())
+        for migration in MIGRATIONS:
+            applied = psql(migration.read_text(encoding="utf-8"), check=False)
+            if applied.returncode != 0:
+                raise AssertionError(applied.stderr.strip())
 
     def setUp(self) -> None:
         tables = psql(

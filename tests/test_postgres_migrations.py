@@ -34,30 +34,42 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
 
     def test_applies_once_and_records_the_exact_source_checksum(self) -> None:
         with psycopg.connect(DSN) as connection:
-            self.assertEqual(runner.apply_migrations(connection), (1,))
+            self.assertEqual(runner.apply_migrations(connection), (1, 2))
             self.assertEqual(runner.apply_migrations(connection), ())
-            row = connection.execute(
+            rows = connection.execute(
                 """
                 SELECT version, name, checksum, applied_at IS NOT NULL
                 FROM review_agent.schema_migrations
+                ORDER BY version
                 """
-            ).fetchone()
-            repository_table = connection.execute(
-                "SELECT to_regclass('review_agent.repositories')::text"
+            ).fetchall()
+            tables = connection.execute(
+                "SELECT to_regclass('review_agent.repositories')::text, "
+                "to_regclass('review_agent.review_jobs')::text"
             ).fetchone()
 
         self.assertEqual(
-            row,
+            rows,
+            [
+                (
+                    version,
+                    name,
+                    hashlib.sha256((MIGRATIONS / name).read_bytes()).hexdigest(),
+                    True,
+                )
+                for version, name in (
+                    (1, "001_initial.sql"),
+                    (2, "002_review_jobs.sql"),
+                )
+            ],
+        )
+        self.assertEqual(
+            tables,
             (
-                1,
-                "001_initial.sql",
-                hashlib.sha256(
-                    (MIGRATIONS / "001_initial.sql").read_bytes()
-                ).hexdigest(),
-                True,
+                "review_agent.repositories",
+                "review_agent.review_jobs",
             ),
         )
-        self.assertEqual(repository_table, ("review_agent.repositories",))
 
     def test_rejects_an_applied_migration_whose_source_changed(self) -> None:
         with psycopg.connect(DSN) as connection:
@@ -81,7 +93,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (1,))
+        self.assertEqual(count, (2,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

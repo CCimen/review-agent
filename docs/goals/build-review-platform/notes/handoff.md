@@ -20,22 +20,27 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   reads use pageable or honestly incomplete contracts. One native plugin setting
   owns complete diff/source page-result capacity, while GitHub, storage, request,
   publication, and security boundaries remain explicit.
-- T999 is active for the full approved-plan audit. It must compare every direct
-  owner decision and approved plan with current source and receipts, and add
-  bounded implementation tasks if material work remains rather than declaring
-  completion from the existing board count.
+- T999 completed with `not_complete`; its requirement-by-requirement evidence is
+  in `notes/T999-full-platform-audit.md`. T100 is the sole active task and ports
+  feedback event processing to one PostgreSQL transaction without switching the
+  deployed runtime.
 
 ## Execution boundary
 
-- Keep T999 read-only. Audit `refactor-plan1.md` and the three owner-supplied plan
-  documents against current source, receipts, and direct decisions.
+- Work only on T100. Reuse the existing PostgreSQL publication, finding, and
+  decision owners, and add one concrete feedback owner for the missing
+  transaction. Keep it unreachable from the live runtime until T101.
 - The direct PostgreSQL decision supersedes SQLite migration or compatibility
   proposals: the product is not in production, so remaining SQLite runtime code
   must be treated as deletion/cutover work, not preserved legacy behavior.
 - Keep deferred security-scanner/Codex Security integration out of completion
   while its explicit deferral remains active.
-- If the goal is not complete, add only evidence-backed bounded tasks in approved
-  dependency order and activate one. Do not implement during the T999 audit.
+- The ordered remaining core path is T100 PostgreSQL feedback, T101 operational
+  parity (historical supersession, failure-status comments, and operator CLI),
+  T102 atomic runtime/Compose cutover, T103 controlled recovery proof, T104
+  SQLite deletion, T105 durable queue schema, T106 worker lifecycle/recovery,
+  T107 supersession/fairness/fast enqueue, T108 publication outbox, and T109
+  final audit.
 
 ## Continuity
 
@@ -43,8 +48,8 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   59 focused active-publication tests, docs contract, and site typecheck passed.
 - Claude session `review-agent-t029-postgresql-publications`, UUID
   `92fe6e53-5c85-4375-a8b3-c01c5981f2c4`, converged from score 4 to green at
-  score 8 in one correction and resume. Start one new Opus/high session only at
-  T090's stable architecture/commit gate.
+  score 8 in one correction and resume. Use one resumable Opus/high session at
+  each later stable task gate; do not review intermediate edits.
 - The runtime caller later owns retry/reap policy for interrupted publication.
   PostgreSQL historical supersession rendering remains required before cutover.
 - T090 evidence: strict Pyright, 588-test bundle, 42 focused contracts, docs,

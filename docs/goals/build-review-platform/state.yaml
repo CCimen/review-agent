@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Operational capacity ownership is complete; the full approved-plan audit is active."
+  tranche: "The full-plan audit is complete; PostgreSQL feedback is the active cutover prerequisite."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-24T09:55:34Z"
   last_verified_revision: "e35946cd2f932058f446c05c1fea26ef7356117e"
 
-active_task: T999
+active_task: T100
 
 tasks:
   - id: T001
@@ -1607,7 +1607,7 @@ tasks:
   - id: T999
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: xhigh
     objective: "Audit the full platform goal against the approved plans and direct owner decisions."
     inputs:
@@ -1624,6 +1624,268 @@ tasks:
       - "complete | not_complete"
       - "Requirement-by-requirement evidence"
       - "Missing work or explicit external blockers"
+    receipt:
+      result: not_complete
+      note: "notes/T999-full-platform-audit.md"
+      summary: "Confirmed the implemented architecture through PostgreSQL publication planning and identified nine bounded core implementation slices plus a final audit before the approved goal is complete."
+      evidence:
+        - "The live review and feedback paths plus Compose still use SQLite application state."
+        - "No controlled PostgreSQL cutover/restore proof, durable job lifecycle, or transactional publication outbox exists yet."
+        - "GitHub App, repository policy overlays, Slack, scanners, and Codex Security remain explicitly deferred rather than silently entering the core completion path."
+      spawned_tasks:
+        - T100
+        - T101
+        - T102
+        - T103
+        - T104
+        - T105
+        - T106
+        - T107
+        - T108
+        - T109
+  - id: T100
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Port feedback event processing, human decisions, quality signals, and audit to one PostgreSQL transaction behind the existing feedback behavior boundary."
+    constraints:
+      - "Preserve the current signed-webhook authorization, command grammar, public confirmations, and post-commit GitHub reaction behavior."
+      - "Reuse the existing PostgreSQL publication, finding, and decision owners; add one concrete feedback owner only where the transaction is currently missing."
+      - "Keep PostgreSQL feedback unreachable from the deployed runtime until the separate atomic cutover task."
+      - "Do not add a backend interface, selector, fallback, importer, dual write, or SQLite migration path."
+      - "Do not hold a database connection during GitHub reads or writes."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/**
+      - bootstrap/plugins/review_agent_tools/postgres/decisions.py
+      - bootstrap/plugins/review_agent_tools/postgres/feedback.py
+      - bootstrap/plugins/review_agent_tools/postgres/publications.py
+      - bootstrap/plugins/review_agent_tools/review_feedback_application.py
+      - tests/test_postgres_feedback.py
+      - tests/test_postgres_schema.py
+      - tests/test_feedback_ingestion.py
+      - docs/goals/build-review-platform/**
+    expected_output:
+      - "Idempotent PostgreSQL feedback event transaction"
+      - "Exact current-publication and local-reference resolution"
+      - "Atomic decision/quality-feedback/audit persistence"
+      - "Focused real PostgreSQL behavior tests"
+    verify:
+      - "Duplicate feedback events return their durable prior outcome without duplicate decisions or quality rows."
+      - "Superseded publications and stale finding contexts cannot receive feedback."
+      - "Missed-issue feedback records without a finding; GitHub reactions occur only after commit."
+      - "Run focused PostgreSQL feedback and bridge tests, strict Pyright, the canonical bundle, docs checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "Current feedback behavior cannot be represented by the reviewed PostgreSQL schema without a new product decision."
+      - "A database transaction would need to span a GitHub request."
+      - "The change requires runtime switching, Compose, SQLite deletion, jobs, outbox, or a generic persistence abstraction."
+    receipt: null
+  - id: T101
+    type: pm
+    assignee: PM
+    status: pending
+    reasoning_hint: high
+    objective: "Complete PostgreSQL operational parity for historical publication supersession, failure-status comments, and the existing operator CLI before runtime cutover."
+    constraints:
+      - "Deepen the existing PostgreSQL publication and review-run owners; do not add a generic repository interface or backend selector."
+      - "Port the shipped operator CLI's observable inspection, decision, and mark-stalled behavior instead of creating a new administration surface."
+      - "Keep all PostgreSQL parity paths unreachable from the deployed runtime until T102."
+      - "Do not hold a database connection while rewriting GitHub comments."
+    expected_output:
+      - "PostgreSQL historical supersession query, state, and failure recording"
+      - "PostgreSQL failure-status comment record, list, and clear operations"
+      - "Operator CLI commands backed by PostgreSQL reporting and application owners"
+      - "No split-brain SQLite decision or stale-run command after cutover"
+    verify:
+      - "A second review supersedes the prior PostgreSQL publication and rewrites its comments to the historical form; missing comments record the existing supersession failure code."
+      - "Failed-run status comments can be recorded, enumerated, and cleared without a SQLite owner."
+      - "Operator inspection, decision, and mark-stalled commands use REVIEW_AGENT_DATABASE_URL and preserve their documented observable behavior."
+      - "Run focused PostgreSQL publication/run/reporting/CLI tests, strict Pyright, the canonical bundle, docs checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "A shipped operator behavior has no stable PostgreSQL/application owner and requires a product decision."
+      - "The change requires Compose, active runtime switching, SQLite deletion, jobs, or outbox."
+      - "A PostgreSQL connection would need to span a GitHub write."
+    receipt: null
+  - id: T102
+    type: pm
+    assignee: PM
+    status: pending
+    reasoning_hint: high
+    objective: "Switch the packaged review and feedback runtimes plus Compose atomically to PostgreSQL as the only active Review Agent application store."
+    constraints:
+      - "Use the existing PostgreSQL runtime and operation modules directly from the current application owners."
+      - "Replace REVIEW_AGENT_DB, review-memory-init, and review_memory_data with REVIEW_AGENT_DATABASE_URL, PostgreSQL readiness, and the authoritative migration service."
+      - "Keep Hermes HERMES_HOME state separate and unchanged."
+      - "No backend selector, SQLite fallback, importer, dual write, or network/model call inside a database transaction."
+      - "Preserve exact tool responses, snapshot protection, finding references, publication bytes, feedback authorization, failure status, supersession, and operator behavior."
+    expected_output:
+      - "PostgreSQL-only active review, publication, feedback, and operator callers"
+      - "PostgreSQL-backed Compose deployment with migration/readiness ordering"
+      - "Explicit startup and shutdown ownership for the bounded pool"
+      - "Updated current-state operator and public documentation"
+    verify:
+      - "All live Review Agent application persistence resolves through REVIEW_AGENT_DATABASE_URL, including the operator CLI."
+      - "Compose has no SQLite application volume or initializer and exposes no public database port."
+      - "Run focused runtime/Compose/PostgreSQL integration tests, exact output checks, strict Pyright, the canonical bundle, docs/site checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "Atomic cutover would leave a live operation with no PostgreSQL equivalent."
+      - "Rollback would require SQLite or a dual-backend window."
+      - "A PostgreSQL connection must remain open across provider or model work."
+    receipt: null
+  - id: T103
+    type: pm
+    assignee: PM
+    status: pending
+    reasoning_hint: high
+    objective: "Prove the fresh PostgreSQL runtime, deterministic recovery, feedback, backup, restore, and first-cutover recovery as one controlled end-to-end contract."
+    constraints:
+      - "Use disposable local/CI PostgreSQL data only; the product has no production state to migrate."
+      - "Test observable lifecycle and recovery behavior rather than internal wiring."
+      - "For the first PostgreSQL cutover, prove backup/restore plus redeployment of the same compatible revision; require previous-image readiness only from the second PostgreSQL revision onward."
+      - "Document exact operator commands, evidence, and recovery boundaries without claiming an external production rollout."
+    expected_output:
+      - "Fresh migration-to-review-to-feedback proof"
+      - "Ambiguous publication and historical-supersession recovery proof"
+      - "Backup and restore proof into a fresh PostgreSQL instance"
+      - "Same-revision first-cutover recovery procedure"
+    verify:
+      - "A controlled exact-snapshot review persists coverage/findings, publishes deterministically, supersedes prior comments correctly, and accepts feedback."
+      - "A kill after GitHub success but before acknowledgement recovers without duplicate output."
+      - "Backup restores into a fresh instance and the same PostgreSQL-compatible runtime passes migration health and readiness against it."
+      - "Run the proportional end-to-end contract, bundle, docs/site checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "The proof requires unpublished production credentials or destructive external operations."
+      - "The restored database cannot satisfy the same revision's migration and readiness contract."
+    receipt: null
+  - id: T104
+    type: pm
+    assignee: PM
+    status: pending
+    reasoning_hint: high
+    objective: "Delete the now-unreachable Review Agent SQLite implementation, compatibility facade, operational contract, and implementation-detail tests."
+    constraints:
+      - "Preserve pure validation, rendering, finding identity, suggestions, feedback authorization, replay fixtures, and deterministic publication behavior under their surviving owners."
+      - "Preserve the PostgreSQL-backed operator CLI delivered by T101."
+      - "Do not delete or rename Hermes profile-local state.db; it is not Review Agent application persistence."
+      - "Delete rather than retain compatibility wrappers, legacy SQLite commands, migration comments, or a SQLite rollback path."
+    expected_output:
+      - "No Review Agent runtime import of sqlite3"
+      - "No REVIEW_AGENT_DB, review_memory_data, review-memory-init, or SQLite application CLI path"
+      - "Behavior tests retained at PostgreSQL/application boundaries"
+      - "Current documentation names PostgreSQL as canonical application state"
+    verify:
+      - "Repository searches prove the deleted SQLite application contract is absent, except accurate historical receipts or explicit Hermes state.db distinctions."
+      - "Run strict Pyright, the canonical bundle, PostgreSQL contracts, replay, docs/site checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "A live behavior still has only a SQLite owner."
+      - "Deletion would remove a pure behavior contract without a PostgreSQL/application replacement."
+    receipt: null
+  - id: T105
+    type: pm
+    assignee: PM
+    status: pending
+    reasoning_hint: high
+    objective: "Add the minimal PostgreSQL durable-job schema, idempotent enqueue, and atomic lease-generation claim contract."
+    constraints:
+      - "Use PostgreSQL row locking and existing review identities; do not add Redis, RabbitMQ, Kafka, or a generic queue port."
+      - "Keep this slice to schema and cohesive queue operations; worker processes belong to the next task."
+      - "Add only fields needed by the approved current lifecycle and explicit recovery behavior."
+    expected_output:
+      - "Forward migration for review jobs"
+      - "Idempotent enqueue and atomic claim"
+      - "Lease generation and partial indexes"
+      - "Focused concurrency and invalid-transition tests"
+    verify:
+      - "Concurrent claimers cannot own the same lease generation."
+      - "Duplicate requests create one accepted job and a new head supersedes queued old-head work."
+      - "Run real PostgreSQL queue contracts, migration checks, bundle/docs checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "The schema requires speculative analyzer, tenant, artifact, or notification concepts."
+      - "A non-PostgreSQL broker or generic queue abstraction appears necessary."
+    receipt: null
+  - id: T106
+    type: pm
+    assignee: PM
+    status: pending
+    reasoning_hint: high
+    objective: "Add the durable review-worker lifecycle, heartbeat, crash recovery, retry classification, dead letter, and graceful shutdown on the PostgreSQL queue."
+    constraints:
+      - "Reuse the existing exact-snapshot review application; do not duplicate review orchestration in the worker."
+      - "Keep this slice to claim/heartbeat/complete/fail/reap lifecycle and bounded metrics; supersession and fairness belong to T107."
+      - "Do not add a scheduler framework or another message broker."
+    expected_output:
+      - "Worker claim/heartbeat/complete/fail lifecycle"
+      - "Lease-expiry reaper and retry/dead-letter behavior"
+      - "Graceful shutdown and bounded lifecycle metrics"
+      - "Crash-recovery process contract"
+    verify:
+      - "Killing a worker during provider work makes the job claimable after expiry without creating a second active review or publication."
+      - "Retryable and terminal failures transition deterministically and graceful shutdown stops new claims."
+      - "Run focused process/concurrency/recovery tests, the canonical bundle, docs/site checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "Hermes cannot execute a claimed durable job without an upstream contract decision."
+      - "The slice requires supersession/fairness policy, scanners, GitHub App, Slack, or another broker."
+    receipt: null
+  - id: T107
+    type: pm
+    assignee: PM
+    status: pending
+    reasoning_hint: high
+    objective: "Add old-head supersession, per-repository fairness, fast durable request acknowledgement, priority aging, and operator queue inspection."
+    constraints:
+      - "Use the concrete PostgreSQL job owner and existing operator CLI; do not add a scheduler or administration framework."
+      - "Start with one active review per repository and a bounded global queue; tune concurrency only from measured queue age and provider capacity."
+      - "Old-head queued or running work must never publish after supersession."
+    expected_output:
+      - "Fast idempotent durable enqueue response"
+      - "New-head cancellation and stale-publication prevention"
+      - "Per-repository fairness and priority aging"
+      - "Operator queue list/retry/cancel inspection controls"
+    verify:
+      - "Duplicate requests and new-head bursts remain idempotent and fair across repositories."
+      - "A superseded job cannot publish even when its worker resumes after lease recovery."
+      - "Run focused concurrency/supersession/operator tests, the canonical bundle, docs/site checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "A safe acknowledgement boundary requires a GitHub App or another external control plane."
+      - "The slice requires scanners, Slack, or another broker."
+    receipt: null
+  - id: T108
+    type: pm
+    assignee: PM
+    status: pending
+    reasoning_hint: high
+    objective: "Persist publication readiness and outbox intent atomically, then deliver exact stored parts through one recoverable publisher worker."
+    constraints:
+      - "Reuse the existing PostgreSQL publication plan, part, direct-ID, and marker recovery owners."
+      - "Keep GitHub as the only current delivery sink; do not build a generic notification bus."
+      - "No provider call inside the database transaction and no duplicate publication path."
+    expected_output:
+      - "Transactional publication outbox intent"
+      - "Atomic claim and independently acknowledged exact parts"
+      - "Ambiguous-delivery replay without duplicate GitHub objects"
+      - "Queue age, retry, failure, and recovery metrics"
+    verify:
+      - "Killing the publisher after GitHub success but before DB acknowledgement recovers exact external objects without duplication."
+      - "Publication readiness cannot commit without its outbox event."
+      - "Run real PostgreSQL outbox/recovery contracts, the canonical bundle, docs/site checks, and one Claude Opus/high gate with score >= 8."
+    stop_if:
+      - "The implementation would create another publication serializer or GitHub delivery subsystem."
+      - "A generic event bus or deferred integration schema appears necessary."
+    receipt: null
+  - id: T109
+    type: judge
+    assignee: Judge
+    status: pending
+    reasoning_hint: xhigh
+    objective: "Audit the finished core platform against the approved corrected plan, direct owner decisions, live documentation, and recovery evidence."
+    constraints:
+      - "Read-only; do not implement."
+      - "Require PostgreSQL-only Review Agent application state, durable jobs, and transactional publication delivery before completion."
+      - "Do not reopen explicitly deferred GitHub App, repository policy overlay, Slack, scanner, or Codex Security work."
+    expected_output:
+      - "complete | not_complete"
+      - "Requirement-by-requirement source and verification evidence"
+      - "Any direct blockers or deliberately deferred follow-on roadmap"
     receipt: null
 
 checks:

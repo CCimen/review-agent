@@ -18,9 +18,11 @@ The PostgreSQL repository-to-review-run transaction, normalized coverage,
 finding memory, optional suggestions, human decisions, verification,
 reconciliation, and coaching are complete. Publication ownership is separated.
 PostgreSQL publication persistence, product-neutral naming, and the bounded
-Hermes-native deployment profile are complete. An audit of model-era operational
-ceilings is active. Feedback, configuration and Compose
-switching, runtime cutover, and SQLite deletion remain later slices.
+Hermes-native deployment profile are complete. Model-era operational ceilings
+have been replaced with exact continuation and honest bounded behavior. The
+full-plan audit found that PostgreSQL feedback, publication/runtime operational
+parity, configuration and Compose switching, recovery proof, SQLite deletion,
+durable jobs, and the publication outbox remain.
 
 ## Approved Sequencing Input
 
@@ -66,10 +68,11 @@ scanner/Codex Security integration is deferred until the owner resumes it.
 - Run the full Python bundle in CI before persistence work. Sequence the narrow
   persistence and transaction contract, migration invariants, PostgreSQL schema
   and runtime ownership, runtime/configuration/Compose switch, and deletion of
-  SQLite code separately. Define initial replacement recovery before switching;
-  after PostgreSQL writes, rollback uses the previous PostgreSQL-compatible
-  application image against the same database. Jobs, leases, and the outbox
-  follow later.
+  SQLite code separately. Define initial replacement recovery before switching.
+  At the first PostgreSQL write, recover by restoring and redeploying the same
+  compatible revision; from the next PostgreSQL revision onward, rollback may
+  use the previous compatible image against the same database. Jobs, leases,
+  and the outbox follow later.
 - Defer Codex Security, scanner workers, scanner aggregation, and security
   artifact storage. Do not weaken existing security controls.
 - Use proportional behavior and contract tests. Do not add broad test matrices

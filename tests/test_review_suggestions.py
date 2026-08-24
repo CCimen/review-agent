@@ -10,7 +10,11 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import memory_db, memory_suggestions  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    memory_db,
+    memory_suggestions,
+    suggestion_validation,
+)
 
 
 class SuggestionValidationTests(unittest.TestCase):
@@ -38,8 +42,8 @@ class SuggestionValidationTests(unittest.TestCase):
         value.update(overrides)
         return value
 
-    def validate(self, **overrides: object) -> memory_suggestions.SuggestionValidation:
-        return memory_suggestions.validate_suggestion(
+    def validate(self, **overrides: object) -> suggestion_validation.SuggestionValidation:
+        return suggestion_validation.validate_suggestion(
             self.raw(**overrides),
             repository=self.repository,
             pr_number=self.pr_number,
@@ -64,6 +68,17 @@ class SuggestionValidationTests(unittest.TestCase):
             hashlib.sha256(b"safe = False").hexdigest(),
         )
 
+    def test_overlap_requires_the_same_path_and_intersecting_lines(self) -> None:
+        first = self.validate().suggestion
+        assert first is not None
+        second = dict(first, start_line=2, end_line=3)
+        separate = dict(first, start_line=3, end_line=3)
+        other_path = dict(first, path="src/other.py")
+
+        self.assertTrue(suggestion_validation.ranges_overlap(first, second))
+        self.assertFalse(suggestion_validation.ranges_overlap(first, separate))
+        self.assertFalse(suggestion_validation.ranges_overlap(first, other_path))
+
     def test_rejects_ambiguous_terminal_newline(self) -> None:
         result = self.validate(
             expected_text="safe = False\n", replacement_text="safe = True\n"
@@ -79,7 +94,7 @@ class SuggestionValidationTests(unittest.TestCase):
         self.assertEqual(result.rejection_reason, "suggestion_expected_text_mismatch")
 
     def test_rejects_context_only_range(self) -> None:
-        result = memory_suggestions.validate_suggestion(
+        result = suggestion_validation.validate_suggestion(
             self.raw(
                 start_line=1,
                 end_line=1,
@@ -123,7 +138,7 @@ class SuggestionValidationTests(unittest.TestCase):
         )
         for raw, reason in cases:
             with self.subTest(reason=reason):
-                result = memory_suggestions.validate_suggestion(
+                result = suggestion_validation.validate_suggestion(
                     raw,
                     repository=self.repository,
                     pr_number=self.pr_number,

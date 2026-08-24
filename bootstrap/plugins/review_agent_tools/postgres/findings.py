@@ -63,6 +63,8 @@ class RecordedFinding:
 
 @dataclass(frozen=True, slots=True)
 class FindingBatch:
+    """Recorded findings in the same order as the admitted definitions."""
+
     repository_id: RepositoryId
     pull_request_id: PullRequestId
     run_id: ReviewRunId

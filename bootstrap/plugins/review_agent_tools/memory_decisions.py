@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 try:
+    from .domain.finding import DecisionKind, suppression_is_active
     from .memory_identity import resolve_fingerprint
     from .memory_validation import (
         DECISIONS,
@@ -20,6 +21,7 @@ try:
         utc_now,
     )
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
+    from domain.finding import DecisionKind, suppression_is_active
     from memory_identity import resolve_fingerprint
     from memory_validation import (
         DECISIONS,
@@ -98,17 +100,22 @@ def active_suppression_from_decision(
     context_hash: str | None,
     now: datetime,
 ) -> dict[str, Any] | None:
-    if not decision or decision["decision"] not in SUPPRESSIVE_DECISIONS:
+    if not decision:
+        return None
+    try:
+        decision_kind = DecisionKind(str(decision["decision"]))
+    except ValueError:
         return None
     expires = parse_time(decision.get("expires_at"))
-    if expires is not None and expires <= now:
-        return None
-
     current_hash = context_hash or ""
     decision_hash = str(decision.get("context_hash") or "")
-    # A suppression is deliberately narrow: it applies only to the exact file
-    # version that a human reviewed. Any later file change forces re-validation.
-    if not current_hash or not decision_hash or current_hash != decision_hash:
+    if not suppression_is_active(
+        decision=decision_kind,
+        decision_context_hash=decision_hash,
+        current_context_hash=current_hash,
+        expires_at=expires,
+        now=now,
+    ):
         return None
     return decision
 

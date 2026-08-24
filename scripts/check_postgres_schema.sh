@@ -57,6 +57,7 @@ REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/r
         tests.test_postgres_runtime \
         tests.test_postgres_review_lifecycle \
         tests.test_postgres_coverage \
-        tests.test_postgres_findings
+        tests.test_postgres_findings \
+        tests.test_postgres_suggestions_decisions
 
 printf '%s\n' "PostgreSQL schema contract passed."

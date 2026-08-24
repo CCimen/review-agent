@@ -7,6 +7,7 @@ import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import NewType
@@ -16,6 +17,7 @@ from .review import ReviewRunId, resolve_review_path
 
 FindingId = NewType("FindingId", int)
 FindingOccurrenceId = NewType("FindingOccurrenceId", int)
+FindingDecisionId = NewType("FindingDecisionId", int)
 
 MAX_FINDINGS_PER_REVIEW = 200
 MIN_FINGERPRINT_PREFIX = 8
@@ -46,6 +48,25 @@ class FindingCategory(StrEnum):
     MAINTAINABILITY = "maintainability"
     PERFORMANCE = "performance"
     MIGRATION = "migration"
+
+
+class DecisionKind(StrEnum):
+    FALSE_POSITIVE = "false_positive"
+    INTENTIONAL_BY_DESIGN = "intentional_by_design"
+    ACCEPTED_RISK = "accepted_risk"
+    DUPLICATE = "duplicate"
+    RESOLVED = "resolved"
+    REOPEN = "reopen"
+
+
+SUPPRESSIVE_DECISION_KINDS = frozenset(
+    {
+        DecisionKind.FALSE_POSITIVE,
+        DecisionKind.INTENTIONAL_BY_DESIGN,
+        DecisionKind.ACCEPTED_RISK,
+        DecisionKind.DUPLICATE,
+    }
+)
 
 
 _SCORE_GATE = {
@@ -110,6 +131,30 @@ class FingerprintQuery:
 
 
 @dataclass(frozen=True, slots=True)
+class FindingDecisionDefinition:
+    decision: DecisionKind
+    reason: str
+    actor: str
+    adr_id: str | None
+    created_at: datetime
+    expires_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class FindingDecision:
+    id: FindingDecisionId
+    finding_id: FindingId
+    occurrence_id: FindingOccurrenceId | None
+    decision: DecisionKind
+    reason: str
+    actor: str
+    context_hash: str
+    adr_id: str | None
+    created_at: datetime
+    expires_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class RepeatFinding:
     fingerprint: str
     local_reference: str
@@ -157,6 +202,67 @@ def _multiline(value: str, *, field: str) -> str:
     if "\x00" in normalized or len(normalized) > maximum:
         raise FindingDomainError(f"{field} exceeds {maximum} characters")
     return normalized
+
+
+def resolve_decision(
+    *,
+    decision: str,
+    reason: str,
+    actor: str,
+    adr_id: str = "",
+    expires_days: int | None = None,
+    now: datetime,
+) -> FindingDecisionDefinition:
+    """Validate a human decision before any persistence checkout."""
+    try:
+        kind = DecisionKind(decision.strip().lower())
+    except ValueError as exc:
+        allowed = ", ".join(sorted(item.value for item in DecisionKind))
+        raise FindingDomainError(f"decision must be one of: {allowed}") from exc
+    clean_reason = reason.strip()
+    if not clean_reason or "\x00" in clean_reason or len(clean_reason) > 2_000:
+        raise FindingDomainError("reason must contain 1 to 2000 valid characters")
+    clean_actor = _single_line(actor, field="actor", maximum=200)
+    clean_adr = _single_line(
+        adr_id, field="adr_id", maximum=80, required=False
+    ) or None
+    if kind is DecisionKind.INTENTIONAL_BY_DESIGN and clean_adr is None:
+        raise FindingDomainError("intentional_by_design requires an ADR id")
+
+    expires_at: datetime | None = None
+    if kind in SUPPRESSIVE_DECISION_KINDS:
+        days = 180 if expires_days is None else expires_days
+        if isinstance(days, bool) or days < 1 or days > 3_650:
+            raise FindingDomainError("expires_days must be between 1 and 3650")
+        expires_at = now + timedelta(days=days)
+    elif expires_days is not None:
+        raise FindingDomainError("expires_days only applies to suppressive decisions")
+    return FindingDecisionDefinition(
+        decision=kind,
+        reason=clean_reason,
+        actor=clean_actor,
+        adr_id=clean_adr,
+        created_at=now,
+        expires_at=expires_at,
+    )
+
+
+def suppression_is_active(
+    *,
+    decision: DecisionKind,
+    decision_context_hash: str,
+    current_context_hash: str,
+    expires_at: datetime | None,
+    now: datetime,
+) -> bool:
+    """Apply a suppression only to the exact context a human reviewed."""
+    return (
+        decision in SUPPRESSIVE_DECISION_KINDS
+        and expires_at is not None
+        and expires_at > now
+        and bool(decision_context_hash)
+        and decision_context_hash == current_context_hash
+    )
 
 
 def _rule_id(value: str) -> str:

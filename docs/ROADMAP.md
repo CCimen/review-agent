@@ -4,7 +4,7 @@ slug: /roadmap
 title: Current and planned capabilities
 description: A clear boundary between the working reviewer and planned platform work.
 status: target
-last_verified: 2026-08-22
+last_verified: 2026-08-24
 ---
 
 # Current and planned capabilities
@@ -23,8 +23,8 @@ behavior documented in the repository and verified by the shipped bundle.
 - Full Python bundle CI for pull requests and changes to `main`.
 - A corrected first-write PostgreSQL schema, checksum-verifying migration
   runner, bounded runtime foundation, and a real PostgreSQL 17 CI contract for
-  repository, immutable-subject, review-run, coverage, and finding-memory
-  operations.
+  repository, immutable-subject, review-run, coverage, finding-memory,
+  suggestion, and human-decision operations.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -45,14 +45,20 @@ schema, migration runner, and read-only PostgreSQL runtime foundation milestone
 are implemented. That foundation is now deepened with the first cohesive
 repository-to-review-run transaction and normalized changed-file and
 content-read coverage operations. Rename-stable finding identities, batched
-occurrences, repository-scoped resolution, pull-request-local references, and
-bounded repeat history now run in CI too. PostgreSQL is not deployed: the active
+occurrences, repository-scoped resolution, pull-request-local references,
+bounded repeat history, best-effort validated suggestions, and context-matched
+audited decisions now run in CI too. PostgreSQL is not deployed: the active
 reviewer still uses SQLite. The runtime
 owns the typed database URL, explicitly opened bounded pool, connection
 safeguards, readiness, migration health, short transaction scope, and pool
 metrics. The application owner can exercise registry, review-run, inventory,
-diff-observation, source-range, and finding-memory operations in integration
-tests without adding a backend switch, dual write, or fallback.
+diff-observation, source-range, finding-memory, optional-suggestion, and
+human-decision operations in integration tests without adding a backend switch,
+dual write, or fallback. Suggestion validation reads trusted head content with
+no database connection held, persists accepted patches in a separate
+best-effort transaction, and keeps deletion patches valid. A suppressive human
+decision applies only to the exact reviewed context hash, while its decision and
+authorization audit commit or roll back together.
 
 Four gates protect the first authoritative PostgreSQL write:
 
@@ -70,9 +76,8 @@ Four gates protect the first authoritative PostgreSQL write:
 
 The remaining milestones are:
 
-1. Port finding suggestions, human decisions, verification, reconciliation,
-   and coaching, followed by exact publication payload delivery and feedback
-   transactions.
+1. Port verification, reconciliation, and coaching, followed by exact
+   publication payload delivery and feedback transactions.
 2. Define the initial PostgreSQL replacement recovery path before switching.
    Recovery after PostgreSQL writes uses the previous PostgreSQL-compatible
    application image against the same database.

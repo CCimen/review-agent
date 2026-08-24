@@ -66,6 +66,19 @@ apply independently.
 The model has no arbitrary GitHub mutation tool. Publication uses the dedicated
 publisher token through a narrow gateway.
 
+## Prepared durable execution
+
+The image includes a serial worker that claims PostgreSQL jobs with
+`FOR UPDATE SKIP LOCKED`, heartbeats one exact lease generation, and continues
+the assigned run through Hermes' authenticated chat API. A reclaimed generation
+uses a new request identity and fenced tool session. Retries within one
+generation remain idempotent, while PostgreSQL rejects the next mutable tool
+entry from an older generation after it loses its lease. Each operation keeps
+its own transactional guards, and the publication owner separately prevents
+duplicate delivery. This worker is tested but is
+not yet connected to the public request path; the current webhook still runs
+the review directly.
+
 ## Learn from explicit feedback
 
 Allowlisted maintainers can report false positives, scope problems, and missed

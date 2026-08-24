@@ -130,6 +130,16 @@ class DuplicateRun:
 RunStart = StartedRun | DuplicateRun
 
 
+@dataclass(frozen=True, slots=True)
+class LiveRunState:
+    """Persisted continuation point for one exact active review."""
+
+    run_id: int
+    phase: RunPhase
+    started_at: str
+    file_index: postgres_coverage.FileIndexSummary
+
+
 def start_run_in_transaction(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -225,7 +235,7 @@ def fail_claimed_job_in_transaction(
             connection, run_ids=(run.id,), status=run.status
         )
         job = changed[0] if changed else postgres_jobs.get_job(connection, job_id)
-        return postgres_jobs.JobFailureResult(job=job, run_failure_code=None)
+        raise postgres_jobs.ReviewJobLeaseLost(job)
 
     outcome = postgres_jobs.fail_claimed_job(
         connection,
@@ -501,6 +511,23 @@ def _require_live_scope(
     if scope.run.status.value != "running":
         raise ReviewRunError("run_id is not an active review run")
     return scope
+
+
+def load_live_run_state(
+    runtime: PostgreSQLRuntime, subject: RunSubject
+) -> LiveRunState:
+    """Load the exact active phase and its durable changed-file inventory."""
+    scope = _require_live_scope(runtime, subject)
+    with runtime.transaction() as connection:
+        file_index = postgres_coverage.file_index_summary(
+            connection, run_id=ReviewRunId(subject.run_id)
+        )
+    return LiveRunState(
+        run_id=subject.run_id,
+        phase=cast(RunPhase, scope.run.phase.value),
+        started_at=_timestamp(scope.run.started_at),
+        file_index=file_index,
+    )
 
 
 def advance_live_phase(

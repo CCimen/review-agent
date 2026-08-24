@@ -44,3 +44,11 @@ jobs:
 
       - name: Validate Python bundle
         run: ./scripts/check_bundle.sh
+
+      - name: Build container image
+        run: |
+          docker build --tag review-agent:ci .
+          docker run --rm --entrypoint /usr/local/bin/review-agent-worker \
+            review-agent:ci --help
+          docker run --rm --entrypoint /usr/local/bin/review-agent-hermes-contract \
+            review-agent:ci

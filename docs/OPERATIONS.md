@@ -114,6 +114,12 @@ them.
 
 ## Deploy In Dokploy
 
+The built image already contains `review-agent-worker`, but the current Compose
+deployment intentionally does not start it and keeps `API_SERVER_ENABLED=false`.
+Use the direct webhook path until the roadmap's admission, fairness, readiness,
+and operator controls are activated together; starting the binary independently
+would create an unsupported split deployment.
+
 Deploy `compose.yaml` as a Docker Compose application. Attach:
 
 - review domain -> service `hermes-review`, port `8644`;

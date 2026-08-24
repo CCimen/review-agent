@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier
+from unittest.mock import Mock
 
 import psycopg
 
@@ -25,6 +27,12 @@ from review_agent_tools.postgres import jobs, registry, review_runs  # noqa: E40
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
+from review_agent_tools.worker import (  # noqa: E402
+    HermesChatClient,
+    HermesRequestError,
+    ReviewWorker,
+    WorkerPolicy,
+)
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -406,6 +414,24 @@ class PostgreSQLJobTests(unittest.TestCase):
         assert leased.lease_expires_at is not None
         self.assertGreater(heartbeated.lease_expires_at, leased.lease_expires_at)
 
+        for owner, generation in (
+            ("another-worker", leased.lease_generation),
+            ("worker-heartbeat", leased.lease_generation + 1),
+        ):
+            with self.runtime.transaction() as connection:
+                with self.assertRaises(jobs.ReviewJobLeaseLost) as caught:
+                    jobs.heartbeat_job(
+                        connection,
+                        job_id=leased.id,
+                        lease_owner=owner,
+                        lease_generation=generation,
+                        lease_duration=timedelta(minutes=3),
+                    )
+            self.assertEqual(
+                caught.exception.current_job.lease_generation,
+                leased.lease_generation,
+            )
+
         with self.runtime.transaction() as connection:
             connection.execute(
                 """
@@ -484,6 +510,101 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.assertEqual(run.status, ReviewStatus.FAILED)
         self.assertEqual(run.failure_code, failure_codes.JOB_EXECUTION_FAILED)
 
+    def test_worker_tool_fence_requires_the_current_live_generation(self) -> None:
+        pull_request = self.pull_request(provider_id=1024, number=34)
+        subject = self.subject(pull_request, head_character="a")
+        started, accepted = self.accept_job(
+            pull_request,
+            subject,
+            request_key="github:manual:worker-tool-fence",
+        )
+        assert isinstance(accepted, jobs.EnqueuedJob)
+        with self.runtime.transaction() as connection:
+            leased = jobs.claim_next_job(
+                connection,
+                lease_owner="worker-tool-fence",
+                lease_duration=timedelta(minutes=2),
+            )
+            assert leased is not None
+            current = jobs.require_live_lease(
+                connection,
+                job_id=leased.id,
+                review_run_id=started.run.id,
+                lease_generation=leased.lease_generation,
+            )
+        self.assertEqual(current.id, leased.id)
+
+        with self.runtime.transaction() as connection:
+            with self.assertRaises(jobs.ReviewJobLeaseLost):
+                jobs.require_live_lease(
+                    connection,
+                    job_id=leased.id,
+                    review_run_id=started.run.id,
+                    lease_generation=leased.lease_generation + 1,
+                )
+
+        session = jobs.WorkerLeaseSession(
+            job_id=leased.id,
+            lease_generation=leased.lease_generation,
+        )
+        self.assertEqual(
+            jobs.WorkerLeaseSession.parse(session.encode()),
+            session,
+        )
+        self.assertIsNone(jobs.WorkerLeaseSession.parse("manual-session"))
+        with self.assertRaisesRegex(jobs.ReviewJobError, "malformed"):
+            jobs.WorkerLeaseSession.parse("review-agent-job-invalid")
+
+    def test_worker_stop_does_not_claim_another_job(self) -> None:
+        first_pull = self.pull_request(provider_id=1025, number=35)
+        first_subject = self.subject(first_pull, head_character="a")
+        first_run, _ = self.accept_job(
+            first_pull,
+            first_subject,
+            request_key="github:manual:stop-first",
+            priority=10,
+        )
+        second_pull = self.pull_request(provider_id=1026, number=36)
+        second_subject = self.subject(second_pull, head_character="c")
+        second_run, second_job = self.accept_job(
+            second_pull,
+            second_subject,
+            request_key="github:manual:stop-second",
+        )
+        stop = threading.Event()
+        client = Mock(spec=HermesChatClient)
+
+        def stop_during_first(*_args: object, **_kwargs: object) -> None:
+            stop.set()
+            raise HermesRequestError("stop probe", retryable=False)
+
+        client.review.side_effect = stop_during_first
+        worker = ReviewWorker(
+            self.runtime,
+            client,
+            WorkerPolicy(
+                lease_duration=timedelta(seconds=5),
+                heartbeat_interval=timedelta(seconds=1),
+                retry_delay=timedelta(seconds=1),
+                poll_interval=timedelta(milliseconds=10),
+                request_timeout=timedelta(seconds=2),
+                recovery_interval=timedelta(seconds=30),
+                recovery_batch_size=10,
+            ),
+            lease_owner="worker-stop-probe",
+            stop_event=stop,
+        )
+
+        worker.run()
+
+        with self.runtime.transaction() as connection:
+            first = review_runs.get_run(connection, first_run.run.id)
+            second = jobs.get_job(connection, second_job.job.id)
+        self.assertEqual(first.status, ReviewStatus.FAILED)
+        self.assertEqual(second.review_run_id, second_run.run.id)
+        self.assertEqual(second.status, jobs.ReviewJobStatus.QUEUED)
+        client.review.assert_called_once()
+
     def test_exhausted_retry_dead_letters_and_releases_the_active_run(self) -> None:
         pull_request = self.pull_request(provider_id=1017, number=27)
         subject = self.subject(pull_request, head_character="a")
@@ -516,7 +637,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.assertEqual(run.status, ReviewStatus.FAILED)
         self.assertEqual(run.failure_code, failure_codes.JOB_RETRY_EXHAUSTED)
 
-    def test_claimed_failure_reconciles_an_already_terminal_run(self) -> None:
+    def test_claimed_failure_reports_lease_loss_after_run_terminalization(self) -> None:
         pull_request = self.pull_request(provider_id=1023, number=33)
         subject = self.subject(pull_request, head_character="a")
         started, _ = self.accept_job(
@@ -532,19 +653,22 @@ class PostgreSQLJobTests(unittest.TestCase):
             )
             assert leased is not None
             review_runs.mark_superseded(connection, started.run.id)
-            outcome = review_run_application.fail_claimed_job_in_transaction(
-                connection,
-                job_id=leased.id,
-                lease_owner="worker-terminal-run",
-                lease_generation=leased.lease_generation,
-                failure_code=failure_codes.JOB_TERMINAL_EXECUTION,
-                retryable=False,
-                retry_delay=None,
-            )
+            with self.assertRaises(jobs.ReviewJobLeaseLost) as caught:
+                review_run_application.fail_claimed_job_in_transaction(
+                    connection,
+                    job_id=leased.id,
+                    lease_owner="worker-terminal-run",
+                    lease_generation=leased.lease_generation,
+                    failure_code=failure_codes.JOB_TERMINAL_EXECUTION,
+                    retryable=False,
+                    retry_delay=None,
+                )
 
-        self.assertEqual(outcome.job.status, jobs.ReviewJobStatus.SUPERSEDED)
-        self.assertIsNone(outcome.job.lease_owner)
-        self.assertIsNone(outcome.run_failure_code)
+        self.assertEqual(
+            caught.exception.current_job.status,
+            jobs.ReviewJobStatus.SUPERSEDED,
+        )
+        self.assertIsNone(caught.exception.current_job.lease_owner)
 
     def test_expiry_recovery_consumes_attempts_and_reconciles_terminal_runs(self) -> None:
         retry_pull = self.pull_request(provider_id=1018, number=28)

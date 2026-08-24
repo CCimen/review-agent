@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+import re
 from typing import TypeAlias
 
 import psycopg
@@ -37,6 +38,38 @@ class ReviewJobLeaseLost(ReviewJobError):
     def __init__(self, current_job: "ReviewJob") -> None:
         super().__init__("review job lease is no longer current")
         self.current_job = current_job
+
+
+_WORKER_SESSION_PREFIX = "review-agent-job-"
+_WORKER_SESSION_RE = re.compile(
+    r"^review-agent-job-([1-9][0-9]*)-lease-([1-9][0-9]*)$"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerLeaseSession:
+    """Trusted Hermes session identity for one durable job generation."""
+
+    job_id: int
+    lease_generation: int
+
+    def encode(self) -> str:
+        return (
+            f"{_WORKER_SESSION_PREFIX}{self.job_id}"
+            f"-lease-{self.lease_generation}"
+        )
+
+    @classmethod
+    def parse(cls, value: object) -> "WorkerLeaseSession | None":
+        session_id = str(value or "").strip()
+        if not session_id:
+            return None
+        matched = _WORKER_SESSION_RE.fullmatch(session_id)
+        if matched is not None:
+            return cls(job_id=int(matched[1]), lease_generation=int(matched[2]))
+        if session_id.startswith(_WORKER_SESSION_PREFIX):
+            raise ReviewJobError("worker session identity is malformed")
+        return None
 
 
 class ReviewJobStatus(str, Enum):
@@ -217,6 +250,40 @@ def get_job(
     return _job(row)
 
 
+def require_live_lease(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    job_id: int,
+    review_run_id: ReviewRunId,
+    lease_generation: int,
+) -> ReviewJob:
+    """Validate the worker generation carried by one Hermes tool session."""
+    _require_transaction(connection)
+    resolved_job_id = _integer(job_id, field="job_id", minimum=1)
+    resolved_run_id = ReviewRunId(
+        _integer(review_run_id, field="review_run_id", minimum=1)
+    )
+    generation = _integer(
+        lease_generation, field="lease_generation", minimum=1
+    )
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            SELECT {_JOB_COLUMNS}
+            FROM review_agent.review_jobs
+            WHERE id = %s
+              AND review_run_id = %s
+              AND status = 'leased'
+              AND lease_generation = %s
+              AND lease_expires_at > statement_timestamp()
+            """,
+            (resolved_job_id, resolved_run_id, generation),
+        ).fetchone()
+    if row is None:
+        raise ReviewJobLeaseLost(get_job(connection, resolved_job_id))
+    return _job(row)
+
+
 def enqueue_run(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -253,12 +320,15 @@ def enqueue_run(
     if pull_request is None:
         raise ReviewJobError("review run pull request does not exist")
 
-    with connection.cursor(row_factory=class_row(_ReviewRunScopeRow)) as cursor:
-        locked_run = cursor.execute(
-            "SELECT id, pull_request_id, status FROM review_agent.review_runs "
-            "WHERE id = %s",
-            (resolved_run_id,),
-        ).fetchone()
+    try:
+        with connection.cursor(row_factory=class_row(_ReviewRunScopeRow)) as cursor:
+            locked_run = cursor.execute(
+                "SELECT id, pull_request_id, status FROM review_agent.review_runs "
+                "WHERE id = %s FOR UPDATE",
+                (resolved_run_id,),
+            ).fetchone()
+    except errors.LockNotAvailable as exc:
+        raise ReviewJobBusy("review run is busy while enqueuing") from exc
     if locked_run is None:
         raise ReviewJobError("review run disappeared while enqueuing")
     if locked_run.status != ReviewStatus.RUNNING:

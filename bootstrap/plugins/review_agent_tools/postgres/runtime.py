@@ -44,6 +44,7 @@ class PostgreSQLRuntimeRole(StrEnum):
     REVIEWER = "reviewer"
     FEEDBACK = "feedback"
     OPERATOR = "operator"
+    WORKER = "worker"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,9 @@ _POOL_SHAPES = {
     PostgreSQLRuntimeRole.REVIEWER: _PoolShape(1, 4, 8),
     PostgreSQLRuntimeRole.FEEDBACK: _PoolShape(1, 4, 8),
     PostgreSQLRuntimeRole.OPERATOR: _PoolShape(0, 1, 1),
+    # One request executor plus its lease-heartbeat thread. Scale throughput by
+    # worker processes; do not let one process multiply model turns implicitly.
+    PostgreSQLRuntimeRole.WORKER: _PoolShape(0, 2, 2),
 }
 
 

@@ -31,6 +31,10 @@ last_verified: 2026-08-24
   bounded retry and dead-letter transitions, expiry recovery, and atomic
   review-run reconciliation. They are not yet connected to the live request
   path.
+- A concrete serial worker in the image with exact-run continuation,
+  generation-fenced tool calls, per-lease Hermes idempotency, graceful stop, and
+  process-boundary tests. It is deliberately not deployed until admission and
+  operator controls activate with it.
 - Repository-scoped exports with an operator-selected per-table row budget.
 - One validated deployment-profile selector with `sundsvall-standard` as the
   shipped municipal profile. Profiles own voice, stable rules, presentation,
@@ -42,11 +46,9 @@ profile-local runtime state.
 
 ## Remaining reliability work
 
-1. Prove the concrete worker's exact-run continuation, heartbeat isolation,
-   graceful shutdown, and safe recovery from an interrupted model turn.
-2. Activate durable request admission and the worker together, with fast
+1. Activate durable request admission and the proven worker together, with fast
    acknowledgement, old-head cancellation, fairness, and operator controls.
-3. Persist publication intent and exact payloads atomically, then deliver them
+2. Persist publication intent and exact payloads atomically, then deliver them
    through a recoverable outbox worker without holding database connections
    during GitHub calls.
 

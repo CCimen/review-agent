@@ -12,7 +12,8 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 import review_agent_tools  # noqa: E402
-from review_agent_tools import tools  # noqa: E402
+from review_agent_tools import review_run_application, tools  # noqa: E402
+from review_agent_tools.postgres.coverage import FileIndexSummary  # noqa: E402
 
 
 class _FakeRegistry:
@@ -93,6 +94,114 @@ class ToolContractTests(unittest.TestCase):
         pull_reader.assert_not_called()
         requester.assert_not_called()
 
+    def test_worker_continues_the_exact_run_without_starting_another(self) -> None:
+        pull = {
+            "state": "open",
+            "title": "Continue",
+            "base": {
+                "sha": "a" * 40,
+                "ref": "main",
+                "repo": {"id": 1, "full_name": self.repository},
+            },
+            "head": {
+                "sha": "b" * 40,
+                "ref": "change",
+                "repo": {"full_name": self.repository},
+            },
+            "changed_files": 1,
+        }
+        state = review_run_application.LiveRunState(
+            run_id=41,
+            phase="reviewing",
+            started_at="2026-08-24T10:00:00Z",
+            file_index=FileIndexSummary(
+                changed_files_reported=1,
+                changed_files_registered=1,
+                registration_complete=True,
+                by_domain=(("general", 1),),
+                by_review_mode=(("normal", 1),),
+                by_change_status=(("modified", 1),),
+                sample_paths=(),
+            ),
+        )
+        with (
+            patch.dict(
+                os.environ,
+                {"REVIEW_AGENT_ALLOWED_REPOSITORIES": self.repository},
+                clear=True,
+            ),
+            patch.object(tools, "_pr", return_value=pull),
+            patch.object(
+                tools.review_run_application,
+                "load_live_run_state",
+                return_value=state,
+            ),
+            patch.object(
+                tools,
+                "_review_run_snapshot",
+                return_value=(pull, {"base_sha": "a" * 40, "head_sha": "b" * 40}),
+            ),
+            patch.object(tools.review_run_application, "start_live_review") as start,
+            patch.object(tools, "_changed_files") as changed,
+            patch.object(tools, "_postgres_runtime"),
+        ):
+            result = json.loads(
+                tools.review_begin(
+                    {
+                        "repository": self.repository,
+                        "pr_number": 1,
+                        "existing_run_id": 41,
+                    }
+                )
+            )
+
+        self.assertEqual(result["run_id"], 41)
+        self.assertEqual(result["phase"], "reviewing")
+        self.assertTrue(result["continued"])
+        start.assert_not_called()
+        changed.assert_not_called()
+
+    def test_malformed_reserved_worker_session_fails_before_network(self) -> None:
+        with (
+            patch.object(tools, "_pr") as pull_reader,
+            patch.object(tools, "_postgres_runtime") as runtime,
+        ):
+            result = json.loads(
+                tools.review_begin(
+                    {"repository": self.repository, "pr_number": 1},
+                    session_id="review-agent-job-invalid",
+                )
+            )
+
+        self.assertIn("worker session identity is malformed", result["error"])
+        pull_reader.assert_not_called()
+        runtime.assert_not_called()
+
+    def test_worker_fence_fails_closed_on_an_unexpected_runtime_error(self) -> None:
+        runtime = Mock()
+        runtime.transaction.side_effect = RuntimeError("internal detail")
+        with (
+            patch.object(tools, "_postgres_runtime", return_value=runtime),
+            patch.object(tools, "_pr") as pull_reader,
+            self.assertLogs("review_agent_tools.tools", level="ERROR"),
+        ):
+            result = json.loads(
+                tools.review_begin(
+                    {
+                        "repository": self.repository,
+                        "pr_number": 1,
+                        "existing_run_id": 41,
+                    },
+                    session_id="review-agent-job-7-lease-3",
+                )
+            )
+
+        self.assertEqual(
+            result["error"],
+            "worker lease could not be verified; stop this review turn",
+        )
+        pull_reader.assert_not_called()
+
     def test_plugin_manifest_and_registered_handlers_have_one_owner(self) -> None:
         registry = _FakeRegistry()
 
@@ -131,6 +240,20 @@ class ToolContractTests(unittest.TestCase):
                 tools.ReviewRunTerminal(41, newly_terminalized=False),
             )
         )
+        state = review_run_application.LiveRunState(
+            run_id=41,
+            phase="publishing",
+            started_at="2026-08-24T10:00:00Z",
+            file_index=FileIndexSummary(
+                changed_files_reported=0,
+                changed_files_registered=0,
+                registration_complete=True,
+                by_domain=(),
+                by_review_mode=(),
+                by_change_status=(),
+                sample_paths=(),
+            ),
+        )
         with (
             patch.dict(
                 os.environ,
@@ -141,6 +264,11 @@ class ToolContractTests(unittest.TestCase):
                 tools.review_run_application,
                 "load_live_snapshot",
                 load,
+            ),
+            patch.object(
+                tools.review_run_application,
+                "load_live_run_state",
+                return_value=state,
             ),
             patch.object(tools, "_postgres_runtime"),
             patch.object(tools, "_pr") as pull_reader,
@@ -164,6 +292,9 @@ class ToolContractTests(unittest.TestCase):
         publish_status.assert_called_once_with(
             run_id=41,
             failure_code="snapshot_superseded",
+        )
+        self.assertTrue(
+            all(call.kwargs["phase"] == "publishing" for call in load.call_args_list)
         )
 
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import atexit
 import base64
-from functools import lru_cache
+from functools import lru_cache, wraps
 import hashlib
 import json
+import logging
 import re
 import threading
 import urllib.parse
@@ -27,6 +28,7 @@ from . import (
     settings,
     source_control,
 )
+from .postgres import jobs as postgres_jobs
 from .postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
@@ -55,6 +57,7 @@ FileTerminalState = Literal[
 ]
 _process_runtime: PostgreSQLRuntime | None = None
 _process_runtime_lock = threading.Lock()
+logger = logging.getLogger(__name__)
 
 
 class ToolInputError(ValueError):
@@ -85,6 +88,47 @@ class DiffUnavailableError(ToolInputError):
 
 
 ReviewRunTerminal = review_run_application.ReviewRunTerminal
+
+
+def _worker_lease_fence(
+    *, run_id_field: str = "run_id"
+) -> Callable[[Callable[..., str]], Callable[..., str]]:
+    """Fence each mutable tool entry against the worker's current lease."""
+
+    def decorate(handler: Callable[..., str]) -> Callable[..., str]:
+        @wraps(handler)
+        def fenced(args: dict[str, Any], **context: Any) -> str:
+            try:
+                lease = postgres_jobs.WorkerLeaseSession.parse(
+                    context.get("session_id")
+                )
+                if lease is not None:
+                    run_id = _positive_id(
+                        args.get(run_id_field), field=run_id_field
+                    )
+                    with _postgres_runtime().transaction() as connection:
+                        postgres_jobs.require_live_lease(
+                            connection,
+                            job_id=lease.job_id,
+                            review_run_id=ReviewRunId(run_id),
+                            lease_generation=lease.lease_generation,
+                        )
+            except (
+                ToolInputError,
+                postgres_jobs.ReviewJobError,
+                PostgreSQLRuntimeError,
+            ) as exc:
+                return _error(f"{exc}; stop this review turn")
+            except Exception:
+                logger.exception("Worker lease verification failed unexpectedly")
+                return _error(
+                    "worker lease could not be verified; stop this review turn"
+                )
+            return handler(args, **context)
+
+        return fenced
+
+    return decorate
 
 
 def _output(value: Any) -> str:
@@ -530,6 +574,7 @@ def _changed_files(
     return files
 
 
+@_worker_lease_fence(run_id_field="existing_run_id")
 def review_begin(args: dict[str, Any], **_: Any) -> str:
     repository = ""
     number = 0
@@ -542,6 +587,84 @@ def review_begin(args: dict[str, Any], **_: Any) -> str:
             raise ToolInputError("the pull request is no longer open")
         base_sha = _pull_base_sha(pull)
         head_sha = _pull_head_sha(pull)
+        raw_existing_run_id = args.get("existing_run_id")
+        existing_run_id = (
+            _positive_id(raw_existing_run_id, field="existing_run_id")
+            if raw_existing_run_id is not None
+            else None
+        )
+        if existing_run_id is not None:
+            run_id = existing_run_id
+            subject = _run_subject(
+                repository=repository,
+                pr_number=number,
+                run_id=run_id,
+            )
+            persisted = review_run_application.load_live_run_state(
+                _postgres_runtime(), subject
+            )
+            pull, _ = _review_run_snapshot(
+                repository=repository,
+                pr_number=number,
+                run_id=run_id,
+                phase=persisted.phase,
+            )
+            phase = persisted.phase
+            if phase == "accepted":
+                review_run_application.advance_live_phase(
+                    _postgres_runtime(), subject, "fetching_pr"
+                )
+                phase = "fetching_pr"
+
+            file_index = persisted.file_index
+            if (
+                not file_index.registration_complete
+                and phase in {"fetching_pr", "collecting_diff"}
+            ):
+                files = _changed_files(repository, number)
+                changed_files_reported = max(
+                    _int_value(pull.get("changed_files")), len(files)
+                )
+                file_index = review_run_application.register_live_changed_files(
+                    _postgres_runtime(),
+                    subject,
+                    files=cast(list[dict[str, object]], files),
+                    changed_files_reported=changed_files_reported,
+                )
+            else:
+                changed_files_reported = file_index.changed_files_reported or 0
+
+            if phase == "fetching_pr":
+                pull, _ = _review_run_snapshot(
+                    repository=repository,
+                    pr_number=number,
+                    run_id=run_id,
+                    phase="collecting_diff",
+                )
+                phase = "collecting_diff"
+
+            result = _overview_payload(
+                repository=repository,
+                number=number,
+                pull=pull,
+                file_index=_file_index_payload(file_index),
+                changed_files_reported=changed_files_reported,
+            )
+            result.update(
+                {
+                    "run_id": run_id,
+                    "status": "running",
+                    "phase": phase,
+                    "started_at": persisted.started_at,
+                    "continued": True,
+                    "instruction": (
+                        "Continue this exact run from its persisted phase. "
+                        "Do not start another review run."
+                    ),
+                }
+            )
+            return _output(result)
+
         raw_trigger_comment_id = args.get("trigger_comment_id")
         trigger_comment_id = (
             _positive_id(raw_trigger_comment_id, field="trigger_comment_id")
@@ -661,6 +784,7 @@ def review_begin(args: dict[str, Any], **_: Any) -> str:
         return _error("unexpected review-begin failure")
 
 
+@_worker_lease_fence()
 def pr_files(args: dict[str, Any], **_: Any) -> str:
     try:
         repository = _allowlisted_repository(args.get("repository"))
@@ -854,6 +978,7 @@ def _pr_diff_from_patches(
     )
 
 
+@_worker_lease_fence()
 def pr_diff(args: dict[str, Any], **_: Any) -> str:
     try:
         repository = _allowlisted_repository(args.get("repository"))
@@ -1083,6 +1208,7 @@ def _pr_file_terminal_handoff(
     return _output(result)
 
 
+@_worker_lease_fence()
 def pr_file(args: dict[str, Any], **_: Any) -> str:
     try:
         repository = _allowlisted_repository(args.get("repository"))
@@ -1372,6 +1498,7 @@ def review_memory_context(args: dict[str, Any], **_: Any) -> str:
         return _error("unexpected memory read failure")
 
 
+@_worker_lease_fence()
 def review_memory_record(args: dict[str, Any], **_: Any) -> str:
     try:
         repository = _allowlisted_repository(args.get("repository"))
@@ -1545,6 +1672,7 @@ def _publish_failure_status_safe(*, run_id: int, failure_code: str) -> None:
         pass
 
 
+@_worker_lease_fence()
 def review_deliver(args: dict[str, Any], **_: Any) -> str:
     repository = ""
     number = 0
@@ -1560,11 +1688,23 @@ def review_deliver(args: dict[str, Any], **_: Any) -> str:
             )
         run_id = _positive_id(args.get("run_id"), field="run_id")
 
+        persisted = review_run_application.load_live_run_state(
+            _postgres_runtime(),
+            _run_subject(
+                repository=repository,
+                pr_number=number,
+                run_id=run_id,
+            ),
+        )
         pull, _ = _review_run_snapshot(
             repository=repository,
             pr_number=number,
             run_id=run_id,
-            phase="rendering",
+            # A frozen publication plan is already in the publishing phase and
+            # can be replayed idempotently after a worker reclaim.
+            phase=(
+                "publishing" if persisted.phase == "publishing" else "rendering"
+            ),
             expected_head_sha=head_sha,
         )
         if pull.get("state") != "open":

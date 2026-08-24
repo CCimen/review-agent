@@ -67,7 +67,15 @@ concurrency:
                 "npm install --global pyright@1.1.408",
                 "./scripts/check_postgres_schema.sh",
                 "./scripts/check_bundle.sh",
+                "|",
             ],
+        )
+        self.assertIn("docker build --tag review-agent:ci .", source)
+        self.assertIn(
+            "--entrypoint /usr/local/bin/review-agent-worker", source
+        )
+        self.assertIn(
+            "--entrypoint /usr/local/bin/review-agent-hermes-contract", source
         )
         for duplicated_command in (
             "python3 -m compileall",

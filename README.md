@@ -119,7 +119,9 @@ review protocol also remains deterministic; localizing its fixed headings and
 markers requires an engine change rather than a free-form profile template.
 
 The runtime stores application state in one PostgreSQL database per environment.
-See the [current roadmap](docs/ROADMAP.md) for the remaining durable-job work.
+The image contains a tested, serial PostgreSQL worker with exact-run continuation
+and lease-generation fencing; deployment activation remains on the
+[current roadmap](docs/ROADMAP.md).
 
 ## Developer Workflow
 
@@ -183,7 +185,9 @@ Run the bundle check before shipping changes:
 ./scripts/check_bundle.sh
 ```
 
-GitHub Actions runs the same bundle for pull requests and changes to `main`.
-The bundle validates Python imports, strict type checks, unit tests, replay
-fixtures, and YAML. It cannot live-test your Dokploy routes, GitHub token
-approval, ChatGPT OAuth state, or repository rules.
+GitHub Actions runs the same bundle for pull requests and changes to `main`, then
+builds the container, checks its worker entrypoint, and verifies the pinned
+Hermes session/context adapter contracts used by durable execution. The bundle
+validates Python imports, strict type checks, unit tests, replay fixtures, and YAML. It
+cannot live-test your deployed routes, GitHub token approval, ChatGPT OAuth
+state, or repository rules.

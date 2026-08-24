@@ -1,8 +1,8 @@
-"""Canonical run-level failure codes — one source of truth for `review_runs.failure_code`.
+"""Canonical review-run and review-job failure-code vocabularies.
 
-These are stable, machine-grep-able codes written to the durable run row and surfaced by
-the operator CLI (`review-agent-memory runs --failed`). Keeping them here stops the codes
-from drifting across the lifecycle, delivery, and reaper modules that set them.
+Run codes are written to the durable run row and surfaced by the operator CLI;
+job codes describe execution failures on the one-to-one durable job. Keeping
+both named sets here prevents lifecycle and delivery paths from inventing codes.
 """
 
 from __future__ import annotations

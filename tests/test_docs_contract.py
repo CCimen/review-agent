@@ -517,7 +517,16 @@ class DocsContractTests(unittest.TestCase):
     def test_live_reviewer_keeps_unsafe_toolsets_disabled(self):
         config = read("bootstrap/config.yaml")
         skill = read("bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md")
+        api_server_match = re.search(
+            r"(?m)^  api_server:\n((?:    .+\n)+)", config
+        )
+        self.assertIsNotNone(api_server_match)
+        assert api_server_match is not None
+        api_server_tools = [
+            line.strip() for line in api_server_match.group(1).splitlines()
+        ]
         disabled = config.split("  disabled_toolsets:", 1)[1].split("\nmemory:", 1)[0]
+        self.assertEqual(api_server_tools, ["- review_agent"])
         self.assertIn("- file", disabled)
         self.assertIn("- skills", disabled)
         self.assertIn("- memory", disabled)

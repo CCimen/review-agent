@@ -4,7 +4,7 @@ slug: /behavior-ownership
 title: Behavior ownership
 description: Where reviewer identity, policy, procedure, wiring, and repository onboarding belong.
 status: current
-last_verified: 2026-08-21
+last_verified: 2026-08-24
 ---
 
 # Behavior ownership
@@ -24,6 +24,7 @@ conditionals or copying policy into runtime code.
 | Review procedure and tool sequence | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
 | Model, toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
 | Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |
+| Durable job execution | `review_agent_tools.worker` and `review_agent_tools.postgres.jobs` | Claim, heartbeat, retry, or exact-run continuation behavior changes. |
 | Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |
 | Repository trigger contract | `examples/github/ai-review-request.yml` | Trusted GitHub request behavior changes. |
 

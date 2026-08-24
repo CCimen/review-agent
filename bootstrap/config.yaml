@@ -54,6 +54,8 @@ platform_toolsets:
     - review_agent
   webhook:
     - review_agent
+  api_server:
+    - review_agent
 
 agent:
   reasoning_effort: xhigh

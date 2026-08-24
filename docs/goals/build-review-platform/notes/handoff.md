@@ -20,16 +20,21 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   reads use pageable or honestly incomplete contracts. One native plugin setting
   owns complete diff/source page-result capacity, while GitHub, storage, request,
   publication, and security boundaries remain explicit.
-- T999 completed with `not_complete`; its requirement-by-requirement evidence is
-  in `notes/T999-full-platform-audit.md`. T100 is the sole active task and ports
-  feedback event processing to one PostgreSQL transaction without switching the
-  deployed runtime.
+- T100 is live at `56fc865bcd25a8a4f826b4d28735ff421ed230fb`.
+  PostgreSQL feedback now has one atomic application transaction, durable replay,
+  exact current-publication/reference checks, decision or quality persistence,
+  audit, and pinned Read Committed isolation. The deployed SQLite bridge remains
+  unchanged. T101 is the sole active task.
 
 ## Execution boundary
 
-- Work only on T100. Reuse the existing PostgreSQL publication, finding, and
-  decision owners, and add one concrete feedback owner for the missing
-  transaction. Keep it unreachable from the live runtime until T101.
+- Work only on T101. Deepen the existing PostgreSQL publication, review-run,
+  decision, coverage, verification, and coaching owners for historical
+  supersession, failure-status comments, and bounded operator reporting.
+- Cover every database-touching CLI behavior, including repository-scoped or
+  explicitly row-bounded export and coach-run receipt recording. Do not switch
+  the shipped SQLite CLI in T101; T102 switches review, feedback, operator, and
+  Compose callers together after parity is complete.
 - The direct PostgreSQL decision supersedes SQLite migration or compatibility
   proposals: the product is not in production, so remaining SQLite runtime code
   must be treated as deletion/cutover work, not preserved legacy behavior.
@@ -62,5 +67,9 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
   pagination, cache, source-envelope, fallback, and serializer-boundary fixes.
 - T091 live workflows: Python bundle 32720374050 and documentation build/deploy
   32720374018 passed; Pages was deployed from the same revision.
+- T100 evidence: real PostgreSQL 17 contract passed 91 tests; strict Pyright,
+  the 606-test bundle, docs contract, website typecheck, and production docs
+  build passed. Claude session `review-agent-t100-postgresql-feedback`, UUID
+  `d521ac61-b774-43cb-b4b7-fb7e1528b433`, converged from score 7 to green at 8.
 - Preserve user-owned `refactor-plan1.md`. Stop all Codex and Claude work by
   23:50 Europe/Stockholm; resume at 06:00.

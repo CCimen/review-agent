@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "The full-plan audit is complete; PostgreSQL feedback is the active cutover prerequisite."
+  tranche: "Atomic PostgreSQL feedback is complete; operational parity is the active cutover prerequisite."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 8
+  completed_write_tasks_in_thread: 9
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T09:55:34Z"
-  last_verified_revision: "e35946cd2f932058f446c05c1fea26ef7356117e"
+  last_handoff_at: "2026-08-24T12:05:45Z"
+  last_verified_revision: "56fc865bcd25a8a4f826b4d28735ff421ed230fb"
 
-active_task: T100
+active_task: T101
 
 tasks:
   - id: T001
@@ -1646,7 +1646,7 @@ tasks:
   - id: T100
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Port feedback event processing, human decisions, quality signals, and audit to one PostgreSQL transaction behind the existing feedback behavior boundary."
     constraints:
@@ -1683,11 +1683,21 @@ tasks:
       - "Current feedback behavior cannot be represented by the reviewed PostgreSQL schema without a new product decision."
       - "A database transaction would need to span a GitHub request."
       - "The change requires runtime switching, Compose, SQLite deletion, jobs, outbox, or a generic persistence abstraction."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T100-postgresql-feedback.md"
+      summary: "Added one integration-only PostgreSQL feedback transaction with durable replay, exact current targets, atomic decision or quality persistence, audit, and pinned Read Committed isolation."
+      commit: "56fc865bcd25a8a4f826b4d28735ff421ed230fb"
+      evidence:
+        - "Real PostgreSQL 17 contract passed 91 tests, including deterministic two-connection conflict/replay and rollback proofs."
+        - "Strict Pyright, the 606-test canonical bundle, public docs, website typecheck, and clean production docs build passed."
+        - "Claude Opus/high session review-agent-t100-postgresql-feedback converged from score 7 to green at score 8."
+      spawned_tasks:
+        - T101
   - id: T101
     type: pm
     assignee: PM
-    status: pending
+    status: active
     reasoning_hint: high
     objective: "Complete PostgreSQL operational parity for historical publication supersession, failure-status comments, and the existing operator CLI before runtime cutover."
     constraints:
@@ -1695,6 +1705,41 @@ tasks:
       - "Port the shipped operator CLI's observable inspection, decision, and mark-stalled behavior instead of creating a new administration surface."
       - "Keep all PostgreSQL parity paths unreachable from the deployed runtime until T102."
       - "Do not hold a database connection while rewriting GitHub comments."
+      - "Cover every database-touching CLI path: list, show, decide, export, stats, runs including --stats and --mark-stalled, publications, coverage, verification, and coach-run result recording."
+      - "Bound PostgreSQL export by repository scope or an explicit row budget; never replace SQLite export with an unbounded whole-database read."
+      - "Keep the shipped CLI on its current SQLite owner through T101; T102 switches all callers together after every PostgreSQL equivalent exists."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/**
+      - bootstrap/plugins/review_agent_tools/postgres/publications.py
+      - bootstrap/plugins/review_agent_tools/postgres/review_runs.py
+      - bootstrap/plugins/review_agent_tools/postgres/decisions.py
+      - bootstrap/plugins/review_agent_tools/postgres/coverage.py
+      - bootstrap/plugins/review_agent_tools/postgres/verification.py
+      - bootstrap/plugins/review_agent_tools/postgres/coaching.py
+      - bootstrap/plugins/review_agent_tools/postgres/reporting.py
+      - bootstrap/plugins/review_agent_tools/operator_application.py
+      - bootstrap/plugins/review_agent_tools/review_publication_application.py
+      - bootstrap/plugins/review_agent_tools/review_run_application.py
+      - bootstrap/plugins/review_agent_tools/publication_partition.py
+      - bootstrap/plugins/review_agent_tools/failure_codes.py
+      - tools/review_agent_memory.py
+      - tools/review_agent_coach_run.py
+      - tests/test_postgres_publications.py
+      - tests/test_postgres_review_lifecycle.py
+      - tests/test_postgres_suggestions_decisions.py
+      - tests/test_postgres_coverage.py
+      - tests/test_postgres_verification_coaching.py
+      - tests/test_postgres_reporting_cli.py
+      - tests/test_failure_status.py
+      - tests/test_review_publication_application.py
+      - tests/test_review_runs.py
+      - tests/test_memory_stats.py
+      - tests/test_review_verification_export.py
+      - tests/test_coach_run_cli.py
+      - scripts/check_postgres_schema.sh
+      - docs/OPERATIONS.md
+      - docs/ROADMAP.md
+      - docs/goals/build-review-platform/**
     expected_output:
       - "PostgreSQL historical supersession query, state, and failure recording"
       - "PostgreSQL failure-status comment record, list, and clear operations"
@@ -1703,7 +1748,7 @@ tasks:
     verify:
       - "A second review supersedes the prior PostgreSQL publication and rewrites its comments to the historical form; missing comments record the existing supersession failure code."
       - "Failed-run status comments can be recorded, enumerated, and cleared without a SQLite owner."
-      - "Operator inspection, decision, and mark-stalled commands use REVIEW_AGENT_DATABASE_URL and preserve their documented observable behavior."
+      - "Every database-touching operator behavior has a bounded PostgreSQL application/reporting equivalent with parity tests; the caller switch remains exclusively T102."
       - "Run focused PostgreSQL publication/run/reporting/CLI tests, strict Pyright, the canonical bundle, docs checks, and one Claude Opus/high gate with score >= 8."
     stop_if:
       - "A shipped operator behavior has no stable PostgreSQL/application owner and requires a product decision."

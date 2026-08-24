@@ -4,60 +4,40 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
 ## Current direction
 
-- Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits and pushes to `CCimen/review-agent` `main` are authorized.
-- The corrected PostgreSQL contract, migration runner, runtime foundation,
-  cohesive registry-to-review-run operations, normalized review coverage, and
-  stable finding memory are live at `153132d`. The new operations are
-  integration-only; no tool or runtime cutover has occurred.
-- T025 is complete. T026 is active for best-effort PostgreSQL suggestions and
-  context-matched human decisions. Move and reuse the existing pure suggestion
-  validation, keep database transactions separate from trusted head-file reads,
-  and preserve active SQLite observable behavior without dual writes.
-- The SQLite runtime remains current until the controlled PostgreSQL cutover; public operator guidance must continue to say so.
+- Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits
+  and pushes to `CCimen/review-agent` `main` are authorized.
+- T026 is live at implementation revision `4e1c5abc` plus executable-mode
+  correction `062d539`. PostgreSQL suggestions and decisions are integration-only;
+  the active reviewer still uses SQLite.
+- T027 is active for provider-neutral PostgreSQL verification, reconciliation,
+  and immutable coach-run candidate evidence. Follow Slice 2C of the approved
+  local plan and the task's exact constraints; no analyzer framework or runtime
+  caller belongs in this slice.
 
 ## Execution boundary
 
-- The primary agent implements; subagents are read-only.
-- Keep validation proportional and use one skeptical peer gate per stable
-  candidate.
-- PostgreSQL is the approved clean replacement: one database per environment.
-  The owner confirmed no production deployment or persisted production review
-  state. `goal.md` owns the no-legacy and recovery constraints; `docs/ROADMAP.md`
-  owns the public sequence.
-- Keep jobs, leases, and the outbox as later separate slices.
-- The migration runner owns discovery and checksums, one PostgreSQL advisory
-  lock, transaction control, ledger insertion, and database-ahead recovery.
-- The runtime foundation owns the typed TCP DSN, explicit one-shot bounded pool,
-  connection safeguards, readiness, migration health, and current pool gauges.
-  It has no application operation or process startup consumer.
-- Before a future consumer retries `PostgreSQLNotReady`, add a typed distinction
-  between transient pending/concurrent migration and fatal drift/invariant
-  failure. Do not branch on error-message text.
-- At cutover, the adapter must map the current changed-file classification into
-  the typed `FileDomain` and `ReviewMode` values before pool checkout. Delete the
-  SQLite `CoverageState`/`DiffState` literals, `FileSide` alias, and classification
-  helpers when their final SQLite consumers are removed; do not keep parallel
-  vocabularies after PostgreSQL becomes active.
-- Coverage writes hold a shared run lock and may make supersession wait up to the
-  existing two-second `lock_timeout`. The active runtime adapter must map an
-  exhausted `LockNotAvailable` into its retry or user-facing busy contract; do
-  not lengthen the transaction or hide the bounded contention.
-- Finding writes hold the same pull-request lifecycle lock with
-  `FOR NO KEY UPDATE`; lock timeout maps to typed `FindingRunBusy`. Canonical
-  symbol and anchor values are case-folded because they are identity fields,
-  not display copy. A conflicting same-run regenerated batch recovers through a
-  new review run rather than mutating durable occurrence evidence.
-- Publication module splitting, jobs, outbox, trusted project context and
-  policy, scanners/Codex Security, and GitHub App work remain deferred.
+- The primary agent implements. Use the existing behavior owners and corrected
+  initial schema before adding code; no generic repository, backend interface,
+  dual write, fallback, or importer.
+- Keep provider/model calls and artifact I/O outside short database transactions.
+  Preserve typed failures, exact-run relationships, immutable evidence, and the
+  active SQLite behavior.
+- Keep publication delivery, feedback, tools, settings, Compose, deployment,
+  runtime cutover, jobs/outbox, trusted project policy, scanners, and GitHub App
+  work in later slices.
+- Ponytail lite is active: build the approved slice, but call out a materially
+  lazier existing-owner alternative before adding a new abstraction.
 
 ## Continuity
 
-- Read `goal.md`, `state.yaml`, `notes/handoff.md`, repository instructions, and
-  the active task's exact source paths. Verify the recorded revision and live
-  branch before editing.
-- The repository owner requested Claude Opus/high for every future pre-commit
-  peer gate and hard architecture question. Use one resumable session per
-  stable slice and do not repeat it for unchanged or mechanical follow-ups.
-- All Codex and Claude work must stop by 23:50 Europe/Stockholm and may resume
-  at 06:00 Europe/Stockholm. Do not start a unit that risks crossing the stop
-  boundary.
+- Read `goal.md`, `state.yaml`, this handoff, `refactor-plan1.md` Slice 2C, and
+  the active task's exact source paths before editing. Preserve the user-owned
+  `refactor-plan1.md`.
+- T026 evidence: 65 PostgreSQL tests, strict Pyright, 562 bundle tests, docs
+  checks/build, live Python run `32698350796`, and docs run `32698129766` passed.
+  Claude session `review-agent-t026-suggestions-decisions` (UUID
+  `a36ca0a2-a42c-4f9f-a388-e28bebd82a80`) was green at score 8.
+- Start one new resumable Claude Opus/high session for T027's stable commit gate;
+  use the same session only for verified blocker follow-ups.
+- All Codex and Claude work must stop by 23:50 Europe/Stockholm and may resume at
+  06:00. Do not start a unit that risks crossing the stop boundary.

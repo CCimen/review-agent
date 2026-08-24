@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, TypeAlias
+from typing import Literal, LiteralString, TypeAlias, cast
 
 import psycopg
+from psycopg import sql
 from psycopg import errors
 from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
@@ -601,3 +602,80 @@ def mark_superseded(
     if row is None:
         raise InvalidReviewTransition("only an active review run can be superseded")
     return _run(row)
+
+
+def mark_stale_runs_failed(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    cutoff: datetime,
+    repository: str | None,
+    pr_number: int | None,
+) -> tuple[ReviewRunId, ...]:
+    """Atomically fail abandoned runs and any unfinished publication plan."""
+    _require_transaction(connection)
+    conditions = [
+        "run.status = 'running'",
+        "run.last_heartbeat_at < %s",
+    ]
+    parameters: list[object] = [cutoff]
+    if repository is not None:
+        conditions.append("lower(repository.full_name) = lower(%s)")
+        parameters.append(repository)
+    if pr_number is not None:
+        conditions.append("pull_request.number = %s")
+        parameters.append(pr_number)
+    rows = connection.execute(
+        sql.SQL(cast(LiteralString,
+            "WITH target AS ("
+            "SELECT run.id FROM review_agent.review_runs AS run "
+            "JOIN review_agent.pull_requests AS pull_request "
+            "ON pull_request.id = run.pull_request_id "
+            "JOIN review_agent.repositories AS repository "
+            "ON repository.id = pull_request.repository_id "
+            f"WHERE {' AND '.join(conditions)} FOR UPDATE OF run"
+            ") UPDATE review_agent.review_runs AS run "
+            "SET status = 'failed', phase = 'failed', "
+            "failure_code = 'stale_timeout', "
+            "completed_at = statement_timestamp(), "
+            "last_heartbeat_at = statement_timestamp() "
+            "FROM target WHERE run.id = target.id RETURNING run.id"
+        )),
+        tuple(parameters),
+    ).fetchall()
+    run_ids = tuple(sorted(ReviewRunId(int(row[0])) for row in rows))
+    if not run_ids:
+        return ()
+    publication_ids = [
+        int(row[0])
+        for row in connection.execute(
+            """
+            UPDATE review_agent.publications
+            SET status = 'publish_failed',
+                posting_started_at = COALESCE(
+                    posting_started_at, statement_timestamp()
+                ),
+                publish_failed_at = statement_timestamp(),
+                failure_code = 'stale_timeout'
+            WHERE review_run_id = ANY(%s::bigint[])
+              AND status IN ('generated', 'posting')
+            RETURNING id
+            """,
+            ([int(run_id) for run_id in run_ids],),
+        ).fetchall()
+    ]
+    if publication_ids:
+        connection.execute(
+            """
+            UPDATE review_agent.publication_parts
+            SET status = 'publish_failed',
+                posting_started_at = COALESCE(
+                    posting_started_at, statement_timestamp()
+                ),
+                failure_at = statement_timestamp(),
+                failure_code = 'stale_timeout'
+            WHERE publication_id = ANY(%s::bigint[])
+              AND status IN ('pending', 'posting')
+            """,
+            (publication_ids,),
+        )
+    return run_ids

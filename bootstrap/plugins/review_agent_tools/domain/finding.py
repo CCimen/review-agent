@@ -185,6 +185,27 @@ def require_unique_finding_identities(
         raise FindingDomainError("finding batch contains duplicate stable identities")
 
 
+def require_explicit_decision_target(
+    *,
+    occurrence_id: FindingOccurrenceId | None,
+    pr_number: int | None,
+    local_reference: str | None,
+    latest: bool,
+) -> None:
+    """Require exactly one complete, explicit occurrence selector."""
+    selectors = sum(
+        (
+            occurrence_id is not None,
+            pr_number is not None or local_reference is not None,
+            latest,
+        )
+    )
+    if selectors != 1 or (pr_number is None) != (local_reference is None):
+        raise FindingDomainError(
+            "select exactly one occurrence_id, PR-local reference, or latest target"
+        )
+
+
 def _single_line(value: str, *, field: str, maximum: int, required: bool = True) -> str:
     normalized = " ".join(value.strip().split())
     if required and not normalized:

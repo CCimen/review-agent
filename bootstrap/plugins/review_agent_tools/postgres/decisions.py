@@ -46,7 +46,7 @@ class _DecisionRow:
     decision: str
     reason: str
     actor: str
-    context_hash: str
+    context_hash: str | None
     adr_id: str | None
     created_at: datetime
     expires_at: datetime | None
@@ -68,6 +68,10 @@ def _decision(row: _DecisionRow) -> FindingDecision:
         kind = DecisionKind(row.decision)
     except ValueError as exc:
         raise DecisionStoreError("stored decision kind is invalid") from exc
+    if row.context_hash is None:
+        raise DecisionStoreError(
+            "stored decision is missing its exact occurrence context"
+        )
     return FindingDecision(
         id=row.id,
         finding_id=row.finding_id,
@@ -82,16 +86,13 @@ def _decision(row: _DecisionRow) -> FindingDecision:
     )
 
 
-def append_decision_with_audit(
+def _append_decision(
     connection: psycopg.Connection[TupleRow],
     *,
     finding_id: FindingId,
     occurrence_id: FindingOccurrenceId,
     definition: FindingDecisionDefinition,
-    audit: DecisionAudit,
 ) -> FindingDecision:
-    """Derive occurrence context and append the decision plus audit atomically."""
-    _require_transaction(connection)
     occurrence = connection.execute(
         """
         SELECT context_hash
@@ -129,6 +130,25 @@ def append_decision_with_audit(
         ).fetchone()
     if row is None:
         raise DecisionStoreError("decision insert did not return its durable row")
+    return _decision(row)
+
+
+def append_decision_with_audit(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    finding_id: FindingId,
+    occurrence_id: FindingOccurrenceId,
+    definition: FindingDecisionDefinition,
+    audit: DecisionAudit,
+) -> FindingDecision:
+    """Derive occurrence context and append the decision plus audit atomically."""
+    _require_transaction(connection)
+    decision = _append_decision(
+        connection,
+        finding_id=finding_id,
+        occurrence_id=occurrence_id,
+        definition=definition,
+    )
     try:
         connection.execute(
             """
@@ -139,7 +159,7 @@ def append_decision_with_audit(
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                row.id,
+                decision.id,
                 audit.actor_user_id,
                 audit.actor_login,
                 audit.author_association,
@@ -153,7 +173,24 @@ def append_decision_with_audit(
         raise DecisionAuditConflict(
             "decision audit source comment was already applied"
         ) from exc
-    return _decision(row)
+    return decision
+
+
+def append_operator_decision(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    finding_id: FindingId,
+    occurrence_id: FindingOccurrenceId,
+    definition: FindingDecisionDefinition,
+) -> FindingDecision:
+    """Append a directly authenticated operator decision without GitHub audit data."""
+    _require_transaction(connection)
+    return _append_decision(
+        connection,
+        finding_id=finding_id,
+        occurrence_id=occurrence_id,
+        definition=definition,
+    )
 
 
 def latest_decision(
@@ -192,3 +229,17 @@ def latest_decisions(
             (unique_ids,),
         ).fetchall()
     return {row.finding_id: _decision(row) for row in rows}
+
+
+def decision_history(
+    connection: psycopg.Connection[TupleRow], *, finding_id: FindingId
+) -> tuple[FindingDecision, ...]:
+    """Return the complete append-only decision chain for one finding."""
+    _require_transaction(connection)
+    with connection.cursor(row_factory=class_row(_DecisionRow)) as cursor:
+        rows = cursor.execute(
+            f"SELECT {_DECISION_COLUMNS} FROM review_agent.finding_decisions "
+            "WHERE finding_id = %s ORDER BY id",
+            (finding_id,),
+        ).fetchall()
+    return tuple(_decision(row) for row in rows)

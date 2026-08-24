@@ -26,7 +26,8 @@ behavior documented in the repository and verified by the shipped bundle.
   repository, immutable-subject, review-run, coverage, finding-memory,
   suggestion, human-decision, verification, reconciliation, and coaching
   operations, plus exact publication planning and crash-recoverable delivery
-  integration.
+  integration, historical supersession, failure-status ownership, and bounded
+  operator reporting.
 - Bounded PR reads against an exact base/head snapshot.
 - Two-pass evidence review with honest coverage reporting.
 - SQLite review memory, stable finding references, and repeated review rounds.
@@ -98,11 +99,24 @@ reference, commits an event with its decision or quality signal and audit in one
 short transaction, and returns the stored outcome for duplicate deliveries.
 GitHub reads and reactions remain outside that transaction.
 
+PostgreSQL operational parity is also implemented behind that inactive
+boundary. One concrete reporting owner now supplies finding inspection,
+explicit operator decisions, set-based finding and run statistics, stale-run
+recovery, publication inspection, coverage, verification input, and coach-run
+receipts. Repository exports require both an exact repository and an explicit
+per-table row budget chosen by the operator; the product has no hidden export or
+review-depth ceiling. The row budget bounds the in-memory JSON artifact, while
+the existing statement and idle-transaction timeouts fail closed if database or
+conversion work exceeds its operational window. A truncated PostgreSQL export
+uses a new contract version, declares `complete: false`, and cannot be mistaken
+for a complete SQLite-era coach snapshot. Historical review comments can be
+rewritten from persisted publication bytes, and failure-status comments have
+durable PostgreSQL IDs and cleanup state. The packaged CLI still uses SQLite
+until the review, feedback, operator, and Compose callers switch together.
+
 The remaining milestones are:
 
-1. Complete PostgreSQL operational parity for historical publication
-   supersession, failure-status comments, and the bounded operator CLI.
-2. Define the initial PostgreSQL replacement recovery path as a deployable
+1. Define the initial PostgreSQL replacement recovery path as a deployable
    contract and finish the runtime settings. At the first PostgreSQL cutover,
    recovery means restoring PostgreSQL and redeploying the same compatible
    revision. From the next PostgreSQL revision onward, the previous
@@ -110,16 +124,16 @@ The remaining milestones are:
    The runtime caller must retry `publish_failed` publications and reclaim
    `posting` only after the prior poster is known to have stopped. Durable jobs
    later own reaping runs left in `publishing` after a process exit.
-3. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
+2. Switch runtime configuration and Compose to PostgreSQL and prove a controlled
    review against a fresh database. The bounded provider repository ID
    acquisition must use trusted PR metadata before the repository-to-run
    transaction opens; no network or model call may hold a database connection.
-4. Delete the SQLite application persistence, migrations, volume, environment
+3. Delete the SQLite application persistence, migrations, volume, environment
    settings, and SQLite-only tests after the cutover passes. Before deletion,
    PostgreSQL publication delivery must render the superseded historical form
    after recording database supersession; the active SQLite owner retains that
    visible-comment behavior until cutover.
-5. Add durable jobs and an outbox as separate work after PostgreSQL owns the
+4. Add durable jobs and an outbox as separate work after PostgreSQL owns the
    application state.
 
 This clean runtime replacement preserves observable review behavior without

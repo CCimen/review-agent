@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "The PostgreSQL-only runtime and fenced job foundation are complete; atomic job lifecycle and recovery are active."
+  tranche: "Atomic job lifecycle and recovery are complete; exact-run worker continuation and process-death safety are active."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 14
+  completed_write_tasks_in_thread: 15
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-24T16:25:00Z"
-  last_verified_revision: "4042ddf0d03fec8d538241775caeb0e3aead12bc"
+  last_verified_revision: "a73b6a2ee265231712bb912784f5392c2a9aff3a"
 
-active_task: T106
+active_task: T110
 
 tasks:
   - id: T001
@@ -1917,7 +1917,7 @@ tasks:
   - id: T106
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add atomic PostgreSQL job heartbeat, retry, dead-letter, expiry recovery, and two-way review-run reconciliation without deploying a worker."
     constraints:
@@ -1938,11 +1938,38 @@ tasks:
     stop_if:
       - "Atomic two-way reconciliation requires a circular import, per-row sweep loop, or second lifecycle owner."
       - "The slice requires a worker, Hermes API enablement, fairness policy, scanners, GitHub App, Slack, or another broker."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T106-atomic-job-lifecycle.md"
+      summary: "Shipped exact PostgreSQL lease heartbeat, bounded retry and dead-letter recovery, and atomic two-way run/job reconciliation without activating a worker."
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools/failure_codes.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+        - "bootstrap/plugins/review_agent_tools/postgres_migrations/003_review_job_lifecycle.sql"
+        - "bootstrap/plugins/review_agent_tools/review_run_application.py"
+        - "bootstrap/plugins/review_agent_tools/review_publication_application.py"
+        - "bootstrap/plugins/review_agent_tools/operator_application.py"
+        - "tests/test_postgres_jobs.py"
+        - "docs/ROADMAP.md"
+      commands:
+        - cmd: "./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "123 PostgreSQL 17 tests plus migration backup/restore passed."
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright and 323 tests passed."
+        - cmd: "python3 scripts/check_docs.py && npm --prefix website run typecheck && npm --prefix website run build"
+          status: pass
+          summary: "Nine-document public contract, Node 24 typecheck, and production site build passed."
+        - cmd: "Claude Opus/high commit gate"
+          status: pass
+          summary: "Session review-agent-t106-worker-architecture reached green at score 8."
+      revision: "a73b6a2ee265231712bb912784f5392c2a9aff3a"
   - id: T110
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Prove and implement one non-deployed Review Agent worker with exact-run continuation, heartbeat isolation, bounded retry, and graceful shutdown."
     constraints:
@@ -2026,13 +2053,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-e35946cd"
+  dirty_fingerprint: "goal-control-files-only-after-a73b6a2e"
   last_verification:
     result: pass
-    task: T091
+    task: T106
     commands:
-      - "Strict Pyright and 598-test canonical bundle with 71 expected database-environment skips"
-      - "Focused diff, source-page, fallback, capacity, schema, and documentation contracts"
+      - "PostgreSQL 17 lifecycle, migration, backup, and restore suite: 123 tests"
+      - "Strict Pyright and 323-test canonical bundle"
       - "Public nine-document contract, website typecheck, and clean Docusaurus production build"
-      - "Claude Opus/high session review-agent-t091-capacity-limits green at score 8"
-      - "Live Python bundle 32720374050 and Pages build/deploy 32720374018"
+      - "Claude Opus/high session review-agent-t106-worker-architecture green at score 8"
+      - "Source revision a73b6a2ee265231712bb912784f5392c2a9aff3a"

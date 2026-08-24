@@ -14,11 +14,11 @@ architecture tranches without weakening the proven review contract.
 ## Current Tranche
 
 The PostgreSQL repository-to-review-run transaction, normalized coverage, stable
-finding memory, best-effort optional suggestions, and context-matched human
-decisions are complete. Provider-neutral verification, reconciliation, and
-coaching persistence are the next active slice. The active SQLite runtime,
-publication, feedback, configuration and Compose switching, and SQLite deletion
-remain later slices.
+finding memory, best-effort optional suggestions, context-matched human
+decisions, provider-neutral verification, immutable reconciliation, and exact
+coach-run evidence are complete. Publication ownership separation is the next
+active slice. PostgreSQL publication persistence, feedback, configuration and
+Compose switching, runtime cutover, and SQLite deletion remain later slices.
 
 ## Approved Sequencing Input
 

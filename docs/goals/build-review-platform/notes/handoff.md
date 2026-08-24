@@ -6,38 +6,39 @@ This is a bounded conversational snapshot. `state.yaml` is authoritative.
 
 - Work in `/Users/ccimen/Documents/ChatGPT/Security Review Infra`; direct commits
   and pushes to `CCimen/review-agent` `main` are authorized.
-- T026 is live at implementation revision `4e1c5abc` plus executable-mode
-  correction `062d539`. PostgreSQL suggestions and decisions are integration-only;
-  the active reviewer still uses SQLite.
-- T027 is active for provider-neutral PostgreSQL verification, reconciliation,
-  and immutable coach-run candidate evidence. Follow Slice 2C of the approved
-  local plan and the task's exact constraints; no analyzer framework or runtime
-  caller belongs in this slice.
+- T027 is live at `72f599c1292ecbf7362795adb19d7d994adcc7f5`.
+  PostgreSQL verification, reconciliation, and coaching remain integration-only;
+  the active reviewer still uses SQLite until the controlled cutover.
+- T028 is active for refactor-plan1.md Phase 3 Slice 3A: split the existing
+  publication god-module into concrete partition, application, and GitHub owners
+  while preserving byte-equivalent output and the active lifecycle.
 
 ## Execution boundary
 
-- The primary agent implements. Use the existing behavior owners and corrected
-  initial schema before adding code; no generic repository, backend interface,
-  dual write, fallback, or importer.
-- Keep provider/model calls and artifact I/O outside short database transactions.
-  Preserve typed failures, exact-run relationships, immutable evidence, and the
-  active SQLite behavior.
-- Keep publication delivery, feedback, tools, settings, Compose, deployment,
-  runtime cutover, jobs/outbox, trusted project policy, scanners, and GitHub App
-  work in later slices.
-- Ponytail lite is active: build the approved slice, but call out a materially
-  lazier existing-owner alternative before adding a new abstraction.
+- Move existing behavior before adding behavior. Keep `review_renderer.py` pure,
+  put deterministic partitioning in `publication_partition.py`, GitHub delivery
+  in `github/publication.py`, and lifecycle orchestration in
+  `review_publication_application.py`.
+- Preserve markers, suggestions, retry classification, stored-ID-first recovery,
+  supersession, failure status, public tool JSON, and SQLite persistence behavior.
+- Do not start PostgreSQL publication writes, feedback, settings, Compose,
+  deployment, runtime cutover, SQLite deletion, jobs, or outbox in T028.
+- Ponytail lite remains active: prefer moves, reuse, and deletion of duplicate
+  ownership; do not add a generic port, gateway framework, or pass-through layer.
 
 ## Continuity
 
-- Read `goal.md`, `state.yaml`, this handoff, `refactor-plan1.md` Slice 2C, and
-  the active task's exact source paths before editing. Preserve the user-owned
-  `refactor-plan1.md`.
-- T026 evidence: 65 PostgreSQL tests, strict Pyright, 562 bundle tests, docs
-  checks/build, live Python run `32698350796`, and docs run `32698129766` passed.
-  Claude session `review-agent-t026-suggestions-decisions` (UUID
-  `a36ca0a2-a42c-4f9f-a388-e28bebd82a80`) was green at score 8.
-- Start one new resumable Claude Opus/high session for T027's stable commit gate;
-  use the same session only for verified blocker follow-ups.
-- All Codex and Claude work must stop by 23:50 Europe/Stockholm and may resume at
-  06:00. Do not start a unit that risks crossing the stop boundary.
+- T027 evidence: 69 PostgreSQL tests, 15 affected SQLite behavior tests, strict
+  Pyright, 567 bundle tests, docs checks/build, live Python run `32701966716`,
+  and docs run `32701966733` passed. The hosted roadmap is current.
+- Claude session `review-agent-t027-verification-coaching`, UUID
+  `532f03ef-507d-4fe5-b2a3-b7876f103b0e`, converged from scores 6 and 7 to
+  green at score 8 in three passes.
+- Carry to the later PostgreSQL runtime caller: reconciliation/publication lock
+  contention can surface as fail-closed `LockNotAvailable` under the pool's
+  two-second timeout. That caller must explicitly own fail-run versus bounded
+  retry and pin the decision at its application boundary.
+- Read `goal.md`, `state.yaml`, this handoff, refactor-plan1.md Phase 3, and the
+  T028 source paths before editing. Preserve user-owned `refactor-plan1.md`.
+- Start one new resumable Claude Opus/high session for T028's stable commit gate.
+  Stop all Codex and Claude work by 23:50 Europe/Stockholm; resume at 06:00.

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -54,6 +56,15 @@ class ProfileBundleTests(unittest.TestCase):
         self.managed_config = {
             "model": {"provider": "openai-codex", "default": "gpt-5.6-sol"},
             "agent": {"reasoning_effort": "xhigh"},
+            "platforms": {
+                "webhook": {
+                    "extra": {
+                        "routes": {
+                            "review-agent": {"skills": ["review-agent-pr"]}
+                        }
+                    }
+                }
+            },
         }
 
     def run_installer(
@@ -61,6 +72,8 @@ class ProfileBundleTests(unittest.TestCase):
         hermes_home: Path,
         *arguments: str,
         existing_config: dict[str, object] | None = None,
+        profiles_source: Path | None = None,
+        profile_environment: str | None = "sundsvall-standard",
     ) -> tuple[int, mock.Mock, mock.Mock]:
         existing_config = existing_config or {}
 
@@ -78,7 +91,21 @@ class ProfileBundleTests(unittest.TestCase):
         completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
 
         with (
+            mock.patch.dict(
+                os.environ,
+                (
+                    {"REVIEW_AGENT_PROFILE": profile_environment}
+                    if profile_environment is not None
+                    else {}
+                ),
+                clear=True,
+            ),
             mock.patch.object(self.install, "HERMES_HOME", hermes_home),
+            mock.patch.object(
+                self.install,
+                "PROFILES_SOURCE",
+                profiles_source or self.install.PROFILES_SOURCE,
+            ),
             mock.patch.object(self.install, "load_yaml", side_effect=load_config),
             mock.patch.object(
                 self.install.subprocess,
@@ -157,6 +184,13 @@ class ProfileBundleTests(unittest.TestCase):
                 ),
             )
             self.assertTrue((hermes_home / ".no-bundled-skills").exists())
+            receipt = json.loads(
+                (hermes_home / ".review-agent-profile.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("sundsvall-standard", receipt["profile"])
+            self.assertEqual(["review-agent-pr", "ponytail"], receipt["skills"])
             enable.assert_called_once_with(
                 ["hermes", "plugins", "enable", "review-agent-tools"],
                 check=False,
@@ -243,6 +277,154 @@ class ProfileBundleTests(unittest.TestCase):
                 tree_bytes(PLUGIN_SOURCE),
                 tree_bytes(hermes_home / "plugins" / "review_agent_tools"),
             )
+
+    def test_selected_profile_survives_redeploy_and_removes_unlisted_skills(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            profiles = root / "profiles"
+            shutil.copytree(PROFILE_SOURCE, profiles / "sundsvall-standard")
+            custom = profiles / "team-standard"
+            shutil.copytree(profiles / "sundsvall-standard", custom)
+            (custom / "SOUL.md").write_text(
+                "# Team reviewer\n\nAnswer review explanations in Swedish.\n",
+                encoding="utf-8",
+            )
+            (custom / "workspace" / "AGENTS.md").write_text(
+                "# Team review rules\n\nUse concise Swedish explanations.\n",
+                encoding="utf-8",
+            )
+            (custom / "profile.json").write_text(
+                json.dumps({"schema_version": 1, "skills": ["review-agent-pr"]}),
+                encoding="utf-8",
+            )
+            hermes_home = root / "hermes-home"
+
+            initial, _enable, _connect = self.run_installer(
+                hermes_home,
+                profiles_source=profiles,
+            )
+            selected, _enable, _connect = self.run_installer(
+                hermes_home,
+                "--profile",
+                "team-standard",
+                profiles_source=profiles,
+                profile_environment=None,
+            )
+            repeated, _enable, _connect = self.run_installer(
+                hermes_home,
+                profiles_source=profiles,
+                profile_environment=None,
+            )
+
+            self.assertEqual((0, 0, 0), (initial, selected, repeated))
+            self.assertIn(
+                "Answer review explanations in Swedish.",
+                (hermes_home / "SOUL.md").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Use concise Swedish explanations.",
+                (hermes_home / "workspace" / "AGENTS.md").read_text(
+                    encoding="utf-8"
+                ),
+            )
+            self.assertFalse((hermes_home / "skills" / "ponytail").exists())
+            receipt = json.loads(
+                (hermes_home / ".review-agent-profile.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("team-standard", receipt["profile"])
+
+    def test_profile_contract_rejects_unknown_and_runtime_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            profiles = Path(temp) / "profiles"
+            custom = profiles / "unsafe-profile"
+            shutil.copytree(PROFILE_SOURCE, custom)
+            manifest = json.loads(
+                (custom / "profile.json").read_text(encoding="utf-8")
+            )
+            manifest["platform_toolsets"] = {"webhook": ["terminal"]}
+            (custom / "profile.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+
+            with mock.patch.object(self.install, "PROFILES_SOURCE", profiles):
+                with self.assertRaisesRegex(
+                    self.install.ProfileError,
+                    "may define only schema_version and skills",
+                ):
+                    self.install.load_profile(
+                        "unsafe-profile", required_skills=()
+                    )
+                with self.assertRaisesRegex(
+                    self.install.ProfileError, "lower-case words"
+                ):
+                    self.install.load_profile(
+                        "../unsafe-profile", required_skills=()
+                    )
+                with self.assertRaisesRegex(
+                    self.install.ProfileError, "unknown review profile"
+                ):
+                    self.install.load_profile(
+                        "missing-profile", required_skills=()
+                    )
+
+                (custom / "profile.json").write_text(
+                    json.dumps({"schema_version": 1, "skills": ["ponytail"]}),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(
+                    self.install.ProfileError, "missing managed route skill"
+                ):
+                    self.install.load_profile(
+                        "unsafe-profile", required_skills=("review-agent-pr",)
+                    )
+
+    def test_installer_rejects_missing_route_skill_before_writing_home(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            profiles = root / "profiles"
+            selected = profiles / "sundsvall-standard"
+            shutil.copytree(PROFILE_SOURCE, selected)
+            (selected / "profile.json").write_text(
+                json.dumps({"schema_version": 1, "skills": ["ponytail"]}),
+                encoding="utf-8",
+            )
+            hermes_home = root / "hermes-home"
+
+            with self.assertRaises(SystemExit) as raised:
+                self.run_installer(
+                    hermes_home,
+                    profiles_source=profiles,
+                )
+
+            self.assertEqual(2, raised.exception.code)
+            self.assertFalse(hermes_home.exists())
+
+    def test_explicit_profile_recovers_from_an_invalid_installed_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            hermes_home = Path(temp) / "hermes-home"
+            hermes_home.mkdir()
+            (hermes_home / ".review-agent-profile.json").write_text(
+                '{"profile": "truncated"}', encoding="utf-8"
+            )
+
+            completed, _enable, _connect = self.run_installer(
+                hermes_home,
+                "--profile",
+                "sundsvall-standard",
+                profile_environment=None,
+            )
+
+            self.assertEqual(0, completed)
+            receipt = json.loads(
+                (hermes_home / ".review-agent-profile.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("sundsvall-standard", receipt["profile"])
 
 
 if __name__ == "__main__":

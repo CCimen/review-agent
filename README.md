@@ -6,7 +6,7 @@ status: current
 last_verified: 2026-08-21
 ---
 
-# Sundsvall Review Agent
+# Review Agent
 
 > **Current** — This page describes the reviewer available in this repository
 > today.
@@ -101,17 +101,19 @@ gate pull requests.
 | Example output | `examples/comments/example-review.md` | Single example of the rendered review shape. |
 | Visible review copy | `bootstrap/plugins/review_agent_tools/review_identity.py` | Centralized profile-facing title, continuation, fix-brief, and feedback messages. |
 
-To adapt the reviewer for another team, start with the three profile files and
-the GitHub workflow allowlist. Visible profile copy lives in
-`review_identity.py`; keep the review title as a per-bundle constant because the
-publisher parses it when splitting and superseding stored comments. Do not fork
-the memory or publisher logic unless your runtime contract actually changes.
+The shipped `sundsvall-standard` bundle is the default deployment profile, not
+the product identity. Select another trusted bundle with
+`REVIEW_AGENT_PROFILE=<profile-key>`. To create one, copy the profile directory,
+edit `SOUL.md` for identity, voice, and explanatory language, edit
+`workspace/AGENTS.md` for stable review rules and presentation, and list only
+reviewed skill directories in `profile.json`. The installer rejects unknown
+profiles and any manifest keys beyond its schema version and reviewed skills.
 
-The long-term split is engine plus profile: the engine owns GitHub transport,
-snapshot reads, memory, coverage, feedback, verifier reconciliation, and
-publication; a profile owns project policy, skills, tone, and enabled verifier
-providers. The initial profile is being separated from source-specific policy so
-repository differences can be resolved through versioned configuration.
+Deterministic authorization, tool availability, snapshot checks, persistence,
+publication markers, delivery routes, model/provider selection, and lifecycle
+rules are engine configuration and cannot be changed by a profile. The visible
+review protocol also remains deterministic; localizing its fixed headings and
+markers requires an engine change rather than a free-form profile template.
 
 The persistence target is one PostgreSQL database per environment. The current
 runtime bundle uses one shared SQLite database, but that runtime is temporary

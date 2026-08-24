@@ -34,7 +34,9 @@ behavior documented in the repository and verified by the shipped bundle.
 - Human-governed feedback plus private, operator-run learning and verification.
 - Central typed runtime settings, a bounded GitHub read client, and typed run and
   finding application owners.
-- One fixed Sundsvall profile bundle for reviewer identity and procedure.
+- One validated deployment-profile selector with `sundsvall-standard` as the
+  shipped municipal profile; profiles own voice, stable rules, presentation,
+  and an explicit reviewed-skill list, never runtime security invariants.
 
 ## PostgreSQL replacement milestones
 

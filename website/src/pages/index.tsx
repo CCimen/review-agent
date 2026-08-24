@@ -45,7 +45,7 @@ function Home(): ReactNode {
   return (
     <Layout
       title="Evidence-backed pull-request review"
-      description="Documentation for the Sundsvall Review Agent: onboarding, behavior ownership, trust, operations, and roadmap."
+      description="Documentation for Review Agent: onboarding, behavior ownership, trust, operations, and roadmap."
     >
       <main className={styles.main}>
         <section className={styles.intro} aria-labelledby="home-title">
@@ -55,7 +55,7 @@ function Home(): ReactNode {
               Review pull requests with evidence, not guesswork.
             </Heading>
             <p className={styles.summary}>
-              Sundsvall Review Agent combines bounded model reasoning with
+              Review Agent combines bounded model reasoning with
               deterministic authorization, snapshot checks, durable memory, and
               GitHub publication.
             </p>

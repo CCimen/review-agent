@@ -57,9 +57,10 @@ class DocsContractTests(unittest.TestCase):
         self.assertFalse((ROOT / "REVIEWER_IMPROVEMENT_PLAN.md").exists())
 
         readme = read("README.md")
-        self.assertIn("# Sundsvall Review Agent", readme)
+        self.assertIn("# Review Agent", readme)
         self.assertIn("engine", readme)
         self.assertIn("profile", readme)
+        self.assertIn("REVIEW_AGENT_PROFILE", readme)
         self.assertIn("documentation site", readme)
         self.assertIn("docs/OPERATIONS.md", readme)
         self.assertIn("docs/SECURITY.md", readme)
@@ -366,6 +367,7 @@ class DocsContractTests(unittest.TestCase):
             init_section,
         )
         self.assertIn("PYTHONDONTWRITEBYTECODE", init_section)
+        self.assertIn("REVIEW_AGENT_PROFILE", init_section)
         self.assertIn("hermes_review_data:/opt/data", init_section)
         self.assertIn("review_memory_data:/opt/data/review-memory", init_section)
         self.assertNotIn("/opt/review-agent-bootstrap/install.sh", reviewer_section)
@@ -388,6 +390,20 @@ class DocsContractTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, operations)
         self.assertNotIn("review-agent-memory init", readme)
+
+    def test_public_product_name_is_organization_neutral(self):
+        for relative in [
+            "README.md",
+            "PRODUCT.md",
+            "docs/GETTING_STARTED.md",
+            "website/docusaurus.config.ts",
+            "website/src/pages/index.tsx",
+            "website/package.json",
+        ]:
+            with self.subTest(relative=relative):
+                self.assertNotIn("Sundsvall Review Agent", read(relative))
+        self.assertIn("title: 'Review Agent'", read("website/docusaurus.config.ts"))
+        self.assertIn("# Review Agent", read("README.md"))
 
     def test_review_delivery_uses_deterministic_publisher_not_github_comment(self):
         config = read("bootstrap/config.yaml")

@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 import publicDocuments from './public-documents.json';
 
 const config: Config = {
-  title: 'Sundsvall Review Agent',
+  title: 'Review Agent',
   tagline: 'Evidence-backed pull-request review with deterministic controls.',
   url: 'https://ccimen.github.io',
   baseUrl: '/review-agent/',
@@ -51,7 +51,7 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'Sundsvall Review Agent',
+      title: 'Review Agent',
       items: [
         {
           type: 'docSidebar',
@@ -121,7 +121,7 @@ const config: Config = {
         },
       ],
       copyright:
-        'Documentation for the Sundsvall Review Agent. Runtime credentials never reach this site.',
+        'Documentation for Review Agent. Runtime credentials never reach this site.',
     },
     prism: {
       theme: prismThemes.github,

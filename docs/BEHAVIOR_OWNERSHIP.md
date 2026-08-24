@@ -13,7 +13,7 @@ last_verified: 2026-08-21
 > current. Trusted base-branch repository configuration is planned and is
 > labeled separately.
 
-The current deployment has one municipal reviewer profile per environment.
+The current deployment has one selected reviewer profile per environment.
 Change the canonical owner of a concern instead of adding repository-name
 conditionals or copying policy into runtime code.
 
@@ -27,12 +27,42 @@ conditionals or copying policy into runtime code.
 | Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |
 | Repository trigger contract | `examples/github/ai-review-request.yml` | Trusted GitHub request behavior changes. |
 
+## Selecting a deployment profile
+
+Set `REVIEW_AGENT_PROFILE` to a trusted directory key under
+`bootstrap/profiles`. The default is `sundsvall-standard`. The installer records
+the selected profile and its reviewed skill list in `HERMES_HOME`. Outside the
+packaged Compose deployment, it reuses that receipt when no explicit value is
+supplied. Compose always injects `REVIEW_AGENT_PROFILE`, so deployed selection
+remains explicit. Skills recorded as managed by the previous selector are
+removed when the new bundle does not list them.
+
+Each profile contains:
+
+- `SOUL.md` for identity, tone, and explanatory language;
+- `workspace/AGENTS.md` for stable review rules and presentation;
+- `profile.json` for the explicit reviewed-skill keys; and
+- one directory under `skills/` for each listed key.
+
+Every profile must include the skills named by the managed webhook review route,
+currently `review-agent-pr`. Additional skill files are trusted, code-reviewed
+profile content. The installer validates their keys and presence; it does not
+interpret or authorize their prose or front matter.
+
+The machine-validated manifest deliberately has no model, provider, route, tool, authorization,
+snapshot, persistence, marker, or lifecycle settings. Those remain fixed in
+managed configuration and deterministic code. Fixed GitHub headings and hidden
+markers are not free-form profile templates.
+
 ## Changing `SOUL.md`
 
 `SOUL.md` owns the global reviewer identity: evidence-first tone, constructive
 language, and the stance taken when explaining risk and remediation. It is not
 a repository customization file. A change affects every repository using that
 deployed profile, so review it as a product-policy change.
+
+This follows Hermes' native [personality and `SOUL.md` ownership](https://hermes-agent.nousresearch.com/docs/user-guide/features/personality)
+and its [deployment guide for a custom soul](https://hermes-agent.nousresearch.com/docs/guides/use-soul-with-hermes).
 
 ## Changing review rules
 

@@ -106,6 +106,18 @@ sidecar on each deploy. It refreshes the managed profile and plugin under
 `review-memory-init` as `Exited (0)` is expected. Use its logs only for startup
 failures.
 
+Set `REVIEW_AGENT_PROFILE` to a trusted bundle key under
+`bootstrap/profiles`; the packaged default is `sundsvall-standard`. The init
+service rejects an unknown key before changing `HERMES_HOME`. A profile owns
+`SOUL.md`, `workspace/AGENTS.md`, and the reviewed skills named in
+`profile.json`; it cannot merge model, route, tool, authorization, snapshot,
+persistence, marker, or lifecycle settings into the managed configuration.
+Skill files are trusted, code-reviewed profile content; `profile.json` validation
+does not make arbitrary skill prose safe.
+Keep the selected value in deployment configuration so redeploys remain
+explicit. When invoking the installer outside Compose, its receipt reuses the
+last selected profile if neither the flag nor environment value is supplied.
+
 Manual recovery only:
 
 ```bash

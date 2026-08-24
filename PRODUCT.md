@@ -3,12 +3,12 @@
 <!--
 impeccable_context_version: 1
 surface: web documentation
-audience: Sundsvall municipality platform operators and repository maintainers
+audience: platform operators and repository maintainers
 -->
 
 ## Product
 
-Sundsvall Review Agent is an organization-wide, advisory pull-request reviewer.
+Review Agent is an organization-wide, advisory pull-request reviewer.
 It combines bounded LLM reasoning with deterministic authorization, snapshot,
 memory, and GitHub publication controls.
 

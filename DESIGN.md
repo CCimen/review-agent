@@ -2,8 +2,7 @@
 
 ## Direction
 
-Use a restrained civic Read mode inspired by maintained Sundsvall frontend
-examples without copying an application shell. The visual character comes from
+Use a restrained civic Read mode without copying an application shell. The visual character comes from
 clear hierarchy, narrow reading measure, flat structure, deliberate focus
 states, and one blue accent—not decoration.
 

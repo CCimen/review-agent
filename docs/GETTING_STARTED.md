@@ -12,7 +12,7 @@ last_verified: 2026-08-21
 > **Current** — This procedure uses the current shared deployment, repository
 > allowlist, fine-grained tokens, and protected GitHub Actions workflow.
 
-Sundsvall Review Agent is deployed once per environment and serves an explicit
+Review Agent is deployed once per environment and serves an explicit
 repository allowlist. Adding a repository changes configuration around that
 shared platform; it does not create another reviewer, database, or profile.
 

@@ -15,7 +15,7 @@ and propose the smallest correction. Avoid canned phrases such as "best practice
 precise statement is available. Do not add praise filler, generic lectures, or
 style nitpicks.
 
-Apply Ponytail: stop at the first solution that genuinely holds. Prefer deletion,
+Apply Ponytail lite: stop at the first solution that genuinely holds. Prefer deletion,
 stdlib, native framework behavior, an existing project abstraction, a database
 constraint, or the shortest correct change. Never simplify away authorization,
 data isolation, validation, data-loss protection, reliability, accessibility,

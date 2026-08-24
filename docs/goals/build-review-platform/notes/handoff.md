@@ -1,6 +1,6 @@
 # Goal Maker Handoff
 
-`state.yaml` is authoritative. This note only orients the next continuation.
+`state.yaml` is authoritative.
 
 ## Current state
 
@@ -14,44 +14,43 @@
 - T106 is complete at `a73b6a2ee265231712bb912784f5392c2a9aff3a`.
   Exact heartbeat, bounded retry/dead-letter recovery, and atomic two-way
   run/job reconciliation are proven without activating a worker.
-- T110 is the sole active task: prove one non-deployed exact-run worker and its
-  process-death safety against the pinned Hermes runtime.
+- T110 is complete at `aabbb7bda0851b688620dcec3044502f58802a1f`.
+  One non-deployed serial worker now has exact-run continuation, isolated
+  heartbeats, bounded retry, graceful stop, and pinned Hermes generation-fence
+  proof.
+- T107 is the sole active task: activate durable admission and the proven worker
+  with old-head cancellation, per-repository fairness, priority aging, operator
+  queue controls, and concise deployment/readiness guidance.
 - Public identity is “Review Agent.” `sundsvall-standard` remains a selectable
   municipal profile, not the product identity. Model-era review-depth ceilings
   are gone; pageable or honestly incomplete contracts own large inputs.
 
-## T110 execution boundary
+## T107 execution boundary
 
-- Reuse exact-snapshot review orchestration and the canonical profile skill;
-  do not create a second prompt or review pipeline.
-- Treat Hermes idempotency as a same-lease transport optimization. PostgreSQL
-  fences and run/publication constraints remain the correctness boundary.
-- First close the reviewed enqueue run-lock and stale-fence contract gaps before
-  they become reachable through worker execution.
-- Keep API_SERVER_ENABLED=false and keep the worker out of Compose. Stop if the
-  pinned Hermes runtime cannot prevent concurrent old and reclaimed turns.
+- Activate the authenticated internal Hermes API and worker only with real
+  durable ingress and readiness. Reuse the concrete worker and PostgreSQL job
+  owner; do not add Celery, ARQ, Redis, a scheduler, or a generic queue port.
+- A duplicate request must acknowledge quickly and idempotently. A newer head
+  must cancel queued work and make leased old-head work unable to publish.
+- Start with one active review per repository and a bounded global queue. Own
+  fairness and priority aging in the PostgreSQL claim query; tune concurrency
+  only from measured queue age and provider capacity.
+- Extend the existing operator CLI with queue inspection/retry/cancel behavior.
+  Document worker variables, health/readiness, scaling, Docker Compose, Dokploy,
+  and arbitrary-UID OpenShift without adding Helm or another deployment layer.
+- Keep publication serialization and delivery where they are. T108 owns the
+  outbox and must not be pulled into activation.
 
 ## Remaining order
 
-T110 non-deployed worker proof → T107 activation/supersession/fairness/fast
-enqueue → T108 publication outbox → T109 final audit.
+T107 activation/supersession/fairness/fast enqueue → T108 publication outbox →
+T109 final audit.
 Security-scanner and Codex Security integrations remain explicitly deferred.
 
 ## Verification continuity
 
-- T100: PostgreSQL 91 tests, strict Pyright, 606-test bundle, docs/site, and
-  Claude Opus/high green 8. Session `review-agent-t100-postgresql-feedback`.
-- T101: PostgreSQL 101 tests, strict Pyright, 616-test bundle, 24 docs contracts,
-  and two Claude Opus/high gates green at 8. Sessions
-  `review-agent-t101-publication-parity` and
-  `review-agent-t101-operator-parity` (UUID
-  `e3825c18-a74f-44f0-b9f0-ba335ca4a71e`). Exact-commit Python run
-  `32733756788` and Pages run `32733756671` passed.
-- T102-T104: PostgreSQL 104 tests, strict Pyright, 304-test bundle, docs/Compose/
-  site checks, and Claude Opus/high green 8. Session
-  `review-agent-t102-postgresql-cutover` (UUID
-  `71ee5913-d171-444c-a608-0df179d463b5`). Exact-commit Python run
-  `32745614488`, Pages run `32745614610`, and board run `32745849829` passed.
+- Older exact-commit evidence remains on each completed task receipt in
+  `state.yaml`; this handoff keeps only the job/worker sequence needed by T107.
 - T105: PostgreSQL 116 tests, strict Pyright, 316-test bundle, nine-document
   manifest, and final Claude Opus/high green 8. Sessions
   `review-agent-t105-durable-jobs` (UUID
@@ -63,6 +62,11 @@ Security-scanner and Codex Security integrations remain explicitly deferred.
   checks, and Claude Opus/high green 8. Session
   `review-agent-t106-worker-architecture` (UUID
   `3925a59c-148d-4367-a6ae-7e5f4c4ca436`). Source revision
-  `a73b6a2ee265231712bb912784f5392c2a9aff3a`; exact-commit CI is pending.
+  `a73b6a2ee265231712bb912784f5392c2a9aff3a` passed exact-commit CI.
+- T110: PostgreSQL 125 tests, strict Pyright, 334-test bundle, fresh image and
+  pinned Hermes adapter checks, public docs/site, and Claude Opus/high green 8.
+  Session `review-agent-t110-worker-proof` (UUID
+  `6d0f83ad-a2a9-424e-84c0-c6894ec986f7`). Exact-commit Python/image run
+  `32763967594` and Pages run `32763967574` passed.
 - Preserve user-owned `refactor-plan1.md`.
 - Stop all Codex and Claude work by 23:50 Europe/Stockholm; resume at 06:00.

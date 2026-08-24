@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Atomic job lifecycle and recovery are complete; exact-run worker continuation and process-death safety are active."
+  tranche: "Exact-run worker proof is complete; durable admission and controlled activation are active."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 15
+  completed_write_tasks_in_thread: 16
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T16:25:00Z"
-  last_verified_revision: "a73b6a2ee265231712bb912784f5392c2a9aff3a"
+  last_handoff_at: "2026-08-24T18:46:00Z"
+  last_verified_revision: "aabbb7bda0851b688620dcec3044502f58802a1f"
 
-active_task: T110
+active_task: T107
 
 tasks:
   - id: T001
@@ -1969,7 +1969,7 @@ tasks:
   - id: T110
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Prove and implement one non-deployed Review Agent worker with exact-run continuation, heartbeat isolation, bounded retry, and graceful shutdown."
     constraints:
@@ -1989,22 +1989,67 @@ tasks:
     stop_if:
       - "Pinned Hermes cannot cancel or fence a prior turn, layer the selected profile safely, or execute an existing exact run without duplicate ownership."
       - "The worker requires a deployed API surface, fairness policy, another broker, or publication outbox behavior."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T110-exact-run-worker.md"
+      summary: "Shipped one non-deployed serial PostgreSQL worker with exact-run continuation, isolated heartbeats, bounded retry, graceful stop, and pinned Hermes generation-fence proof."
+      changed_files:
+        - ".github/workflows/ci.yml"
+        - "Dockerfile"
+        - "bootstrap/config.yaml"
+        - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/runtime.py"
+        - "bootstrap/plugins/review_agent_tools/review_run_application.py"
+        - "bootstrap/plugins/review_agent_tools/schemas.py"
+        - "bootstrap/plugins/review_agent_tools/tools.py"
+        - "bootstrap/plugins/review_agent_tools/worker.py"
+        - "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+        - "tools/review_agent_worker.py"
+        - "tools/review_agent_hermes_contract.py"
+        - "tests/test_postgres_jobs.py"
+        - "tests/test_tool_contract.py"
+        - "tests/test_worker.py"
+        - "README.md"
+        - "docs/HOW_REVIEWS_WORK.md"
+        - "docs/OPERATIONS.md"
+        - "docs/ROADMAP.md"
+      commands:
+        - cmd: "./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "125 PostgreSQL 17 tests plus migration backup/restore passed."
+        - cmd: "./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright and 334 tests passed."
+        - cmd: "docker build and pinned Hermes worker contract"
+          status: pass
+          summary: "The fresh image built; worker entrypoint and pinned session/context adapter contract passed."
+        - cmd: "python3 scripts/check_docs.py && npm --prefix website run typecheck && npm --prefix website run build"
+          status: pass
+          summary: "Nine-document public contract, Node 24 typecheck, and production site build passed."
+        - cmd: "Claude Opus/high commit gate"
+          status: pass
+          summary: "Session review-agent-t110-worker-proof converged from scores 5 and 7 to green at score 8."
+        - cmd: "GitHub Actions exact-commit validation"
+          status: pass
+          summary: "Python/image run 32763967594 and Pages run 32763967574 passed."
+      revision: "aabbb7bda0851b688620dcec3044502f58802a1f"
   - id: T107
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Activate durable admission and the proven worker with old-head cancellation, per-repository fairness, fast acknowledgement, priority aging, and operator queue inspection."
     constraints:
       - "Enable the authenticated internal Hermes API and worker only with the real durable ingress; use the concrete PostgreSQL job owner and existing operator CLI."
       - "Start with one active review per repository and a bounded global queue; tune concurrency only from measured queue age and provider capacity."
       - "Old-head queued or running work must never publish after supersession."
+      - "Document the activated worker environment, health/readiness, and concise Docker Compose, Dokploy, and arbitrary-UID OpenShift deployment paths without adding a chart or deployment framework."
     expected_output:
       - "Fast idempotent durable enqueue response"
       - "New-head cancellation and stale-publication prevention"
       - "Per-repository fairness and priority aging"
       - "Operator queue list/retry/cancel inspection controls"
+      - "Concise activation, scaling, readiness, and deployment guidance"
     verify:
       - "Duplicate requests and new-head bursts remain idempotent and fair across repositories."
       - "A superseded job cannot publish even when its worker resumes after lease recovery."

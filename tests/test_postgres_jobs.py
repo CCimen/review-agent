@@ -17,7 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import failure_codes, review_run_application  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    failure_codes,
+    operator_application,
+    review_run_application,
+)
 from review_agent_tools.domain.review import (  # noqa: E402
     ReviewPhase,
     ReviewStatus,
@@ -36,6 +40,8 @@ from review_agent_tools.worker import (  # noqa: E402
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
+ACTIVE_JOB_LIMIT = 100
+PRIORITY_AGING_INTERVAL = timedelta(minutes=15)
 
 
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
@@ -115,8 +121,40 @@ class PostgreSQLJobTests(unittest.TestCase):
                 review_run_id=run.run.id,
                 priority=priority,
                 max_attempts=max_attempts,
+                active_job_limit=ACTIVE_JOB_LIMIT,
             )
         return run, job
+
+    def claim_job(
+        self,
+        connection: psycopg.Connection[tuple[object, ...]],
+        *,
+        lease_owner: str,
+        lease_duration: timedelta,
+    ) -> jobs.ReviewJob | None:
+        return jobs.claim_next_job(
+            connection,
+            lease_owner=lease_owner,
+            lease_duration=lease_duration,
+            priority_aging_interval=PRIORITY_AGING_INTERVAL,
+        )
+
+    @staticmethod
+    def admission_request(
+        *, provider_id: int, pr_number: int, request_key: str, head: str
+    ) -> review_run_application.PostgresRunRequest:
+        return review_run_application.PostgresRunRequest(
+            provider="github",
+            provider_repository_id=provider_id,
+            repository=f"team/service-{provider_id}",
+            pr_number=pr_number,
+            base_sha="b" * 40,
+            head_sha=head * 40,
+            policy_revision="profile@1",
+            resolved_config_schema_version=1,
+            resolved_config={"profile": "team-standard"},
+            request_key=request_key,
+        )
 
     def test_run_identity_makes_concurrent_enqueue_idempotent(self) -> None:
         pull_request = self.pull_request(provider_id=1001, number=11)
@@ -195,7 +233,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         )
         assert isinstance(accepted, jobs.EnqueuedJob)
         with self.runtime.transaction() as connection:
-            first_lease = jobs.claim_next_job(
+            first_lease = self.claim_job(
                 connection,
                 lease_owner="worker-one",
                 lease_duration=timedelta(minutes=2),
@@ -212,7 +250,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 """,
                 (accepted.job.id,),
             )
-            second_lease = jobs.claim_next_job(
+            second_lease = self.claim_job(
                 connection,
                 lease_owner="worker-two",
                 lease_duration=timedelta(minutes=2),
@@ -262,7 +300,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         )
         assert isinstance(first, jobs.EnqueuedJob)
         with self.runtime.transaction() as connection:
-            leased = jobs.claim_next_job(
+            leased = self.claim_job(
                 connection,
                 lease_owner="worker-one",
                 lease_duration=timedelta(minutes=2),
@@ -295,7 +333,9 @@ class PostgreSQLJobTests(unittest.TestCase):
                     lease_generation=1,
                     lease_duration=timedelta(minutes=2),
                 )
-        self.assertEqual(caught.exception.current_job.status, jobs.ReviewJobStatus.SUPERSEDED)
+        self.assertEqual(
+            caught.exception.current_job.status, jobs.ReviewJobStatus.SUPERSEDED
+        )
 
     def test_new_subject_supersedes_requeued_job_without_resetting_fence(
         self,
@@ -310,7 +350,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         )
         assert isinstance(first, jobs.EnqueuedJob)
         with self.runtime.transaction() as connection:
-            leased = jobs.claim_next_job(
+            leased = self.claim_job(
                 connection,
                 lease_owner="worker-requeue",
                 lease_duration=timedelta(minutes=2),
@@ -374,7 +414,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 failure_code="stale_timeout",
             )
         with self.runtime.transaction() as connection:
-            claimed = jobs.claim_next_job(
+            claimed = self.claim_job(
                 connection,
                 lease_owner="worker-terminal",
                 lease_duration=timedelta(minutes=2),
@@ -395,7 +435,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         )
         assert isinstance(accepted, jobs.EnqueuedJob)
         with self.runtime.transaction() as connection:
-            leased = jobs.claim_next_job(
+            leased = self.claim_job(
                 connection,
                 lease_owner="worker-heartbeat",
                 lease_duration=timedelta(minutes=2),
@@ -452,7 +492,9 @@ class PostgreSQLJobTests(unittest.TestCase):
                 )
             usable = connection.execute("SELECT 1").fetchone()
         self.assertEqual(usable, (1,))
-        self.assertEqual(caught.exception.current_job.status, jobs.ReviewJobStatus.LEASED)
+        self.assertEqual(
+            caught.exception.current_job.status, jobs.ReviewJobStatus.LEASED
+        )
 
     def test_retry_and_terminal_failure_release_the_run_deterministically(self) -> None:
         pull_request = self.pull_request(provider_id=1016, number=26)
@@ -464,7 +506,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         )
         assert isinstance(accepted, jobs.EnqueuedJob)
         with self.runtime.transaction() as connection:
-            first = jobs.claim_next_job(
+            first = self.claim_job(
                 connection,
                 lease_owner="worker-retry",
                 lease_duration=timedelta(minutes=2),
@@ -486,7 +528,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 "WHERE id = %s",
                 (first.id,),
             )
-            second = jobs.claim_next_job(
+            second = self.claim_job(
                 connection,
                 lease_owner="worker-terminal",
                 lease_duration=timedelta(minutes=2),
@@ -520,7 +562,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         )
         assert isinstance(accepted, jobs.EnqueuedJob)
         with self.runtime.transaction() as connection:
-            leased = jobs.claim_next_job(
+            leased = self.claim_job(
                 connection,
                 lease_owner="worker-tool-fence",
                 lease_duration=timedelta(minutes=2),
@@ -590,6 +632,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 request_timeout=timedelta(seconds=2),
                 recovery_interval=timedelta(seconds=30),
                 recovery_batch_size=10,
+                priority_aging_interval=PRIORITY_AGING_INTERVAL,
             ),
             lease_owner="worker-stop-probe",
             stop_event=stop,
@@ -615,7 +658,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             max_attempts=1,
         )
         with self.runtime.transaction() as connection:
-            leased = jobs.claim_next_job(
+            leased = self.claim_job(
                 connection,
                 lease_owner="worker-last-attempt",
                 lease_duration=timedelta(minutes=2),
@@ -646,7 +689,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             request_key="github:manual:terminal-before-job-failure",
         )
         with self.runtime.transaction() as connection:
-            leased = jobs.claim_next_job(
+            leased = self.claim_job(
                 connection,
                 lease_owner="worker-terminal-run",
                 lease_duration=timedelta(minutes=2),
@@ -670,7 +713,9 @@ class PostgreSQLJobTests(unittest.TestCase):
         )
         self.assertIsNone(caught.exception.current_job.lease_owner)
 
-    def test_expiry_recovery_consumes_attempts_and_reconciles_terminal_runs(self) -> None:
+    def test_expiry_recovery_consumes_attempts_and_reconciles_terminal_runs(
+        self,
+    ) -> None:
         retry_pull = self.pull_request(provider_id=1018, number=28)
         retry_subject = self.subject(retry_pull, head_character="a")
         retry_run, _ = self.accept_job(
@@ -687,12 +732,12 @@ class PostgreSQLJobTests(unittest.TestCase):
             request_key="github:manual:expiry-terminal-run",
         )
         with self.runtime.transaction() as connection:
-            first = jobs.claim_next_job(
+            first = self.claim_job(
                 connection,
                 lease_owner="worker-expiry-one",
                 lease_duration=timedelta(minutes=2),
             )
-            second = jobs.claim_next_job(
+            second = self.claim_job(
                 connection,
                 lease_owner="worker-expiry-two",
                 lease_duration=timedelta(minutes=2),
@@ -732,7 +777,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 "WHERE id = %s",
                 (requeued.id,),
             )
-            reclaimed = jobs.claim_next_job(
+            reclaimed = self.claim_job(
                 connection,
                 lease_owner="worker-expiry-three",
                 lease_duration=timedelta(minutes=2),
@@ -769,7 +814,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             request_key="github:manual:run-completes-job",
         )
         with self.runtime.transaction() as connection:
-            leased = jobs.claim_next_job(
+            leased = self.claim_job(
                 connection,
                 lease_owner="worker-complete",
                 lease_duration=timedelta(minutes=2),
@@ -809,7 +854,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             priority=10,
         )
         with self.runtime.transaction() as connection:
-            leased = jobs.claim_next_job(
+            leased = self.claim_job(
                 connection,
                 lease_owner="worker-live",
                 lease_duration=timedelta(minutes=5),
@@ -855,6 +900,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                             review_run_id=started.run.id,
                             priority=0,
                             max_attempts=3,
+                            active_job_limit=ACTIVE_JOB_LIMIT,
                         )
 
     def test_enqueue_translates_review_run_lock_timeout(self) -> None:
@@ -869,8 +915,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         with psycopg.connect(DSN) as lock_holder:
             with lock_holder.transaction():
                 lock_holder.execute(
-                    "SELECT id FROM review_agent.review_runs "
-                    "WHERE id = %s FOR UPDATE",
+                    "SELECT id FROM review_agent.review_runs WHERE id = %s FOR UPDATE",
                     (started.run.id,),
                 )
                 with self.assertRaises(jobs.ReviewJobBusy):
@@ -880,6 +925,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                             review_run_id=started.run.id,
                             priority=0,
                             max_attempts=3,
+                            active_job_limit=ACTIVE_JOB_LIMIT,
                         )
 
     def test_concurrent_claimers_receive_distinct_fenced_leases(self) -> None:
@@ -894,7 +940,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         def claim(worker: str) -> jobs.ReviewJob | None:
             with self.runtime.transaction() as connection:
                 start.wait(timeout=5)
-                return jobs.claim_next_job(
+                return self.claim_job(
                     connection,
                     lease_owner=worker,
                     lease_duration=timedelta(minutes=2),
@@ -919,7 +965,7 @@ class PostgreSQLJobTests(unittest.TestCase):
 
         with self.runtime.transaction() as connection:
             self.assertIsNone(
-                jobs.claim_next_job(
+                self.claim_job(
                     connection,
                     lease_owner="worker-three",
                     lease_duration=timedelta(minutes=2),
@@ -947,7 +993,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         assert isinstance(higher, jobs.EnqueuedJob)
 
         with self.runtime.transaction() as connection:
-            claimed = jobs.claim_next_job(
+            claimed = self.claim_job(
                 connection,
                 lease_owner="worker-priority",
                 lease_duration=timedelta(minutes=2),
@@ -955,6 +1001,136 @@ class PostgreSQLJobTests(unittest.TestCase):
 
         assert claimed is not None
         self.assertEqual(claimed.id, higher.job.id)
+
+    def test_capacity_admission_is_exact_across_concurrent_requests(self) -> None:
+        start = Barrier(2)
+
+        def admit(index: int) -> review_run_application.AdmittedReview | str:
+            start.wait(timeout=5)
+            try:
+                return review_run_application.admit_postgres_review(
+                    self.runtime,
+                    self.admission_request(
+                        provider_id=1100 + index,
+                        pr_number=50 + index,
+                        request_key=f"github:manual:capacity-{index}",
+                        head="a" if index == 0 else "c",
+                    ),
+                    priority=0,
+                    max_attempts=3,
+                    active_job_limit=1,
+                )
+            except jobs.ReviewQueueFull:
+                return "full"
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = tuple(executor.map(admit, range(2)))
+
+        self.assertEqual(sum(item == "full" for item in outcomes), 1)
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                "SELECT "
+                "(SELECT count(*) FROM review_agent.review_runs), "
+                "(SELECT count(*) FROM review_agent.review_jobs)"
+            ).fetchone()
+        self.assertEqual(counts, (1, 1))
+
+    def test_one_repository_cannot_hold_two_live_leases(self) -> None:
+        first_pull = self.pull_request(provider_id=1200, number=61)
+        second_pull = self.pull_request(provider_id=1200, number=62)
+        self.accept_job(
+            first_pull,
+            self.subject(first_pull, head_character="a"),
+            request_key="github:manual:repo-fairness-one",
+        )
+        self.accept_job(
+            second_pull,
+            self.subject(second_pull, head_character="c"),
+            request_key="github:manual:repo-fairness-two",
+        )
+        start = Barrier(2)
+
+        def claim(worker: str) -> jobs.ReviewJob | None:
+            with self.runtime.transaction() as connection:
+                start.wait(timeout=5)
+                return self.claim_job(
+                    connection,
+                    lease_owner=worker,
+                    lease_duration=timedelta(minutes=2),
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            claimed = tuple(executor.map(claim, ("worker-fair-one", "worker-fair-two")))
+
+        self.assertEqual(sum(item is not None for item in claimed), 1)
+
+    def test_priority_aging_prevents_an_old_ready_job_from_starving(self) -> None:
+        old_pull = self.pull_request(provider_id=1300, number=71)
+        new_pull = self.pull_request(provider_id=1301, number=72)
+        _, old_job = self.accept_job(
+            old_pull,
+            self.subject(old_pull, head_character="a"),
+            request_key="github:manual:aging-old",
+            priority=0,
+        )
+        self.accept_job(
+            new_pull,
+            self.subject(new_pull, head_character="c"),
+            request_key="github:manual:aging-new",
+            priority=5,
+        )
+        assert isinstance(old_job, jobs.EnqueuedJob)
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_jobs "
+                "SET created_at = statement_timestamp() - INTERVAL '2 hours', "
+                "available_at = statement_timestamp() - INTERVAL '2 hours' "
+                "WHERE id = %s",
+                (old_job.job.id,),
+            )
+            claimed = self.claim_job(
+                connection,
+                lease_owner="worker-aging",
+                lease_duration=timedelta(minutes=2),
+            )
+
+        assert claimed is not None
+        self.assertEqual(claimed.id, old_job.job.id)
+
+    def test_operator_can_inspect_release_and_cancel_active_work(self) -> None:
+        pull_request = self.pull_request(provider_id=1400, number=81)
+        started, accepted = self.accept_job(
+            pull_request,
+            self.subject(pull_request, head_character="a"),
+            request_key="github:manual:operator-control",
+        )
+        assert isinstance(accepted, jobs.EnqueuedJob)
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_jobs "
+                "SET available_at = statement_timestamp() + INTERVAL '1 hour' "
+                "WHERE id = %s",
+                (accepted.job.id,),
+            )
+
+        reports = operator_application.list_review_jobs(self.runtime, limit=10)
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0].repository, "team/service-1400")
+        released = operator_application.retry_review_job(
+            self.runtime, job_id=accepted.job.id
+        )
+        self.assertLess(
+            released.available_at, accepted.job.available_at + timedelta(hours=1)
+        )
+
+        cancelled = operator_application.cancel_review_job(
+            self.runtime, job_id=accepted.job.id
+        )
+        with self.runtime.transaction() as connection:
+            run = review_runs.get_run(connection, started.run.id)
+        self.assertEqual(cancelled.status, jobs.ReviewJobStatus.FAILED)
+        self.assertEqual(run.status, ReviewStatus.FAILED)
+        self.assertEqual(run.failure_code, failure_codes.OPERATOR_CANCELLED)
 
 
 if __name__ == "__main__":

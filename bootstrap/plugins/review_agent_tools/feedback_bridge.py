@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import hashlib
-import hmac
 import json
 import os
 from typing import Literal, Protocol, cast
@@ -18,6 +16,7 @@ try:
         parse_feedback_actor_allowlist,
     )
     from .feedback_contract import usage_lines
+    from .github_webhook import verify_signature as _verify_signature
     from .review_identity import (
         FEEDBACK_COMMAND_NOT_RECOGNIZED,
         FEEDBACK_NO_CURRENT_REVIEW,
@@ -38,6 +37,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
         parse_feedback_actor_allowlist,
     )
     from feedback_contract import usage_lines
+    from github_webhook import verify_signature as _verify_signature
     from review_identity import (  # type: ignore[no-redef]
         FEEDBACK_COMMAND_NOT_RECOGNIZED,
         FEEDBACK_NO_CURRENT_REVIEW,
@@ -181,9 +181,7 @@ def parse_repository_allowlist(raw: str) -> frozenset[str]:
         if item.strip()
     }
     if not repositories:
-        raise SystemExit(
-            "REVIEW_AGENT_ALLOWED_REPOSITORIES is empty; deny by default"
-        )
+        raise SystemExit("REVIEW_AGENT_ALLOWED_REPOSITORIES is empty; deny by default")
     return frozenset(repositories)
 
 
@@ -223,9 +221,7 @@ def load_config() -> BridgeConfig:
     )
 
 
-def ready_check(
-    config: BridgeConfig, runtime: PostgreSQLRuntime
-) -> dict[str, object]:
+def ready_check(config: BridgeConfig, runtime: PostgreSQLRuntime) -> dict[str, object]:
     if config.database_url != runtime.database_url:
         raise BridgeError("feedback runtime does not match its configured database")
     runtime.readiness()
@@ -271,12 +267,8 @@ def object_text(value: object, field: str) -> str:
 
 
 def verify_signature(body: bytes, signature: str, secret: str) -> bool:
-    if not signature.startswith("sha256="):
-        return False
-    expected = "sha256=" + hmac.new(
-        secret.encode("utf-8"), body, hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)
+    """Preserve the feedback bridge contract through the shared verifier."""
+    return _verify_signature(body, signature, secret)
 
 
 class GitHubApiClient:
@@ -320,8 +312,12 @@ class GitHubApiClient:
         except urllib.error.HTTPError as exc:
             detail = exc.read(4096).decode("utf-8", errors="replace")
             if exc.code == 404:
-                raise GitHubNotFound("GitHub comment or pull request was not found") from exc
-            raise GitHubError(f"GitHub request failed: HTTP {exc.code} {detail}") from exc
+                raise GitHubNotFound(
+                    "GitHub comment or pull request was not found"
+                ) from exc
+            raise GitHubError(
+                f"GitHub request failed: HTTP {exc.code} {detail}"
+            ) from exc
         except urllib.error.URLError as exc:
             raise GitHubError("GitHub could not be reached") from exc
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -405,9 +401,7 @@ def confirm_error(
     comment_id: int,
     message: str,
 ) -> BridgeResponse:
-    created = github.create_issue_comment_reaction(
-        repository, comment_id, "confused"
-    )
+    created = github.create_issue_comment_reaction(repository, comment_id, "confused")
     if created:
         github.create_issue_comment(repository, issue_number, message)
     return BridgeResponse(status="error_feedback", public_response=created)

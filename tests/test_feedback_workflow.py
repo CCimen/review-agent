@@ -48,22 +48,16 @@ class TimeoutOpener:
 
 
 class FeedbackWorkflowTests(unittest.TestCase):
-    def test_review_webhook_route_uses_generic_identity_everywhere(self) -> None:
+    def test_review_admission_uses_the_generic_public_path(self) -> None:
         config = (ROOT / "bootstrap/config.yaml").read_text(encoding="utf-8")
+        admission = (
+            ROOT / "bootstrap/plugins/review_agent_tools/admission.py"
+        ).read_text(encoding="utf-8")
         operations = (ROOT / "docs/OPERATIONS.md").read_text(encoding="utf-8")
-        smoke_script = (ROOT / "scripts/smoke_webhook.py").read_text(
-            encoding="utf-8"
-        )
+        smoke_script = (ROOT / "scripts/smoke_webhook.py").read_text(encoding="utf-8")
 
-        route_config = config.split("      routes:\n", 1)[1].split(
-            "services:\n", 1
-        )[0]
-        route_names = [
-            line.strip().removesuffix(":")
-            for line in route_config.splitlines()
-            if line.startswith("        ") and not line.startswith("          ")
-        ]
-        self.assertEqual(route_names, ["review-agent"])
+        self.assertNotIn("routes:", config)
+        self.assertIn('DEFAULT_PATH = "/webhooks/review-agent"', admission)
         self.assertIn(
             "HERMES_REVIEW_URL=https://review.example.org/webhooks/review-agent",
             operations,
@@ -80,8 +74,10 @@ class FeedbackWorkflowTests(unittest.TestCase):
         workflow = workflow_source()
 
         self.assertIn('r"^[@/]review(?:\\s+(?P<rest>\\S.*))?$"', workflow)
-        self.assertIn('return "feedback" if match.group("rest") else "review"', workflow)
-        self.assertIn('delivery_id = f"{event[\'comment\'][\'id\']}:feedback"', workflow)
+        self.assertIn(
+            'return "feedback" if match.group("rest") else "review"', workflow
+        )
+        self.assertIn("delivery_id = f\"{event['comment']['id']}:feedback\"", workflow)
         self.assertIn('event["comment"]["user"].get("type") == "Bot"', workflow)
         self.assertIn(
             'ignore("comment does not match the exact review command grammar")',
@@ -126,9 +122,7 @@ class FeedbackWorkflowTests(unittest.TestCase):
             }
             with (
                 mock.patch.dict(os.environ, environment, clear=False),
-                mock.patch(
-                    "urllib.request.build_opener", return_value=TimeoutOpener()
-                ),
+                mock.patch("urllib.request.build_opener", return_value=TimeoutOpener()),
                 self.assertRaises(SystemExit) as raised,
             ):
                 exec(
@@ -144,7 +138,9 @@ class FeedbackWorkflowTests(unittest.TestCase):
             str(raised.exception), "Review agent review webhook could not be reached"
         )
 
-    def test_secrets_are_scoped_to_dispatch_and_acknowledgement_is_non_blocking(self) -> None:
+    def test_secrets_are_scoped_to_dispatch_and_acknowledgement_is_non_blocking(
+        self,
+    ) -> None:
         workflow = workflow_source()
         dispatch_start = workflow.index("- name: Authorize requester")
         reaction_start = workflow.index("- name: Acknowledge receipt")

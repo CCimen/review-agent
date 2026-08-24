@@ -8,27 +8,17 @@ last_verified: 2026-08-24
 
 # Operations
 
-> **Current** — These instructions describe the current PAT, GitHub Actions,
-> Docker/Dokploy, and PostgreSQL deployment.
+> **Current**: Use this page for day-two operation and recovery. Use
+> [Deploy Review Agent](./DEPLOYMENT.md) for credentials and first deployment.
 
-This document owns setup, configuration, deployment, recovery, and operator
-commands for the Hermes GitHub PR review agent.
-
-## Prerequisites
-
-- A private infrastructure repository that deploys this bundle.
-- A Docker Compose host or Dokploy project.
-- An HTTPS route to the review webhook service.
-- A second HTTPS route to the feedback webhook service.
-- A GitHub account or bot with repository-scoped fine-grained tokens.
-- A ChatGPT/Codex subscription account for `hermes auth add openai-codex`.
-- Permission to add one GitHub Actions workflow, Actions secrets, and an Actions
-  variable to each reviewed repository.
+This document owns runtime limits, persistent state, recovery, and operator
+commands.
 
 ## GitHub Tokens
 
-Create separate fine-grained personal access tokens. Scope each token to the
-reviewed repository, for example `<org>/<repo>`.
+Use separate fine-grained tokens for read, publication, and feedback. The
+[deployment guide](./DEPLOYMENT.md#create-the-credentials) shows the GitHub UI
+steps and organization approval path.
 
 | Token env var | Required permissions | Purpose |
 | --- | --- | --- |
@@ -46,32 +36,21 @@ commit from a proposed patch. Endpoint-specific failures such as
 `github_403_create_pull_request_review` identify the
 missing permission or org approval path.
 
-## Environment
+## Runtime Configuration
 
-Set these values in the Dokploy Compose environment:
+`.env.example` contains the deployable defaults. These settings control queue
+load and worker behavior:
 
 | Name | Required | Default | Notes |
 | --- | --- | --- | --- |
-| `HERMES_IMAGE` | yes | pinned digest in `.env.example` | Keep image updates reviewed. |
-| `POSTGRES_IMAGE` | yes | `postgres:17-alpine` | Review PostgreSQL image updates. |
-| `REVIEW_AGENT_POSTGRES_PASSWORD` | yes | none | URL-safe database password used to initialize PostgreSQL. |
-| `REVIEW_AGENT_DATABASE_URL` | yes | none | PostgreSQL URL shared by the migration, reviewer, and feedback services. |
-| `TZ` | no | `Europe/Stockholm` | Container timezone. |
-| `WEBHOOK_ENABLED` | yes | `true` | Enables Hermes webhook mode. |
-| `WEBHOOK_PORT` | yes | `8644` | Review webhook port. |
-| `WEBHOOK_SECRET` | yes | none | HMAC secret for `/webhooks/review-agent`. |
-| `REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET` | yes | none | Different HMAC secret for feedback. |
-| `GITHUB_READ_TOKEN` | yes | none | Read token described above. |
-| `REVIEW_AGENT_PUBLISH_GH_TOKEN` | yes | none | Publisher token described above. |
-| `REVIEW_AGENT_PUBLISH_MAX_BYTES` | no | `60000` | Max bytes per GitHub comment, not a finding cap. |
-| `REVIEW_AGENT_FEEDBACK_GH_TOKEN` | yes | none | Feedback token described above. |
-| `REVIEW_AGENT_ALLOWED_REPOSITORIES` | yes | none | Comma-separated exact repositories, for example `<org>/<repo>`. |
-| `REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS` | yes | none | Comma-separated numeric GitHub user ids allowed to give feedback. |
-| `REVIEW_AGENT_FEEDBACK_ENABLED` | no | `false` | Enables feedback help in rendered comments. |
-| `GH_PROMPT_DISABLED` | yes | `1` | Prevents interactive GitHub auth prompts. |
-| `HERMES_DASHBOARD` | yes | `0` | Keep the dashboard off for this deployment. |
-| `API_SERVER_ENABLED` | yes | `false` | Keep the OpenAI-compatible API off. |
-| `PYTHONUNBUFFERED` | no | `1` | Easier logs. |
+| `REVIEW_AGENT_ACTIVE_JOB_LIMIT` | no | `100` | Maximum queued plus leased jobs. Admission returns HTTP 429 at capacity. |
+| `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS` | no | `900` | Wait time that offsets one priority point. |
+| `REVIEW_AGENT_JOB_MAX_ATTEMPTS` | no | `3` | Attempt budget before dead letter. |
+| `REVIEW_AGENT_JOB_LEASE_SECONDS` | no | `120` | Lease duration for one worker generation. |
+| `REVIEW_AGENT_JOB_HEARTBEAT_SECONDS` | no | `30` | Heartbeat period; it must stay below half the lease. |
+| `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS` | no | `7200` | Maximum duration of one Hermes API request. |
+| `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` | no | `8` | Concurrent signed admission requests per process. |
+| `REVIEW_AGENT_PUBLISH_MAX_BYTES` | no | `60000` | Bytes per GitHub comment part, not a finding cap. |
 
 Use one database per environment. The example Compose network keeps PostgreSQL
 private and uses this service-local URL shape:
@@ -112,24 +91,12 @@ snapshot matching, authorization, and publication markers are protocols or
 security invariants, not capacity settings. Deployment profiles cannot change
 them.
 
-## Deploy In Dokploy
+## Deployment Topology
 
-The built image already contains `review-agent-worker`, but the current Compose
-deployment intentionally does not start it and keeps `API_SERVER_ENABLED=false`.
-Use the direct webhook path until the roadmap's admission, fairness, readiness,
-and operator controls are activated together; starting the binary independently
-would create an unsupported split deployment.
-
-Deploy `compose.yaml` as a Docker Compose application. Attach:
-
-- review domain -> service `hermes-review`, port `8644`;
-- feedback domain -> service `hermes-review-feedback`, port `8645`.
-
-Only those webhook routes should be public. Keep the Hermes dashboard and API
-server disabled.
-
-The Compose file intentionally forwards an explicit environment allowlist to
-each container. Add future runtime variables to the correct service explicitly.
+The [deployment guide](./DEPLOYMENT.md#deploy) covers Compose, Dokploy, Coolify,
+Portainer, and OpenShift. The public review route targets
+`review-admission:8644`. Workers reach the private Hermes API on `8642`.
+PostgreSQL and Hermes stay off the public network.
 
 ## Persistent State
 
@@ -185,7 +152,7 @@ The managed profile, rather than the interactive model picker, owns
 `openai-codex`, `gpt-5.6-sol`, and `xhigh`. Restart the service and verify:
 
 ```bash
-curl -fsS http://127.0.0.1:8644/health
+curl -fsS http://127.0.0.1:8642/health
 hermes status
 hermes doctor
 hermes plugins list
@@ -198,37 +165,16 @@ curl -fsS http://127.0.0.1:8645/ready
 review-agent-feedback-bridge verify-config
 ```
 
-## Install The GitHub Trigger
+## GitHub Trigger
 
-Copy `examples/github/ai-review-request.yml` to the reviewed repository as:
-
-```text
-.github/workflows/ai-review-request.yml
-```
-
-Create these Actions secrets:
+The [deployment guide](./DEPLOYMENT.md#configure-github-actions) owns workflow
+installation, secret creation, and the username allowlist. The secret mapping is:
 
 ```text
 HERMES_REVIEW_URL=https://review.example.org/webhooks/review-agent
-HERMES_WEBHOOK_SECRET=<same value as WEBHOOK_SECRET>
+HERMES_WEBHOOK_SECRET=<same value as REVIEW_AGENT_WEBHOOK_SECRET>
 HERMES_REVIEW_FEEDBACK_URL=https://review-feedback.example.org/webhooks/review-agent-feedback
 HERMES_REVIEW_FEEDBACK_SECRET=<same value as REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET>
-```
-
-Create this Actions variable:
-
-```text
-AI_REVIEW_ALLOWED_USERS=alice,bob,security-maintainer
-```
-
-The workflow accepts commas, spaces, or newlines. An empty value denies all
-requests. GitHub must also report the commenter as `OWNER`, `MEMBER`, or
-`COLLABORATOR`.
-
-Protect the workflow with CODEOWNERS or a ruleset, for example:
-
-```text
-/.github/workflows/ai-review-request.yml @<org>/<maintainer-team>
 ```
 
 The workflow grants `issues: write` and `pull-requests: write` to its built-in
@@ -239,7 +185,7 @@ REST path is under issue comments. Keep both permissions unless a production
 workflow run proves the pull-request permission is no longer required.
 Webhook secrets are scoped to the dispatch step and are not inherited by the
 reaction step. The workflow does not check out PR code. It sends only repository
-name, PR number, requester, and request id to Hermes. The workflow must exist on
+name, PR number, requester, and request id to admission. The workflow must exist on
 the repository's default branch before an `issue_comment` event can start it.
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` in Dokploy if the rendered review comment
@@ -295,6 +241,23 @@ explanation. Intentional-design and accepted-risk decisions remain CLI or
 governance actions until there is deterministic ADR validation for PR comments.
 
 ## Runbook
+
+Inspect active queue work:
+
+```bash
+review-agent-database jobs --limit 100
+```
+
+Release a delayed queued retry or cancel its active run:
+
+```bash
+review-agent-database retry-job --job-id <id>
+review-agent-database cancel-job --job-id <id>
+```
+
+`retry-job` cannot revive failed or dead-letter work. Post a new `/review` after
+you correct a terminal failure. `cancel-job` fences a leased worker by failing
+the owning run and reconciling its job in one transaction.
 
 Inspect recent runs:
 

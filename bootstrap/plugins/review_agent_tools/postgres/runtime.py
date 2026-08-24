@@ -41,6 +41,7 @@ class PostgreSQLNotReady(PostgreSQLRuntimeError):
 
 
 class PostgreSQLRuntimeRole(StrEnum):
+    ADMISSION = "admission"
     REVIEWER = "reviewer"
     FEEDBACK = "feedback"
     OPERATOR = "operator"
@@ -55,6 +56,7 @@ class _PoolShape:
 
 
 _POOL_SHAPES = {
+    PostgreSQLRuntimeRole.ADMISSION: _PoolShape(1, 4, 8),
     PostgreSQLRuntimeRole.REVIEWER: _PoolShape(1, 4, 8),
     PostgreSQLRuntimeRole.FEEDBACK: _PoolShape(1, 4, 8),
     PostgreSQLRuntimeRole.OPERATOR: _PoolShape(0, 1, 1),

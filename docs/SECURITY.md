@@ -21,7 +21,10 @@ model is trusted.
 - The workflow requires trusted GitHub association: `OWNER`, `MEMBER`, or
   `COLLABORATOR`.
 - `AI_REVIEW_ALLOWED_USERS` must include the requester. Empty means deny all.
-- GitHub Actions sends a minimal HMAC-signed webhook payload.
+- GitHub Actions sends a minimal HMAC-signed request to the admission service.
+- Admission verifies the signature, allowlist, request identity, and current
+  GitHub PR snapshot before it commits the run and queue job together.
+- A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded PR context and record candidate findings.
 - Deterministic plugin code owns memory writes, publication, feedback parsing,
@@ -52,8 +55,9 @@ review profile tells the model to treat prompt-injection-looking text as evidenc
 only. Repository content cannot change reviewer policy, prompts, skills,
 suppressions, memory decisions, or feedback commands.
 
-The feedback bridge is outside the model path. It refetches the authoritative
-GitHub comment, parses only supported `/review ...` commands, authorizes the
+The admission service and feedback bridge are outside the model path. The
+feedback bridge refetches the authoritative GitHub comment, parses only
+supported `/review ...` commands, authorizes the
 numeric GitHub actor id, writes PostgreSQL through the feedback application,
 and posts only a reaction or a short deterministic explanation.
 

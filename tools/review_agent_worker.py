@@ -65,17 +65,16 @@ def _positive_integer(name: str, default: str) -> int:
 def _policy() -> WorkerPolicy:
     return WorkerPolicy(
         lease_duration=_seconds("REVIEW_AGENT_JOB_LEASE_SECONDS", "120"),
-        heartbeat_interval=_seconds(
-            "REVIEW_AGENT_JOB_HEARTBEAT_SECONDS", "30"
-        ),
+        heartbeat_interval=_seconds("REVIEW_AGENT_JOB_HEARTBEAT_SECONDS", "30"),
         retry_delay=_seconds("REVIEW_AGENT_JOB_RETRY_SECONDS", "30"),
         poll_interval=_seconds("REVIEW_AGENT_JOB_POLL_SECONDS", "2"),
         request_timeout=_seconds("REVIEW_AGENT_HERMES_TIMEOUT_SECONDS", "7200"),
-        recovery_interval=_seconds(
-            "REVIEW_AGENT_JOB_RECOVERY_SECONDS", "30"
-        ),
+        recovery_interval=_seconds("REVIEW_AGENT_JOB_RECOVERY_SECONDS", "30"),
         recovery_batch_size=_positive_integer(
             "REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE", "100"
+        ),
+        priority_aging_interval=_seconds(
+            "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS", "900"
         ),
     )
 

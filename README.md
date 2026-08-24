@@ -13,9 +13,9 @@ last_verified: 2026-08-24
 
 This repository packages a locked-down Hermes + Codex reviewer for GitHub pull
 requests. A trusted developer comments `/review`, GitHub Actions sends a signed
-webhook, Hermes reviews the current PR snapshot through bounded read tools, and
-the deterministic publisher posts a structured PR summary and, when safe, native
-GitHub suggested changes.
+request, and admission stores the exact current PR snapshot as a durable job. A
+worker asks Hermes to review that snapshot through bounded read tools. The
+deterministic publisher posts the PR summary and any safe native suggestions.
 
 The reusable part is the review engine: webhook routing, bounded GitHub reads,
 PostgreSQL review state, human feedback, deterministic publication, and operator
@@ -71,13 +71,14 @@ current architecture roadmap.
 flowchart TD
     A["Trusted developer comments /review"] --> B["GitHub Actions allowlist + association gate"]
     B --> C["HMAC-signed webhook"]
-    C --> D["Hermes + Codex review run"]
-    D --> E["Bounded GitHub PR tools"]
-    D --> F["PostgreSQL review state"]
-    D --> G["Deterministic renderer + publisher"]
-    G --> H["Structured summary + optional native suggestions"]
-    H --> I["Developer feedback commands"]
-    I --> F
+    C --> D["Atomic admission + PostgreSQL queue"]
+    D --> E["Repository-fair worker lease"]
+    E --> F["Hermes + Codex exact run"]
+    F --> G["Bounded GitHub PR tools"]
+    F --> H["Deterministic renderer + publisher"]
+    H --> I["Structured summary + optional native suggestions"]
+    I --> J["Developer feedback commands"]
+    J --> D
 ```
 
 The model proposes and challenges findings. Plugin code owns the durable state,
@@ -94,7 +95,7 @@ gate pull requests.
 
 | Area | Owner | Notes |
 | --- | --- | --- |
-| Webhook transport | `bootstrap/config.yaml`, `compose.yaml`, `examples/github/ai-review-request.yml` | Registers the review route and authenticates review and feedback requests before Hermes runs. |
+| Review admission | `review_agent_tools.admission`, `compose.yaml`, `examples/github/ai-review-request.yml` | Authenticates requests and commits the exact run plus durable job before Hermes runs. |
 | GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
 | Review state | PostgreSQL database | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
 | Publication | `review_agent_deliver` | Verifies snapshot and writes deterministic PR comments. |
@@ -119,9 +120,9 @@ review protocol also remains deterministic; localizing its fixed headings and
 markers requires an engine change rather than a free-form profile template.
 
 The runtime stores application state in one PostgreSQL database per environment.
-The image contains a tested, serial PostgreSQL worker with exact-run continuation
-and lease-generation fencing; deployment activation remains on the
-[current roadmap](docs/ROADMAP.md).
+The deployment runs serial workers with exact-run continuation and
+lease-generation fencing. PostgreSQL prevents two workers from leasing the same
+repository while priority aging keeps old ready jobs moving.
 
 ## Developer Workflow
 
@@ -154,9 +155,9 @@ are review-quality signals; they do not suppress findings automatically.
 
 ## Operations
 
-Use [docs/OPERATIONS.md](docs/OPERATIONS.md) for deployment, configuration,
-GitHub token permissions, Dokploy setup, Codex login, runbook commands, backups,
-updates, and private coach exports.
+Use [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for credentials and deployment.
+Use [docs/OPERATIONS.md](docs/OPERATIONS.md) for runtime limits, recovery,
+backups, updates, and private coach exports.
 
 Common status commands in the `hermes-review` container:
 

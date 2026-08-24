@@ -6,7 +6,11 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Start here',
       collapsed: false,
-      items: ['docs/GETTING_STARTED', 'docs/HOW_REVIEWS_WORK'],
+      items: [
+        'docs/GETTING_STARTED',
+        'docs/DEPLOYMENT',
+        'docs/HOW_REVIEWS_WORK',
+      ],
     },
     {
       type: 'category',

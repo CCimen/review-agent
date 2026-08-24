@@ -23,8 +23,8 @@ You need access to the Docker Compose or Dokploy deployment, permission to
 create repository-scoped GitHub tokens, and permission to add an Actions
 workflow, four Actions secrets, and one Actions variable to the repository.
 
-The full deployment procedure and permission matrix live in
-[Operations](./OPERATIONS.md). This page keeps the onboarding path short.
+The [deployment guide](./DEPLOYMENT.md) covers token creation, GitHub settings,
+Compose platforms, and OpenShift. This page keeps repository onboarding short.
 
 ## 1. Allow the repository
 
@@ -39,7 +39,7 @@ Make sure the three current GitHub tokens can access the repository:
 - `REVIEW_AGENT_FEEDBACK_GH_TOKEN` for the optional feedback path.
 
 Keep each token repository-scoped and preserve the role-specific permissions in
-the [Operations token table](./OPERATIONS.md#github-tokens).
+the [deployment permission table](./DEPLOYMENT.md#github-tokens).
 
 ## 2. Install the trusted workflow
 

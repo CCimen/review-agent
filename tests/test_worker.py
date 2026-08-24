@@ -70,8 +70,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             skill_path = Path(directory) / "SKILL.md"
             skill_path.write_text(
-                "---\nname: review-agent-pr\n---\n"
-                "Follow the review procedure.\n",
+                "---\nname: review-agent-pr\n---\nFollow the review procedure.\n",
                 encoding="utf-8",
             )
             client = HermesChatClient(
@@ -142,7 +141,9 @@ class WorkerBoundaryTests(unittest.TestCase):
                 with self.subTest(status=status):
                     _ChatHandler.response_status = status
                     with self.assertRaises(HermesRequestError) as caught:
-                        client.review(self._claim(generation=1), timeout=self._timeout())
+                        client.review(
+                            self._claim(generation=1), timeout=self._timeout()
+                        )
                     self.assertEqual(caught.exception.retryable, retryable)
 
     def test_worker_retries_after_a_transient_claim_failure(self) -> None:
@@ -168,9 +169,7 @@ class WorkerBoundaryTests(unittest.TestCase):
 
         with (
             patch.object(worker, "_claim", side_effect=claim),
-            self.assertLogs(
-                "review_agent_tools.worker", level="WARNING"
-            ) as logged,
+            self.assertLogs("review_agent_tools.worker", level="WARNING") as logged,
         ):
             worker.run()
 
@@ -181,9 +180,7 @@ class WorkerBoundaryTests(unittest.TestCase):
     def test_worker_does_not_guess_outcome_after_transient_state_read(self) -> None:
         stop = threading.Event()
         runtime = Mock(spec=PostgreSQLRuntime)
-        runtime.transaction.side_effect = PostgreSQLUnavailable(
-            "temporary outage"
-        )
+        runtime.transaction.side_effect = PostgreSQLUnavailable("temporary outage")
         client = Mock(spec=HermesChatClient)
         worker = ReviewWorker(
             runtime,
@@ -233,6 +230,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 request_timeout=timedelta(seconds=2),
                 recovery_interval=timedelta(seconds=30),
                 recovery_batch_size=10,
+                priority_aging_interval=timedelta(minutes=15),
             ),
             lease_owner="worker-test",
             stop_event=threading.Event(),
@@ -266,6 +264,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             request_timeout=timedelta(seconds=2),
             recovery_interval=timedelta(seconds=30),
             recovery_batch_size=10,
+            priority_aging_interval=timedelta(minutes=15),
         )
 
     @staticmethod

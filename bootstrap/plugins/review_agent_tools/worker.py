@@ -55,6 +55,7 @@ class WorkerPolicy:
     request_timeout: timedelta
     recovery_interval: timedelta
     recovery_batch_size: int
+    priority_aging_interval: timedelta
 
     def __post_init__(self) -> None:
         positive_durations = {
@@ -64,6 +65,7 @@ class WorkerPolicy:
             "poll_interval": self.poll_interval,
             "request_timeout": self.request_timeout,
             "recovery_interval": self.recovery_interval,
+            "priority_aging_interval": self.priority_aging_interval,
         }
         for name, value in positive_durations.items():
             if value <= timedelta(0):
@@ -159,11 +161,15 @@ class HermesChatClient:
             with request.urlopen(call, timeout=timeout.total_seconds()):
                 pass
         except error.HTTPError as exc:
-            retryable = exc.code in {
-                HTTPStatus.REQUEST_TIMEOUT,
-                HTTPStatus.TOO_EARLY,
-                HTTPStatus.TOO_MANY_REQUESTS,
-            } or exc.code >= 500
+            retryable = (
+                exc.code
+                in {
+                    HTTPStatus.REQUEST_TIMEOUT,
+                    HTTPStatus.TOO_EARLY,
+                    HTTPStatus.TOO_MANY_REQUESTS,
+                }
+                or exc.code >= 500
+            )
             exc.close()
             raise HermesRequestError(
                 f"Hermes returned HTTP {exc.code}", retryable=retryable
@@ -242,6 +248,7 @@ class ReviewWorker:
                 connection,
                 lease_owner=self._lease_owner,
                 lease_duration=self._policy.lease_duration,
+                priority_aging_interval=self._policy.priority_aging_interval,
             )
             if job is None:
                 return None
@@ -258,9 +265,7 @@ class ReviewWorker:
             return
         # Move the local deadline before the query so a transient database
         # failure cannot create a tight recovery loop in this process.
-        self._next_recovery_at = (
-            now + self._policy.recovery_interval.total_seconds()
-        )
+        self._next_recovery_at = now + self._policy.recovery_interval.total_seconds()
         with self._runtime.transaction() as connection:
             review_run_application.recover_expired_jobs_in_transaction(
                 connection, limit=self._policy.recovery_batch_size
@@ -351,9 +356,7 @@ class ReviewWorker:
             except _TRANSIENT_DATABASE_ERRORS as exc:
                 # A single missed heartbeat is safe because policy requires
                 # multiple heartbeat opportunities within one lease.
-                logger.warning(
-                    "Review job %s heartbeat deferred: %s", job.id, exc
-                )
+                logger.warning("Review job %s heartbeat deferred: %s", job.id, exc)
 
 
 def _load_skill_instructions(path: Path) -> str:

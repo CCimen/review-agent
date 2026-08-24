@@ -1,0 +1,439 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: review-agent
+parameters:
+  - name: IMAGE
+    description: Immutable Review Agent image reference.
+    required: true
+  - name: PROFILE
+    value: sundsvall-standard
+  - name: ALLOWED_REPOSITORIES
+    description: Comma-separated owner/repository allowlist.
+    required: true
+objects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: review-agent-config
+    data:
+      REVIEW_AGENT_PROFILE: ${PROFILE}
+      REVIEW_AGENT_ALLOWED_REPOSITORIES: ${ALLOWED_REPOSITORIES}
+      REVIEW_AGENT_POLICY_REVISION: policy-v1
+      REVIEW_AGENT_ACTIVE_JOB_LIMIT: "100"
+      REVIEW_AGENT_JOB_MAX_ATTEMPTS: "3"
+      REVIEW_AGENT_JOB_PRIORITY: "0"
+      REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS: "900"
+      REVIEW_AGENT_JOB_LEASE_SECONDS: "120"
+      REVIEW_AGENT_JOB_HEARTBEAT_SECONDS: "30"
+      REVIEW_AGENT_JOB_RETRY_SECONDS: "30"
+      REVIEW_AGENT_JOB_POLL_SECONDS: "2"
+      REVIEW_AGENT_JOB_RECOVERY_SECONDS: "30"
+      REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE: "100"
+      REVIEW_AGENT_HERMES_TIMEOUT_SECONDS: "7200"
+      REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES: "65536"
+      REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS: "8"
+      REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS: "30"
+      REVIEW_AGENT_FEEDBACK_ENABLED: "false"
+      GH_PROMPT_DISABLED: "1"
+      HERMES_DASHBOARD: "0"
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: review-agent-hermes-data
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 5Gi
+  - apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: review-agent-profile-install
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: install
+              image: ${IMAGE}
+              command: [/opt/review-agent-bootstrap/install.sh]
+              args: [--force-agents]
+              envFrom:
+                - configMapRef:
+                    name: review-agent-config
+              env:
+                - name: HERMES_HOME
+                  value: /opt/data
+                - name: HOME
+                  value: /opt/data
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: data
+                  mountPath: /opt/data
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: review-agent-hermes-data
+            - name: tmp
+              emptyDir: {}
+  - apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: review-agent-db-migrate
+    spec:
+      backoffLimit: 6
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: migrate
+              image: ${IMAGE}
+              command: [/usr/local/bin/review-agent-database]
+              args: [migrate]
+              envFrom:
+                - secretRef:
+                    name: review-agent-database
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: hermes-review
+    spec:
+      replicas: 0
+      strategy:
+        type: Recreate
+      selector:
+        matchLabels:
+          app: hermes-review
+      template:
+        metadata:
+          labels:
+            app: hermes-review
+        spec:
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: hermes
+              image: ${IMAGE}
+              command: [/opt/hermes/bin/hermes]
+              args: [gateway, run]
+              envFrom:
+                - configMapRef:
+                    name: review-agent-config
+                - secretRef:
+                    name: review-agent-hermes
+              env:
+                - name: REVIEW_AGENT_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-database
+                      key: REVIEW_AGENT_DATABASE_URL
+                - name: HERMES_HOME
+                  value: /opt/data
+                - name: HOME
+                  value: /opt/data
+                - name: WEBHOOK_ENABLED
+                  value: "false"
+                - name: API_SERVER_ENABLED
+                  value: "true"
+                - name: API_SERVER_HOST
+                  value: 0.0.0.0
+                - name: API_SERVER_PORT
+                  value: "8642"
+              ports:
+                - name: api
+                  containerPort: 8642
+              readinessProbe:
+                httpGet:
+                  path: /health
+                  port: api
+                initialDelaySeconds: 30
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: api
+                initialDelaySeconds: 90
+                periodSeconds: 30
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: data
+                  mountPath: /opt/data
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: review-agent-hermes-data
+            - name: tmp
+              emptyDir: {}
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: hermes-review
+    spec:
+      selector:
+        app: hermes-review
+      ports:
+        - name: api
+          port: 8642
+          targetPort: api
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: review-agent-admission
+    spec:
+      replicas: 0
+      selector:
+        matchLabels:
+          app: review-agent-admission
+      template:
+        metadata:
+          labels:
+            app: review-agent-admission
+        spec:
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: admission
+              image: ${IMAGE}
+              command: [/usr/local/bin/review-agent-admission]
+              args: [serve, --host, 0.0.0.0, --port, "8644"]
+              envFrom:
+                - configMapRef:
+                    name: review-agent-config
+                - secretRef:
+                    name: review-agent-admission
+              env:
+                - name: REVIEW_AGENT_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-database
+                      key: REVIEW_AGENT_DATABASE_URL
+              ports:
+                - name: http
+                  containerPort: 8644
+              readinessProbe:
+                httpGet:
+                  path: /ready
+                  port: http
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: http
+                initialDelaySeconds: 10
+                periodSeconds: 30
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: review-agent-admission
+    spec:
+      selector:
+        app: review-agent-admission
+      ports:
+        - name: http
+          port: 8644
+          targetPort: http
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: review-agent
+    spec:
+      to:
+        kind: Service
+        name: review-agent-admission
+      port:
+        targetPort: http
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: review-agent-worker
+    spec:
+      replicas: 0
+      selector:
+        matchLabels:
+          app: review-agent-worker
+      template:
+        metadata:
+          labels:
+            app: review-agent-worker
+        spec:
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: worker
+              image: ${IMAGE}
+              command: [/usr/local/bin/review-agent-worker]
+              envFrom:
+                - configMapRef:
+                    name: review-agent-config
+                - secretRef:
+                    name: review-agent-worker
+              env:
+                - name: REVIEW_AGENT_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-database
+                      key: REVIEW_AGENT_DATABASE_URL
+                - name: REVIEW_AGENT_HERMES_CHAT_URL
+                  value: http://hermes-review:8642/v1/chat/completions
+                - name: REVIEW_AGENT_SKILL_PATH
+                  value: /opt/review-agent-bootstrap/profiles/${PROFILE}/skills/review-agent-pr/SKILL.md
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: hermes-review-ingress
+    spec:
+      podSelector:
+        matchLabels:
+          app: hermes-review
+      policyTypes: [Ingress]
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app: review-agent-worker
+          ports:
+            - protocol: TCP
+              port: 8642
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: review-agent-feedback
+    spec:
+      replicas: 0
+      selector:
+        matchLabels:
+          app: review-agent-feedback
+      template:
+        metadata:
+          labels:
+            app: review-agent-feedback
+        spec:
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: feedback
+              image: ${IMAGE}
+              command: [/usr/local/bin/review-agent-feedback-bridge]
+              args: [serve, --host, 0.0.0.0, --port, "8645"]
+              envFrom:
+                - configMapRef:
+                    name: review-agent-config
+                - secretRef:
+                    name: review-agent-feedback
+              env:
+                - name: REVIEW_AGENT_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-database
+                      key: REVIEW_AGENT_DATABASE_URL
+              ports:
+                - name: http
+                  containerPort: 8645
+              readinessProbe:
+                httpGet:
+                  path: /ready
+                  port: http
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: http
+                initialDelaySeconds: 10
+                periodSeconds: 30
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: review-agent-feedback
+    spec:
+      selector:
+        app: review-agent-feedback
+      ports:
+        - name: http
+          port: 8645
+          targetPort: http
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: review-agent-feedback
+    spec:
+      to:
+        kind: Service
+        name: review-agent-feedback
+      port:
+        targetPort: http
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect

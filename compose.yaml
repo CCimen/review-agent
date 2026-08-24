@@ -82,35 +82,39 @@ services:
         condition: service_completed_successfully
     environment:
       TZ: "${TZ:-Europe/Stockholm}"
-      WEBHOOK_ENABLED: "${WEBHOOK_ENABLED:-true}"
-      WEBHOOK_PORT: "${WEBHOOK_PORT:-8644}"
-      WEBHOOK_SECRET: "${WEBHOOK_SECRET:?set WEBHOOK_SECRET}"
+      WEBHOOK_ENABLED: "false"
       GH_PROMPT_DISABLED: "${GH_PROMPT_DISABLED:-1}"
       GITHUB_READ_TOKEN: "${GITHUB_READ_TOKEN:?set GITHUB_READ_TOKEN}"
       REVIEW_AGENT_PUBLISH_GH_TOKEN: "${REVIEW_AGENT_PUBLISH_GH_TOKEN:?set REVIEW_AGENT_PUBLISH_GH_TOKEN}"
       REVIEW_AGENT_PUBLISH_MAX_BYTES: "${REVIEW_AGENT_PUBLISH_MAX_BYTES:-60000}"
       REVIEW_AGENT_ALLOWED_REPOSITORIES: "${REVIEW_AGENT_ALLOWED_REPOSITORIES:?set REVIEW_AGENT_ALLOWED_REPOSITORIES}"
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
+      REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
       REVIEW_AGENT_FEEDBACK_ENABLED: "${REVIEW_AGENT_FEEDBACK_ENABLED:-false}"
       HERMES_DASHBOARD: "${HERMES_DASHBOARD:-0}"
-      API_SERVER_ENABLED: "${API_SERVER_ENABLED:-false}"
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: "0.0.0.0"
+      API_SERVER_PORT: "8642"
+      API_SERVER_KEY: "${API_SERVER_KEY:?set API_SERVER_KEY}"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
     expose:
-      - "8644"
+      - "8642"
     networks:
-      - dokploy-network
+      - review-egress
       - review-database
+      - review-runtime
     labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=dokploy-network"
+      - "traefik.enable=false"
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - hermes_review_data:/opt/data
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=256m
     stop_grace_period: 90s
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8644/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8642/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -121,6 +125,119 @@ services:
           memory: 8G
           cpus: "2.0"
           pids: 256
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  review-admission:
+    build:
+      context: .
+      args:
+        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+    restart: unless-stopped
+    user: "10000:10000"
+    entrypoint: ["/usr/local/bin/review-agent-admission"]
+    command: ["serve", "--host", "0.0.0.0", "--port", "8644"]
+    depends_on:
+      review-db-migrate:
+        condition: service_completed_successfully
+    environment:
+      TZ: "${TZ:-Europe/Stockholm}"
+      REVIEW_AGENT_WEBHOOK_SECRET: "${REVIEW_AGENT_WEBHOOK_SECRET:?set REVIEW_AGENT_WEBHOOK_SECRET}"
+      GITHUB_READ_TOKEN: "${GITHUB_READ_TOKEN:?set GITHUB_READ_TOKEN}"
+      REVIEW_AGENT_ALLOWED_REPOSITORIES: "${REVIEW_AGENT_ALLOWED_REPOSITORIES:?set REVIEW_AGENT_ALLOWED_REPOSITORIES}"
+      REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
+      REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
+      REVIEW_AGENT_POLICY_REVISION: "${REVIEW_AGENT_POLICY_REVISION:-policy-v1}"
+      REVIEW_AGENT_ACTIVE_JOB_LIMIT: "${REVIEW_AGENT_ACTIVE_JOB_LIMIT:-100}"
+      REVIEW_AGENT_JOB_MAX_ATTEMPTS: "${REVIEW_AGENT_JOB_MAX_ATTEMPTS:-3}"
+      REVIEW_AGENT_JOB_PRIORITY: "${REVIEW_AGENT_JOB_PRIORITY:-0}"
+      REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES: "${REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES:-65536}"
+      REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS: "${REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS:-8}"
+      REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS: "${REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS:-30}"
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    expose:
+      - "8644"
+    networks:
+      - review-ingress
+      - review-database
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${REVIEW_AGENT_INGRESS_NETWORK:-dokploy-network}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8644/ready >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+          pids: 64
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  review-worker:
+    build:
+      context: .
+      args:
+        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+    restart: unless-stopped
+    user: "10000:10000"
+    entrypoint: ["/usr/local/bin/review-agent-worker"]
+    depends_on:
+      review-db-migrate:
+        condition: service_completed_successfully
+      hermes-review:
+        condition: service_healthy
+    environment:
+      REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
+      REVIEW_AGENT_HERMES_CHAT_URL: "http://hermes-review:8642/v1/chat/completions"
+      API_SERVER_KEY: "${API_SERVER_KEY:?set API_SERVER_KEY}"
+      REVIEW_AGENT_JOB_LEASE_SECONDS: "${REVIEW_AGENT_JOB_LEASE_SECONDS:-120}"
+      REVIEW_AGENT_JOB_HEARTBEAT_SECONDS: "${REVIEW_AGENT_JOB_HEARTBEAT_SECONDS:-30}"
+      REVIEW_AGENT_JOB_RETRY_SECONDS: "${REVIEW_AGENT_JOB_RETRY_SECONDS:-30}"
+      REVIEW_AGENT_JOB_POLL_SECONDS: "${REVIEW_AGENT_JOB_POLL_SECONDS:-2}"
+      REVIEW_AGENT_JOB_RECOVERY_SECONDS: "${REVIEW_AGENT_JOB_RECOVERY_SECONDS:-30}"
+      REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE: "${REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE:-100}"
+      REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS: "${REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS:-900}"
+      REVIEW_AGENT_HERMES_TIMEOUT_SECONDS: "${REVIEW_AGENT_HERMES_TIMEOUT_SECONDS:-7200}"
+      HERMES_HOME: /opt/data
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    networks:
+      - review-database
+      - review-runtime
+    volumes:
+      - hermes_review_data:/opt/data:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    stop_grace_period: 150s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+          pids: 64
     logging:
       options:
         max-size: "10m"
@@ -150,11 +267,11 @@ services:
     expose:
       - "8645"
     networks:
-      - dokploy-network
+      - review-ingress
       - review-database
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=dokploy-network"
+      - "traefik.docker.network=${REVIEW_AGENT_INGRESS_NETWORK:-dokploy-network}"
     read_only: true
     cap_drop:
       - ALL
@@ -181,9 +298,13 @@ services:
         max-file: "5"
 
 networks:
-  dokploy-network:
+  review-ingress:
     external: true
+    name: "${REVIEW_AGENT_INGRESS_NETWORK:-dokploy-network}"
+  review-egress:
   review-database:
+    internal: true
+  review-runtime:
     internal: true
 
 volumes:

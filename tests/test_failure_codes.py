@@ -14,9 +14,7 @@ class FailureCodesTests(unittest.TestCase):
     def test_canonical_values_are_stable(self):
         self.assertEqual(failure_codes.REVIEW_FAILED, "review_failed")
         self.assertEqual(failure_codes.STALE_TIMEOUT, "stale_timeout")
-        self.assertEqual(
-            failure_codes.SNAPSHOT_SUPERSEDED, "snapshot_superseded"
-        )
+        self.assertEqual(failure_codes.SNAPSHOT_SUPERSEDED, "snapshot_superseded")
         self.assertEqual(failure_codes.REVIEW_DELIVER_ERROR, "review_deliver_error")
         self.assertEqual(
             failure_codes.UNEXPECTED_REVIEW_DELIVER_FAILURE,
@@ -47,6 +45,7 @@ class FailureCodesTests(unittest.TestCase):
             failure_codes.GITHUB_DIFF_UNAVAILABLE,
             failure_codes.JOB_RETRY_EXHAUSTED,
             failure_codes.JOB_EXECUTION_FAILED,
+            failure_codes.OPERATOR_CANCELLED,
         ]
         self.assertEqual(failure_codes.ALL, frozenset(codes))
         self.assertEqual(len(failure_codes.ALL), len(codes))

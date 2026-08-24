@@ -27,6 +27,8 @@ GITHUB_DIFF_UNAVAILABLE: Final = "github_diff_406"
 JOB_RETRY_EXHAUSTED: Final = "job_retry_exhausted"
 # A durable job reported a non-retryable execution failure.
 JOB_EXECUTION_FAILED: Final = "job_execution_failed"
+# An operator cancelled a queued or leased review after inspecting its state.
+OPERATOR_CANCELLED: Final = "operator_cancelled"
 
 # Job-row causes are deliberately separate from final review-run outcomes.
 JOB_LEASE_EXPIRED: Final = "job_lease_expired"
@@ -46,6 +48,7 @@ ALL: Final = frozenset(
         GITHUB_DIFF_UNAVAILABLE,
         JOB_RETRY_EXHAUSTED,
         JOB_EXECUTION_FAILED,
+        OPERATOR_CANCELLED,
     }
 )
 

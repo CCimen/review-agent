@@ -140,6 +140,14 @@ class LiveRunState:
     file_index: postgres_coverage.FileIndexSummary
 
 
+@dataclass(frozen=True, slots=True)
+class AdmittedReview:
+    """Atomic run and durable-job admission result."""
+
+    run: postgres_review_runs.RunStart
+    job: postgres_jobs.JobEnqueue
+
+
 def start_run_in_transaction(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -180,9 +188,7 @@ def complete_run_in_transaction(
     run = postgres_review_runs.complete_run(
         connection, run_id, findings_count=findings_count
     )
-    postgres_jobs.reconcile_run_jobs(
-        connection, run_ids=(run.id,), status=run.status
-    )
+    postgres_jobs.reconcile_run_jobs(connection, run_ids=(run.id,), status=run.status)
     return run
 
 
@@ -200,9 +206,7 @@ def fail_run_in_transaction(
         failure_code=failure_code,
         findings_count=findings_count,
     )
-    postgres_jobs.reconcile_run_jobs(
-        connection, run_ids=(run.id,), status=run.status
-    )
+    postgres_jobs.reconcile_run_jobs(connection, run_ids=(run.id,), status=run.status)
     return run
 
 
@@ -211,9 +215,7 @@ def mark_superseded_in_transaction(
 ) -> postgres_review_runs.ReviewRun:
     """Supersede one review and its optional durable job atomically."""
     run = postgres_review_runs.mark_superseded(connection, run_id)
-    postgres_jobs.reconcile_run_jobs(
-        connection, run_ids=(run.id,), status=run.status
-    )
+    postgres_jobs.reconcile_run_jobs(connection, run_ids=(run.id,), status=run.status)
     return run
 
 
@@ -292,6 +294,51 @@ def start_postgres_review(
     runtime: PostgreSQLRuntime, request: PostgresRunRequest
 ) -> postgres_review_runs.RunStart:
     """Compose the first exact PostgreSQL review in one short transaction."""
+    with runtime.transaction() as connection:
+        pull_request_id, subject_id = _ensure_review_scope(connection, request)
+        return start_run_in_transaction(
+            connection,
+            pull_request_id=pull_request_id,
+            review_subject_id=subject_id,
+            request_key=request.request_key,
+            trigger_comment_id=request.trigger_comment_id,
+            trigger_user=request.trigger_user,
+        )
+
+
+def admit_postgres_review(
+    runtime: PostgreSQLRuntime,
+    request: PostgresRunRequest,
+    *,
+    priority: int,
+    max_attempts: int,
+    active_job_limit: int,
+) -> AdmittedReview:
+    """Persist the exact run and its queue record in one transaction."""
+    with runtime.transaction() as connection:
+        pull_request_id, subject_id = _ensure_review_scope(connection, request)
+        run = start_run_in_transaction(
+            connection,
+            pull_request_id=pull_request_id,
+            review_subject_id=subject_id,
+            request_key=request.request_key,
+            trigger_comment_id=request.trigger_comment_id,
+            trigger_user=request.trigger_user,
+        )
+        job = postgres_jobs.enqueue_run(
+            connection,
+            review_run_id=run.run.id,
+            priority=priority,
+            max_attempts=max_attempts,
+            active_job_limit=active_job_limit,
+        )
+        return AdmittedReview(run=run, job=job)
+
+
+def _ensure_review_scope(
+    connection: psycopg.Connection[TupleRow], request: PostgresRunRequest
+) -> tuple[PullRequestId, ReviewSubjectId]:
+    """Resolve and persist the repository, pull request, and exact subject."""
     repository_definition = postgres_registry.resolve_repository(
         postgres_registry.RepositoryDefinition(
             provider=request.provider,
@@ -308,25 +355,14 @@ def start_postgres_review(
     )
     if isinstance(request.pr_number, bool) or request.pr_number < 1:
         raise ReviewRunError("pr_number must be positive")
-
-    with runtime.transaction() as connection:
-        repository = postgres_registry.ensure_repository(
-            connection, repository_definition
-        )
-        pull_request = postgres_registry.ensure_pull_request(
-            connection, repository.id, request.pr_number
-        )
-        subject = postgres_registry.create_or_get_subject(
-            connection, pull_request.id, subject_definition
-        )
-        return start_run_in_transaction(
-            connection,
-            pull_request_id=pull_request.id,
-            review_subject_id=subject.id,
-            request_key=request.request_key,
-            trigger_comment_id=request.trigger_comment_id,
-            trigger_user=request.trigger_user,
-        )
+    repository = postgres_registry.ensure_repository(connection, repository_definition)
+    pull_request = postgres_registry.ensure_pull_request(
+        connection, repository.id, request.pr_number
+    )
+    subject = postgres_registry.create_or_get_subject(
+        connection, pull_request.id, subject_definition
+    )
+    return pull_request.id, subject.id
 
 
 def register_postgres_changed_files(
@@ -571,23 +607,19 @@ def load_live_snapshot(
     expected_head_sha: str | None = None,
 ) -> SnapshotResult[PullPayload]:
     """Validate one provider snapshot without holding a connection during I/O."""
-    _require_live_scope(
-        runtime, subject, expected_head_sha=expected_head_sha
-    )
+    _require_live_scope(runtime, subject, expected_head_sha=expected_head_sha)
     pull = pull_loader()
     with runtime.transaction() as connection:
         try:
-            scope, current, newly_terminalized = (
-                postgres_review_runs.validate_snapshot(
-                    connection,
-                    run_id=ReviewRunId(subject.run_id),
-                    repository=subject.repository,
-                    pr_number=subject.pr_number,
-                    base_sha=pull.base_sha,
-                    head_sha=pull.head_sha,
-                    expected_head_sha=expected_head_sha,
-                    phase=resolve_review_phase(phase),
-                )
+            scope, current, newly_terminalized = postgres_review_runs.validate_snapshot(
+                connection,
+                run_id=ReviewRunId(subject.run_id),
+                repository=subject.repository,
+                pr_number=subject.pr_number,
+                base_sha=pull.base_sha,
+                head_sha=pull.head_sha,
+                expected_head_sha=expected_head_sha,
+                phase=resolve_review_phase(phase),
             )
             if newly_terminalized:
                 postgres_jobs.reconcile_run_jobs(
@@ -598,9 +630,7 @@ def load_live_snapshot(
         except postgres_review_runs.ReviewRunError as exc:
             raise ReviewRunError(str(exc)) from exc
     if not current:
-        raise ReviewRunTerminal(
-            subject.run_id, newly_terminalized=newly_terminalized
-        )
+        raise ReviewRunTerminal(subject.run_id, newly_terminalized=newly_terminalized)
     return SnapshotResult(
         pull=pull.payload,
         run=ValidatedRun(base_sha=scope.base_sha, head_sha=scope.head_sha),

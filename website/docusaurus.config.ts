@@ -99,6 +99,7 @@ const config: Config = {
           title: 'Start here',
           items: [
             {label: 'Getting started', to: '/docs/getting-started'},
+            {label: 'Deploy', to: '/docs/deployment'},
             {label: 'How reviews work', to: '/docs/how-reviews-work'},
           ],
         },

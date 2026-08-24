@@ -16,11 +16,12 @@ from .domain.finding import (
     resolve_decision,
     resolve_fingerprint_query,
 )
-from .domain.review import JsonObject, ReviewRunId
-from . import review_run_application
+from .domain.review import JsonObject, ReviewRunId, ReviewStatus
+from . import failure_codes, review_run_application
 from .postgres import coaching as postgres_coaching
 from .postgres import decisions as postgres_decisions
 from .postgres import findings as postgres_findings
+from .postgres import jobs as postgres_jobs
 from .postgres import reporting as postgres_reporting
 from .postgres import review_runs as postgres_review_runs
 from .postgres.runtime import PostgreSQLRuntime
@@ -74,6 +75,12 @@ class StaleRunsResult:
 class FailureStatusQueue:
     marked: StaleRunsResult
     targets: tuple[postgres_review_runs.FailureStatusTarget, ...]
+
+
+ACTIVE_JOB_STATUSES = (
+    postgres_jobs.ReviewJobStatus.QUEUED,
+    postgres_jobs.ReviewJobStatus.LEASED,
+)
 
 
 def _now(value: datetime | None) -> datetime:
@@ -186,9 +193,7 @@ def decide_finding(
     except FindingDomainError as exc:
         raise OperatorInputError(str(exc)) from exc
     with runtime.transaction() as connection:
-        scope = postgres_reporting.repository_scope(
-            connection, repository=repository
-        )
+        scope = postgres_reporting.repository_scope(connection, repository=repository)
         fingerprint = postgres_findings.resolve_fingerprint(
             connection,
             repository_id=scope.id,
@@ -255,9 +260,7 @@ def export_repository(
     budget = _positive(row_limit, field="row_limit")
     moment = _now(now)
     with runtime.transaction() as connection:
-        connection.execute(
-            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
-        )
+        connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         scope = postgres_reporting.repository_scope(
             connection, repository=normalized_repository
         )
@@ -285,6 +288,48 @@ def list_runs(
             limit=row_limit,
             failed_only=failed_only,
         )
+
+
+def list_review_jobs(
+    runtime: PostgreSQLRuntime,
+    *,
+    statuses: tuple[postgres_jobs.ReviewJobStatus, ...] = ACTIVE_JOB_STATUSES,
+    limit: int,
+) -> tuple[postgres_jobs.ReviewJobReport, ...]:
+    """Return one bounded queue snapshot for operator inspection."""
+    with runtime.transaction() as connection:
+        return postgres_jobs.list_jobs(
+            connection,
+            statuses=statuses,
+            limit=_positive(limit, field="limit"),
+        )
+
+
+def retry_review_job(
+    runtime: PostgreSQLRuntime, *, job_id: int
+) -> postgres_jobs.ReviewJob:
+    """Release a delayed queued retry without changing its attempt fence."""
+    with runtime.transaction() as connection:
+        return postgres_jobs.retry_queued_job(
+            connection, job_id=_positive(job_id, field="job_id")
+        )
+
+
+def cancel_review_job(
+    runtime: PostgreSQLRuntime, *, job_id: int
+) -> postgres_jobs.ReviewJob:
+    """Fail the active owning run so queued and leased work loses authority."""
+    resolved_job_id = _positive(job_id, field="job_id")
+    with runtime.transaction() as connection:
+        current = postgres_jobs.get_job(connection, resolved_job_id)
+        run = postgres_review_runs.lock_run(connection, current.review_run_id)
+        if run.status is ReviewStatus.RUNNING:
+            review_run_application.fail_run_in_transaction(
+                connection,
+                run.id,
+                failure_code=failure_codes.OPERATOR_CANCELLED,
+            )
+        return postgres_jobs.get_job(connection, resolved_job_id)
 
 
 def run_stats(
@@ -404,9 +449,7 @@ def coverage(
 ) -> postgres_reporting.CoverageReport:
     normalized_run_id = ReviewRunId(_positive(run_id, field="run_id"))
     with runtime.transaction() as connection:
-        return postgres_reporting.coverage_report(
-            connection, run_id=normalized_run_id
-        )
+        return postgres_reporting.coverage_report(connection, run_id=normalized_run_id)
 
 
 def verification_export_source(

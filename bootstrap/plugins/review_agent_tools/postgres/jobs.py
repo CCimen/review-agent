@@ -26,6 +26,10 @@ class ReviewJobBusy(ReviewJobError):
     """The pull-request enqueue lock could not be acquired within its bound."""
 
 
+class ReviewQueueFull(ReviewJobError):
+    """The configured active-job capacity is already in use."""
+
+
 class ReviewJobNotFound(ReviewJobError):
     """The requested review job does not exist."""
 
@@ -41,9 +45,7 @@ class ReviewJobLeaseLost(ReviewJobError):
 
 
 _WORKER_SESSION_PREFIX = "review-agent-job-"
-_WORKER_SESSION_RE = re.compile(
-    r"^review-agent-job-([1-9][0-9]*)-lease-([1-9][0-9]*)$"
-)
+_WORKER_SESSION_RE = re.compile(r"^review-agent-job-([1-9][0-9]*)-lease-([1-9][0-9]*)$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,10 +56,7 @@ class WorkerLeaseSession:
     lease_generation: int
 
     def encode(self) -> str:
-        return (
-            f"{_WORKER_SESSION_PREFIX}{self.job_id}"
-            f"-lease-{self.lease_generation}"
-        )
+        return f"{_WORKER_SESSION_PREFIX}{self.job_id}-lease-{self.lease_generation}"
 
     @classmethod
     def parse(cls, value: object) -> "WorkerLeaseSession | None":
@@ -120,6 +119,13 @@ class _ReviewJobRow:
 
 
 @dataclass(frozen=True, slots=True)
+class _ReviewJobReportRow(_ReviewJobRow):
+    repository: str
+    pr_number: int
+    run_status: str
+
+
+@dataclass(frozen=True, slots=True)
 class _ReviewRunScopeRow:
     id: ReviewRunId
     pull_request_id: PullRequestId
@@ -171,10 +177,24 @@ class RecoveryBatch:
     run_ids_to_fail: tuple[ReviewRunId, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ReviewJobReport:
+    job: ReviewJob
+    repository: str
+    pr_number: int
+    run_status: ReviewStatus
+
+
 _JOB_COLUMNS = """
     id, review_run_id, status, priority, available_at, attempt_count,
     max_attempts, lease_owner, lease_generation, lease_expires_at,
     last_heartbeat_at, failure_code, created_at, started_at, completed_at
+"""
+_QUALIFIED_JOB_COLUMNS = """
+    job.id, job.review_run_id, job.status, job.priority, job.available_at,
+    job.attempt_count, job.max_attempts, job.lease_owner,
+    job.lease_generation, job.lease_expires_at, job.last_heartbeat_at,
+    job.failure_code, job.created_at, job.started_at, job.completed_at
 """
 
 
@@ -234,9 +254,7 @@ def _by_run(
     return _job(row) if row is not None else None
 
 
-def get_job(
-    connection: psycopg.Connection[TupleRow], job_id: int
-) -> ReviewJob:
+def get_job(connection: psycopg.Connection[TupleRow], job_id: int) -> ReviewJob:
     """Return one durable job at any lifecycle state."""
     _require_transaction(connection)
     resolved_job_id = _integer(job_id, field="job_id", minimum=1)
@@ -247,6 +265,78 @@ def get_job(
         ).fetchone()
     if row is None:
         raise ReviewJobNotFound("review job does not exist")
+    return _job(row)
+
+
+def list_jobs(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    statuses: Sequence[ReviewJobStatus],
+    limit: int,
+) -> tuple[ReviewJobReport, ...]:
+    """List a bounded queue snapshot with its repository scope."""
+    _require_transaction(connection)
+    row_limit = _integer(limit, field="limit", minimum=1)
+    resolved_statuses = tuple(dict.fromkeys(status.value for status in statuses))
+    if not resolved_statuses:
+        raise ReviewJobError("at least one job status is required")
+    with connection.cursor(row_factory=class_row(_ReviewJobReportRow)) as cursor:
+        rows = cursor.execute(
+            f"""
+            SELECT {_QUALIFIED_JOB_COLUMNS},
+                   repository.full_name AS repository,
+                   pull_request.number AS pr_number,
+                   run.status AS run_status
+            FROM review_agent.review_jobs AS job
+            JOIN review_agent.review_runs AS run ON run.id = job.review_run_id
+            JOIN review_agent.pull_requests AS pull_request
+              ON pull_request.id = run.pull_request_id
+            JOIN review_agent.repositories AS repository
+              ON repository.id = pull_request.repository_id
+            WHERE job.status = ANY(%s)
+            ORDER BY job.created_at, job.id
+            LIMIT %s
+            """,
+            (list(resolved_statuses), row_limit),
+        ).fetchall()
+    reports: list[ReviewJobReport] = []
+    for row in rows:
+        reports.append(
+            ReviewJobReport(
+                job=_job(row),
+                repository=row.repository,
+                pr_number=row.pr_number,
+                run_status=ReviewStatus(row.run_status),
+            )
+        )
+    return tuple(reports)
+
+
+def retry_queued_job(
+    connection: psycopg.Connection[TupleRow], *, job_id: int
+) -> ReviewJob:
+    """Make one delayed queued retry available now without reviving terminal work."""
+    _require_transaction(connection)
+    resolved_job_id = _integer(job_id, field="job_id", minimum=1)
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            UPDATE review_agent.review_jobs AS job
+            SET available_at = statement_timestamp(), failure_code = NULL
+            FROM review_agent.review_runs AS run
+            WHERE job.id = %s
+              AND run.id = job.review_run_id
+              AND job.status = 'queued'
+              AND run.status = 'running'
+            RETURNING {_QUALIFIED_JOB_COLUMNS}
+            """,
+            (resolved_job_id,),
+        ).fetchone()
+    if row is None:
+        current = get_job(connection, resolved_job_id)
+        raise ReviewJobError(
+            f"review job {current.id} is not a queued retry for an active run"
+        )
     return _job(row)
 
 
@@ -263,9 +353,7 @@ def require_live_lease(
     resolved_run_id = ReviewRunId(
         _integer(review_run_id, field="review_run_id", minimum=1)
     )
-    generation = _integer(
-        lease_generation, field="lease_generation", minimum=1
-    )
+    generation = _integer(lease_generation, field="lease_generation", minimum=1)
     with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
         row = cursor.execute(
             f"""
@@ -290,6 +378,7 @@ def enqueue_run(
     review_run_id: ReviewRunId,
     priority: int,
     max_attempts: int,
+    active_job_limit: int,
 ) -> JobEnqueue:
     """Create one queue record for an active run."""
     _require_transaction(connection)
@@ -297,8 +386,9 @@ def enqueue_run(
         _integer(review_run_id, field="review_run_id", minimum=1)
     )
     resolved_priority = _integer(priority, field="priority")
-    resolved_max_attempts = _integer(
-        max_attempts, field="max_attempts", minimum=1
+    resolved_max_attempts = _integer(max_attempts, field="max_attempts", minimum=1)
+    resolved_active_limit = _integer(
+        active_job_limit, field="active_job_limit", minimum=1
     )
 
     with connection.cursor(row_factory=class_row(_ReviewRunScopeRow)) as cursor:
@@ -311,8 +401,7 @@ def enqueue_run(
         raise ReviewJobError("review run does not exist")
     try:
         pull_request = connection.execute(
-            "SELECT id FROM review_agent.pull_requests WHERE id = %s "
-            "FOR NO KEY UPDATE",
+            "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE",
             (run.pull_request_id,),
         ).fetchone()
     except errors.LockNotAvailable as exc:
@@ -337,6 +426,21 @@ def enqueue_run(
     existing = _by_run(connection, resolved_run_id)
     if existing is not None:
         return DuplicateJob(existing)
+
+    # Serialize only admission count/insert operations. Worker updates do not
+    # contend on this transaction-scoped namespace lock.
+    connection.execute(
+        "SELECT pg_advisory_xact_lock("
+        "hashtextextended('review-agent:queue-capacity', 0))"
+    )
+    active_count = connection.execute(
+        "SELECT count(*) FROM review_agent.review_jobs "
+        "WHERE status IN ('queued', 'leased')"
+    ).fetchone()
+    if active_count is None or not isinstance(active_count[0], int):
+        raise ReviewJobError("active review-job count could not be read")
+    if active_count[0] >= resolved_active_limit:
+        raise ReviewQueueFull("review queue is at its configured capacity")
 
     try:
         with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
@@ -370,6 +474,7 @@ def claim_next_job(
     *,
     lease_owner: str,
     lease_duration: timedelta,
+    priority_aging_interval: timedelta,
 ) -> ReviewJob | None:
     """Claim one ready job with a short, fenced ``SKIP LOCKED`` update."""
     _require_transaction(connection)
@@ -378,24 +483,40 @@ def claim_next_job(
         raise ReviewJobError("lease_owner is required")
     if lease_duration <= timedelta(0):
         raise ReviewJobError("lease_duration must be positive")
+    if priority_aging_interval <= timedelta(0):
+        raise ReviewJobError("priority_aging_interval must be positive")
 
     with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
         row = cursor.execute(
             """
-            WITH candidate AS (
+            WITH candidate AS MATERIALIZED (
                 SELECT job.id
                 FROM review_agent.review_jobs AS job
+                JOIN review_agent.review_runs AS run
+                  ON run.id = job.review_run_id
+                JOIN review_agent.pull_requests AS pull_request
+                  ON pull_request.id = run.pull_request_id
+                JOIN review_agent.repositories AS repository
+                  ON repository.id = pull_request.repository_id
                 WHERE job.status = 'queued'
                   AND job.available_at <= statement_timestamp()
                   AND job.attempt_count < job.max_attempts
-                  AND EXISTS (
+                  AND run.status = 'running'
+                  AND NOT EXISTS (
                       SELECT 1
-                      FROM review_agent.review_runs AS run
-                      WHERE run.id = job.review_run_id
-                        AND run.status = 'running'
+                      FROM review_agent.review_jobs AS active_job
+                      JOIN review_agent.review_runs AS active_run
+                        ON active_run.id = active_job.review_run_id
+                      JOIN review_agent.pull_requests AS active_pull_request
+                        ON active_pull_request.id = active_run.pull_request_id
+                      WHERE active_job.status = 'leased'
+                        AND active_pull_request.repository_id = repository.id
                   )
-                ORDER BY job.priority DESC, job.available_at, job.id
-                FOR UPDATE SKIP LOCKED
+                ORDER BY
+                    job.available_at - (%s * job.priority),
+                    job.available_at,
+                    job.id
+                FOR UPDATE OF repository SKIP LOCKED
                 LIMIT 1
             )
             UPDATE review_agent.review_jobs AS job
@@ -411,7 +532,7 @@ def claim_next_job(
             WHERE job.id = candidate.id AND job.status = 'queued'
             RETURNING job.*
             """,
-            (owner, lease_duration),
+            (priority_aging_interval, owner, lease_duration),
         ).fetchone()
     return _job(row) if row is not None else None
 
@@ -430,9 +551,7 @@ def heartbeat_job(
     owner = lease_owner.strip()
     if not owner:
         raise ReviewJobError("lease_owner is required")
-    generation = _integer(
-        lease_generation, field="lease_generation", minimum=1
-    )
+    generation = _integer(lease_generation, field="lease_generation", minimum=1)
     if lease_duration <= timedelta(0):
         raise ReviewJobError("lease_duration must be positive")
     with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
@@ -471,9 +590,7 @@ def fail_claimed_job(
     owner = lease_owner.strip()
     if not owner:
         raise ReviewJobError("lease_owner is required")
-    generation = _integer(
-        lease_generation, field="lease_generation", minimum=1
-    )
+    generation = _integer(lease_generation, field="lease_generation", minimum=1)
     code = _failure_code(failure_code)
     if retryable:
         if retry_delay is None or retry_delay <= timedelta(0):

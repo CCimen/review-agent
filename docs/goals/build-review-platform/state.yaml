@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "5a319a8634a429a8d73443bc098c922d4052a9a3"
 
-active_task: T201
+active_task: T203
 
 tasks:
   - id: T001
@@ -2802,7 +2802,7 @@ tasks:
   - id: T201
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Measure aggregate CPU, memory, polling, and PostgreSQL pressure under representative multi-worker load, then implement only reproducible high-value efficiency corrections without changing review behavior."
     constraints:
@@ -2817,6 +2817,7 @@ tasks:
       - bootstrap/plugins/review_agent_tools/postgres/**
       - bootstrap/plugins/review_agent_tools/settings.py
       - tools/review_agent_worker.py
+      - .env.example
       - compose.yaml
       - examples/openshift/review-agent-template.yaml
       - tests/test_worker.py
@@ -2824,6 +2825,7 @@ tasks:
       - tests/test_postgres_runtime.py
       - tests/test_settings.py
       - benchmarks/**
+      - docs/DEPLOYMENT.md
       - docs/OPERATIONS.md
       - docs/goals/build-review-platform/**
     verify:
@@ -2837,7 +2839,46 @@ tasks:
       - "An apparent gain changes leases, fairness, retry, recovery, durability, ordering, or failure semantics."
       - "The optimization requires unbounded queues, caches, fan-out, connections, memory, or a new infrastructure dependency."
       - "The representative benchmark cannot distinguish application work from PostgreSQL, Hermes/model, or host noise."
-    receipt: null
+    receipt:
+      result: done
+      summary: "Replaced one-process-per-review scaling with bounded configurable review lanes that share one runtime and PostgreSQL pool, cutting measured 32-slot idle resource use without changing lease, retry, recovery, or publication behavior."
+      commit: "b481748f318b525339635a11511efd913d6a7f03"
+      changed_files:
+        - bootstrap/plugins/review_agent_tools/worker.py
+        - bootstrap/plugins/review_agent_tools/postgres/runtime.py
+        - tools/review_agent_worker.py
+        - tests/test_worker.py
+        - tests/test_postgres_runtime.py
+        - tests/test_postgres_jobs.py
+        - .env.example
+        - compose.yaml
+        - examples/openshift/review-agent-template.yaml
+        - docs/OPERATIONS.md
+        - docs/DEPLOYMENT.md
+        - benchmarks/worker-density.md
+      commands:
+        - cmd: "representative 1-, 8-, and 32-slot worker-density benchmark"
+          status: pass
+          summary: "At 32 idle logical slots, steady RSS fell from about 922 MiB to 29 MiB, retained PostgreSQL connections from 32 to 1, and empty-queue transactions from 35.4/s to about 1.3/s."
+        - cmd: "uv run --no-project --isolated --with-requirements requirements.txt bash ./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright reported zero errors and 381 tests passed with 136 expected database-gated skips."
+        - cmd: "uv run --no-project --isolated --with-requirements requirements.txt bash ./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "152 PostgreSQL 17.10 integration, recovery, backup, restore, and schema checks passed."
+        - cmd: "Ruff, Compose, OpenShift, documentation, production-image, and unprivileged installer checks"
+          status: pass
+          summary: "Static checks, deployment rendering, ten public documents, the 2,817,548,619-byte image, and installer smoke all passed."
+        - cmd: "Claude Opus/high stable commit gate"
+          status: pass
+          summary: "Session review-agent-worker-density-performance reached green at score 8 on iteration 2."
+      evidence:
+        - "The dispatcher claims only when a bounded executor slot is free, so there is no hidden in-memory review backlog."
+        - "Each active review uses at most one checkout and the worker pool is sized to concurrency plus one dispatcher connection."
+        - "Concurrency defaults to four, has no application hard ceiling, and is documented with provider, PID, and database capacity constraints for a 100-repository example."
+        - "One-shot smoke behavior remains one review, while unexpected lane failures stop new claims and surface after active work drains."
+      spawned_tasks:
+        - T203
   - id: T202
     type: worker
     assignee: Worker
@@ -2886,6 +2927,46 @@ tasks:
       evidence:
         - "The static Dockerfile check now states FROM-to-ARG-to-ENV ordering without pinning whitespace."
         - "CI exercises digest validation and receipt creation inside the image it builds, so the original empty-value regression fails before deployment."
+  - id: T203
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Measure the production image by layer, remove only proven unnecessary bytes without weakening runtime behavior, and prepare one secure GitHub Container Registry workflow that publishes versioned images only when a release tag is created."
+    constraints:
+      - "Measure the current image and its layers before changing the Dockerfile or dependency set."
+      - "Keep the digest-pinned Hermes base, immutable review contract, unprivileged runtime, health checks, and installer smoke intact."
+      - "Prefer multi-stage cleanup, cache removal, and smaller copied artifacts over changing libraries or rebuilding Hermes."
+      - "Use GitHub's native container registry and least-privilege workflow permissions; do not add a third-party registry or release service."
+      - "Do not create a tag, GitHub release, or prerelease until the full approved plan is complete."
+      - "Keep ordinary pull-request CI as validation only; package publication must require a version tag or published release."
+    allowed_files:
+      - .dockerignore
+      - .github/workflows/**
+      - Dockerfile
+      - requirements.txt
+      - scripts/**
+      - tests/test_dockerfile_tools.py
+      - tests/test_ci_workflow.py
+      - tests/test_docs_contract.py
+      - benchmarks/**
+      - README.md
+      - docs/DEPLOYMENT.md
+      - docs/OPERATIONS.md
+      - website/**
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Record current and candidate compressed/uncompressed image size plus a bounded layer inventory."
+      - "Build the final image and rerun the exact Hermes identity, unprivileged installer, and health checks."
+      - "Validate the workflow event, permissions, tags, labels, cache behavior, and multi-platform manifest without publishing a release."
+      - "Run focused Dockerfile, CI, docs, Ruff, strict Pyright, and relevant bundle checks."
+      - "Run one Claude Opus/high stable commit gate with score at least 8 after the candidate is frozen."
+    stop_if:
+      - "A size reduction removes runtime tools, certificates, locale, or behavior without a built-image proof that they are unnecessary."
+      - "The workflow would publish from pull requests, mutable branches, forks, or an untrusted build context."
+      - "Multi-platform publication cannot preserve the pinned base identity or pass built-image smoke checks."
+      - "The slice requires a release, tag, registry migration, dependency rewrite, or files outside the listed owners."
+    receipt: null
 
 checks:
   dirty_fingerprint: "goal-control-files-only-after-2a0dbeab"

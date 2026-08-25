@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 3
+  completed_write_tasks_in_thread: 4
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "ec6bfa60ba4b79c5dcfa3ce3ccdff6bcd7898beb"
+  last_verified_revision: "5a319a8634a429a8d73443bc098c922d4052a9a3"
 
-active_task: T122
+active_task: T199
 
 tasks:
   - id: T001
@@ -2590,12 +2590,14 @@ tasks:
   - id: T122
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Implement automatic durable terminal-failure delivery through the existing publisher."
     allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/review.py
       - bootstrap/plugins/review_agent_tools/postgres_migrations/005_failure_status_delivery.sql
       - bootstrap/plugins/review_agent_tools/postgres/review_runs.py
+      - bootstrap/plugins/review_agent_tools/postgres/publications.py
       - bootstrap/plugins/review_agent_tools/review_run_application.py
       - bootstrap/plugins/review_agent_tools/review_publication_application.py
       - bootstrap/plugins/review_agent_tools/publisher.py
@@ -2607,6 +2609,7 @@ tasks:
       - tests/test_postgres_schema.py
       - tests/test_postgres_jobs.py
       - tests/test_postgres_publications.py
+      - tests/test_postgres_review_lifecycle.py
       - tests/test_postgres_reporting_cli.py
       - docs/OPERATIONS.md
       - docs/goals/build-review-platform/state.yaml
@@ -2624,11 +2627,51 @@ tasks:
       - "One publisher cannot serve both delivery types without starvation."
       - "Migration checks cannot express one coherent failure-delivery lifecycle."
       - "The slice expands into a publication-kind refactor, new table/queue/broker, generic delivery interface, exactly-once claim, or Medium review findings."
-    receipt: null
+    receipt:
+      result: done
+      summary: "Delivered every terminal review failure through one durable, leased PostgreSQL lifecycle owned by the existing publisher, including exact ambiguous-write recovery and operator retry recovery."
+      implementation_revision: "5a319a8634a429a8d73443bc098c922d4052a9a3"
+      changed_files:
+        - bootstrap/plugins/review_agent_tools/domain/review.py
+        - bootstrap/plugins/review_agent_tools/postgres_migrations/005_failure_status_delivery.sql
+        - bootstrap/plugins/review_agent_tools/postgres/review_runs.py
+        - bootstrap/plugins/review_agent_tools/postgres/publications.py
+        - bootstrap/plugins/review_agent_tools/review_publication_application.py
+        - bootstrap/plugins/review_agent_tools/publisher.py
+        - bootstrap/plugins/review_agent_tools/postgres/reporting.py
+        - tests/test_postgres_migrations.py
+        - tests/test_postgres_runtime.py
+        - tests/test_postgres_schema.py
+        - tests/test_postgres_review_lifecycle.py
+        - tests/test_postgres_jobs.py
+        - tests/test_postgres_publications.py
+        - tests/test_postgres_reporting_cli.py
+        - docs/OPERATIONS.md
+      commands:
+        - cmd: "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "149 PostgreSQL tests plus schema, readiness, backup, and restore contracts passed."
+        - cmd: "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright reported zero errors and 369 tests passed with 135 expected database-gated skips."
+        - cmd: "python3 scripts/check_docs.py"
+          status: pass
+          summary: "All ten public documentation contracts passed."
+        - cmd: "Claude Opus/high stable commit gate"
+          status: pass
+          summary: "Session review-agent-h5-failure-delivery reached green at score 8 on iteration 3."
+      evidence:
+        - "Failure delivery has explicit pending, posting, retryable, posted, suppressed, and exhausted states with database-clock leases and generation fencing."
+        - "Every provider write requires the exact latest live run lease; older runs are suppressed before external delivery."
+        - "Exact marker and body recovery prevents duplicate comments after an ambiguous GitHub outcome, while operator recovery can reopen an exhausted latest delivery with a fresh attempt budget."
+        - "Removed the global per-poll suppression sweep and raw publication probe so idle workers do no unrelated repository-wide work."
+        - "The three additional allowed paths were direct reviewer-required owner corrections discovered during the stable gate, not adjacent scope expansion."
+      spawned_tasks:
+        - T199
   - id: T199
     type: judge
     assignee: Judge
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Audit whether the verified pre-pilot review-remediation tranche is complete and whether any required correction remains."
     inputs:
@@ -2645,14 +2688,14 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-ec6bfa60"
+  dirty_fingerprint: "goal-control-files-only-after-5a319a86"
   last_verification:
     result: pass
-    task: T120
+    task: T122
     commands:
-      - "Five focused H4 publication fencing and exact recovery tests"
-      - "140-test PostgreSQL schema, backup, and recovery contract"
+      - "149-test PostgreSQL schema, readiness, backup, and restore contract"
       - "Strict Pyright with zero diagnostics"
-      - "360-test bundle with 126 expected database skips"
-      - "Claude Opus/high session review-agent-h4-exact-publication green at score 8"
-      - "Source revision ec6bfa60ba4b79c5dcfa3ce3ccdff6bcd7898beb"
+      - "369-test bundle with 135 expected database skips"
+      - "Ten-document public documentation contract"
+      - "Claude Opus/high session review-agent-h5-failure-delivery green at score 8"
+      - "Source revision 5a319a8634a429a8d73443bc098c922d4052a9a3"

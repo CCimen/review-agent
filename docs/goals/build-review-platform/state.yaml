@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Finish the public documentation experience, then run the final read-only completion audit."
-  status: active
+  tranche: "Approved maintainability-first core and public documentation complete."
+  status: done
 
 rules:
   pm_owns_state: true
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 19
+  completed_write_tasks_in_thread: 20
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-24T19:41:41Z"
-  last_verified_revision: "d37c02c2c1ea790548ffcd0a4484e9fdf1dfd1a7"
+  last_handoff_at: "2026-08-25T07:20:28Z"
+  last_verified_revision: "e1bb98752f656086276b6e6982c7142c565068b0"
 
-active_task: T112
+active_task: null
 
 tasks:
   - id: T001
@@ -2205,7 +2205,7 @@ tasks:
   - id: T112
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Finish the public documentation experience with clear navigation, static local search, readable wide content, accurate completed-platform copy, and a concise repository README."
     constraints:
@@ -2244,17 +2244,67 @@ tasks:
       - "Search requires credentials, a hosted crawler, or indexing content outside the public allowlist."
       - "The polish needs runtime changes or a second frontend architecture."
       - "A dependency cannot prove Docusaurus 3 compatibility through its current primary documentation and clean build."
-    receipt: null
+    receipt:
+      result: done
+      summary: "Finished the public documentation experience with task-oriented navigation, credential-free local search, readable wide content, current platform copy, and a concise repository overview."
+      revision: "e1bb98752f656086276b6e6982c7142c565068b0"
+      changed_paths:
+        - .github/workflows/docs-check.yml
+        - .github/workflows/docs-pages.yml
+        - README.md
+        - docs/HOW_REVIEWS_WORK.md
+        - docs/ROADMAP.md
+        - scripts/check_docs.py
+        - tests/test_docs_contract.py
+        - website/docusaurus.config.ts
+        - website/sidebars.ts
+        - website/package.json
+        - website/package-lock.json
+        - website/src/css/custom.css
+        - website/src/pages/index.tsx
+      evidence:
+        - "Thirty focused documentation and current-platform tests passed; the ten-document source contract and TypeScript check passed."
+        - "A clean Node 24 Docusaurus production build passed; the exact built-route and search-index validator accepted the ten manifest-owned public routes."
+        - "The rendered-browser verify item was replaced transparently with generated HTML, navigation, responsive table/image rules, light/dark tokens, focus treatment, and Impeccable inspection because the app browser's trusted runtime could not initialize."
+        - "Claude session review-agent-t112-docs-finish fixed the introduced search-route blocker and reached green at score 8 on iteration 2."
+        - "Four non-blocking Claude follow-ups landed before the commit: one shared docs-route constant, a theme-shape comment, clearer validator help, and private goal-path exclusions; the focused tests, typecheck, clean build, and built-artifact contract were rerun afterward."
+        - "The local-search dependency is exact-pinned; its unavoidable native language package and stable-index cache trade-off are accepted instead of forking or scanning repository-private Markdown."
+        - "A local pnpm-workspace placeholder was removed as untracked tooling residue; it was not present in the remote parent and therefore is not a changed commit path."
+      spawned_tasks:
+        - T113
+  - id: T113
+    type: judge
+    assignee: Judge
+    status: done
+    reasoning_hint: high
+    objective: "Run the final read-only completion audit across the approved maintainability-first plan and the finished public documentation."
+    constraints:
+      - "Read-only; do not edit files."
+      - "Require evidence for every approved core outcome and do not reopen optional integrations."
+    expected_output:
+      - "Completion decision"
+      - "Evidence mapped to plan outcomes"
+      - "Direct blockers only"
+      - "Exact board closure updates"
+    receipt:
+      result: done
+      decision: complete
+      summary: "Confirmed that the approved core, durable PostgreSQL execution and publication lifecycle, reusable product boundaries, and public documentation are complete with no direct blocker."
+      evidence:
+        - "T111 closed the sole prior audit blocker by aligning the live delivery schema and public Security contract with the recoverable publisher."
+        - "T112 presents the implemented core as current, keeps optional integrations outside it, and enforces navigation, built routes, and search against one ten-document public manifest."
+        - "Refactor-plan phases map to completed typed ownership, PostgreSQL cutover, durable admission/jobs, exact-run recovery, atomic publication handoff, and ambiguous-write recovery tasks."
+        - "No required queued or blocked task remains; GitHub App, policy overlays, chat, scanners, feedback-sidecar packaging, and resource tuning remain deliberate non-core boundaries."
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-d37c02c2"
+  dirty_fingerprint: "goal-control-files-only-after-e1bb9875"
   last_verification:
     result: pass
-    task: T108
+    task: T113
     commands:
-      - "PostgreSQL 17 schema, migration, backup, recovery, and concurrency suite: 134 tests"
-      - "Strict Pyright and 352-test unit/contract discovery"
-      - "Public ten-document contract, website typecheck, and clean Docusaurus production build"
-      - "Fresh image and publisher entrypoint, Compose rendering, and OpenShift template validation"
-      - "Claude Opus/high session review-agent-t108-publication-outbox green at score 8"
-      - "Source revision 007e1d7ddb8695650a7df3212395b32f7455a93f"
+      - "Focused documentation and current-platform contracts: 30 tests"
+      - "Public source and built-artifact contract: 10 documents, exact routes, and exact search-index routes"
+      - "Website TypeScript check and clean Node 24 Docusaurus production build"
+      - "Claude Opus/high session review-agent-t112-docs-finish green at score 8"
+      - "Goal Maker Judge T113 completion decision: complete"
+      - "Source revision e1bb98752f656086276b6e6982c7142c565068b0"

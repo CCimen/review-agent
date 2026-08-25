@@ -14,13 +14,12 @@ weakening the proven review contract.
 
 ## Current Tranche
 
-The maintainability-first platform is implemented: PostgreSQL owns application
-state, admission and review work are durable and recoverable, and immutable
-publication intent reaches GitHub through a separately leased publisher. The
-delivery contract now matches that lifecycle. Finish one bounded public
-documentation pass for navigation, local search, readable content, and accurate
-completed-platform copy, then repeat the read-only completion audit. Optional
-integrations remain outside this core tranche.
+Complete. The maintainability-first platform and its public documentation have
+passed the final audit. PostgreSQL owns application state, admission and review
+work are durable and recoverable, immutable publication intent reaches GitHub
+through a separately leased publisher, and the public site documents that
+lifecycle with task navigation and local search. Optional integrations remain
+explicitly outside the completed core.
 
 ## Approved Sequencing Input
 
@@ -90,7 +89,9 @@ input, or product strategy the board cannot decide.
 
 Do not stop after discovery or planning when a safe PM implementation task can
 be activated. When a tranche completes, select the next maintainability-first
-tranche and continue while the overall objective remains active.
+tranche and continue while the overall objective remains active. A completed
+goal is reopened only when the repository owner approves and defines a new
+tranche.
 
 ## Canonical Board
 
@@ -118,5 +119,5 @@ On every continuation:
 5. Keep implementation with the PM and record a compact task receipt.
 6. Run proportional validation and one skeptical peer review at a stable slice.
 7. Commit and push the verified slice to `main`.
-8. Audit the tranche, then activate the next safe maintainability task unless a
-   stop condition applies.
+8. Audit the tranche, then activate the next safe maintainability task only
+   while the goal remains active.

@@ -3,6 +3,54 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import publicDocuments from './public-documents.json';
 
+// GitHub renders `> [!TIP]` blockquotes as alerts; MDX does not. Convert the
+// marker into a class so the same Markdown reads correctly on both surfaces.
+const githubAlertLabels: Record<string, string> = {
+  '[!NOTE]': 'note',
+  '[!TIP]': 'tip',
+  '[!IMPORTANT]': 'important',
+  '[!WARNING]': 'warning',
+  '[!CAUTION]': 'caution',
+};
+
+type MdastNode = {
+  type?: string;
+  value?: string;
+  children?: MdastNode[];
+  data?: {hProperties?: {className?: string[]}};
+};
+
+function remarkGithubAlerts() {
+  const visit = (node: MdastNode): void => {
+    if (node.type === 'blockquote') {
+      const paragraph = node.children?.[0];
+      const text = paragraph?.children?.[0];
+      if (paragraph && text?.type === 'text' && typeof text.value === 'string') {
+        const marker = Object.keys(githubAlertLabels).find((candidate) =>
+          text.value!.startsWith(candidate),
+        );
+        if (marker) {
+          text.value = text.value.slice(marker.length).replace(/^\s+/, '');
+          if (!text.value) {
+            paragraph.children!.shift();
+            if (paragraph.children!.length === 0) {
+              node.children!.shift();
+            }
+          }
+          node.data = {
+            ...node.data,
+            hProperties: {
+              className: ['gh-alert', `gh-alert--${githubAlertLabels[marker]}`],
+            },
+          };
+        }
+      }
+    }
+    node.children?.forEach(visit);
+  };
+  return (tree: MdastNode) => visit(tree);
+}
+
 const config: Config = {
   title: 'Review Agent',
   tagline: 'Evidence-backed pull-request review with deterministic controls.',
@@ -33,6 +81,7 @@ const config: Config = {
           include: publicDocuments,
           routeBasePath: 'docs',
           sidebarPath: './sidebars.ts',
+          beforeDefaultRemarkPlugins: [remarkGithubAlerts],
           editUrl: ({docPath}) =>
             `https://github.com/CCimen/review-agent/edit/main/${docPath}`,
         },

@@ -138,10 +138,6 @@
   margin-top: 0.4rem;
 }
 
-.entryList {
-  border-bottom: 1px solid var(--ifm-toc-border-color);
-}
-
 .entry {
   align-items: baseline;
   border-top: 1px solid var(--ifm-toc-border-color);

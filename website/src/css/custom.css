@@ -152,6 +152,36 @@ a {
   margin-bottom: 0;
 }
 
+.theme-doc-markdown blockquote.gh-alert::before {
+  color: var(--review-agent-accent-text);
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+}
+
+.theme-doc-markdown blockquote.gh-alert--note::before {
+  content: 'Note';
+}
+
+.theme-doc-markdown blockquote.gh-alert--tip::before {
+  content: 'Tip';
+}
+
+.theme-doc-markdown blockquote.gh-alert--important::before {
+  content: 'Important';
+}
+
+.theme-doc-markdown blockquote.gh-alert--warning::before {
+  content: 'Warning';
+}
+
+.theme-doc-markdown blockquote.gh-alert--caution::before {
+  content: 'Caution';
+}
+
 .theme-doc-markdown table {
   font-variant-numeric: tabular-nums;
   max-width: 100%;

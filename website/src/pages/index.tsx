@@ -96,7 +96,7 @@ function Home(): ReactNode {
           <Heading as="h2" id="entry-title">
             Start with the task in front of you
           </Heading>
-          <div className={styles.entryList}>
+          <div>
             {entryPoints.map((entry) => (
               <Link className={styles.entry} to={entry.to} key={entry.title}>
                 <span>{entry.title}</span>

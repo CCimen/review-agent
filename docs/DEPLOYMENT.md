@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
 status: current
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 import Tabs from '@theme/Tabs';
@@ -91,8 +91,13 @@ secret as a GitHub token or database password.
    ```
 
 4. Route the review hostname to `review-admission:8644`. Route the optional
-   feedback hostname to `hermes-review-feedback:8645`. Do not route
-   `hermes-review`, `review-worker`, `review-publisher`, or `review-postgres`.
+   feedback hostname to `hermes-review-feedback:8645`.
+
+   :::warning[Keep private services off the proxy]
+   Do not route `hermes-review`, `review-worker`, `review-publisher`, or
+   `review-postgres`. Only admission and the optional feedback endpoint belong
+   on the ingress network.
+   :::
 5. Connect the Codex account and restart Hermes:
 
    ```bash

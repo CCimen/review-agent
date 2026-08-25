@@ -1,9 +1,10 @@
 ---
-sidebar_label: Repository overview
+sidebar_label: Overview
 slug: /overview
 title: Repository overview
+description: What Review Agent does, where its boundaries sit, and where each concern lives.
 status: current
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Review Agent
@@ -11,75 +12,81 @@ last_verified: 2026-08-24
 > **Current** — This page describes the reviewer available in this repository
 > today.
 
-This repository packages a locked-down Hermes + Codex reviewer for GitHub pull
-requests. A trusted developer comments `/review`, GitHub Actions sends a signed
-request, and admission stores the exact current PR snapshot as a durable job. A
-worker asks Hermes to review that snapshot through bounded read tools. The
-deterministic publisher posts the PR summary and any safe native suggestions.
+Review Agent is a self-hosted, advisory pull-request reviewer built on Hermes
+and Codex. A trusted developer comments `/review` on a PR; the service pins the
+exact base/head snapshot, reviews it through bounded read tools, and posts
+evidence-backed findings through a deterministic publisher.
 
-The reusable part is the review engine: webhook routing, bounded GitHub reads,
-PostgreSQL review state, human feedback, deterministic publication, and operator
-tooling. Organization and repository policy belongs in the review profile:
-`bootstrap/profiles/sundsvall-standard/SOUL.md`,
-`bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md`, and `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md`.
+The reusable part is the review engine: webhook admission, bounded GitHub
+reads, PostgreSQL review state, human feedback, deterministic publication, and
+operator tooling. Voice and review policy live in a swappable profile, not in
+the engine.
 
-Read the published [documentation site](https://ccimen.github.io/review-agent/)
-for onboarding, behavior ownership, the trust model, operations, FAQ, and the
-current architecture roadmap.
+## Start here
 
-## What It Does
+| You want to | Read |
+| --- | --- |
+| Run your first review | [Getting started](docs/GETTING_STARTED.md) |
+| Deploy the service | [Compose, Dokploy, Coolify, Portainer, or OpenShift](docs/DEPLOYMENT.md) |
+| Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
+| Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
+| Operate or recover it | [Operations](docs/OPERATIONS.md) |
+| Assess trust boundaries | [Security](docs/SECURITY.md) |
 
-- Reviews the exact base/head snapshot of an open GitHub PR.
-- Reads PR metadata, diffs, and selected files through bounded plugin tools.
-- Publishes every evidence-backed finding that survives the skeptical review
-  gate; there is no small editorial quota such as three findings. A 200-item
-  record-transaction safety ceiling rejects the whole record instead of silently
-  dropping additional findings.
-- Re-checks previous unresolved findings on repeated reviews.
-- Offers small local patch candidates that pass exact range and current-content
-  checks through GitHub's native suggestion UI, grouped into one non-blocking
-  review; coordinated changes stay in the copyable coding-agent brief.
-- Stores findings, review runs, publication state, and human feedback in
+The [documentation site](https://ccimen.github.io/review-agent/) adds local
+search, task-based navigation, and a [sanitized example
+review](examples/comments/example-review.md).
+
+## What it does
+
+- Reviews the exact base/head snapshot of an open GitHub PR through bounded
+  plugin tools: PR metadata, diffs, changed-file lists, and selected files.
+- Publishes every evidence-backed finding that survives the skeptical second
+  pass. There is no editorial quota; a 200-item record-transaction safety
+  ceiling rejects the whole record instead of silently dropping findings.
+- Reports incomplete coverage instead of implying a clean review.
+- Re-checks unresolved findings from earlier rounds on each new review.
+- Offers small, independently safe patches through GitHub's native suggestion
+  UI after exact range and current-content checks; coordinated changes go into
+  a copyable coding-agent brief instead.
+- Stores runs, findings, coverage, publication state, and human feedback in
   PostgreSQL.
-- Can show deterministic `/review ...` feedback commands so allowlisted
-  developers can report false positives, scope confusion, and missed issues.
-- Keeps comment delivery deterministic through `review_agent_deliver`, not through
-  free-form model output. Large reviews are split into deterministic comment
-  parts instead of hiding findings.
-- Can export a private shadow-mode verification bundle and store provider-neutral
-  verifier/reconciliation state for a review run. The live deployment still
-  publishes from Codex-owned findings unless an explicit reconciliation decision
-  says otherwise.
+- Accepts structured `/review ...` feedback commands from allowlisted
+  developers.
+- Freezes exact comment parts in PostgreSQL, then lets a separate recoverable
+  publisher write them to GitHub. Large reviews split into deterministic parts;
+  interrupted delivery resumes from durable state.
+- Can export a private shadow-mode verification bundle and store
+  provider-neutral verifier state for a run. The live deployment still
+  publishes from Codex-owned findings unless an explicit reconciliation
+  decision says otherwise.
 
-## What It Is Not
+## What it does not do
 
-- It is not a required merge gate by default. Treat early deployments as advisory
-  calibration.
-- It is not CodeQL, Dependabot, GitHub Dependency Review, or a CVE scanner. See
-  [docs/SECURITY.md](docs/SECURITY.md) for the dependency-scanning boundary.
-- It does not perform a complete CVE/GHSA scan of direct or transitive
-  dependencies.
-- It may comment on dependency risk when a PR changes dependency manifests or
-  lockfiles, but deterministic dependency vulnerability scanning belongs in CI.
-- It does not execute contributor code on the VPS.
-- It does not give the model a shell, repository write tool, browser, delegation,
-  or arbitrary GitHub write access.
+- Gate merges. Reviews stay advisory unless your organization makes a separate
+  merge-policy decision.
+- Replace CodeQL, Dependabot, GitHub Dependency Review, or CVE scanning. Those
+  stay independent CI controls; [docs/SECURITY.md](docs/SECURITY.md) owns the
+  dependency-scanning boundary.
+- Execute contributor code on the host.
+- Give the model a shell, repository write tool, browser, delegation, or
+  arbitrary GitHub write access.
 
-## Review Flow
+## Review flow
 
 ![Four phases of a review: request and authorize, read and review, verify and publish, then learn on re-review.](website/static/img/review-lifecycle.png)
 
-The model proposes and challenges findings. Plugin code owns the durable state,
-publication, feedback parsing, snapshot checks, and GitHub writes.
+The model proposes and challenges findings. Plugin code owns the durable
+state, publication, feedback parsing, snapshot checks, and GitHub writes.
 
-Private verification and learning remain outside this live path. An operator can
-run the coach against PostgreSQL and use a separate, non-production Hermes profile
-to turn a scrubbed proposal into a staged `/learn` draft. The live reviewer
-profile keeps file and skill tools disabled. Approved lessons move through the
+Private verification and learning stay outside this live path. An operator can
+run the coach against PostgreSQL and turn a scrubbed proposal into a staged
+`/learn` draft in a separate, non-production Hermes profile; the live reviewer
+profile keeps file and skill tools disabled. Approved lessons land through the
 canonical repository and focused replay validation. Neither private path can
 gate pull requests.
 
-## Engine And Profile
+## Engine and profile
 
 | Area | Owner | Notes |
 | --- | --- | --- |
@@ -95,24 +102,20 @@ gate pull requests.
 
 The shipped `sundsvall-standard` bundle is the default deployment profile, not
 the product identity. Select another trusted bundle with
-`REVIEW_AGENT_PROFILE=<profile-key>`. To create one, copy the profile directory,
-edit `SOUL.md` for identity, voice, and explanatory language, edit
-`workspace/AGENTS.md` for stable review rules and presentation, and list only
-reviewed skill directories in `profile.json`. The installer rejects unknown
-profiles and any manifest keys beyond its schema version and reviewed skills.
+`REVIEW_AGENT_PROFILE=<profile-key>`. To create one:
 
-Deterministic authorization, tool availability, snapshot checks, persistence,
-publication markers, delivery routes, model/provider selection, and lifecycle
-rules are engine configuration and cannot be changed by a profile. The visible
-review protocol also remains deterministic; localizing its fixed headings and
-markers requires an engine change rather than a free-form profile template.
+1. Copy the profile directory.
+2. Edit `SOUL.md` for identity, voice, and explanatory language.
+3. Edit `workspace/AGENTS.md` for stable review rules and presentation.
+4. List only reviewed skill directories in `profile.json`.
 
-The runtime stores application state in one PostgreSQL database per environment.
-The deployment runs serial workers with exact-run continuation and
-lease-generation fencing. PostgreSQL prevents two workers from leasing the same
-repository while priority aging keeps old ready jobs moving.
+The installer rejects unknown profiles and any manifest keys beyond its schema
+version and reviewed skills. Authorization, tool availability, snapshot checks,
+persistence, publication markers, delivery routes, model selection, and
+lifecycle rules are engine configuration; a profile cannot change them, and the
+visible review protocol's fixed headings and markers stay deterministic.
 
-## Developer Workflow
+## Developer workflow
 
 Request a review with a new top-level PR comment:
 
@@ -121,20 +124,19 @@ Request a review with a new top-level PR comment:
 ```
 
 After fixing findings, push a commit and request another review. A changed PR
-snapshot creates a new review round. The previous round is kept as historical
-context after the new one posts successfully.
+snapshot starts a new round; the prior round stays as historical context.
 
-When the summary reports optional suggestions, open **Files changed** to inspect
-the patches in context. Apply one directly or add selected independent patches to
-GitHub's suggestion batch. Use the coding-agent brief for coordinated work, run
-CI after either path, and request a fresh `/review`. Applying a suggestion alone
-does not resolve the finding.
+When the summary reports optional suggestions, open **Files changed** and
+inspect each patch in context. Apply one directly, or batch selected
+independent patches through GitHub's suggestion UI. Use the coding-agent brief
+for coordinated work. Run CI after either path and request a fresh `/review`;
+applying a suggestion alone does not resolve the finding.
 
 Give feedback with a new top-level PR comment:
 
 ```text
 /review false-positive F2 because <what code, guard, or invariant disproves it>
-/review feedback scope F2 because <why this finding is in the diff but outside the intended PR scope>
+/review feedback scope F2 because <why this finding is outside the intended PR scope>
 /review feedback missed because <what concrete issue was missed and where>
 ```
 
@@ -143,9 +145,14 @@ are review-quality signals; they do not suppress findings automatically.
 
 ## Operations
 
-Use [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for credentials and deployment.
-Use [docs/OPERATIONS.md](docs/OPERATIONS.md) for runtime limits, recovery,
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) covers credentials and deployment.
+[docs/OPERATIONS.md](docs/OPERATIONS.md) covers runtime limits, recovery,
 backups, updates, and private coach exports.
+
+The runtime keeps application state in one PostgreSQL database per
+environment. Review workers and publishers can be replicated; PostgreSQL
+prevents two workers from leasing the same repository, fences stale leases,
+and ages the priority of older ready jobs so they keep moving.
 
 Common status commands in the `hermes-review` container:
 
@@ -159,8 +166,8 @@ review-agent-memory verification-export --run-id <id> \
 
 ## Security
 
-Use [docs/SECURITY.md](docs/SECURITY.md) for the trust model, prompt-injection
-posture, token boundaries, dependency-scanning scope, and data-handling notes.
+[docs/SECURITY.md](docs/SECURITY.md) covers the trust model, prompt-injection
+posture, token boundaries, dependency-scanning scope, and data handling.
 
 The short version: the reviewer is useful because it has narrow tools and
 durable audit state. Keep deterministic scanners, tests, type checks, migration
@@ -174,9 +181,9 @@ Run the bundle check before shipping changes:
 ./scripts/check_bundle.sh
 ```
 
-GitHub Actions runs the same bundle for pull requests and changes to `main`, then
+GitHub Actions runs the same bundle for pull requests and pushes to `main`,
 builds the container, checks its worker entrypoint, and verifies the pinned
 Hermes session/context adapter contracts used by durable execution. The bundle
-validates Python imports, strict type checks, unit tests, replay fixtures, and YAML. It
-cannot live-test your deployed routes, GitHub token approval, ChatGPT OAuth
-state, or repository rules.
+validates Python imports, strict type checks, unit tests, replay fixtures, and
+YAML. It cannot live-test your deployed routes, GitHub token approval, ChatGPT
+OAuth state, or repository rules.

@@ -2,11 +2,12 @@
 sidebar_label: Security model
 slug: /security
 title: Security model
+description: Trust boundaries, tool surface, prompt-injection posture, token scopes, and data handling.
 status: current
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
-# Security Model
+# Security model
 
 > **Current** — This trust model describes the live general reviewer. Planned
 > analyzers and deferred security integrations do not change these boundaries.
@@ -15,7 +16,7 @@ This reviewer is an advisory code-review agent with narrow tools. It is useful
 because it combines LLM reasoning with deterministic boundaries, not because the
 model is trusted.
 
-## Trust Boundaries
+## Trust boundaries
 
 - GitHub Actions accepts only comments that start with `/review` or `@review`.
 - The workflow requires trusted GitHub association: `OWNER`, `MEMBER`, or
@@ -30,7 +31,7 @@ model is trusted.
 - Deterministic plugin code owns memory writes, publication, feedback parsing,
   and GitHub mutations.
 
-## Tool Surface
+## Tool surface
 
 The live reviewer does not receive:
 
@@ -50,7 +51,7 @@ stored parts with its dedicated token, records each GitHub ID, and completes the
 run. Suggestions are grouped in one non-blocking GitHub `COMMENT` review; the
 model never receives a GitHub mutation tool or write token.
 
-## Prompt-Injection Handling
+## Prompt-injection handling
 
 PR code, comments, commit messages, docs, and feedback are untrusted data. The
 review profile tells the model to treat prompt-injection-looking text as evidence
@@ -90,7 +91,7 @@ Claude output is advisory. It must not suppress findings, rewrite prompts,
 change feedback commands, publish comments, or become a merge gate without a
 separate human-reviewed implementation and replay evidence.
 
-## GitHub Token Boundaries
+## GitHub token boundaries
 
 Use separate repository-scoped tokens. [Operations](OPERATIONS.md) owns the
 exact permission matrix.
@@ -109,7 +110,7 @@ endpoint-specific failure in `review-agent-memory publications --json`. Most
 runtime 403s are missing org approval or missing Issues/Pull requests permission
 on a fine-grained token.
 
-## Dependency Vulnerability Scanning
+## Dependency vulnerability scanning
 
 The reviewer does not currently perform full dependency vulnerability scanning.
 
@@ -130,7 +131,7 @@ The best integration is to let deterministic scanners produce their own results
 and, later, optionally let the reviewer summarize or prioritize those results.
 Do not make the model the source of truth for CVE/GHSA status.
 
-## Human-Governed Suppressions
+## Human-governed suppressions
 
 Only allowlisted human feedback or an operator command can suppress a finding.
 The model can record observations, but it cannot mark itself correct or dismiss
@@ -141,7 +142,7 @@ changes, the finding is re-evaluated. ADRs are context, not immunity: an accepte
 ADR can explain an architectural decision, but the reviewer should still check
 the invariants the ADR requires.
 
-## Data Handling
+## Data handling
 
 The PostgreSQL database stores findings, review runs, publication and suggestion
 metadata, human decisions, and review-quality feedback. It can contain sensitive
@@ -155,7 +156,7 @@ reviewer's original claim and disproof checks alongside the human reason so the
 mistake can be evaluated in context. The public webhook reviewer does not read
 those exports.
 
-## Public Documentation Boundary
+## Public documentation boundary
 
 The GitHub Pages site is static public documentation. It receives no reviewer
 credentials, webhook payloads, database data, unpublished findings, private source
@@ -163,7 +164,7 @@ excerpts, feedback reasons, model sessions, or production access details. Its
 Docusaurus configuration publishes an explicit Markdown allowlist; goal boards,
 runtime profile files, and private learning artifacts are excluded.
 
-## Non-Goals
+## Non-goals
 
 This deployment is not a replacement for:
 

@@ -1,0 +1,288 @@
+version: 2
+
+goal:
+  title: "GitHub App pilot"
+  slug: "github-app-pilot"
+  kind: specific
+  tranche: "Implement and verify the durable installation, repository activation, webhook delivery, and repository-scoped token foundation for a CCimen/review-agent pilot."
+  status: active
+
+rules:
+  pm_owns_state: true
+  one_active_task: true
+  max_write_workers: 1
+  no_implementation_without_worker_or_pm_task: true
+  no_completion_without_judge_or_pm_audit: true
+  planning_is_not_completion: true
+  queued_required_worker_blocks_completion: true
+
+agents:
+  scout: installed
+  worker: installed
+  judge: installed
+
+continuity:
+  rotate_threads: false
+  rotation_authorized_by: null
+  rotate_after_completed_write_tasks: 2
+  rotate_after_hours: 6
+  rotate_when_slow: true
+  current_thread_id: null
+  previous_thread_id: null
+  rotation_count: 0
+  completed_write_tasks_in_thread: 1
+  handoff_note: notes/handoff.md
+  last_handoff_at: null
+  last_verified_revision: "0ad65321e59461425582445142fc7531723fc8c5"
+
+active_task: T009
+
+tasks:
+  - id: T001
+    type: scout
+    assignee: Scout
+    status: done
+    reasoning_hint: high
+    objective: "Map the current GitHub admission, source-read, publication, repository-registry, job, configuration, deployment, and documentation owners against the supplied GitHub App proposal and official GitHub contracts."
+    inputs:
+      - "User-supplied organization-onboarding review and starter ZIP"
+      - "bootstrap/plugins/review_agent_tools"
+      - "bootstrap/plugins/review_agent_tools/postgres_migrations"
+      - "tools"
+      - "compose.yaml"
+      - "docs"
+      - "Official GitHub App and webhook documentation"
+    constraints:
+      - "Read-only."
+      - "Treat supplied files as design input, not repository authority."
+      - "Do not touch Sundsvallskommun resources."
+      - "Identify reuse and deletion opportunities before new modules."
+    expected_output:
+      - "Canonical owner map"
+      - "Verified provider constraints"
+      - "Smallest complete foundation slice"
+      - "Deferred cutover work"
+    receipt:
+      result: done
+      note: notes/T001-owner-map.md
+      summary: "Mapped the existing PAT/HMAC, stable repository identity, PostgreSQL admission/job, Hermes source-read, and publication owners; verified the selected-repository, one-hour token, permission-reduction, webhook deadline, and redelivery contracts in official GitHub documentation."
+      evidence:
+        - "bootstrap/plugins/review_agent_tools/admission.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/registry.py"
+        - "bootstrap/plugins/review_agent_tools/source_control.py"
+        - "bootstrap/plugins/review_agent_tools/github/publication.py"
+        - "bootstrap/plugins/review_agent_tools/tools.py"
+        - "compose.yaml"
+        - "Official GitHub App authentication, installation, and webhook documentation"
+      spawned_tasks:
+        - T002
+  - id: T002
+    type: judge
+    assignee: Judge
+    status: done
+    reasoning_hint: high
+    objective: "Choose the smallest complete GitHub App foundation slice and freeze its canonical owners, allowed files, acceptance tests, non-goals, and rollback."
+    inputs:
+      - "T001 receipt"
+      - "docs/goals/github-app-pilot/goal.md"
+    constraints:
+      - "Do not implement."
+      - "Reject a private key in Hermes and reject a generic credential framework."
+      - "Keep the live PAT route unchanged in this foundation slice."
+    expected_output:
+      - "Decision"
+      - "Exact Worker objective"
+      - "allowed_files"
+      - "verify"
+      - "stop_if"
+      - "Deferred cutover tasks"
+    receipt:
+      result: done
+      decision: "Deepen the PostgreSQL repository registry with one installation and activation lifecycle first. Store queryable lifecycle facts in relational columns, keep repository identity in registry.py, and defer token signing and webhook delivery to later commits."
+      next_allowed_task: T003
+      acceptance:
+        - "A selected repository becomes available but remains review-disabled."
+        - "Enablement requires available installation access and an explicit profile, actor, and reason."
+        - "Repository removal or installation suspension disables admission state."
+        - "A repository rename retains activation by provider repository ID."
+        - "The migration is checksum-locked, atomic, previous-image tolerant, and backup/restore safe."
+      non_goals:
+        - "No GitHub network call, JWT, private key, token broker, or live App registration."
+        - "No direct webhook path and no PAT/Actions deletion."
+        - "No generic provider framework or policy engine."
+      rollback: "Revert the code commit before any live installation state exists; the previous image already tolerates a database-ahead migration, and the new tables are additive."
+      deferred_tasks:
+        - T004
+        - T005
+        - T006
+  - id: T003
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Add the additive PostgreSQL GitHub App installation and repository activation lifecycle, with behavior-first integration tests and no runtime cutover."
+    allowed_files:
+      - "bootstrap/plugins/review_agent_tools/postgres_migrations/006_github_app_installations.sql"
+      - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "tests/test_postgres_github_app.py"
+      - "tests/test_postgres_migrations.py"
+      - "tests/test_postgres_runtime.py"
+      - "tests/test_postgres_schema.py"
+      - "scripts/check_postgres_schema.sh"
+    verify:
+      - "PYTHONDONTWRITEBYTECODE=1 REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> python3 -m unittest -v tests.test_postgres_github_app"
+      - "./scripts/check_postgres_schema.sh"
+      - "PYTHONDONTWRITEBYTECODE=1 python3 -m pyright"
+    stop_if:
+      - "The implementation needs files outside allowed_files."
+      - "The provider or persistence contract is ambiguous."
+      - "The migration cannot roll back or pass the previous-image compatibility check."
+      - "Verification fails twice for the same unexplained reason."
+    receipt:
+      result: done
+      commit: "0ad65321e59461425582445142fc7531723fc8c5"
+      summary: "Added the relational GitHub App installation and repository-access lifecycle. Selected repositories remain disabled until explicit enablement; suspension, removal, and deletion fence access atomically without resurrecting removed repositories. Installation and repository transitions retain idempotent audit history."
+      evidence:
+        - "PostgreSQL contract: 161 tests plus migration, readiness, backup, and restore passed"
+        - "Pyright: 0 errors"
+        - "Claude Opus high commit gate: green, score 8"
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools/postgres_migrations/006_github_app_installations.sql"
+        - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+        - "tests/test_postgres_github_app.py"
+        - "tests/test_postgres_migrations.py"
+        - "tests/test_postgres_runtime.py"
+        - "tests/test_postgres_schema.py"
+        - "scripts/check_postgres_schema.sh"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      rollback: "Revert commit 0ad65321 before live installation state exists. The previous image tolerates the additive database-ahead migration."
+  - id: T009
+    type: scout
+    assignee: Scout
+    status: active
+    reasoning_hint: high
+    objective: "Freeze the existing webhook, admission, lease, normalization, and retention owners for T004 and propose the smallest durable direct-App intake slice."
+    inputs:
+      - "T001 owner map"
+      - "T003 persistence receipt"
+      - "bootstrap/plugins/review_agent_tools/admission.py"
+      - "bootstrap/plugins/review_agent_tools/postgres"
+      - "tools/review_agent_admission.py"
+      - "Official GitHub webhook delivery contracts"
+    constraints:
+      - "Read-only."
+      - "Reuse the existing run/job admission transaction."
+      - "Do not add a second review execution path, message broker, or generic event framework."
+      - "Do not require live GitHub credentials for local contract tests."
+    expected_output:
+      - "Canonical owner map for webhook receipt, normalized command, lease, and admission"
+      - "Exact T004 allowed_files, tests, failure modes, and rollback"
+      - "Explicit payload retention and redelivery rules"
+    receipt: null
+  - id: T004
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: high
+    objective: "Add durable webhook-delivery intake, leasing, idempotent processing state, and bounded normalized payload persistence after T003 proves the lifecycle owner."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "T003 or its audit is incomplete."
+      - "A live credential is required for local behavior tests."
+      - "The change would leave two canonical admission paths without an explicit pilot deletion gate."
+    receipt: null
+  - id: T005
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: high
+    objective: "Add repository-scoped GitHub App JWT and installation-token minting behind a narrow internal token interface that does not expose the private key to Hermes."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "Direct App admission has not passed local and live pilot verification."
+      - "Deletion would remove the only working route before the owner approves the pilot."
+      - "The change requires Sundsvallskommun access."
+    receipt: null
+  - id: T006
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: default
+    objective: "Implement direct App event processing, requester authorization, repository lifecycle synchronization, and admission into the existing run/job transaction."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "A documented command or capability is not implemented."
+      - "Generated LLM documentation would include non-public goal material."
+      - "The slice expands into a custom administration UI."
+    receipt: null
+  - id: T007
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: high
+    objective: "Cut source reads, publication, feedback, deployment, and onboarding to GitHub App tokens; delete the PAT/Actions compatibility path after live pilot acceptance."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "Direct App admission has not passed local and live pilot verification."
+      - "Deletion would remove the only working route before the owner approves the pilot."
+      - "The change requires Sundsvallskommun access."
+    receipt: null
+  - id: T008
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: default
+    objective: "Add organization onboarding, LLM setup artifacts, repository administration/reporting, and accurate public documentation after the App route ships."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "A documented command or capability is not implemented."
+      - "Generated LLM documentation would include non-public goal material."
+      - "The slice expands into a custom administration UI."
+    receipt: null
+  - id: T999
+    type: judge
+    assignee: Judge
+    status: done
+    reasoning_hint: high
+    objective: "Audit whether the current GitHub App tranche is complete, locally verified, accurately documented, and ready for the next pilot gate."
+    inputs:
+      - "All done task receipts"
+      - "Last verification"
+      - "Exact candidate diff"
+      - "docs/goals/github-app-pilot/goal.md"
+    constraints:
+      - "Do not implement."
+      - "Reject completion if a required Worker task for the current tranche remains queued or active."
+      - "Do not mistake local mocks for a live GitHub installation test."
+    expected_output:
+      - "complete | not_complete"
+      - "Missing evidence"
+      - "Exact next task or manual gate"
+    receipt:
+      result: complete
+      decision: complete
+      summary: "The persistence tranche is complete and safe for the direct-webhook design gate. The runtime remains on the existing trigger, so public documentation is still accurate and no live-pilot claim is made."
+      evidence:
+        - "T003 commit 0ad65321e59461425582445142fc7531723fc8c5"
+        - "PostgreSQL contract and recovery checks passed"
+        - "Typed concurrency failure modes proved with real lock-wait tests"
+        - "Claude Opus high commit gate green at score 8"
+      missing_evidence:
+        - "No live GitHub App installation, webhook delivery, or token exchange has been tested yet"
+      next_task: T009
+
+checks:
+  dirty_fingerprint: "local worktree contains preserved user-owned documentation changes; exact commits must be staged from the remote base"
+  last_verification:
+    result: pass
+    task: T003
+    commands:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"

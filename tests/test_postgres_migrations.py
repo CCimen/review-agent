@@ -34,7 +34,9 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
 
     def test_applies_once_and_records_the_exact_source_checksum(self) -> None:
         with psycopg.connect(DSN) as connection:
-            self.assertEqual(runner.apply_migrations(connection), (1, 2, 3, 4, 5))
+            self.assertEqual(
+                runner.apply_migrations(connection), (1, 2, 3, 4, 5, 6)
+            )
             self.assertEqual(runner.apply_migrations(connection), ())
             rows = connection.execute(
                 """
@@ -45,7 +47,11 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             ).fetchall()
             tables = connection.execute(
                 "SELECT to_regclass('review_agent.repositories')::text, "
-                "to_regclass('review_agent.review_jobs')::text"
+                "to_regclass('review_agent.review_jobs')::text, "
+                "to_regclass('review_agent.github_app_installations')::text, "
+                "to_regclass('review_agent.github_app_installation_events')::text, "
+                "to_regclass('review_agent.github_app_repository_access')::text, "
+                "to_regclass('review_agent.github_app_repository_access_events')::text"
             ).fetchone()
 
         self.assertEqual(
@@ -63,6 +69,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     (3, "003_review_job_lifecycle.sql"),
                     (4, "004_publication_delivery_queue.sql"),
                     (5, "005_failure_status_delivery.sql"),
+                    (6, "006_github_app_installations.sql"),
                 )
             ],
         )
@@ -71,6 +78,10 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             (
                 "review_agent.repositories",
                 "review_agent.review_jobs",
+                "review_agent.github_app_installations",
+                "review_agent.github_app_installation_events",
+                "review_agent.github_app_repository_access",
+                "review_agent.github_app_repository_access_events",
             ),
         )
 
@@ -96,7 +107,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (5,))
+        self.assertEqual(count, (6,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

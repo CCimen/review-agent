@@ -381,6 +381,40 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "repositories_provider_full_name_ci_idx",
         )
 
+    def test_github_app_access_cannot_enable_an_unavailable_repository(self) -> None:
+        repository_id = self.repository(102, "team/app-access")
+        installation_id = int(
+            psql(
+                """
+                INSERT INTO review_agent.github_app_installations (
+                    provider_installation_id, account_id, account_login,
+                    account_type, repository_selection, status,
+                    contents_permission, issues_permission,
+                    pull_requests_permission, created_at, updated_at
+                ) VALUES (
+                    7001, 8001, 'team', 'organization', 'selected', 'active',
+                    'read', 'write', 'write', CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
+                )
+                RETURNING id;
+                """
+            ).stdout.strip()
+        )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.github_app_repository_access (
+                repository_id, installation_id, access_state, enabled,
+                trigger_mode, profile_key, enabled_at, updated_by,
+                update_reason, updated_at
+            ) VALUES (
+                %d, %d, 'removed', true, 'manual', 'sundsvall-standard',
+                CURRENT_TIMESTAMP, 'test', 'must fail closed', CURRENT_TIMESTAMP
+            );
+            """
+            % (repository_id, installation_id),
+            "github_app_repository_access_enabled_ck",
+        )
+
     def test_pull_request_numbers_and_active_runs_are_repository_scoped(self) -> None:
         first_repository = self.repository(201, "team/first")
         second_repository = self.repository(202, "team/second")

@@ -155,7 +155,11 @@ class DockerfileToolsTests(unittest.TestCase):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn("ARG HERMES_IMAGE=", dockerfile)
-        self.assertIn("ENV REVIEW_AGENT_HERMES_IMAGE=${HERMES_IMAGE}", dockerfile)
+        self.assertRegex(
+            dockerfile,
+            r"FROM \$\{HERMES_IMAGE\}\s+ARG HERMES_IMAGE\s+"
+            r"ENV REVIEW_AGENT_HERMES_IMAGE=\$\{HERMES_IMAGE\}",
+        )
 
     def test_installed_memory_cli_imports_support_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 4
+  completed_write_tasks_in_thread: 5
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "5a319a8634a429a8d73443bc098c922d4052a9a3"
 
-active_task: T199
+active_task: T201
 
 tasks:
   - id: T001
@@ -2671,7 +2671,7 @@ tasks:
   - id: T199
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit whether the verified pre-pilot review-remediation tranche is complete and whether any required correction remains."
     inputs:
@@ -2685,17 +2685,169 @@ tasks:
       - "Evidence mapped to confirmed review findings"
       - "Direct blockers only"
       - "Next bounded task when not complete"
+    receipt:
+      result: done
+      decision: not_complete
+      summary: "H2-H5 are closed in current source, but H1 remains a verified pre-pilot blocker because queued subjects identify only a profile key and workers do not verify the installed reviewer before Hermes execution."
+      audited_revision: "8bd4ac668476e552a0f9d29366b64430fa1d4df6"
+      evidence:
+        - "H1 remains open: admission and direct review start persist schema-v1 resolved_config containing only profile, while the worker carries no effective contract."
+        - "The installer receipt records only profile and skill names; managed config merging and SOUL/AGENTS preservation can retain behavior not represented by the subject."
+        - "H2 is closed by orphan-only stale-run recovery with nonterminal job/publication exclusion and SKIP LOCKED serialization."
+        - "H3 is closed by SQL-owned path and active-suppression filters before bounded reads plus exact set-wise repeat suppression."
+        - "H4 is closed by exact live-lease pre-write proof, body repair, and exact multiset suggestion recovery."
+        - "H5 is closed by the durable leased failure-delivery lifecycle served by the existing publisher."
+      spawned_tasks:
+        - T200
+  - id: T200
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Freeze and enforce one immutable effective-review contract from admission through worker execution."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/review_contract.py
+      - bootstrap/config.yaml
+      - bootstrap/install.py
+      - bootstrap/plugins/review_agent_tools/admission.py
+      - bootstrap/plugins/review_agent_tools/tools.py
+      - bootstrap/plugins/review_agent_tools/domain/review.py
+      - bootstrap/plugins/review_agent_tools/postgres/review_runs.py
+      - bootstrap/plugins/review_agent_tools/review_run_application.py
+      - bootstrap/plugins/review_agent_tools/worker.py
+      - bootstrap/plugins/review_agent_tools/failure_codes.py
+      - tools/review_agent_worker.py
+      - Dockerfile
+      - requirements.txt
+      - compose.yaml
+      - examples/openshift/review-agent-template.yaml
+      - review-learning/README.md
+      - tests/test_profile_bundle.py
+      - tests/test_admission.py
+      - tests/test_run_tools.py
+      - tests/test_worker.py
+      - tests/test_postgres_jobs.py
+      - tests/test_postgres_review_lifecycle.py
+      - tests/test_dockerfile_tools.py
+      - tests/test_docs_contract.py
+      - tests/test_failure_codes.py
+      - tests/test_tool_contract.py
+      - docs/DEPLOYMENT.md
+      - docs/OPERATIONS.md
+      - docs/goals/build-review-platform/state.yaml
+    verify:
+      - "focused profile, admission, direct-start, worker, lifecycle, and job tests"
+      - "uv run --with-requirements requirements.txt ./scripts/check_postgres_schema.sh"
+      - "uv run --with-requirements requirements.txt pyright -p ."
+      - "uv run --with-requirements requirements.txt ./scripts/check_bundle.sh"
+      - "python3 scripts/check_docs.py"
+      - "Claude Opus/high stable commit gate with score at least 8"
+    stop_if:
+      - "Exact installed behavior cannot be derived consistently by installer, admission, direct start, and worker."
+      - "Worker mismatch cannot terminalize through the existing fenced job/run lifecycle."
+      - "The solution requires profile-version tables, historical-profile execution, a new queue, compatibility paths, or files outside the listed H1 owners."
+      - "The slice expands into performance, packaging, release, optional integrations, or broad module splitting."
+    receipt:
+      result: done
+      summary: "Persisted and enforced one exact schema-v2 reviewer-behavior contract across admission, direct continuation, installation, and worker execution without adding a profile registry or compatibility path."
+      commit: "25272f6d6813149956aa596e0f87d78c63b1afd3"
+      changed_files:
+        - Dockerfile
+        - requirements.txt
+        - bootstrap/config.yaml
+        - bootstrap/install.py
+        - bootstrap/plugins/review_agent_tools/review_contract.py
+        - bootstrap/plugins/review_agent_tools/admission.py
+        - bootstrap/plugins/review_agent_tools/failure_codes.py
+        - bootstrap/plugins/review_agent_tools/postgres/review_runs.py
+        - bootstrap/plugins/review_agent_tools/review_run_application.py
+        - bootstrap/plugins/review_agent_tools/tools.py
+        - bootstrap/plugins/review_agent_tools/worker.py
+        - tools/review_agent_worker.py
+        - compose.yaml
+        - examples/openshift/review-agent-template.yaml
+        - docs/OPERATIONS.md
+        - review-learning/README.md
+        - tests/test_admission.py
+        - tests/test_dockerfile_tools.py
+        - tests/test_docs_contract.py
+        - tests/test_failure_codes.py
+        - tests/test_postgres_jobs.py
+        - tests/test_profile_bundle.py
+        - tests/test_tool_contract.py
+        - tests/test_worker.py
+      commands:
+        - cmd: "focused profile, admission, worker, tool, deployment, and docs tests"
+          status: pass
+          summary: "69 tests passed after declarative plugin activation replaced the mutable Hermes CLI step."
+        - cmd: "uv run --no-project --isolated --with-requirements requirements.txt bash ./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "149 PostgreSQL tests plus schema, readiness, backup, and restore contracts passed."
+        - cmd: "uv run --no-project --isolated --with-requirements requirements.txt bash ./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright reported zero errors and 374 tests passed with 135 expected database-gated skips."
+        - cmd: "python3 scripts/check_docs.py && docker compose --env-file .env.example config --quiet"
+          status: pass
+          summary: "Ten public documents and the rendered Compose deployment contract passed."
+        - cmd: "Claude Opus/high stable commit gate"
+          status: pass
+          summary: "Session review-agent-t200-effective-contract reached green at score 8 on iteration 3."
+      evidence:
+        - "Admission derives identity from immutable image sources without access to the private Hermes volume; worker replicas verify the read-only installed profile before Hermes."
+        - "Genuine queued-contract drift fails the exact fenced job and run as review_contract_changed; unreadable local state stops the replica and leaves the lease recoverable."
+        - "Managed config, profile-listed skills, plugin engine, digest-pinned Hermes image, provider/model, reasoning effort, and result budget are covered by one exact contract."
+        - "Plugin activation is declarative managed config; a real scratch Hermes v0.19.0 discovery reported review-agent-tools enabled and the installed contract verified."
+      spawned_tasks:
+        - T201
+  - id: T201
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Measure aggregate CPU, memory, polling, and PostgreSQL pressure under representative multi-worker load, then implement only reproducible high-value efficiency corrections without changing review behavior."
+    constraints:
+      - "Inventory the exact host and deployment Python runtimes, GIL/JIT/GC state, dependencies, process topology, pool sizing, and worker settings before recommending runtime features."
+      - "Freeze correctness first; benchmark and profile a representative idle, claim, and concurrent-worker workload before editing production code."
+      - "Report absolute before/after CPU and memory values with variance; do not invent latency or throughput targets."
+      - "Prefer deleting repeated work, reducing round trips and connection pressure, and bounding concurrency over caches, new queue frameworks, or runtime experiments."
+      - "Keep the immutable-contract commit unchanged and make every accepted optimization independently reversible."
+      - "Do not add Celery, ARQ, Redis, free-threading, JIT, subinterpreters, or a native dependency without measured evidence that the existing PostgreSQL worker design is insufficient."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/worker.py
+      - bootstrap/plugins/review_agent_tools/postgres/**
+      - bootstrap/plugins/review_agent_tools/settings.py
+      - tools/review_agent_worker.py
+      - compose.yaml
+      - examples/openshift/review-agent-template.yaml
+      - tests/test_worker.py
+      - tests/test_postgres_jobs.py
+      - tests/test_postgres_runtime.py
+      - tests/test_settings.py
+      - benchmarks/**
+      - docs/OPERATIONS.md
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Record the exact runtime inventory and representative workload."
+      - "Run behavior tests before and after each accepted optimization."
+      - "Measure repeatable wall time, process CPU, peak RSS or allocations, and PostgreSQL connection/query pressure before and after."
+      - "Run focused worker/PostgreSQL tests, strict Pyright, Ruff, and the full bundle."
+      - "Run one Claude Opus/high stable commit gate with score at least 8 after the candidate is frozen."
+    stop_if:
+      - "No material bottleneck reproduces outside measurement noise."
+      - "An apparent gain changes leases, fairness, retry, recovery, durability, ordering, or failure semantics."
+      - "The optimization requires unbounded queues, caches, fan-out, connections, memory, or a new infrastructure dependency."
+      - "The representative benchmark cannot distinguish application work from PostgreSQL, Hermes/model, or host noise."
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-5a319a86"
+  dirty_fingerprint: "goal-control-files-only-after-25272f6d"
   last_verification:
     result: pass
     task: T122
     commands:
       - "149-test PostgreSQL schema, readiness, backup, and restore contract"
       - "Strict Pyright with zero diagnostics"
-      - "369-test bundle with 135 expected database skips"
+      - "374-test bundle with 135 expected database skips"
       - "Ten-document public documentation contract"
-      - "Claude Opus/high session review-agent-h5-failure-delivery green at score 8"
-      - "Source revision 5a319a8634a429a8d73443bc098c922d4052a9a3"
+      - "Claude Opus/high session review-agent-t200-effective-contract green at score 8"
+      - "Source revision 25272f6d6813149956aa596e0f87d78c63b1afd3"

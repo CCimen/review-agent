@@ -30,6 +30,7 @@ def _load_package() -> None:
 _load_package()
 
 from review_agent_tools import admission  # noqa: E402
+from review_agent_tools.github_webhook import verify_signature  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
@@ -40,6 +41,9 @@ from review_agent_tools.settings import SettingsError  # noqa: E402
 from review_agent_tools.source_control import GitHubReadClient, GitHubReadError  # noqa: E402
 
 
+GITHUB_WEBHOOK_PROVIDER_MAX_BODY_BYTES = 25 * 1024 * 1024
+
+
 def _positive_integer(name: str, default: int) -> int:
     raw = os.environ.get(name, str(default)).strip()
     try:
@@ -48,6 +52,13 @@ def _positive_integer(name: str, default: int) -> int:
         raise SettingsError(f"{name} must be an integer") from exc
     if value < 1:
         raise SettingsError(f"{name} must be positive")
+    return value
+
+
+def _bounded_positive_integer(name: str, default: int, maximum: int) -> int:
+    value = _positive_integer(name, default)
+    if value > maximum:
+        raise SettingsError(f"{name} must not exceed {maximum}")
     return value
 
 
@@ -85,7 +96,13 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
             server.release_request_slot()
 
     def _admit(self, server: "AdmissionServer") -> None:
-        if self.path != admission.DEFAULT_PATH:
+        if self.path not in {admission.DEFAULT_PATH, admission.GITHUB_APP_PATH}:
+            self._write(404, admission.response_body("not_found"))
+            return
+        if (
+            self.path == admission.GITHUB_APP_PATH
+            and not server.config.github_app_secret
+        ):
             self._write(404, admission.response_body("not_found"))
             return
         try:
@@ -96,11 +113,19 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
         if length < 0:
             self._write(411, admission.response_body("missing_length"))
             return
-        if length > server.max_body_bytes:
+        body_limit = (
+            server.github_app_max_body_bytes
+            if self.path == admission.GITHUB_APP_PATH
+            else server.max_body_bytes
+        )
+        if length > body_limit:
             self._write(413, admission.response_body("payload_too_large"))
             return
         body = self.rfile.read(length)
-        if not admission.verify_signature(
+        if self.path == admission.GITHUB_APP_PATH:
+            self._receive_github_app(server, body)
+            return
+        if not verify_signature(
             body,
             self.headers.get("X-Hub-Signature-256", ""),
             server.config.secret,
@@ -142,6 +167,37 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
             print(f"review admission internal failure: {exc}", file=sys.stderr)
             self._write(500, admission.response_body("internal_error"))
 
+    def _receive_github_app(
+        self, server: "AdmissionServer", body: bytes
+    ) -> None:
+        if not verify_signature(
+            body,
+            self.headers.get("X-Hub-Signature-256", ""),
+            server.config.github_app_secret,
+        ):
+            self._write(401, admission.response_body("bad_signature"))
+            return
+        try:
+            response = admission.receive_github_app_delivery(
+                body=body,
+                payload=admission.decode_request(body),
+                delivery_id=self.headers.get("X-GitHub-Delivery", ""),
+                event=self.headers.get("X-GitHub-Event", ""),
+                config=server.config,
+                runtime=server.runtime,
+            )
+            self._write(202, response.to_json())
+        except admission.GitHubAppDeliveryConflict:
+            self._write(409, admission.response_body("delivery_conflict"))
+        except (admission.AdmissionError, SettingsError):
+            self._write(400, admission.response_body("bad_request"))
+        except (PostgreSQLRuntimeError, psycopg.Error) as exc:
+            print(f"GitHub App webhook database failure: {exc}", file=sys.stderr)
+            self._write(503, admission.response_body("database_unavailable"))
+        except Exception as exc:
+            print(f"GitHub App webhook internal failure: {exc}", file=sys.stderr)
+            self._write(500, admission.response_body("internal_error"))
+
     def _server(self) -> "AdmissionServer":
         return cast(AdmissionServer, self.server)
 
@@ -169,6 +225,7 @@ class AdmissionServer(ThreadingHTTPServer):
         github: GitHubReadClient,
         runtime: PostgreSQLRuntime,
         max_body_bytes: int,
+        github_app_max_body_bytes: int,
         max_concurrent_requests: int,
         request_timeout_seconds: int,
     ) -> None:
@@ -177,6 +234,7 @@ class AdmissionServer(ThreadingHTTPServer):
         self.github = github
         self.runtime = runtime
         self.max_body_bytes = max_body_bytes
+        self.github_app_max_body_bytes = github_app_max_body_bytes
         self.request_timeout_seconds = request_timeout_seconds
         self._request_slots = threading.BoundedSemaphore(max_concurrent_requests)
 
@@ -200,6 +258,11 @@ def serve(host: str, port: int) -> None:
         runtime=runtime,
         max_body_bytes=_positive_integer(
             "REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES", 65_536
+        ),
+        github_app_max_body_bytes=_bounded_positive_integer(
+            "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES",
+            1_048_576,
+            GITHUB_WEBHOOK_PROVIDER_MAX_BODY_BYTES,
         ),
         max_concurrent_requests=_positive_integer(
             "REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS", 8

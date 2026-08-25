@@ -12,7 +12,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,7 +67,7 @@ class AdmissionTests(unittest.TestCase):
             },
             "head": {"sha": "a" * 40},
         }
-        self.runtime = Mock()
+        self.runtime = MagicMock()
         self.contract = review_contract.ReviewContract(
             profile="sundsvall-standard",
             hermes_image="hermes@test",
@@ -144,6 +144,48 @@ class AdmissionTests(unittest.TestCase):
             request.resolved_config["review_contract"], self.contract.to_json()
         )
         self.assertEqual(admit.call_args.kwargs["active_job_limit"], 25)
+
+    def test_github_app_receipt_normalizes_before_one_short_transaction(self) -> None:
+        body = b'{"signed":"raw bytes"}'
+        payload = {
+            "action": "created",
+            "installation": {"id": 7001},
+            "repository": {"id": 9001, "full_name": "CCimen/review-agent"},
+            "issue": {"number": 42, "pull_request": {"url": "pr"}},
+            "comment": {
+                "id": 6001,
+                "body": "/review",
+                "author_association": "MEMBER",
+            },
+            "sender": {"id": 5001, "login": "ccimen", "type": "User"},
+        }
+        registration = Mock(
+            spec=admission.webhook_deliveries.RegisteredDelivery
+        )
+        with patch.object(
+            admission.webhook_deliveries,
+            "register_delivery",
+            return_value=registration,
+        ) as register:
+            response = admission.receive_github_app_delivery(
+                body=body,
+                payload=payload,
+                delivery_id="688e2f40-35c1-11ef-9b3a-0242ac120002",
+                event="issue_comment",
+                config=self.config,
+                runtime=self.runtime,
+            )
+
+        definition = register.call_args.kwargs["definition"]
+        self.assertEqual(response.status, "received")
+        self.assertEqual(definition.provider_repository_id, 9001)
+        self.assertEqual(
+            definition.command_category,
+            admission.webhook_deliveries.CommandCategory.REVIEW,
+        )
+        self.assertEqual(definition.payload_sha256, hashlib.sha256(body).hexdigest())
+        self.assertNotIn("body", definition.normalized_payload)
+        self.runtime.transaction.assert_called_once_with()
 
     def test_readiness_fails_when_configured_profile_is_not_packaged(self) -> None:
         self.runtime.database_url = self.config.database_url
@@ -231,13 +273,18 @@ class AdmissionTests(unittest.TestCase):
     ) -> None:
         environment = {
             "REVIEW_AGENT_WEBHOOK_SECRET": "secret",
+            "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET": "app-secret",
             "GITHUB_READ_TOKEN": "read-token",
             "REVIEW_AGENT_ALLOWED_REPOSITORIES": "Example/Repository",
             "REVIEW_AGENT_DATABASE_URL": "postgresql://review:secret@database/review",
             "REVIEW_AGENT_ACTIVE_JOB_LIMIT": "250",
+            "REVIEW_AGENT_WEBHOOK_DELIVERY_MAX_ATTEMPTS": "5",
         }
         configured = admission.load_config(environment)
         self.assertEqual(configured.active_job_limit, 250)
+        self.assertEqual(configured.github_app_secret, "app-secret")
+        self.assertNotEqual(configured.github_app_secret, configured.secret)
+        self.assertEqual(configured.webhook_delivery_max_attempts, 5)
         self.assertEqual(
             configured.allowed_repositories, frozenset({"example/repository"})
         )
@@ -262,13 +309,17 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             active_job_limit=25,
             job_max_attempts=4,
             job_priority=2,
+            github_app_secret="app-webhook-secret",
         )
+        self.github = Mock(spec=GitHubReadClient)
+        self.runtime = MagicMock()
         self.server = admission_entrypoint.AdmissionServer(
             ("127.0.0.1", 0),
             config=config,
-            github=Mock(),
-            runtime=Mock(),
+            github=self.github,
+            runtime=self.runtime,
             max_body_bytes=128,
+            github_app_max_body_bytes=512,
             max_concurrent_requests=2,
             request_timeout_seconds=2,
         )
@@ -305,9 +356,116 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
         try:
             response = urllib.request.urlopen(request, timeout=2)
         except urllib.error.HTTPError as exc:
-            return exc.code, dict(exc.headers.items()), exc.read()
+            with exc:
+                return exc.code, dict(exc.headers.items()), exc.read()
         with response:
             return response.status, dict(response.headers.items()), response.read()
+
+    def _post_app(
+        self,
+        body: bytes = b"{}",
+        *,
+        event: str = "ping",
+        valid_signature: bool = True,
+    ) -> tuple[int, dict[str, str], bytes]:
+        signature = "sha256=invalid"
+        if valid_signature:
+            signature = "sha256=" + hmac.new(
+                self.server.config.github_app_secret.encode("utf-8"),
+                body,
+                hashlib.sha256,
+            ).hexdigest()
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.server.server_port}"
+            f"{admission.GITHUB_APP_PATH}",
+            data=body,
+            method="POST",
+            headers={
+                "X-GitHub-Delivery": "688e2f40-35c1-11ef-9b3a-0242ac120002",
+                "X-GitHub-Event": event,
+                "X-Hub-Signature-256": signature,
+            },
+        )
+        try:
+            response = urllib.request.urlopen(request, timeout=2)
+        except urllib.error.HTTPError as exc:
+            with exc:
+                return exc.code, dict(exc.headers.items()), exc.read()
+        with response:
+            return response.status, dict(response.headers.items()), response.read()
+
+    def test_github_app_route_durably_acknowledges_without_a_github_read(self) -> None:
+        with patch.object(
+            admission_entrypoint.admission,
+            "receive_github_app_delivery",
+            return_value=admission.WebhookReceiptResponse("received"),
+            create=True,
+        ) as receive:
+            status, _, body = self._post_app()
+
+        self.assertEqual((status, json.loads(body)), (202, {"status": "received"}))
+        receive.assert_called_once()
+        self.github.request_json.assert_not_called()
+
+    def test_github_app_route_fails_before_receipt_and_preserves_conflicts(self) -> None:
+        with patch.object(
+            admission_entrypoint.admission,
+            "receive_github_app_delivery",
+            create=True,
+        ) as receive:
+            status, _, body = self._post_app(valid_signature=False)
+        self.assertEqual((status, json.loads(body)), (401, {"status": "bad_signature"}))
+        receive.assert_not_called()
+
+        with patch.object(
+            admission_entrypoint.admission,
+            "receive_github_app_delivery",
+            side_effect=admission.GitHubAppDeliveryConflict("conflict detail"),
+            create=True,
+        ):
+            status, _, body = self._post_app()
+        self.assertEqual(
+            (status, json.loads(body)),
+            (409, {"status": "delivery_conflict"}),
+        )
+
+        with patch.object(
+            admission_entrypoint.admission,
+            "receive_github_app_delivery",
+            side_effect=PostgreSQLUnavailable("database secret"),
+        ):
+            status, _, body = self._post_app()
+        self.assertEqual(
+            (status, json.loads(body)),
+            (503, {"status": "database_unavailable"}),
+        )
+        self.assertNotIn(b"secret", body)
+
+    def test_github_app_route_acknowledges_unsupported_events_without_persistence(
+        self,
+    ) -> None:
+        status, _, body = self._post_app(event="workflow_run")
+
+        self.assertEqual((status, json.loads(body)), (202, {"status": "ignored"}))
+        self.runtime.transaction.assert_not_called()
+
+    def test_github_app_route_rejects_malformed_supported_events(self) -> None:
+        status, _, body = self._post_app(event="issue_comment")
+
+        self.assertEqual((status, json.loads(body)), (400, {"status": "bad_request"}))
+        self.runtime.transaction.assert_not_called()
+
+    def test_github_app_route_has_an_independent_body_limit(self) -> None:
+        body = json.dumps({"padding": "x" * 140}).encode("utf-8")
+        self.assertGreater(len(body), self.server.max_body_bytes)
+        self.assertLess(len(body), self.server.github_app_max_body_bytes)
+
+        status, _, response_body = self._post_app(body, event="workflow_run")
+
+        self.assertEqual(
+            (status, json.loads(response_body)),
+            (202, {"status": "ignored"}),
+        )
 
     def test_signature_and_request_size_fail_before_admission(self) -> None:
         with patch.object(admission_entrypoint.admission, "admit_review") as admit:

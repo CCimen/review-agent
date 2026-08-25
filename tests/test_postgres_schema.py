@@ -415,6 +415,29 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "github_app_repository_access_enabled_ck",
         )
 
+    def test_terminal_webhook_delivery_cannot_retain_normalized_payload(self) -> None:
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.github_webhook_deliveries (
+                delivery_guid, event_name, action, payload_sha256,
+                provider_installation_id, provider_repository_id,
+                repository_full_name, command_category,
+                normalized_schema_version, normalized_payload, status,
+                attempt_count, max_attempts, available_at, lease_generation,
+                completed_by, received_at, processed_at
+            ) VALUES (
+                '203d1e32-5d99-4a3a-8a70-2f72f175c394',
+                'issue_comment', 'created', '%s', 7001, 9001,
+                'CCimen/review-agent', 'review', 1,
+                '{"command":"review"}'::jsonb, 'accepted', 1, 3,
+                CURRENT_TIMESTAMP, 1, 'processor:test', CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            );
+            """
+            % ("a" * 64),
+            "github_webhook_deliveries_lifecycle_ck",
+        )
+
     def test_pull_request_numbers_and_active_runs_are_repository_scoped(self) -> None:
         first_repository = self.repository(201, "team/first")
         second_repository = self.repository(202, "team/second")

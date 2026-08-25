@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from typing import cast
 import urllib.parse
 
-from .github_webhook import verify_signature as _verify_signature
+from .github_webhook import (
+    CommandKind,
+    GitHubWebhookError,
+    UnsupportedGitHubEvent,
+    normalize_event,
+)
 from . import review_contract
 from .domain.review import JsonObject
-from .postgres import jobs, review_runs
+from .postgres import jobs, review_runs, webhook_deliveries
 from .postgres.runtime import PostgreSQLRuntime
 from .review_run_application import (
     PostgresRunRequest,
@@ -23,9 +29,9 @@ from .source_control import GitHubReadClient, GitHubReadError
 
 
 DEFAULT_PATH = "/webhooks/review-agent"
+GITHUB_APP_PATH = "/webhooks/github-app"
 DEFAULT_PORT = 8644
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
-__all__ = ("verify_signature",)
 
 
 class AdmissionError(ValueError):
@@ -34,6 +40,10 @@ class AdmissionError(ValueError):
 
 class UnauthorizedAdmission(AdmissionError):
     """The signed request names a caller outside the trusted boundary."""
+
+
+class GitHubAppDeliveryConflict(AdmissionError):
+    """A GitHub delivery GUID was reused for different immutable input."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +57,8 @@ class AdmissionConfig:
     active_job_limit: int
     job_max_attempts: int
     job_priority: int
+    github_app_secret: str = ""
+    webhook_delivery_max_attempts: int = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +92,14 @@ class AdmissionResponse:
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8")
+
+
+@dataclass(frozen=True, slots=True)
+class WebhookReceiptResponse:
+    status: str
+
+    def to_json(self) -> bytes:
+        return response_body(self.status)
 
 
 def _integer_setting(environment: Mapping[str, str], name: str, default: int) -> int:
@@ -165,6 +185,12 @@ def load_config(environment: Mapping[str, str] | None = None) -> AdmissionConfig
         active_job_limit=_integer_setting(values, "REVIEW_AGENT_ACTIVE_JOB_LIMIT", 100),
         job_max_attempts=_integer_setting(values, "REVIEW_AGENT_JOB_MAX_ATTEMPTS", 3),
         job_priority=_priority_setting(values),
+        github_app_secret=values.get(
+            "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET", ""
+        ).strip(),
+        webhook_delivery_max_attempts=_integer_setting(
+            values, "REVIEW_AGENT_WEBHOOK_DELIVERY_MAX_ATTEMPTS", 3
+        ),
     )
 
 
@@ -173,11 +199,6 @@ def decode_request(body: bytes) -> object:
         return json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AdmissionError("request body must be valid UTF-8 JSON") from exc
-
-
-def verify_signature(body: bytes, signature: str, secret: str) -> bool:
-    """Expose the shared verifier at the admission boundary."""
-    return _verify_signature(body, signature, secret)
 
 
 def parse_request(payload: object) -> AdmissionRequest:
@@ -306,6 +327,73 @@ def admit_review(
         run_id=int(admitted.run.run.id),
         job_id=admitted.job.job.id,
     )
+
+
+def receive_github_app_delivery(
+    *,
+    body: bytes,
+    payload: object,
+    delivery_id: str,
+    event: str,
+    config: AdmissionConfig,
+    runtime: PostgreSQLRuntime,
+) -> WebhookReceiptResponse:
+    """Normalize and durably commit one App delivery without external I/O."""
+    try:
+        normalized = normalize_event(event, payload)
+    except UnsupportedGitHubEvent:
+        return WebhookReceiptResponse("ignored")
+    except GitHubWebhookError as exc:
+        raise AdmissionError("GitHub webhook payload is invalid") from exc
+    if normalized.event == "installation":
+        category = webhook_deliveries.CommandCategory.INSTALLATION
+    elif normalized.event == "installation_repositories":
+        category = webhook_deliveries.CommandCategory.REPOSITORY_ACCESS
+    elif normalized.command_kind is CommandKind.REVIEW:
+        category = webhook_deliveries.CommandCategory.REVIEW
+    elif normalized.command_kind in {
+        CommandKind.FINDING_FEEDBACK,
+        CommandKind.QUALITY_FEEDBACK,
+    }:
+        category = webhook_deliveries.CommandCategory.FEEDBACK
+    else:
+        category = webhook_deliveries.CommandCategory.IGNORED
+
+    try:
+        with runtime.transaction() as connection:
+            # GitHub's delivery deadline is ten seconds. Leave time for pool
+            # checkout, commit, and the HTTP response instead of inheriting the
+            # runtime's broader workload timeout.
+            connection.execute("SET LOCAL statement_timeout = '5s'")
+            registered = webhook_deliveries.register_delivery(
+                connection,
+                definition=webhook_deliveries.DeliveryDefinition(
+                    delivery_guid=delivery_id,
+                    event=normalized.event,
+                    action=normalized.action,
+                    payload_sha256=hashlib.sha256(body).hexdigest(),
+                    provider_installation_id=(
+                        normalized.provider_installation_id
+                    ),
+                    provider_repository_id=normalized.provider_repository_id,
+                    repository_full_name=normalized.repository,
+                    command_category=category,
+                    normalized_schema_version=normalized.schema_version,
+                    normalized_payload=normalized.normalized,
+                ),
+                max_attempts=config.webhook_delivery_max_attempts,
+            )
+    except webhook_deliveries.DeliveryConflict as exc:
+        raise GitHubAppDeliveryConflict(str(exc)) from exc
+    except webhook_deliveries.WebhookDeliveryError as exc:
+        raise AdmissionError(str(exc)) from exc
+
+    status = (
+        "duplicate"
+        if isinstance(registered, webhook_deliveries.DuplicateDelivery)
+        else "received"
+    )
+    return WebhookReceiptResponse(status)
 
 
 def response_body(status: str, message: str = "") -> bytes:

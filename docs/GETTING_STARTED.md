@@ -4,7 +4,7 @@ slug: /getting-started
 title: Getting started
 description: Deploy the shared reviewer, add a repository, and run the first review.
 status: current
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Getting started
@@ -88,6 +88,27 @@ creates a new review round while the prior round remains historical context.
 
 If no comment appears, follow the [failure runbook](./OPERATIONS.md#runbook)
 rather than retrying blindly.
+
+## Onboard many repositories
+
+One deployment serves an entire organization. For each additional repository,
+repeat steps 1 and 2:
+
+- Append its `owner/repository` name to the comma-separated allowlist, for
+  example
+  `REVIEW_AGENT_ALLOWED_REPOSITORIES=your-org/service-api,your-org/web-app,your-org/infra`.
+- Add the repository to the repository selection of the three fine-grained
+  tokens, or issue new tokens that cover it.
+- Copy the same trusted workflow and the four Actions secrets into the
+  repository. The secret values stay identical across repositories;
+  `AI_REVIEW_ALLOWED_USERS` can differ per repository.
+
+Every onboarded repository shares one queue, one PostgreSQL database, and one
+reviewer profile. PostgreSQL serializes reviews within a repository, so
+[scale review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when
+cross-repository wait time grows. Per-repository voice or rules are not
+supported yet; see [Behavior ownership](./BEHAVIOR_OWNERSHIP.md) for what a
+profile controls deployment-wide.
 
 ## Next step
 

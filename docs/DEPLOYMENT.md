@@ -74,7 +74,10 @@ secret as a GitHub token or database password.
 <Tabs groupId="deployment-platform">
 <TabItem value="compose" label="Compose / Dokploy" default>
 
-1. Copy `.env.example` to the platform secret store and replace each placeholder.
+1. Copy `.env.example` to the platform secret store and replace each
+   `replace-with...` placeholder: the three GitHub tokens, the three service
+   secrets, the PostgreSQL password and URL, and the repository allowlist.
+   Every other value is a documented tuning default you can keep.
 2. Create the external ingress network. Dokploy already provides
    `dokploy-network`; a plain Docker host can create its configured name:
 

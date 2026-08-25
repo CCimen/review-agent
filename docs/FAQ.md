@@ -4,7 +4,7 @@ slug: /faq
 title: Frequently asked questions
 description: Practical answers about access, findings, feedback, storage, and failures.
 status: current
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # Frequently asked questions
@@ -69,6 +69,34 @@ invalid HMAC signature, a stale head SHA, GitHub permission failure, oversized
 output, or a stalled lifecycle transition. Use the exact status and
 [Operations runbook](./OPERATIONS.md#runbook); do not infer success from a
 workflow that merely started.
+
+## How do I serve many repositories or a whole organization?
+
+Deploy once per environment and onboard each repository against that shared
+platform: add it to `REVIEW_AGENT_ALLOWED_REPOSITORIES`, grant the three
+GitHub tokens access to it, and copy the trusted workflow into the repository.
+[Getting started](./GETTING_STARTED.md#onboard-many-repositories) walks
+through it. One deployment queues reviews across all onboarded repositories;
+[scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when wait time
+grows.
+
+## Can each repository have its own reviewer voice or rules?
+
+Not today. One selected profile applies to every repository in the
+environment, so review a profile change as a deployment-wide policy change.
+Trusted per-repository context read from the base branch is an
+[optional extension](./ROADMAP.md) that is not built yet. If two repository
+groups genuinely need different
+voices now, run two deployments with different `REVIEW_AGENT_PROFILE` values.
+
+## What are `SOUL.md` and profiles, and where do I learn more?
+
+A profile bundles the reviewer's identity (`SOUL.md`), stable review rules
+(`workspace/AGENTS.md`), and reviewed skills. [Behavior
+ownership](./BEHAVIOR_OWNERSHIP.md) explains each owner and how to create a
+profile. The identity mechanism is Hermes' native
+[personality and `SOUL.md` ownership](https://hermes-agent.nousresearch.com/docs/user-guide/features/personality);
+Hermes also documents [deploying a custom soul](https://hermes-agent.nousresearch.com/docs/guides/use-soul-with-hermes).
 
 ## How do I add another repository or change reviewer behavior?
 

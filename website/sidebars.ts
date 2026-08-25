@@ -7,7 +7,7 @@ const sidebars: SidebarsConfig = {
       label: 'Start here',
       collapsed: false,
       items: [
-        'README',
+        'docs/OVERVIEW',
         'docs/GETTING_STARTED',
         'docs/HOW_REVIEWS_WORK',
         'examples/comments/example-review',

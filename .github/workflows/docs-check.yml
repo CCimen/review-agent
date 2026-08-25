@@ -5,7 +5,6 @@ on:
     paths:
       - '.github/workflows/docs-check.yml'
       - '.github/workflows/docs-pages.yml'
-      - 'README.md'
       - 'docs/**'
       - '!docs/goals/**'
       - 'examples/comments/**'

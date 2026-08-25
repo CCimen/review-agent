@@ -88,7 +88,7 @@ evidence is the intended review-data egress; do not paste raw database exports
 or webhook payloads instead.
 
 Claude output is advisory. It must not suppress findings, rewrite prompts,
-change feedback commands, publish comments, or become a merge gate without a
+change feedback commands, publish comments, or gate pull requests without a
 separate human-reviewed implementation and replay evidence.
 
 ## GitHub token boundaries

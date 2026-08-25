@@ -7,6 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release-image.yml"
+IMAGE_CHECK = ROOT / "scripts" / "check_image.sh"
 POSTGRES_CHECK = ROOT / "scripts" / "check_postgres_schema.sh"
 ROADMAP = ROOT / "docs" / "ROADMAP.md"
 HOMEPAGE = ROOT / "website" / "src" / "pages" / "index.tsx"
@@ -71,15 +73,20 @@ concurrency:
             ],
         )
         self.assertIn("docker build --tag review-agent:ci .", source)
-        self.assertIn(
-            "--entrypoint /usr/local/bin/review-agent-worker", source
-        )
-        self.assertIn(
-            "--entrypoint /usr/local/bin/review-agent-publisher", source
-        )
-        self.assertIn(
-            "--entrypoint /usr/local/bin/review-agent-hermes-contract", source
-        )
+        self.assertIn("bash ./scripts/check_image.sh review-agent:ci", source)
+        image_check = IMAGE_CHECK.read_text(encoding="utf-8")
+        for runtime_contract in (
+            "review-agent-admission",
+            "review-agent-worker",
+            "review-agent-publisher",
+            "review-agent-hermes-contract",
+            "/opt/review-agent-bootstrap/install.sh",
+            "/opt/hermes/bin/hermes",
+            "gateway --help",
+            "command -v curl",
+            "! command -v gh",
+        ):
+            self.assertIn(runtime_contract, image_check)
         for duplicated_command in (
             "python3 -m compileall",
             "python3 -m unittest",
@@ -87,6 +94,64 @@ concurrency:
             "validate-replay",
         ):
             self.assertNotIn(duplicated_command, source)
+
+    def test_release_workflow_publishes_only_versioned_release_images(self):
+        source = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+        expected_header = """name: Publish container image
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+"""
+        self.assertTrue(source.startswith(expected_header))
+        self.assertNotIn("pull_request_target", source)
+        self.assertNotIn("workflow_dispatch", source)
+        self.assertEqual(source.count("packages: write"), 1)
+        self.assertIn("group: release-image", source)
+        self.assertIn("needs: verify", source)
+        self.assertEqual(source.count("persist-credentials: false"), 2)
+        self.assertEqual(
+            source.count("ref: ${{ github.event.release.tag_name }}"), 2
+        )
+        self.assertIn("docker build --tag review-agent:release-candidate .", source)
+        self.assertIn(
+            "bash ./scripts/check_image.sh review-agent:release-candidate", source
+        )
+        self.assertIn("RELEASE_TAG: ${{ github.event.release.tag_name }}", source)
+        self.assertIn("Release tag must use vMAJOR.MINOR.PATCH", source)
+        self.assertIn("platforms: linux/amd64,linux/arm64", source)
+        self.assertIn("type=raw,value=${{ github.event.release.tag_name }}", source)
+        self.assertIn(
+            "type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}",
+            source,
+        )
+        self.assertIn("password: ${{ secrets.GITHUB_TOKEN }}", source)
+        self.assertIn("provenance: mode=max", source)
+        self.assertIn("sbom: true", source)
+        self.assertIn("subject-name: ${{ env.IMAGE_NAME }}", source)
+        self.assertIn("subject-digest: ${{ steps.push.outputs.digest }}", source)
+        self.assertIn("push-to-registry: true", source)
+
+        actions = re.findall(r"(?m)^\s+uses: ([^\s]+)$", source)
+        self.assertEqual(
+            actions,
+            [
+                "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+                "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+                "docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130",
+                "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+                "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9",
+                "docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051",
+                "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8",
+                "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+            ],
+        )
+        for action in actions:
+            self.assertRegex(action, r"@[0-9a-f]{40}$")
 
     def test_postgresql_contract_uses_pinned_loopback_only_databases(self):
         source = POSTGRES_CHECK.read_text(encoding="utf-8")

@@ -6,11 +6,8 @@ ENV REVIEW_AGENT_HERMES_IMAGE=${HERMES_IMAGE}
 
 USER root
 COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl gh \
-    && uv pip install --no-cache --python /opt/hermes/.venv/bin/python \
-        --requirement /opt/review-agent-requirements.txt \
-    && rm -rf /var/lib/apt/lists/*
+RUN uv pip install --no-cache --python /opt/hermes/.venv/bin/python \
+        --requirement /opt/review-agent-requirements.txt
 
 COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
 # Offline operator helpers imported by review-agent-memory. The webhook agent

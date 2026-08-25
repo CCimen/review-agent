@@ -122,8 +122,24 @@ class DockerfileToolsTests(unittest.TestCase):
     def test_docker_build_context_excludes_python_bytecode(self) -> None:
         dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
 
-        self.assertIn("**/__pycache__/", dockerignore)
-        self.assertIn("**/*.py[cod]", dockerignore)
+        self.assertEqual(
+            dockerignore.splitlines(),
+            [
+                "*",
+                "!requirements.txt",
+                "!bootstrap/",
+                "!bootstrap/**",
+                "!tools/",
+                "!tools/review_agent_*.py",
+                "**/__pycache__/",
+                "**/*.py[cod]",
+            ],
+        )
+
+    def test_container_reuses_base_network_tools(self) -> None:
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertNotIn("apt-get", dockerfile)
 
     def test_installer_replaces_managed_trees_and_ignores_bytecode(self) -> None:
         install = _load_install_module()

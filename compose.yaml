@@ -26,6 +26,7 @@ services:
         max-file: "5"
 
   review-profile-install:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
       args:
@@ -43,6 +44,7 @@ services:
       - /tmp:rw,nosuid,nodev,noexec,size=64m
 
   review-db-migrate:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
       args:
@@ -69,6 +71,7 @@ services:
       - /tmp:rw,nosuid,nodev,noexec,size=64m
 
   hermes-review:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
       args:
@@ -83,7 +86,6 @@ services:
     environment:
       TZ: "${TZ:-Europe/Stockholm}"
       WEBHOOK_ENABLED: "false"
-      GH_PROMPT_DISABLED: "${GH_PROMPT_DISABLED:-1}"
       GITHUB_READ_TOKEN: "${GITHUB_READ_TOKEN:?set GITHUB_READ_TOKEN}"
       REVIEW_AGENT_PUBLISH_MAX_BYTES: "${REVIEW_AGENT_PUBLISH_MAX_BYTES:-60000}"
       REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS: "${REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS:-3}"
@@ -131,6 +133,7 @@ services:
         max-file: "5"
 
   review-admission:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
       args:
@@ -194,6 +197,7 @@ services:
         max-file: "5"
 
   review-worker:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
       args:
@@ -247,6 +251,7 @@ services:
         max-file: "5"
 
   review-publisher:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
       args:
@@ -291,6 +296,7 @@ services:
         max-file: "5"
 
   hermes-review-feedback:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
       args:

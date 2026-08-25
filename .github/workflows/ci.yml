@@ -49,20 +49,4 @@ jobs:
         run: |
           docker compose --env-file .env.example config --quiet
           docker build --tag review-agent:ci .
-          docker run --rm --entrypoint /usr/local/bin/review-agent-admission \
-            review-agent:ci --help
-          docker run --rm --entrypoint /usr/local/bin/review-agent-worker \
-            review-agent:ci --help
-          docker run --rm --entrypoint /usr/local/bin/review-agent-publisher \
-            review-agent:ci --help
-          docker run --rm --entrypoint /usr/local/bin/review-agent-hermes-contract \
-            review-agent:ci
-          docker run --rm --user 12345:0 \
-            --tmpfs /opt/data:rw,mode=0770,uid=12345,gid=0 \
-            --env HOME=/opt/data --env HERMES_HOME=/opt/data \
-            --entrypoint /opt/review-agent-bootstrap/install.sh review-agent:ci
-          docker run --rm --user 12345:0 \
-            --tmpfs /opt/data:rw,mode=0770,uid=12345,gid=0 \
-            --env HOME=/opt/data --env HERMES_HOME=/opt/data \
-            --entrypoint /opt/hermes/bin/hermes review-agent:ci \
-            gateway --help
+          bash ./scripts/check_image.sh review-agent:ci

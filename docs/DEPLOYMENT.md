@@ -12,10 +12,10 @@ import TabItem from '@theme/TabItem';
 
 # Deploy Review Agent
 
-> **TL;DR**: Build one image, provide PostgreSQL and three scoped GitHub tokens,
-> then expose only the admission endpoint. Tune bounded worker concurrency, then
-> add replicas when you need more isolation or capacity. Queue limits protect
-> shared compute and do not limit PR size.
+> **TL;DR**: Choose a released image or build locally, provide PostgreSQL and
+> three scoped GitHub tokens, then expose only the admission endpoint. Tune
+> bounded worker concurrency before adding replicas. Queue limits protect shared
+> compute and do not limit PR size.
 
 ## Runtime shape
 
@@ -69,6 +69,31 @@ openssl rand -hex 32  # API_SERVER_KEY
 Use a fourth random value for the PostgreSQL password. Do not reuse a webhook
 secret as a GitHub token or database password.
 
+## Choose an image
+
+For local development, keep `REVIEW_AGENT_IMAGE=review-agent:local` and start
+Compose with `--build`. Each published release also creates one attested
+`linux/amd64` and `linux/arm64` image in GitHub Container Registry. Use the exact
+release tag in deployments:
+
+```bash
+export REVIEW_AGENT_IMAGE=ghcr.io/ccimen/review-agent:vX.Y.Z
+docker compose pull
+docker compose up -d --no-build
+```
+
+`--no-build` prevents a missing pull from being replaced by a locally tagged
+working-tree build.
+
+Prereleases receive only their exact version tag. Stable releases also update
+`latest`; production deployments should still pin the exact version. GitHub
+creates the first package as private even for a public repository. After the
+first release, open **Packages > review-agent > Package settings > Change
+visibility** to make anonymous pulls available. Public visibility cannot be
+reversed. See GitHub's guides to
+[publishing container images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)
+and [package visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
+
 ## Deploy
 
 <Tabs groupId="deployment-platform">
@@ -85,11 +110,28 @@ secret as a GitHub token or database password.
    docker network create "${REVIEW_AGENT_INGRESS_NETWORK:-dokploy-network}"
    ```
 
-3. Validate and start the stack:
+3. Validate the stack, then choose one start path:
 
    ```bash
    docker compose config --quiet
+   ```
+
+   Local source:
+
+   ```bash
    docker compose up -d --build
+   ```
+
+   Released image after `REVIEW_AGENT_IMAGE` is set:
+
+   ```bash
+   docker compose pull
+   docker compose up -d --no-build
+   ```
+
+   Confirm the services started:
+
+   ```bash
    docker compose ps
    ```
 

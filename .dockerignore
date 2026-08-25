@@ -1,7 +1,8 @@
+*
+!requirements.txt
+!bootstrap/
+!bootstrap/**
+!tools/
+!tools/review_agent_*.py
 **/__pycache__/
 **/*.py[cod]
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.pyright/
-.git/

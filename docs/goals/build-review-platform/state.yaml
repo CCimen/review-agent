@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 2
+  completed_write_tasks_in_thread: 3
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "7287eb81c95b8a1b6a1981c0e68ba9ad31fa7f22"
+  last_verified_revision: "ec6bfa60ba4b79c5dcfa3ce3ccdff6bcd7898beb"
 
-active_task: T119
+active_task: T121
 
 tasks:
   - id: T001
@@ -2485,7 +2485,7 @@ tasks:
   - id: T119
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Freeze the smallest complete publisher fencing and exact ambiguous-recovery correction for H4."
     inputs:
@@ -2497,19 +2497,86 @@ tasks:
       - "Freeze provider-write fencing, exact body repair, and exact suggestion recovery only when each is confirmed in current source."
     expected_output:
       - "Exact owner, allowed files, lifecycle invariants, tests, verification, non-goals, rollback, and stop conditions"
-    receipt: null
+    receipt:
+      result: done
+      decision: "Implement H4 as one bounded exact-publication delivery slice: live lease proof before writes, heartbeat loss signalling, exact body repair, and exact suggestion multiset recovery."
+      evidence:
+        - "All defects share the existing publication delivery owner and need no schema or new queue."
+        - "The PostgreSQL store remains the sole lease-truth owner; the publisher only propagates known lease loss."
+        - "The delivery contract remains at-least-once attempt plus exact recovery and fenced acknowledgement, not cross-system exactly-once."
+      spawned_tasks:
+        - T120
   - id: T120
     type: worker
     assignee: Worker
-    status: queued
+    status: done
     reasoning_hint: high
     objective: "Implement the H4 publisher fencing and exact recovery slice selected by T119."
-    allowed_files: []
-    verify: []
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/publisher.py
+      - bootstrap/plugins/review_agent_tools/review_publication_application.py
+      - bootstrap/plugins/review_agent_tools/postgres/publications.py
+      - tests/test_postgres_publications.py
+      - docs/goals/build-review-platform/state.yaml
+    verify:
+      - "uv run --with-requirements requirements.txt ./scripts/check_postgres_schema.sh"
+      - "uv run --with-requirements requirements.txt pyright -p ."
+      - "uv run --with-requirements requirements.txt ./scripts/check_bundle.sh"
     stop_if:
-      - "T119 does not authorize an exact bounded slice."
+      - "Exact lease proof cannot occur immediately before each main publication-part create or repair within the allowed files."
+      - "The change needs schema, new durable states, gateway changes, or a generic provider-write abstraction."
       - "The change claims cross-system exactly-once behavior or adds another publisher/queue framework."
+      - "Tests expose a direct-call recovery contract conflict."
+      - "The slice expands into supersession or failure-status architecture."
       - "Focused verification fails twice for the same cause."
+    receipt:
+      result: done
+      revision: "ec6bfa60ba4b79c5dcfa3ce3ccdff6bcd7898beb"
+      summary: "Fenced every main publication-part create or repair behind one live PostgreSQL lease proof and made ambiguous GitHub recovery exact without adding another queue or delivery abstraction."
+      changed_files:
+        - bootstrap/plugins/review_agent_tools/postgres/publications.py
+        - bootstrap/plugins/review_agent_tools/publisher.py
+        - bootstrap/plugins/review_agent_tools/review_publication_application.py
+        - tests/test_postgres_publications.py
+      commands:
+        - cmd: "focused H4 PostgreSQL publication tests"
+          status: pass
+          summary: "Five tests proved takeover and database-outage fencing, heartbeat lease-loss signalling, exact issue-body repair, and exact suggestion-review multiset recovery."
+        - cmd: "uv run --with-requirements requirements.txt ./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "140 PostgreSQL tests plus schema, backup, and recovery contracts passed."
+        - cmd: "uv run --with-requirements requirements.txt pyright -p ."
+          status: pass
+          summary: "Strict Pyright reported zero errors, warnings, or information."
+        - cmd: "uv run --with-requirements requirements.txt ./scripts/check_bundle.sh"
+          status: pass
+          summary: "360 tests passed; 126 PostgreSQL environment-gated tests skipped."
+        - cmd: "Claude Opus/high commit gate"
+          status: pass
+          summary: "Session review-agent-h4-exact-publication reached green at score 8 on iteration 2."
+      evidence:
+        - "The pre-write proof is one SQL predicate over posting status, exact owner, exact generation, and database-clock lease expiry."
+        - "The publisher heartbeat retries only typed transient database failures and signals a known lease loss to delivery."
+        - "Issue recovery repairs the canonical marked part under the same external ID; suggestion recovery requires one exact per-review comment multiset."
+      spawned_tasks:
+        - T121
+  - id: T121
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Freeze the smallest complete automatic durable terminal-failure delivery correction for H5."
+    inputs:
+      - "T114 H5 receipt"
+      - "Current job failure, run failure-status, publication, publisher, and operator recovery contracts at revision ec6bfa60ba4b79c5dcfa3ce3ccdff6bcd7898beb"
+    constraints:
+      - "Read-only; do not implement."
+      - "Keep one canonical publisher process and prefer the existing publication owner over a new queue, broker, event bus, or generic delivery framework."
+      - "Prove the current automatic-delivery gap and superseded-run behavior before selecting schema or code changes."
+      - "Preserve deterministic bodies, exact recovery, durable attempts, leases, acknowledgement, and visible exhaustion."
+      - "Do not mix Medium review findings into this slice."
+    expected_output:
+      - "Exact canonical owner, lifecycle invariants, allowed files, migrations if unavoidable, tests, verification, non-goals, rollback, and stop conditions"
     receipt: null
   - id: T199
     type: judge
@@ -2531,14 +2598,14 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-bd73e9bb"
+  dirty_fingerprint: "goal-control-files-only-after-ec6bfa60"
   last_verification:
     result: pass
-    task: T113
+    task: T120
     commands:
-      - "Focused documentation and current-platform contracts: 30 tests"
-      - "Public source and built-artifact contract: 10 documents, exact routes, and exact search-index routes"
-      - "Website TypeScript check and clean Node 24 Docusaurus production build"
-      - "Claude Opus/high session review-agent-t112-docs-finish green at score 8"
-      - "Goal Maker Judge T113 completion decision: complete"
-      - "Source revision e1bb98752f656086276b6e6982c7142c565068b0"
+      - "Five focused H4 publication fencing and exact recovery tests"
+      - "140-test PostgreSQL schema, backup, and recovery contract"
+      - "Strict Pyright with zero diagnostics"
+      - "360-test bundle with 126 expected database skips"
+      - "Claude Opus/high session review-agent-h4-exact-publication green at score 8"
+      - "Source revision ec6bfa60ba4b79c5dcfa3ce3ccdff6bcd7898beb"

@@ -21,35 +21,34 @@
   Signed admission atomically creates runs/jobs; fair workers, operator controls,
   private runtime networking, Compose-based deployment, and arbitrary-UID
   OpenShift are active and documented.
-- T108 is the sole active task: persist publication readiness and outbox intent
-  atomically, then deliver exact stored parts through one recoverable publisher.
+- T108 is complete at `007e1d7ddb8695650a7df3212395b32f7455a93f`.
+  Immutable publication intent and exact stored parts are delivered by a
+  recoverable, generation-fenced publisher.
+- T109 audited the complete platform and found one direct completion blocker:
+  the model-facing delivery schema and Security guide still claimed that
+  `review_agent_deliver` performs synchronous GitHub publication.
+- T111 is the sole active task: align those two descriptions with the live
+  durable publisher handoff, add one focused contract assertion, and verify the
+  final documentation candidate.
 - Public identity is “Review Agent.” `sundsvall-standard` remains a selectable
   municipal profile. PostgreSQL is the only application persistence contract.
 
-## T108 execution boundary
+## T111 execution boundary
 
-- Reuse the existing PostgreSQL publication plan, part, direct-ID, marker
-  recovery, and deterministic GitHub publisher owners. Do not create another
-  serializer or parallel publication path.
-- Commit publication readiness and outbox intent in one transaction. Provider
-  calls must happen after commit through a recoverable claim.
-- Claim exact stored publication parts with a durable fence. Acknowledgement
-  must be independently recoverable per part.
-- Prove the ambiguous boundary: if GitHub succeeds and the process dies before
-  database acknowledgement, replay must resolve the exact external object and
-  must not create a duplicate.
-- Add queue age, retry, failure, and recovery visibility in the existing
-  operator/runtime owners. Keep GitHub as the sole delivery sink; no generic
-  notification bus, Celery, ARQ, Redis, or broker.
-- Update public operations/security/how-it-works docs only where externally
-  visible behavior changes. Keep prose concise and diagrams code-native.
+- Change only the stale model-facing description and Security explanation; the
+  runtime lifecycle is already correct.
+- Say that the tool verifies the snapshot, freezes exact parts, and atomically
+  queues immutable intent. The separately leased publisher performs GitHub
+  writes, records external IDs, and completes the run.
+- Keep the focused assertion at the public schema boundary. Do not add runtime
+  code, a second publication abstraction, or broad documentation tests.
 
 ## Remaining order
 
-T108 transactional publication outbox → T109 final read-only audit.
+T111 delivery-contract correction → fresh final read-only audit.
 GitHub App, repository policy overlays, Slack, scanners, Codex Security,
 feedback-sidecar packaging, and evidence-based OpenShift resource defaults are
-deferred unless T108 directly requires them.
+deferred.
 
 ## Verification continuity
 

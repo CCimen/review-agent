@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Durable admission and controlled worker activation are complete; transactional publication delivery is active."
+  tranche: "Correct one stale delivery contract, then repeat the final read-only audit."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 17
+  completed_write_tasks_in_thread: 18
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-24T19:41:41Z"
-  last_verified_revision: "f9dc0f6eed0097814335d4e02753b018d3359460"
+  last_verified_revision: "007e1d7ddb8695650a7df3212395b32f7455a93f"
 
-active_task: T108
+active_task: T111
 
 tasks:
   - id: T001
@@ -2117,7 +2117,7 @@ tasks:
   - id: T108
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Persist publication readiness and outbox intent atomically, then deliver exact stored parts through one recoverable publisher worker."
     constraints:
@@ -2136,11 +2136,22 @@ tasks:
     stop_if:
       - "The implementation would create another publication serializer or GitHub delivery subsystem."
       - "A generic event bus or deferred integration schema appears necessary."
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T108-transactional-publication.md"
+      summary: "Shipped atomic PostgreSQL publication intent and exact stored-part delivery through a recoverable, generation-fenced publisher process."
+      revision: "007e1d7ddb8695650a7df3212395b32f7455a93f"
+      evidence:
+        - "The publication row and immutable parts are the outbox; review-job handoff and delivery intent commit atomically."
+        - "Process-death, terminal-run, final-attempt, stale-sweep, and lock-order recovery paths passed on PostgreSQL 17."
+        - "134 PostgreSQL tests, 352 unit/contract tests, strict Pyright, docs/site, Compose, OpenShift, and fresh image checks passed."
+        - "Claude session review-agent-t108-publication-outbox reached green at score 8."
+      spawned_tasks:
+        - T109
   - id: T109
     type: judge
     assignee: Judge
-    status: queued
+    status: done
     reasoning_hint: xhigh
     objective: "Audit the finished core platform against the approved corrected plan, direct owner decisions, live documentation, and recovery evidence."
     constraints:
@@ -2151,18 +2162,47 @@ tasks:
       - "complete | not_complete"
       - "Requirement-by-requirement source and verification evidence"
       - "Any direct blockers or deliberately deferred follow-on roadmap"
+    receipt:
+      result: not_complete
+      decision: not_complete
+      note: "notes/T109-final-platform-audit.md"
+      summary: "The core platform is substantively complete; one model-facing schema and the matching Security paragraph still described obsolete synchronous publication."
+      evidence:
+        - "PostgreSQL-only state, durable jobs, stale-work prevention, and the transactional publication outbox passed source and receipt review."
+        - "The canonical skill and How Reviews Work page already describe the separate recoverable publisher correctly."
+      spawned_tasks:
+        - T111
+  - id: T111
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Align the model-facing delivery schema and Security guide with the live durable publisher handoff, and protect that contract with one focused assertion."
+    constraints:
+      - "Correct documentation and schema text only; do not change runtime behavior."
+      - "Describe one lifecycle: the tool verifies and freezes immutable intent, then the recoverable publisher writes to GitHub and completes the run."
+      - "Do not add a publication abstraction, compatibility path, or broad test matrix."
+    expected_output:
+      - "One accurate model-facing delivery description"
+      - "One matching Security explanation"
+      - "One focused schema-contract assertion"
+    verify:
+      - "Run focused tool and documentation contracts, documentation checker, canonical bundle, and site checks proportionately."
+      - "Run one Claude Opus/high gate by resuming the existing final-audit session."
+    stop_if:
+      - "Source inspection reveals a second live publication lifecycle."
+      - "The correction requires runtime behavior changes."
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-f9dc0f6e"
+  dirty_fingerprint: "goal-control-files-only-after-007e1d7d"
   last_verification:
     result: pass
-    task: T107
+    task: T108
     commands:
-      - "PostgreSQL 17 schema, migration, backup, recovery, and concurrency suite: 129 tests"
-      - "Strict Pyright and 347-test canonical bundle"
+      - "PostgreSQL 17 schema, migration, backup, recovery, and concurrency suite: 134 tests"
+      - "Strict Pyright and 352-test unit/contract discovery"
       - "Public ten-document contract, website typecheck, and clean Docusaurus production build"
-      - "Fresh image, entrypoint, Compose isolation, and OpenShift template validation"
-      - "Claude Opus/high session review-agent-t107-durable-admission green at score 8"
-      - "GitHub Python/image run 32769601380 and Pages run 32769601428 passed"
-      - "Source revision f9dc0f6eed0097814335d4e02753b018d3359460"
+      - "Fresh image and publisher entrypoint, Compose rendering, and OpenShift template validation"
+      - "Claude Opus/high session review-agent-t108-publication-outbox green at score 8"
+      - "Source revision 007e1d7ddb8695650a7df3212395b32f7455a93f"

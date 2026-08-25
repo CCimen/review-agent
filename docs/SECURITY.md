@@ -42,11 +42,13 @@ The live reviewer does not receive:
 - arbitrary code execution;
 - access to private coach artifacts under `review-learning/`.
 
-Review output reaches GitHub only through `review_agent_deliver`. The tool verifies
-the PR base/head snapshot, renders the stored comment, publishes deterministic
-comment parts and any validated atomic suggestions, and records the delivery
-state. Suggestions are grouped in one non-blocking GitHub `COMMENT` review; the
-model never receives a GitHub mutation tool.
+Review output reaches GitHub only through a two-stage deterministic path.
+`review_agent_deliver` verifies the PR base/head snapshot, freezes the exact
+comment parts and validated atomic suggestions in PostgreSQL, and queues that
+immutable publication intent. A separate recoverable publisher writes only those
+stored parts with its dedicated token, records each GitHub ID, and completes the
+run. Suggestions are grouped in one non-blocking GitHub `COMMENT` review; the
+model never receives a GitHub mutation tool or write token.
 
 ## Prompt-Injection Handling
 

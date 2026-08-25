@@ -12,7 +12,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 import review_agent_tools  # noqa: E402
-from review_agent_tools import review_run_application, tools  # noqa: E402
+from review_agent_tools import review_run_application, schemas, tools  # noqa: E402
 from review_agent_tools.postgres.coverage import FileIndexSummary  # noqa: E402
 
 
@@ -41,6 +41,13 @@ class _FakeRegistry:
 
 class ToolContractTests(unittest.TestCase):
     repository = "example-org/example-repository"
+
+    def test_delivery_schema_describes_the_durable_publisher_handoff(self) -> None:
+        description = schemas.REVIEW_AGENT_DELIVER["description"]
+
+        self.assertIn("queue immutable publication intent", description)
+        self.assertIn("separate recoverable publisher", description)
+        self.assertNotIn("publish the canonical GitHub PR comment", description)
 
     def test_empty_allowlist_denies_by_default(self) -> None:
         with patch.dict(

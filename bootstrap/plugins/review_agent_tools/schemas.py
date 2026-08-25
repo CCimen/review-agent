@@ -393,11 +393,11 @@ REVIEW_AGENT_MEMORY_RECORD = {
 REVIEW_AGENT_DELIVER = {
     "name": "review_agent_deliver",
     "description": (
-        "Finalize the stored findings, publish the canonical GitHub PR comment, "
-        "and complete the review run in one deterministic lifecycle step. Use this "
-        "as the final write action for normal reviews so failures are recorded as "
-        "stale or publish_failed publication rows instead of leaving generated "
-        "comments unposted."
+        "Finalize the stored findings, verify the exact pull-request snapshot, and "
+        "atomically queue immutable publication intent with its exact rendered "
+        "parts. A separate recoverable publisher performs the GitHub writes and "
+        "completes the review run. Use this as the final model write action for "
+        "normal reviews so stale snapshots and publication failures are recorded."
     ),
     "parameters": {
         "type": "object",

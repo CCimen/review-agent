@@ -14,15 +14,12 @@ weakening the proven review contract.
 
 ## Current Tranche
 
-The PostgreSQL repository-to-review-run transaction, normalized coverage,
-finding memory, optional suggestions, human decisions, verification,
-reconciliation, and coaching are complete. Publication ownership is separated.
-PostgreSQL publication persistence, product-neutral naming, and the bounded
-Hermes-native deployment profile are complete. Model-era operational ceilings
-have been replaced with exact continuation and honest bounded behavior. The
-full-plan audit found that PostgreSQL feedback, publication/runtime operational
-parity, configuration and Compose switching, recovery proof, SQLite deletion,
-durable jobs, and the publication outbox remain.
+The maintainability-first platform is implemented: PostgreSQL owns application
+state, admission and review work are durable and recoverable, and immutable
+publication intent reaches GitHub through a separately leased publisher. The
+final audit found one stale model-facing delivery description and one matching
+Security paragraph. Correct that contract, verify it, then repeat the read-only
+completion audit. Deferred integrations remain outside this core tranche.
 
 ## Approved Sequencing Input
 

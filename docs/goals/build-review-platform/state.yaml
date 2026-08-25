@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 1
+  completed_write_tasks_in_thread: 2
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "09eb385a629bf294bac0de75d7d68097217d7d0f"
+  last_verified_revision: "7287eb81c95b8a1b6a1981c0e68ba9ad31fa7f22"
 
-active_task: T117
+active_task: T119
 
 tasks:
   - id: T001
@@ -2410,7 +2410,7 @@ tasks:
   - id: T117
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Freeze the smallest complete correction for finding-context filtering before limits (H3), using the existing reporting owner."
     inputs:
@@ -2422,19 +2422,94 @@ tasks:
       - "Define only behavior needed to prevent unrelated or suppressed findings from consuming the context limit."
     expected_output:
       - "Exact owner, allowed files, query contract, tests, verification, non-goals, rollback, and stop conditions"
-    receipt: null
+    receipt:
+      result: done
+      decision: "Add a dedicated typed review-context query, filter operator suppressions before LIMIT, and resolve repeat suppressions set-wise for exact fingerprints; no migration."
+      evidence:
+        - "The existing repository/path/last-seen indexes are sufficient; no new schema owner is needed."
+        - "Empty paths preserve bounded repository-wide context, while nonempty paths are applied in SQL before ordering and limit."
+        - "Actively suppressed findings remain reviewer historical hints but are excluded from operator visible-only lists before LIMIT."
+      spawned_tasks:
+        - T118
   - id: T118
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Implement the H3 finding-context limit correction selected by T117."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/postgres/reporting.py
+      - bootstrap/plugins/review_agent_tools/review_finding_application.py
+      - tests/test_postgres_reporting_cli.py
+      - docs/goals/build-review-platform/state.yaml
+    verify:
+      - "uv run --with-requirements requirements.txt ./scripts/check_postgres_schema.sh"
+      - "uv run --with-requirements requirements.txt pyright -p ."
+      - "uv run --with-requirements requirements.txt ./scripts/check_bundle.sh"
+    stop_if:
+      - "Exact-context SQL cannot match suppression_is_active semantics."
+      - "Empty-path behavior conflicts with a current public contract."
+      - "The change requires a schema/index migration or files outside the allowed owners."
+      - "The change expands into a generic repository, module split, pagination redesign, or unrelated reporting behavior."
+      - "Focused PostgreSQL verification fails twice for the same cause."
+    receipt:
+      result: done
+      summary: "Applied finding path and active-suppression filters before bounded reads, and resolved repeated-finding suppressions for exact fingerprint/context pairs."
+      implementation_revision: "7287eb81c95b8a1b6a1981c0e68ba9ad31fa7f22"
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools/postgres/reporting.py"
+        - "bootstrap/plugins/review_agent_tools/review_finding_application.py"
+        - "tests/test_postgres_reporting_cli.py"
+      commands:
+        - cmd: "uv run --with-requirements requirements.txt ./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "136 PostgreSQL tests plus schema, backup, and recovery contracts passed."
+        - cmd: "uv run --with-requirements requirements.txt pyright -p ."
+          status: pass
+          summary: "Strict Pyright reported zero errors, warnings, or information."
+        - cmd: "uv run --with-requirements requirements.txt ./scripts/check_bundle.sh"
+          status: pass
+          summary: "356 tests passed; 122 PostgreSQL environment-gated tests skipped."
+        - cmd: "representative EXPLAIN (ANALYZE, BUFFERS)"
+          status: pass
+          summary: "The seeded path query used finding_identities_repository_path_idx; execution was 0.043 ms."
+        - cmd: "Claude Opus/high commit gate"
+          status: pass
+          summary: "Session review-agent-h3-context-filtering reached green at score 8 on iteration 2."
+      evidence:
+        - "A 200-newer-row regression proves an older requested-path finding remains available and only its actively suppressed repeat is omitted."
+        - "A limit=2 regression proves suppressed newer rows no longer consume the visible operator limit."
+        - "Empty paths deliberately preserve a 30-row repository-wide context; per-path fairness within one requested page remains outside this correction."
+      spawned_tasks:
+        - T119
+  - id: T119
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Freeze the smallest complete publisher fencing and exact ambiguous-recovery correction for H4."
+    inputs:
+      - "T114 H4 receipt"
+      - "Current publisher, publication application, PostgreSQL publication lease, and GitHub adapter contracts at revision 7287eb81c95b8a1b6a1981c0e68ba9ad31fa7f22"
+    constraints:
+      - "Read-only; do not implement."
+      - "Keep one publisher and the existing publication owner; reject a generic outbox, event bus, or exactly-once claim."
+      - "Freeze provider-write fencing, exact body repair, and exact suggestion recovery only when each is confirmed in current source."
+    expected_output:
+      - "Exact owner, allowed files, lifecycle invariants, tests, verification, non-goals, rollback, and stop conditions"
+    receipt: null
+  - id: T120
     type: worker
     assignee: Worker
     status: queued
     reasoning_hint: high
-    objective: "Implement the H3 finding-context limit correction selected by T117."
+    objective: "Implement the H4 publisher fencing and exact recovery slice selected by T119."
     allowed_files: []
     verify: []
     stop_if:
-      - "T117 does not authorize an exact bounded slice."
-      - "The change expands into a generic repository, module split, or unrelated reporting behavior."
-      - "Focused PostgreSQL verification fails twice for the same cause."
+      - "T119 does not authorize an exact bounded slice."
+      - "The change claims cross-system exactly-once behavior or adds another publisher/queue framework."
+      - "Focused verification fails twice for the same cause."
     receipt: null
   - id: T199
     type: judge

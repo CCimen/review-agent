@@ -469,6 +469,17 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("title: 'Review Agent'", read("website/docusaurus.config.ts"))
         self.assertIn("# Review Agent", read("README.md"))
 
+    def test_public_docs_use_bounded_local_search_and_current_core_copy(self):
+        config = read("website/docusaurus.config.ts")
+        capabilities = read("docs/ROADMAP.md")
+
+        self.assertIn("'@easyops-cn/docusaurus-search-local'", config)
+        self.assertIn("include: publicDocuments", config)
+        self.assertIn("indexDocs: true", config)
+        self.assertIn("indexBlog: false", config)
+        self.assertIn("indexPages: false", config)
+        self.assertIn("status: current", capabilities)
+
     def test_review_delivery_uses_deterministic_publisher_not_github_comment(self):
         config = read("bootstrap/config.yaml")
         readme = read("README.md")
@@ -478,7 +489,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("api_server:\n    - review_agent", config)
         self.assertNotIn("deliver: github_comment", config)
         self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", operations)
-        self.assertIn("deterministic publisher", readme)
+        self.assertIn("separate publisher", readme)
         self.assertIn("deterministic", operations)
         self.assertIn("comment parts", words(readme))
         self.assertIn("not a finding cap", operations)
@@ -517,7 +528,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Dependabot", security)
         self.assertIn("CVE/GHSA", security)
         self.assertIn("Do not make the model the source of truth", security)
-        self.assertIn("dependency-scanning boundary", readme)
+        self.assertIn("dependency-scanning scope", readme)
         self.assertNotIn("Snyk", readme)
         self.assertNotIn("Trivy", readme)
         self.assertIn("startsWith(github.event.comment.body, '@review')", workflow)

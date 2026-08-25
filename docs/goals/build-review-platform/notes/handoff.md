@@ -27,25 +27,29 @@
 - T109 audited the complete platform and found one direct completion blocker:
   the model-facing delivery schema and Security guide still claimed that
   `review_agent_deliver` performs synchronous GitHub publication.
-- T111 is the sole active task: align those two descriptions with the live
-  durable publisher handoff, add one focused contract assertion, and verify the
-  final documentation candidate.
+- T111 is complete at `d37c02c2c1ea790548ffcd0a4484e9fdf1dfd1a7`.
+  The model-facing schema and Security guide now describe the recoverable
+  publisher handoff; Claude iteration 4 was green at score 8.
+- T112 is the sole active task: finish the public documentation experience with
+  task-oriented navigation, local static search, readable wide content, and
+  completed-platform copy in the homepage, README, and capabilities page.
 - Public identity is “Review Agent.” `sundsvall-standard` remains a selectable
   municipal profile. PostgreSQL is the only application persistence contract.
 
-## T111 execution boundary
+## T112 execution boundary
 
-- Change only the stale model-facing description and Security explanation; the
-  runtime lifecycle is already correct.
-- Say that the tool verifies the snapshot, freezes exact parts, and atomically
-  queues immutable intent. The separately leased publisher performs GitHub
-  writes, records external IDs, and completes the run.
-- Keep the focused assertion at the public schema boundary. Do not add runtime
-  code, a second publication abstraction, or broad documentation tests.
+- Reuse Docusaurus and the current civic Read-mode tokens. Improve information
+  hierarchy without replacing the site shell or visual identity.
+- Add one build-time local search owner limited to the ten public documents. Do
+  not require a hosted crawler, credentials, analytics, or AI search.
+- Keep prose, tables, diagrams, keyboard focus, narrow layouts, and dark mode
+  readable. Update only stale or needlessly long public copy.
+- Keep future integrations as optional boundaries. Do not present completed
+  durable jobs or publication delivery as roadmap work.
 
 ## Remaining order
 
-T111 delivery-contract correction → fresh final read-only audit.
+T112 documentation finish → fresh final read-only audit.
 GitHub App, repository policy overlays, Slack, scanners, Codex Security,
 feedback-sidecar packaging, and evidence-based OpenShift resource defaults are
 deferred.

@@ -6,14 +6,9 @@ on:
     paths:
       - '.github/workflows/docs-pages.yml'
       - 'README.md'
-      - 'docs/GETTING_STARTED.md'
-      - 'docs/HOW_REVIEWS_WORK.md'
-      - 'docs/BEHAVIOR_OWNERSHIP.md'
-      - 'docs/FAQ.md'
-      - 'docs/ROADMAP.md'
-      - 'docs/OPERATIONS.md'
-      - 'docs/SECURITY.md'
-      - 'examples/comments/example-review.md'
+      - 'docs/**'
+      - '!docs/goals/**'
+      - 'examples/comments/**'
       - 'scripts/check_docs.py'
       - 'website/**'
   workflow_dispatch:

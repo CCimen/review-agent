@@ -1,59 +1,69 @@
 ---
-sidebar_label: Current and planned
+sidebar_label: Capabilities
 slug: /roadmap
-title: Current and planned capabilities
-description: A clear boundary between the working reviewer and planned platform work.
-status: target
-last_verified: 2026-08-24
+title: Capabilities and boundaries
+description: The working Review Agent core and the integrations kept outside it.
+status: current
+last_verified: 2026-08-25
 ---
 
-# Current and planned capabilities
+# Capabilities and boundaries
 
-> **Current and target** — “Available now” describes the shipped repository.
-> Later sections describe approved direction, not release promises.
+> **Current** — The maintainability-first core described on this page is
+> implemented in the repository. Optional integrations have separate product
+> and security decisions.
 
-## Available now
+## Core platform
 
-- One shared reviewer per environment with an exact repository allowlist.
-- Trusted GitHub Actions request workflow and HMAC-signed webhooks.
-- Bounded PR reads against an exact base/head snapshot.
-- Two-pass evidence review with explicit incomplete-coverage reporting.
-- Deterministic GitHub summaries and validated optional native suggestions.
-- Human-governed feedback plus private, operator-run learning and verification.
-- One PostgreSQL database per environment for review runs, coverage, findings,
-  decisions, publication, feedback, verification, reconciliation, and coaching.
-- Checksum-verified PostgreSQL migrations, bounded role-specific connection
-  pools, readiness checks, and PostgreSQL 17 integration tests.
-- Direct PostgreSQL review, feedback, publication, stale-run recovery, and
-  operator command paths. Network and model calls never hold database
+- **Trusted admission:** GitHub Actions checks the requester, signs a small
+  request, and the service pins the current base and head commits before work
+  enters the queue.
+- **Evidence-backed review:** Hermes receives bounded read tools, records
+  coverage, challenges candidate findings, and keeps incomplete review depth
+  visible.
+- **Durable execution:** PostgreSQL coordinates fair job claims, retry budgets,
+  dead-letter recovery, exact-run continuation, and generation fencing across
+  replicated workers.
+- **Recoverable publication:** the review tool freezes immutable comment parts;
+  a separate publisher writes them to GitHub and recovers ambiguous writes
+  without creating duplicate comments.
+- **Operator control:** scoped commands cover queue inspection, retries,
+  cancellation, run recovery, publication status, backup, restore, feedback,
+  and private verification exports.
+- **Deployment profiles:** a reviewed profile owns voice, stable rules,
+  presentation, and enabled skills. Engine code keeps authorization, tool
+  limits, snapshot checks, state transitions, and GitHub writes fixed.
+- **Portable deployment:** the repository ships one Compose stack for Docker,
+  Dokploy, Coolify, and Portainer plus an arbitrary-UID OpenShift template.
+
+The deployment uses one PostgreSQL database per environment. Hermes keeps its
+own profile and session files outside application state.
+
+## Runtime contract
+
+- **Review and reporting:** Bounded PR reads feed Direct PostgreSQL review
+  state, Durable PostgreSQL job records, and Repository-scoped exports.
+- **Database lifecycle:** Checksum-verified PostgreSQL migrations make schema
+  changes explicit and repeatable.
+- **State ownership:** One PostgreSQL database per environment. PostgreSQL owns
+  application persistence; Hermes `HERMES_HOME` remains separate.
+- **Connection safety:** Network and model calls never hold database
   connections.
-- Durable PostgreSQL job records with atomic lease claims, exact heartbeats,
-  bounded retry and dead-letter transitions, expiry recovery, and atomic
-  review-run reconciliation, activated through signed admission.
-- Replicable review workers with exact-run continuation,
-  generation-fenced tool calls, per-lease Hermes idempotency, graceful stop, and
-  process-boundary tests.
-- Immutable publication intent and exact parts delivered through a separate
-  recoverable publisher lease, including marker-based ambiguous-write recovery.
-- Repository-scoped exports with an operator-selected per-table row budget.
-- One validated deployment-profile selector with `sundsvall-standard` as the
-  shipped municipal profile. Profiles own voice, stable rules, presentation,
-  and an explicit reviewed-skill list; runtime security invariants remain in
-  the engine.
+- **Recovery:** Reviews are activated through signed admission, use exact-run
+  continuation, and publish through a recoverable publisher lease.
 
-PostgreSQL owns application persistence. Hermes `HERMES_HOME` remains separate
-profile-local runtime state.
+## Optional extensions
 
-## Planned platform capabilities
+- GitHub App installation tokens and repository lifecycle automation.
+- Trusted base-branch repository policy and `AGENTS.md` context.
+- Operator-facing repository management and policy controls.
+- Notification or collaboration channels beyond GitHub.
 
-- GitHub App installation tokens and webhook-based repository lifecycle;
-- trusted base-branch `.github/review-agent.yaml` and `AGENTS.md` context;
-- operator-facing repository and policy management;
-- broader notification and collaboration integrations after the core is stable.
+Each extension needs a concrete operator need, an owner, and a security review.
+The core platform does not depend on any of them.
 
-## Explicitly deferred
+## Outside the reviewer
 
-Trusted project context and policy overlays, GitHub App migration, Codex
-Security, scanner workers, SARIF aggregation, and security artifact storage are
-deferred. Existing security controls stay in place, and deterministic scanners
-should continue to run independently in repository CI.
+CodeQL, dependency scanning, SARIF aggregation, and other deterministic scanners
+belong in repository CI. Review Agent may discuss risks visible in a pull request,
+but it does not replace those controls or become the default merge owner.

@@ -17,9 +17,10 @@ weakening the proven review contract.
 The maintainability-first platform is implemented: PostgreSQL owns application
 state, admission and review work are durable and recoverable, and immutable
 publication intent reaches GitHub through a separately leased publisher. The
-final audit found one stale model-facing delivery description and one matching
-Security paragraph. Correct that contract, verify it, then repeat the read-only
-completion audit. Deferred integrations remain outside this core tranche.
+delivery contract now matches that lifecycle. Finish one bounded public
+documentation pass for navigation, local search, readable content, and accurate
+completed-platform copy, then repeat the read-only completion audit. Optional
+integrations remain outside this core tranche.
 
 ## Approved Sequencing Input
 

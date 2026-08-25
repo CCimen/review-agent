@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Correct one stale delivery contract, then repeat the final read-only audit."
+  tranche: "Finish the public documentation experience, then run the final read-only completion audit."
   status: active
 
 rules:
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 18
+  completed_write_tasks_in_thread: 19
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-24T19:41:41Z"
-  last_verified_revision: "007e1d7ddb8695650a7df3212395b32f7455a93f"
+  last_verified_revision: "d37c02c2c1ea790548ffcd0a4484e9fdf1dfd1a7"
 
-active_task: T111
+active_task: T112
 
 tasks:
   - id: T001
@@ -2175,7 +2175,7 @@ tasks:
   - id: T111
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Align the model-facing delivery schema and Security guide with the live durable publisher handoff, and protect that contract with one focused assertion."
     constraints:
@@ -2192,10 +2192,62 @@ tasks:
     stop_if:
       - "Source inspection reveals a second live publication lifecycle."
       - "The correction requires runtime behavior changes."
+    receipt:
+      result: done
+      summary: "Aligned the model-facing delivery schema and Security guide with the live durable publisher handoff, protected the schema contract, and removed stale final-audit orientation."
+      revision: "d37c02c2c1ea790548ffcd0a4484e9fdf1dfd1a7"
+      evidence:
+        - "Focused tool and documentation contracts passed; strict Pyright reported zero errors."
+        - "Docusaurus typecheck and a clean production build passed."
+        - "Claude session review-agent-t999-full-plan-audit iteration 4 reached green at score 8."
+      spawned_tasks:
+        - T112
+  - id: T112
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Finish the public documentation experience with clear navigation, static local search, readable wide content, accurate completed-platform copy, and a concise repository README."
+    constraints:
+      - "Reuse Docusaurus navigation, theme, and static-site primitives; do not build a second application shell or external search service."
+      - "Preserve the restrained civic Read-mode design and current accessibility contract in light and dark modes."
+      - "Describe the completed core platform as current; keep optional future integrations as boundaries rather than unfinished core-plan promises."
+      - "Do not expose private goal history or add decorative imagery, animation, a documentation framework, or broad copy churn."
+      - "Keep the search index limited to the ten public documents and generated at build time."
+    allowed_files:
+      - .github/workflows/docs-check.yml
+      - .github/workflows/docs-pages.yml
+      - README.md
+      - docs/HOW_REVIEWS_WORK.md
+      - docs/ROADMAP.md
+      - scripts/check_docs.py
+      - tests/test_docs_contract.py
+      - website/docusaurus.config.ts
+      - website/sidebars.ts
+      - website/package.json
+      - website/package-lock.json
+      - website/src/css/custom.css
+      - website/src/pages/index.tsx
+      - website/src/pages/index.module.css
+      - website/pnpm-workspace.yaml
+      - docs/goals/build-review-platform/**
+    expected_output:
+      - "Task-oriented desktop and mobile navigation"
+      - "Keyboard-accessible local documentation search with no hosted service"
+      - "Readable tables, diagrams, and prose at narrow and wide viewports"
+      - "Homepage, README, and capabilities page aligned with the completed core platform"
+    verify:
+      - "Run docs contracts, site typecheck, clean production build, local search-index checks, and the Impeccable detector once."
+      - "Inspect desktop and mobile layouts, search keyboard flow, overflow, focus, and light/dark contrast in one bounded visual pass."
+      - "Run one Claude Opus/high commit gate with score at least 8."
+    stop_if:
+      - "Search requires credentials, a hosted crawler, or indexing content outside the public allowlist."
+      - "The polish needs runtime changes or a second frontend architecture."
+      - "A dependency cannot prove Docusaurus 3 compatibility through its current primary documentation and clean build."
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-007e1d7d"
+  dirty_fingerprint: "goal-control-files-only-after-d37c02c2"
   last_verification:
     result: pass
     task: T108

@@ -10,7 +10,7 @@ const lifecycle = [
   ['Request', 'Trusted developer and signed webhook'],
   ['Lock snapshot', 'Exact base and head identity'],
   ['Analyze', 'Bounded reads and skeptical challenge'],
-  ['Publish', 'Recheck and deterministic delivery'],
+  ['Publish', 'Durable intent and recoverable delivery'],
   ['Improve', 'Human feedback and a fresh round'],
 ] as const;
 
@@ -36,7 +36,7 @@ const entryPoints = [
   {
     title: 'I assess security or architecture',
     description:
-      'Inspect trust boundaries, data handling, current limitations, and planned platform work.',
+      'Inspect trust boundaries, data handling, current capabilities, and product boundaries.',
     to: '/docs/security',
   },
 ] as const;
@@ -45,19 +45,19 @@ function Home(): ReactNode {
   return (
     <Layout
       title="Evidence-backed pull-request review"
-      description="Documentation for Review Agent: onboarding, behavior ownership, trust, operations, and roadmap."
+      description="Documentation for Review Agent: onboarding, configuration, security, operations, and capabilities."
     >
       <main className={styles.main}>
         <section className={styles.intro} aria-labelledby="home-title">
           <div className={styles.introCopy}>
-            <p className={styles.status}>Advisory · Pilot</p>
+            <p className={styles.status}>Advisory · Self-hosted</p>
             <Heading as="h1" id="home-title" className={styles.title}>
               Review pull requests with evidence, not guesswork.
             </Heading>
             <p className={styles.summary}>
-              Review Agent combines bounded model reasoning with
-              deterministic authorization, snapshot checks, durable memory, and
-              GitHub publication.
+              Review Agent combines bounded model reasoning with deterministic
+              authorization, exact snapshots, durable review state, and
+              recoverable GitHub publication.
             </p>
             <div className={styles.actions}>
               <Link className={styles.primaryAction} to="/docs/getting-started">
@@ -71,9 +71,9 @@ function Home(): ReactNode {
           <aside className={styles.trustNote} aria-label="Current deployment status">
             <strong>Available now</strong>
             <p>
-              One shared, advisory reviewer for an explicit repository allowlist.
-              It never executes contributor code and publishes only through
-              narrow deterministic gateways.
+              One shared reviewer serves an explicit repository allowlist.
+              Workers recover interrupted reviews and publication without giving
+              the model a shell or GitHub write token.
             </p>
           </aside>
         </section>
@@ -130,23 +130,23 @@ function Home(): ReactNode {
         <section className={clsx(styles.statusSection, styles.divided)} aria-labelledby="status-title">
           <div>
             <Heading as="h2" id="status-title">
-              Clear about what is current
+              Built for durable operation
             </Heading>
             <p>
-              Today the platform uses protected GitHub Actions workflows, HMAC
-              webhooks, repository-scoped tokens, durable review jobs with
-              crash recovery, a transactional publication outbox, and one
-              PostgreSQL database per environment.
+              Signed admission stores durable review jobs in one PostgreSQL
+              database per environment. Fenced workers process the exact
+              snapshot, and a transactional publication outbox hands immutable
+              review parts to a recoverable publisher.
             </p>
           </div>
           <div>
-            <Heading as="h2">Deliberate about what comes next</Heading>
+            <Heading as="h2">Add integrations when they earn their place</Heading>
             <p>
-              Next, the project plans GitHub App installation, trusted
-              base-branch repository context, and operator-facing repository
-              and policy management.
+              The core platform works without a GitHub App, repository policy
+              overlays, chat notifications, or bundled security scanners. Those
+              remain optional extensions with separate ownership.
             </p>
-            <Link to="/docs/roadmap">Read the current and planned capabilities</Link>
+            <Link to="/docs/roadmap">See capabilities and boundaries</Link>
           </div>
         </section>
       </main>

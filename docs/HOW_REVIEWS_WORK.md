@@ -4,13 +4,14 @@ slug: /how-reviews-work
 title: How reviews work
 description: The trusted path from a review request to deterministic GitHub publication.
 status: current
-last_verified: 2026-08-24
+last_verified: 2026-08-25
 ---
 
 # How reviews work
 
 > **Current** — This page describes the live request, review, persistence, and
-> publication path. A GitHub App remains planned work.
+> publication path. Optional integrations are listed under
+> [Capabilities and boundaries](./ROADMAP.md).
 
 The reviewer separates model reasoning from authorization, state transitions,
 and GitHub writes. The model can investigate and propose findings; deterministic

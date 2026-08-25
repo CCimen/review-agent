@@ -8,7 +8,6 @@ import re
 from argparse import ArgumentParser
 from datetime import date
 from pathlib import Path
-from typing import cast
 from urllib.parse import urlsplit
 
 
@@ -126,36 +125,29 @@ def validate_search_index(
         return ["built documentation is missing search-index.json"]
 
     try:
-        parsed: object = json.loads(index_path.read_text(encoding="utf-8"))
+        chunks = json.loads(index_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         return [f"built search index is unreadable: {exc}"]
-    if not isinstance(parsed, list):
+    if not isinstance(chunks, list):
         return ["built search index must be a JSON array"]
-    chunks = cast("list[object]", parsed)
 
     indexed_routes: set[str] = set()
     for chunk_number, chunk in enumerate(chunks, start=1):
         if not isinstance(chunk, dict):
             return [f"built search index chunk {chunk_number} must be an object"]
-        entries_value: object = cast("dict[str, object]", chunk).get("documents")
-        if not isinstance(entries_value, list):
+        entries = chunk.get("documents")
+        if not isinstance(entries, list):
             return [f"built search index chunk {chunk_number} has no document list"]
-        entries = cast("list[object]", entries_value)
         for entry_number, entry in enumerate(entries, start=1):
-            url_value: object = (
-                cast("dict[str, object]", entry).get("u")
-                if isinstance(entry, dict)
-                else None
-            )
-            if not isinstance(url_value, str):
+            if not isinstance(entry, dict) or not isinstance(entry.get("u"), str):
                 return [
                     "built search index chunk "
                     f"{chunk_number} entry {entry_number} has no URL"
                 ]
-            path = urlsplit(url_value).path
+            path = urlsplit(entry["u"]).path
             docs_offset = path.find(f"{DOCS_ROUTE_BASE}/")
             if docs_offset < 0:
-                return [f"built search index contains a non-document URL: {url_value}"]
+                return [f"built search index contains a non-document URL: {entry['u']}"]
             indexed_routes.add(path[docs_offset:].rstrip("/"))
 
     if indexed_routes == expected_routes:

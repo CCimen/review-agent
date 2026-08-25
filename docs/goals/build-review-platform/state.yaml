@@ -33,7 +33,7 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 5
+  completed_write_tasks_in_thread: 6
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "5a319a8634a429a8d73443bc098c922d4052a9a3"
@@ -2838,9 +2838,57 @@ tasks:
       - "The optimization requires unbounded queues, caches, fan-out, connections, memory, or a new infrastructure dependency."
       - "The representative benchmark cannot distinguish application work from PostgreSQL, Hermes/model, or host noise."
     receipt: null
+  - id: T202
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Correct the image build so the immutable Hermes digest is present in the runtime environment, and prove it from the built image rather than static Dockerfile text."
+    constraints:
+      - "Redeclare the existing Docker build argument in stage scope; do not change the pinned image, contract schema, or runtime behavior."
+      - "Add the smallest regression assertion and verify the real built image environment."
+      - "Resume the existing immutable-contract Claude session; do not start a new review session."
+      - "Return to T201 only after this recovery commit and receipt are pushed."
+    allowed_files:
+      - .github/workflows/ci.yml
+      - Dockerfile
+      - tests/test_dockerfile_tools.py
+      - docs/goals/build-review-platform/state.yaml
+    verify:
+      - "Build the image without an undefined HERMES_IMAGE warning."
+      - "Inspect REVIEW_AGENT_HERMES_IMAGE inside the built image and require the exact digest-pinned reference."
+      - "Run Dockerfile tests, Ruff, strict Pyright, and the relevant bundle checks."
+      - "Resume Claude Opus/high session review-agent-t200-effective-contract and require green at score at least 8."
+    stop_if:
+      - "The fix requires changing the base image, contract fields, installer, admission, or worker behavior."
+      - "The built image still has an empty or mutable Hermes identity."
+    receipt:
+      result: done
+      summary: "Restored the immutable Hermes image identity by redeclaring the Docker argument in stage scope and added a real built-image installer guard to CI."
+      commit: "2a0dbeabd694d9b413c3155cd6e285444011da9f"
+      changed_files:
+        - .github/workflows/ci.yml
+        - Dockerfile
+        - tests/test_dockerfile_tools.py
+      commands:
+        - cmd: "docker build --tag review-agent:contract-fix ."
+          status: pass
+          summary: "The image built without Docker's UndefinedVar warning."
+        - cmd: "built-image exact environment assertion and unprivileged installer smoke"
+          status: pass
+          summary: "The image contained the exact digest-pinned Hermes reference and created its managed receipt successfully."
+        - cmd: "focused Dockerfile/CI tests and ./scripts/check_bundle.sh"
+          status: pass
+          summary: "Ten focused tests and the 374-test bundle passed; strict Pyright reported zero errors."
+        - cmd: "Claude Opus/high recovery gate"
+          status: pass
+          summary: "The resumed review-agent-t200-effective-contract session reached green at score 8 on iteration 5."
+      evidence:
+        - "The static Dockerfile check now states FROM-to-ARG-to-ENV ordering without pinning whitespace."
+        - "CI exercises digest validation and receipt creation inside the image it builds, so the original empty-value regression fails before deployment."
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-25272f6d"
+  dirty_fingerprint: "goal-control-files-only-after-2a0dbeab"
   last_verification:
     result: pass
     task: T122
@@ -2850,4 +2898,4 @@ checks:
       - "374-test bundle with 135 expected database skips"
       - "Ten-document public documentation contract"
       - "Claude Opus/high session review-agent-t200-effective-contract green at score 8"
-      - "Source revision 25272f6d6813149956aa596e0f87d78c63b1afd3"
+      - "Source revision 2a0dbeabd694d9b413c3155cd6e285444011da9f"

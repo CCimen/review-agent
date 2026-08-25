@@ -2603,6 +2603,8 @@ tasks:
       - bootstrap/plugins/review_agent_tools/operator_application.py
       - tools/review_agent_memory.py
       - tests/test_postgres_migrations.py
+      - tests/test_postgres_runtime.py
+      - tests/test_postgres_schema.py
       - tests/test_postgres_jobs.py
       - tests/test_postgres_publications.py
       - tests/test_postgres_reporting_cli.py

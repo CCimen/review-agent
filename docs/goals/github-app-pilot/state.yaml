@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "84d21155327923ece564906aa3def666244194cc"
 
-active_task: T011
+active_task: T005
 
 tasks:
   - id: T001
@@ -255,15 +255,31 @@ tasks:
   - id: T005
     type: worker
     assignee: Worker
-    status: queued
+    status: active
     reasoning_hint: high
-    objective: "Add repository-scoped GitHub App JWT and installation-token minting behind a narrow internal token interface that does not expose the private key to Hermes."
-    allowed_files: []
-    verify: []
+    objective: "Add a dormant Review-Agent-specific review-read token service that reauthorizes one stable repository ID, signs a short-lived App JWT, exchanges it for a repository-restricted installation token, and caches only in process memory without exposing the private key to Hermes."
+    allowed_files:
+      - "requirements.txt"
+      - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "tests/test_github_app_auth.py"
+      - "tests/test_postgres_github_app.py"
+      - "tests/test_dockerfile_tools.py"
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_dockerfile_tools"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_auth.py bootstrap/plugins/review_agent_tools/postgres/github_app.py tests/test_github_app_auth.py tests/test_postgres_github_app.py tests/test_dockerfile_tools.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH python -m pip check"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
     stop_if:
-      - "Direct App admission has not passed local and live pilot verification."
-      - "Deletion would remove the only working route before the owner approves the pilot."
-      - "The change requires Sundsvallskommun access."
+      - "The implementation needs to expose the private key to Hermes, PostgreSQL, logs, or public responses."
+      - "A cached token can bypass current database authorization."
+      - "Repository restriction or permission reduction cannot be proved from the outbound request."
+      - "The design expands into a generic credential broker, provider framework, or persistent token store."
+      - "Tests require live credentials, Sundsvallskommun access, or GitHub App installation changes."
+      - "Files outside allowed_files are required."
+      - "Verification fails twice for the same unexplained reason."
     receipt: null
   - id: T006
     type: worker
@@ -338,7 +354,7 @@ tasks:
   - id: T011
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Choose and freeze the next smallest complete slice between event processing and repository-scoped token minting after durable intake."
     inputs:
@@ -358,7 +374,16 @@ tasks:
       - "verify"
       - "stop_if"
       - "Deferred pilot and cutover work"
-    receipt: null
+    receipt:
+      result: done
+      decision: "Implement repository-scoped token minting before direct App event processing. Review processing must fetch the current pull-request snapshot; using the PAT for that read would create a transitional credential dependency, while splitting lifecycle-only processing would leave the durable queue partly consumable."
+      next_allowed_task: T005
+      note: "notes/T011-next-slice-decision.md"
+      summary: "Froze one dormant, Review-Agent-specific review-read token owner. Every token return reauthorizes current PostgreSQL installation and repository access, restricts the exchange to one repository and minimum read permissions, and keeps the private key outside Hermes."
+      blocked_tasks:
+        - T006
+        - T007
+        - T008
   - id: T999
     type: judge
     assignee: Judge

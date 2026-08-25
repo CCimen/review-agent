@@ -30,12 +30,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 1
+  completed_write_tasks_in_thread: 2
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "0ad65321e59461425582445142fc7531723fc8c5"
+  last_verified_revision: "84d21155327923ece564906aa3def666244194cc"
 
-active_task: T009
+active_task: T011
 
 tasks:
   - id: T001
@@ -161,7 +161,7 @@ tasks:
   - id: T009
     type: scout
     assignee: Scout
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Freeze the existing webhook, admission, lease, normalization, and retention owners for T004 and propose the smallest durable direct-App intake slice."
     inputs:
@@ -180,20 +180,78 @@ tasks:
       - "Canonical owner map for webhook receipt, normalized command, lease, and admission"
       - "Exact T004 allowed_files, tests, failure modes, and rollback"
       - "Explicit payload retention and redelivery rules"
-    receipt: null
+    receipt:
+      result: done
+      note: "notes/T009-webhook-owner-map.md"
+      summary: "Kept direct App ingress in the existing admission server, pure normalization beside the shared signature verifier, and durable delivery/lease state in one new PostgreSQL owner. Froze bounded normalization, privacy, idempotency, failure, and rollback contracts."
+      evidence:
+        - "Existing admission server and HMAC boundary"
+        - "Existing run/job admission transaction"
+        - "Existing PostgreSQL lease patterns"
+        - "Official GitHub delivery ID, signature, acknowledgement, and redelivery contracts"
+      spawned_tasks:
+        - T004
   - id: T004
     type: worker
     assignee: Worker
-    status: queued
+    status: done
     reasoning_hint: high
     objective: "Add durable webhook-delivery intake, leasing, idempotent processing state, and bounded normalized payload persistence after T003 proves the lifecycle owner."
-    allowed_files: []
-    verify: []
+    allowed_files:
+      - "bootstrap/plugins/review_agent_tools/postgres_migrations/007_github_webhook_deliveries.sql"
+      - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+      - "bootstrap/plugins/review_agent_tools/github_webhook.py"
+      - "bootstrap/plugins/review_agent_tools/admission.py"
+      - "tools/review_agent_admission.py"
+      - "compose.yaml"
+      - ".env.example"
+      - "tests/test_github_webhook.py"
+      - "tests/test_postgres_webhook_deliveries.py"
+      - "tests/test_admission.py"
+      - "tests/test_postgres_migrations.py"
+      - "tests/test_postgres_runtime.py"
+      - "tests/test_postgres_schema.py"
+      - "tests/test_docs_contract.py"
+      - "scripts/check_postgres_schema.sh"
+    verify:
+      - "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests.test_github_webhook tests.test_admission"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
     stop_if:
-      - "T003 or its audit is incomplete."
+      - "The existing admission server cannot acknowledge only after a short durable commit."
       - "A live credential is required for local behavior tests."
       - "The change would leave two canonical admission paths without an explicit pilot deletion gate."
-    receipt: null
+      - "Normalized persistence would require raw webhook bodies or signatures."
+    receipt:
+      result: done
+      commit: "84d21155327923ece564906aa3def666244194cc"
+      summary: "Added dormant direct-App webhook intake with exact-byte signature verification, bounded typed normalization, immutable delivery identity, and fenced PostgreSQL lease, retry, and recovery state. Unsupported signed events acknowledge without persistence; malformed supported events fail with a fixed client error."
+      evidence:
+        - "Focused normalization and real HTTP seam: 21 tests passed"
+        - "PostgreSQL contract: 167 tests plus migration 7, readiness, backup, and restore passed"
+        - "Ruff passed on affected source and tests"
+        - "Pyright: 0 errors"
+        - "Claude Opus high commit gate: green, score 8"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -q tests.test_github_webhook tests.test_admission"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github_webhook.py bootstrap/plugins/review_agent_tools/admission.py bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py tools/review_agent_admission.py tests/test_github_webhook.py tests/test_admission.py tests/test_postgres_webhook_deliveries.py"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools/postgres_migrations/007_github_webhook_deliveries.sql"
+        - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+        - "bootstrap/plugins/review_agent_tools/github_webhook.py"
+        - "bootstrap/plugins/review_agent_tools/admission.py"
+        - "tools/review_agent_admission.py"
+        - "tests/test_github_webhook.py"
+        - "tests/test_postgres_webhook_deliveries.py"
+        - "tests/test_admission.py"
+        - "tests/test_postgres_migrations.py"
+        - "tests/test_postgres_runtime.py"
+        - "tests/test_postgres_schema.py"
+        - "scripts/check_postgres_schema.sh"
+      rollback: "Revert commit 84d21155 before enabling a live App secret. The migration is additive and the shipped Compose configuration does not expose the dormant route."
   - id: T005
     type: worker
     assignee: Worker
@@ -246,6 +304,61 @@ tasks:
       - "Generated LLM documentation would include non-public goal material."
       - "The slice expands into a custom administration UI."
     receipt: null
+  - id: T010
+    type: scout
+    assignee: Scout
+    status: done
+    reasoning_hint: high
+    objective: "Map the repository-scoped installation-token seam and the security constraints that must hold before Hermes reads or publishes through a GitHub App."
+    inputs:
+      - "T003 installation lifecycle"
+      - "T004 durable webhook intake"
+      - "Current source-read and publication owners"
+      - "Official GitHub App token contracts"
+    constraints:
+      - "Read-only."
+      - "Keep the private key outside Hermes."
+      - "Do not create a generic credential broker."
+      - "Do not touch Sundsvallskommun resources."
+    expected_output:
+      - "Canonical token owner and callers"
+      - "Repository-scope and lease proof"
+      - "Fork-read and permission constraints"
+      - "Exact risks for the next Judge"
+    receipt:
+      result: done
+      note: "notes/T010-token-owner-map.md"
+      summary: "Located one Review-Agent-specific internal token seam backed by PostgreSQL installation authorization. The private key stays outside Hermes, each token request binds stable repository identity to current installation access, and the processor must resolve fork-read behavior explicitly."
+      evidence:
+        - "Current GitHub source-read and publication adapters"
+        - "T003 installation and repository-access state"
+        - "Official installation-token lifetime, repository, and permission contracts"
+      spawned_tasks:
+        - T011
+  - id: T011
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Choose and freeze the next smallest complete slice between event processing and repository-scoped token minting after durable intake."
+    inputs:
+      - "T003 receipt"
+      - "T004 receipt"
+      - "T010 receipt and note"
+      - "docs/goals/github-app-pilot/goal.md"
+    constraints:
+      - "Read-only."
+      - "Do not require Sundsvallskommun access."
+      - "Reject a private key in Hermes and a generic credential framework."
+      - "Keep the existing PAT/Actions route until a CCimen/review-agent pilot is accepted."
+    expected_output:
+      - "Decision and dependency order"
+      - "Exact Worker objective"
+      - "allowed_files"
+      - "verify"
+      - "stop_if"
+      - "Deferred pilot and cutover work"
+    receipt: null
   - id: T999
     type: judge
     assignee: Judge
@@ -282,7 +395,8 @@ checks:
   dirty_fingerprint: "local worktree contains preserved user-owned documentation changes; exact commits must be staged from the remote base"
   last_verification:
     result: pass
-    task: T003
+    task: T004
     commands:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -q tests.test_github_webhook tests.test_admission"
       - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
       - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"

@@ -7,20 +7,17 @@ const sidebars: SidebarsConfig = {
       label: 'Start here',
       collapsed: false,
       items: [
+        'README',
         'docs/GETTING_STARTED',
-        'docs/DEPLOYMENT',
         'docs/HOW_REVIEWS_WORK',
+        'examples/comments/example-review',
       ],
     },
     {
       type: 'category',
-      label: 'Understand',
+      label: 'Set up',
       collapsed: false,
-      items: [
-        'README',
-        'docs/BEHAVIOR_OWNERSHIP',
-        'examples/comments/example-review',
-      ],
+      items: ['docs/DEPLOYMENT', 'docs/BEHAVIOR_OWNERSHIP'],
     },
     {
       type: 'category',
@@ -30,7 +27,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Architecture',
+      label: 'Reference',
       collapsed: false,
       items: ['docs/ROADMAP'],
     },

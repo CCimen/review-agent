@@ -72,8 +72,8 @@ function Home(): ReactNode {
             <strong>Available now</strong>
             <p>
               One shared, advisory reviewer for an explicit repository allowlist.
-              It reads no contributor code through a shell and publishes only
-              through narrow deterministic gateways.
+              It never executes contributor code and publishes only through
+              narrow deterministic gateways.
             </p>
           </aside>
         </section>
@@ -134,16 +134,17 @@ function Home(): ReactNode {
             </Heading>
             <p>
               Today the platform uses protected GitHub Actions workflows, HMAC
-              webhooks, repository-scoped tokens, Docker/Dokploy, and one
+              webhooks, repository-scoped tokens, durable review jobs with
+              crash recovery, a transactional publication outbox, and one
               PostgreSQL database per environment.
             </p>
           </div>
           <div>
             <Heading as="h2">Deliberate about what comes next</Heading>
             <p>
-              Next, the project will add durable review jobs with explicit
-              crash recovery, fair bounded concurrency, and a transactional
-              publication outbox.
+              Next, the project plans GitHub App installation, trusted
+              base-branch repository context, and operator-facing repository
+              and policy management.
             </p>
             <Link to="/docs/roadmap">Read the current and planned capabilities</Link>
           </div>

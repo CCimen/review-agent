@@ -43,6 +43,22 @@ const config: Config = {
       } satisfies Preset.Options,
     ],
   ],
+  themes: [
+    [
+      '@easyops-cn/docusaurus-search-local',
+      {
+        indexDocs: true,
+        indexBlog: false,
+        indexPages: false,
+        docsRouteBasePath: '/docs',
+        language: 'en',
+        hashed: false,
+        searchBarShortcut: true,
+        searchBarShortcutHint: true,
+        searchBarPosition: 'right',
+      },
+    ],
+  ],
   themeConfig: {
     colorMode: {
       defaultMode: 'light',
@@ -55,11 +71,11 @@ const config: Config = {
           type: 'docSidebar',
           sidebarId: 'documentation',
           position: 'left',
-          label: 'Documentation',
+          label: 'Docs',
         },
         {
-          to: '/docs/behavior-ownership',
-          label: 'Configure',
+          to: '/docs/deployment',
+          label: 'Deploy',
           position: 'left',
         },
         {
@@ -69,12 +85,7 @@ const config: Config = {
         },
         {
           to: '/docs/roadmap',
-          label: 'Architecture',
-          position: 'left',
-        },
-        {
-          to: '/docs/faq',
-          label: 'FAQ',
+          label: 'Capabilities',
           position: 'left',
         },
         {
@@ -97,8 +108,14 @@ const config: Config = {
           title: 'Start here',
           items: [
             {label: 'Getting started', to: '/docs/getting-started'},
-            {label: 'Deploy', to: '/docs/deployment'},
             {label: 'How reviews work', to: '/docs/how-reviews-work'},
+          ],
+        },
+        {
+          title: 'Set up',
+          items: [
+            {label: 'Deploy', to: '/docs/deployment'},
+            {label: 'Configure behavior', to: '/docs/behavior-ownership'},
           ],
         },
         {
@@ -115,7 +132,8 @@ const config: Config = {
               label: 'Source on GitHub',
               href: 'https://github.com/CCimen/review-agent',
             },
-            {label: 'Current and planned', to: '/docs/roadmap'},
+            {label: 'Capabilities', to: '/docs/roadmap'},
+            {label: 'FAQ', to: '/docs/faq'},
           ],
         },
       ],

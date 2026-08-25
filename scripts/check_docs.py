@@ -8,10 +8,13 @@ import re
 from argparse import ArgumentParser
 from datetime import date
 from pathlib import Path
+from typing import cast
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "website" / "public-documents.json"
+DOCS_ROUTE_BASE = "/docs"
 ALLOWED_STATUSES = {"current", "transitional", "target", "proposal"}
 FORBIDDEN_PREFIXES = ("docs/goals/", "docs-internal/", "review-learning/", "bootstrap/")
 LOCAL_PATH = re.compile(r"(?:^|[\s(`])(?:/Users/|/home/)")
@@ -79,7 +82,7 @@ def document_route(relative_path: str) -> str:
     slug = front_matter(text, relative_path).get("slug", "")
     if not slug.startswith("/") or slug == "/":
         raise ValueError(f"{relative_path}: slug must be an absolute non-root path")
-    return f"/docs{slug.rstrip('/')}"
+    return f"{DOCS_ROUTE_BASE}{slug.rstrip('/')}"
 
 
 def built_route(path: Path, build_directory: Path) -> str:
@@ -94,16 +97,15 @@ def validate_built_routes(build_directory: Path, documents: list[str]) -> list[s
     if not build_directory.is_dir():
         return [f"{build_directory}: documentation build directory does not exist"]
 
-    expected = {"/", "/404"}
+    # The local-search theme owns one public, prerendered search page.
+    expected = {"/", "/404", "/search"}
     try:
-        expected.update(document_route(document) for document in documents)
+        document_routes = {document_route(document) for document in documents}
+        expected.update(document_routes)
     except ValueError as exc:
         return [str(exc)]
 
     actual = {built_route(path, build_directory) for path in build_directory.rglob("*.html")}
-    if actual == expected:
-        return []
-
     errors: list[str] = []
     missing = sorted(expected - actual)
     unexpected = sorted(actual - expected)
@@ -111,6 +113,61 @@ def validate_built_routes(build_directory: Path, documents: list[str]) -> list[s
         errors.append(f"built documentation is missing routes: {', '.join(missing)}")
     if unexpected:
         errors.append(f"built documentation has unexpected routes: {', '.join(unexpected)}")
+    errors.extend(validate_search_index(build_directory, document_routes))
+    return errors
+
+
+def validate_search_index(
+    build_directory: Path, expected_routes: set[str]
+) -> list[str]:
+    # docusaurus-search-local 0.55.3 emits [{"documents": [{"u": ...}]}].
+    index_path = build_directory / "search-index.json"
+    if not index_path.is_file():
+        return ["built documentation is missing search-index.json"]
+
+    try:
+        parsed: object = json.loads(index_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        return [f"built search index is unreadable: {exc}"]
+    if not isinstance(parsed, list):
+        return ["built search index must be a JSON array"]
+    chunks = cast("list[object]", parsed)
+
+    indexed_routes: set[str] = set()
+    for chunk_number, chunk in enumerate(chunks, start=1):
+        if not isinstance(chunk, dict):
+            return [f"built search index chunk {chunk_number} must be an object"]
+        entries_value: object = cast("dict[str, object]", chunk).get("documents")
+        if not isinstance(entries_value, list):
+            return [f"built search index chunk {chunk_number} has no document list"]
+        entries = cast("list[object]", entries_value)
+        for entry_number, entry in enumerate(entries, start=1):
+            url_value: object = (
+                cast("dict[str, object]", entry).get("u")
+                if isinstance(entry, dict)
+                else None
+            )
+            if not isinstance(url_value, str):
+                return [
+                    "built search index chunk "
+                    f"{chunk_number} entry {entry_number} has no URL"
+                ]
+            path = urlsplit(url_value).path
+            docs_offset = path.find(f"{DOCS_ROUTE_BASE}/")
+            if docs_offset < 0:
+                return [f"built search index contains a non-document URL: {url_value}"]
+            indexed_routes.add(path[docs_offset:].rstrip("/"))
+
+    if indexed_routes == expected_routes:
+        return []
+
+    errors: list[str] = []
+    missing = sorted(expected_routes - indexed_routes)
+    unexpected = sorted(indexed_routes - expected_routes)
+    if missing:
+        errors.append(f"built search index is missing routes: {', '.join(missing)}")
+    if unexpected:
+        errors.append(f"built search index has unexpected routes: {', '.join(unexpected)}")
     return errors
 
 
@@ -119,7 +176,7 @@ def main() -> int:
     parser.add_argument(
         "--build-dir",
         type=Path,
-        help="also require the built HTML routes to match the public manifest exactly",
+        help="also require built HTML routes and the search index to match the public manifest",
     )
     args = parser.parse_args()
 

@@ -68,13 +68,26 @@ function Home(): ReactNode {
               </Link>
             </div>
           </div>
-          <aside className={styles.trustNote} aria-label="Current deployment status">
-            <strong>Available now</strong>
-            <p>
-              One shared reviewer serves an explicit repository allowlist.
-              Workers recover interrupted reviews and publication without giving
-              the model a shell or GitHub write token.
-            </p>
+          <aside className={styles.exchange} aria-label="What a review looks like">
+            <div className={styles.exchangeTurn}>
+              <span className={styles.exchangeMeta}>Developer · PR comment</span>
+              <p className={styles.exchangeCommand}>
+                <code>/review</code>
+              </p>
+            </div>
+            <div className={styles.exchangeTurn}>
+              <span className={styles.exchangeMeta}>Review Agent · published review</span>
+              <p className={styles.exchangeTitle}>
+                F1 · Medium (P2): Retry delay uses milliseconds as seconds
+              </p>
+              <p className={styles.exchangeBody}>
+                <code>src/jobs/retry.py:87</code> · correctness · one GitHub
+                suggestion ready to apply
+              </p>
+            </div>
+            <Link className={styles.exchangeLink} to="/docs/example-review">
+              Read the full sanitized example
+            </Link>
           </aside>
         </section>
 

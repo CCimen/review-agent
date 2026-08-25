@@ -71,24 +71,59 @@
   text-decoration: none;
 }
 
-.trustNote {
+.exchange {
   background: var(--review-agent-accent-surface);
   border-radius: 0.75rem;
   color: var(--ifm-font-color-base);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
   padding: 1.5rem;
 }
 
-.trustNote strong {
+.exchangeTurn + .exchangeTurn {
+  border-top: 1px solid var(--ifm-toc-border-color);
+  padding-top: 1.1rem;
+}
+
+.exchangeMeta {
   color: var(--review-agent-accent-text);
   display: block;
-  font-size: 0.875rem;
+  font-size: 0.8rem;
+  font-weight: 700;
   letter-spacing: 0.04em;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
   text-transform: uppercase;
 }
 
-.trustNote p {
+.exchangeCommand {
   margin: 0;
+}
+
+.exchangeCommand code {
+  font-size: 1.05rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.exchangeTitle {
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 0 0 0.4rem;
+}
+
+.exchangeBody {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.exchangeBody code {
+  font-size: 0.85rem;
+}
+
+.exchangeLink {
+  font-weight: 700;
 }
 
 .lifecycleSection,

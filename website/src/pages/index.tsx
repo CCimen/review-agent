@@ -1,42 +1,62 @@
 import type {ReactNode} from 'react';
-import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import CodeBlock from '@theme/CodeBlock';
+import {Check, X} from 'lucide-react';
 
 import styles from './index.module.css';
 
 const lifecycle = [
-  ['Request', 'Trusted developer and signed webhook'],
-  ['Lock snapshot', 'Exact base and head identity'],
-  ['Analyze', 'Bounded reads and skeptical challenge'],
-  ['Publish', 'Durable intent and recoverable delivery'],
-  ['Improve', 'Human feedback and a fresh round'],
+  [
+    '/review requested',
+    'A trusted developer asks for a review with a pull-request comment.',
+  ],
+  ['Snapshot locked', 'The exact base and head commits are pinned and recorded.'],
+  ['Diff analyzed', 'Bounded read tools feed a two-pass, evidence-first review.'],
+  [
+    'Review published',
+    'Stored findings reach GitHub through a recoverable publisher.',
+  ],
 ] as const;
 
-const entryPoints = [
+const setupSteps = [
+  ['Deploy the service', 'Start the reviewer stack and PostgreSQL from compose.yaml.'],
+  [
+    'Connect GitHub',
+    'Install the trusted workflow, set its secrets, and define the repository allowlist.',
+  ],
+  [
+    'Run /review',
+    'Comment on an open pull request; a changed snapshot starts a new round.',
+  ],
+] as const;
+
+const tasks = [
   {
-    title: 'I am reviewing a pull request',
-    description:
-      'Understand what the reviewer checks, which evidence it uses, and how it publishes results.',
+    name: 'Reviewing a pull request',
+    description: 'Understand checks, evidence, publication, and feedback.',
+    label: 'How reviews work',
     to: '/docs/how-reviews-work',
   },
   {
-    title: 'I maintain a repository',
-    description:
-      'Add a repository and find the owner for identity, rules, procedure, and runtime wiring.',
+    name: 'Maintaining a repository',
+    description: 'Add a repository and find who owns policy and runtime wiring.',
+    label: 'Behavior ownership',
     to: '/docs/behavior-ownership',
   },
   {
-    title: 'I operate the platform',
-    description:
-      'Deploy, configure, observe, recover, back up, and update the shared service.',
+    name: 'Operating the platform',
+    description: 'Deploy, configure, observe, recover, back up, and update the service.',
+    label: 'Operations',
     to: '/docs/operations',
   },
   {
-    title: 'I assess security or architecture',
-    description:
-      'Inspect trust boundaries, data handling, current capabilities, and product boundaries.',
+    name: 'Assessing security or architecture',
+    description: 'Inspect trust boundaries, data handling, and current capabilities.',
+    label: 'Security model',
     to: '/docs/security',
   },
 ] as const;
@@ -48,118 +68,189 @@ function Home(): ReactNode {
       description="Documentation for Review Agent: onboarding, configuration, security, operations, and capabilities."
     >
       <main className={styles.main}>
-        <section className={styles.intro} aria-labelledby="home-title">
-          <div className={styles.introCopy}>
-            <p className={styles.status}>Advisory · Self-hosted</p>
-            <Heading as="h1" id="home-title" className={styles.title}>
-              Review pull requests with evidence, not guesswork.
+        <section aria-labelledby="home-title">
+          <div className={styles.container}>
+            <div className={styles.hero}>
+              <div>
+                <Heading as="h1" id="home-title" className={styles.title}>
+                  Review pull requests against the exact code that changed.
+                </Heading>
+                <p className={styles.summary}>
+                  Review Agent is a self-hosted advisory reviewer for GitHub. It
+                  pins the base and head commits, analyzes the diff through
+                  bounded read tools, and publishes evidence-backed findings
+                  without giving the model GitHub write access.
+                </p>
+                <div className={styles.actions}>
+                  <Link className={styles.primaryAction} to="/docs/getting-started">
+                    Run the first review
+                  </Link>
+                  <Link className={styles.secondaryAction} to="/docs/example-review">
+                    See an example review
+                  </Link>
+                </div>
+              </div>
+              <aside className={styles.artifact} aria-label="Sanitized example review">
+                <p className={styles.artifactHead}>Example review</p>
+                <div className={styles.artifactMeta}>
+                  <span>Pull request #123</span>
+                  <code>/review</code>
+                </div>
+                <div className={styles.artifactMeta}>
+                  <span>
+                    head <code>a1b2c3d</code>
+                  </span>
+                  <span className={styles.severity}>Medium (P2)</span>
+                </div>
+                <div className={styles.artifactBody}>
+                  <p className={styles.artifactTitle}>
+                    F1 · Retry delay uses milliseconds as seconds
+                  </p>
+                  <p className={styles.artifactPath}>
+                    <code>src/jobs/retry.py:87</code> · correctness
+                  </p>
+                  <p className={styles.artifactText}>
+                    The setting is documented in milliseconds, but the changed
+                    scheduler call passes it to an API that waits in seconds.
+                  </p>
+                </div>
+                <p className={styles.artifactStatus}>Published</p>
+              </aside>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="lifecycle-title">
+          <div className={styles.container}>
+            <Heading as="h2" id="lifecycle-title" className={styles.sectionTitle}>
+              From /review to published findings
             </Heading>
-            <p className={styles.summary}>
-              Review Agent combines bounded model reasoning with deterministic
-              authorization, exact snapshots, durable review state, and
-              recoverable GitHub publication.
-            </p>
-            <div className={styles.actions}>
-              <Link className={styles.primaryAction} to="/docs/getting-started">
-                Run the first review
-              </Link>
-              <Link className={styles.secondaryAction} to="/docs/how-reviews-work">
-                See how reviews work
-              </Link>
-            </div>
-          </div>
-          <aside className={styles.exchange} aria-label="What a review looks like">
-            <div className={styles.exchangeTurn}>
-              <span className={styles.exchangeMeta}>Developer · PR comment</span>
-              <p className={styles.exchangeCommand}>
-                <code>/review</code>
-              </p>
-            </div>
-            <div className={styles.exchangeTurn}>
-              <span className={styles.exchangeMeta}>Review Agent · published review</span>
-              <p className={styles.exchangeTitle}>
-                F1 · Medium (P2): Retry delay uses milliseconds as seconds
-              </p>
-              <p className={styles.exchangeBody}>
-                <code>src/jobs/retry.py:87</code> · correctness · one GitHub
-                suggestion ready to apply
-              </p>
-            </div>
-            <Link className={styles.exchangeLink} to="/docs/example-review">
-              Read the full sanitized example
-            </Link>
-          </aside>
-        </section>
-
-        <section className={styles.lifecycleSection} aria-labelledby="lifecycle-title">
-          <Heading as="h2" id="lifecycle-title">
-            One traceable review path
-          </Heading>
-          <ol className={styles.lifecycle}>
-            {lifecycle.map(([name, description]) => (
-              <li key={name}>
-                <span>{name}</span>
-                <small>{description}</small>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <section className={styles.entrySection} aria-labelledby="entry-title">
-          <Heading as="h2" id="entry-title">
-            Start with the task in front of you
-          </Heading>
-          <div>
-            {entryPoints.map((entry) => (
-              <Link className={styles.entry} to={entry.to} key={entry.title}>
-                <span>{entry.title}</span>
-                <p>{entry.description}</p>
-              </Link>
-            ))}
+            <ol className={styles.lifecycle}>
+              {lifecycle.map(([name, description]) => (
+                <li key={name}>
+                  <span>{name}</span>
+                  <small>{description}</small>
+                </li>
+              ))}
+            </ol>
+            <p className={styles.lifecycleReturn}>Human feedback starts a new round.</p>
           </div>
         </section>
 
-        <section className={styles.boundariesSection} aria-label="Product boundaries">
-          <div>
-            <Heading as="h2">What it does</Heading>
-            <ul>
-              <li>Reviews one exact base-to-head snapshot.</li>
-              <li>Challenges actionable correctness, security, contract, and maintainability risks.</li>
-              <li>Preserves findings, coverage, publication state, and human feedback.</li>
-              <li>Publishes through deterministic application code.</li>
-            </ul>
-          </div>
-          <div>
-            <Heading as="h2">What it does not do</Heading>
-            <ul>
-              <li>Execute contributor code through a general shell.</li>
-              <li>Treat pull-request text as trusted instructions.</li>
-              <li>Replace deterministic CI or human merge ownership.</li>
-              <li>Give the model arbitrary GitHub write access.</li>
-            </ul>
-          </div>
-        </section>
-
-        <section className={clsx(styles.statusSection, styles.divided)} aria-labelledby="status-title">
-          <div>
-            <Heading as="h2" id="status-title">
-              Built for durable operation
+        <section className={styles.band} aria-labelledby="setup-title">
+          <div className={styles.container}>
+            <Heading as="h2" id="setup-title" className={styles.sectionTitle}>
+              Set up the reviewer
             </Heading>
-            <p>
-              Signed admission stores durable review jobs in one PostgreSQL
-              database per environment. Fenced workers process the exact
-              snapshot, and a transactional publication outbox hands immutable
-              review parts to a recoverable publisher.
-            </p>
+            <div className={styles.setup}>
+              <div className={styles.setupDeploy}>
+                <Tabs groupId="deployment-platform">
+                  <TabItem value="compose" label="Compose / Dokploy" default>
+                    <CodeBlock language="bash">
+                      {'docker compose config --quiet\ndocker compose up -d --build\ndocker compose ps'}
+                    </CodeBlock>
+                  </TabItem>
+                  <TabItem value="coolify-portainer" label="Coolify / Portainer">
+                    <p className={styles.setupNote}>
+                      Import <code>compose.yaml</code> as a Compose stack and
+                      enter the values from <code>.env.example</code> in the
+                      platform secret UI.
+                    </p>
+                  </TabItem>
+                  <TabItem value="openshift" label="OpenShift">
+                    <CodeBlock language="bash">
+                      {'oc process -f examples/openshift/review-agent-template.yaml \\\n  -p IMAGE="$REVIEW_AGENT_IMAGE" \\\n  -p PROFILE=sundsvall-standard \\\n  -p ALLOWED_REPOSITORIES=\'org/repository\' | oc apply -f -'}
+                    </CodeBlock>
+                  </TabItem>
+                </Tabs>
+                <p className={styles.setupLinks}>
+                  <Link to="/docs/deployment">Open the deployment guide</Link>
+                  <Link to="/docs/behavior-ownership">Configure behavior</Link>
+                </p>
+              </div>
+              <ol className={styles.setupSteps}>
+                {setupSteps.map(([name, description]) => (
+                  <li key={name}>
+                    <span>{name}</span>
+                    <small>{description}</small>
+                  </li>
+                ))}
+              </ol>
+            </div>
           </div>
-          <div>
-            <Heading as="h2">Add integrations when they earn their place</Heading>
-            <p>
-              The core platform works without a GitHub App, repository policy
-              overlays, chat notifications, or bundled security scanners. Those
-              remain optional extensions with separate ownership.
+        </section>
+
+        <section aria-labelledby="tasks-title">
+          <div className={styles.container}>
+            <Heading as="h2" id="tasks-title" className={styles.sectionTitle}>
+              Find the guide for your task
+            </Heading>
+            <div className={styles.taskList}>
+              {tasks.map((task) => (
+                <div className={styles.task} key={task.name}>
+                  <span className={styles.taskName}>{task.name}</span>
+                  <p className={styles.taskDescription}>{task.description}</p>
+                  <Link to={task.to}>{task.label}</Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.band} aria-labelledby="boundaries-title">
+          <div className={styles.container}>
+            <Heading as="h2" id="boundaries-title" className={styles.sectionTitle}>
+              Operating boundaries
+            </Heading>
+            <p className={styles.boundariesLead}>
+              The model proposes findings. Application code owns identity,
+              state, authorization, and publication.
             </p>
-            <Link to="/docs/roadmap">See capabilities and boundaries</Link>
+            <div className={styles.boundaries}>
+              <div className={styles.does}>
+                <Heading as="h3">The reviewer does</Heading>
+                <ul>
+                  <li>
+                    <Check size={16} strokeWidth={2.5} aria-hidden="true" />
+                    <span>Review one exact base-to-head snapshot.</span>
+                  </li>
+                  <li>
+                    <Check size={16} strokeWidth={2.5} aria-hidden="true" />
+                    <span>
+                      Preserve findings, coverage, publication state, and human
+                      feedback.
+                    </span>
+                  </li>
+                  <li>
+                    <Check size={16} strokeWidth={2.5} aria-hidden="true" />
+                    <span>Publish through deterministic application code.</span>
+                  </li>
+                </ul>
+              </div>
+              <div className={styles.doesNot}>
+                <Heading as="h3">The reviewer does not</Heading>
+                <ul>
+                  <li>
+                    <X size={16} strokeWidth={2.5} aria-hidden="true" />
+                    <span>Execute contributor code through a general shell.</span>
+                  </li>
+                  <li>
+                    <X size={16} strokeWidth={2.5} aria-hidden="true" />
+                    <span>Treat pull-request text as trusted instructions.</span>
+                  </li>
+                  <li>
+                    <X size={16} strokeWidth={2.5} aria-hidden="true" />
+                    <span>Receive arbitrary GitHub write access.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <p className={styles.boundariesNote}>
+              Signed webhook admission stores durable review jobs in one
+              PostgreSQL database per environment, and a transactional
+              publication outbox hands immutable comment parts to a recoverable
+              publisher.
+            </p>
           </div>
         </section>
       </main>

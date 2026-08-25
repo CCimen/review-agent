@@ -112,8 +112,10 @@ a {
   max-width: 100%;
 }
 
+/* One shared reading measure. rem, not ch: a ch cap measured in a heading's
+   own 32px font lets an h2 grow past the page in print and reader views. */
 .theme-doc-markdown > :where(h1, h2, h3, h4, p:not(:has(> img)), ul, ol, blockquote) {
-  max-width: 72ch;
+  max-width: 40rem;
 }
 
 .theme-doc-markdown > h1:first-child {
@@ -237,6 +239,36 @@ pre {
 .footer__link-item,
 .footer__title {
   color: var(--ifm-font-color-base);
+}
+
+@media print {
+  .theme-doc-sidebar-container,
+  .theme-doc-toc-mobile,
+  .theme-doc-toc-desktop,
+  .theme-doc-breadcrumbs,
+  .theme-edit-this-page,
+  .pagination-nav,
+  .footer {
+    display: none !important;
+  }
+
+  .theme-doc-markdown h2,
+  .theme-doc-markdown h3 {
+    break-after: avoid;
+    margin-top: 2rem;
+  }
+
+  .theme-doc-markdown pre,
+  .theme-doc-markdown table,
+  .theme-doc-markdown blockquote {
+    break-inside: avoid;
+  }
+
+  .theme-doc-markdown p,
+  .theme-doc-markdown li {
+    orphans: 3;
+    widows: 3;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

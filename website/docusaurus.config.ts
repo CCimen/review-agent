@@ -126,16 +126,19 @@ const config: Config = {
           to: '/docs/deployment',
           label: 'Deploy',
           position: 'left',
+          activeBaseRegex: '(?!)',
         },
         {
           to: '/docs/operations',
           label: 'Operate',
           position: 'left',
+          activeBaseRegex: '(?!)',
         },
         {
           to: '/docs/roadmap',
           label: 'Capabilities',
           position: 'left',
+          activeBaseRegex: '(?!)',
         },
         {
           href: 'https://github.com/CCimen/review-agent',

@@ -676,9 +676,13 @@ class PostgreSQLJobTests(unittest.TestCase):
                 retry_delay=timedelta(seconds=1),
             )
             run = review_runs.get_run(connection, started.run.id)
+            failure_status = review_runs.failure_status_target(
+                connection, started.run.id
+            )
         self.assertEqual(outcome.job.status, jobs.ReviewJobStatus.DEAD_LETTER)
         self.assertEqual(run.status, ReviewStatus.FAILED)
         self.assertEqual(run.failure_code, failure_codes.JOB_RETRY_EXHAUSTED)
+        self.assertEqual(failure_status.delivery_status, "pending")
 
     def test_claimed_failure_reports_lease_loss_after_run_terminalization(self) -> None:
         pull_request = self.pull_request(provider_id=1023, number=33)

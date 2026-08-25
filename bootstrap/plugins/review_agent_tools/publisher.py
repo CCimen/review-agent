@@ -14,9 +14,12 @@ import psycopg
 
 from . import failure_codes, review_run_application
 from .github.publication import GitHubPublicationGateway
-from .postgres import publications
+from .postgres import publications, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
-from .review_publication_application import publish_postgres_publication
+from .review_publication_application import (
+    publish_postgres_publication,
+    publish_postgres_run_failure_status,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +60,12 @@ class PublisherPolicy:
             raise PublisherConfigurationError("max_comment_bytes must be positive")
 
 
+@dataclass(frozen=True, slots=True)
+class _ClaimedWork:
+    publication: publications.StoredPublication | None = None
+    failure_status: review_runs.FailureStatusTarget | None = None
+
+
 class PublicationWorker:
     """Claim and deliver one exact stored publication at a time."""
 
@@ -77,6 +86,7 @@ class PublicationWorker:
         self._policy = policy
         self._lease_owner = owner
         self._stop = stop_event
+        self._prefer_failure_status = False
 
     def run(self, *, once: bool = False) -> None:
         while not self._stop.is_set():
@@ -94,13 +104,23 @@ class PublicationWorker:
                     return
                 continue
             try:
-                self._deliver(claim.publication)
+                if claim.publication is not None:
+                    self._deliver(claim.publication)
+                elif claim.failure_status is not None:
+                    self._deliver_failure_status(claim.failure_status)
             except _TRANSIENT_DATABASE_ERRORS as exc:
                 if once:
                     raise
+                work_id = (
+                    int(claim.publication.id)
+                    if claim.publication is not None
+                    else int(claim.failure_status.run_id)
+                    if claim.failure_status is not None
+                    else 0
+                )
                 logger.warning(
                     "Publication %s state update deferred: %s",
-                    int(claim.publication.id),
+                    work_id,
                     exc,
                 )
                 if self._stop.wait(self._policy.poll_interval.total_seconds()):
@@ -108,7 +128,7 @@ class PublicationWorker:
             if once:
                 return
 
-    def _claim(self) -> publications.PublicationClaim | None:
+    def _claim(self) -> _ClaimedWork | None:
         with self._runtime.transaction() as connection:
             exhausted = publications.fail_one_expired_exhausted_publication(
                 connection
@@ -119,11 +139,71 @@ class PublicationWorker:
                     exhausted.review_run_id,
                     failure_code=failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
                 )
-            return publications.claim_next_publication(
-                connection,
-                lease_owner=self._lease_owner,
+            if self._prefer_failure_status:
+                failure_claim = review_runs.claim_next_failure_status(
+                    connection, lease_owner=self._lease_owner,
+                    lease_duration=self._policy.lease_duration,
+                )
+                if failure_claim is not None:
+                    self._prefer_failure_status = False
+                    return _ClaimedWork(failure_status=failure_claim.target)
+            publication_claim = publications.claim_next_publication(
+                connection, lease_owner=self._lease_owner,
                 lease_duration=self._policy.lease_duration,
             )
+            if publication_claim is not None:
+                self._prefer_failure_status = True
+                if not publication_claim.acquired:
+                    return None
+                return _ClaimedWork(publication=publication_claim.publication)
+            failure_claim = review_runs.claim_next_failure_status(
+                connection, lease_owner=self._lease_owner,
+                lease_duration=self._policy.lease_duration,
+            )
+            if failure_claim is None:
+                return None
+            self._prefer_failure_status = False
+            return _ClaimedWork(failure_status=failure_claim.target)
+
+    def _deliver_failure_status(self, target: review_runs.FailureStatusTarget) -> None:
+        stop = threading.Event()
+        lost = threading.Event()
+        heartbeat = threading.Thread(
+            target=self._heartbeat_failure_status, args=(target, stop, lost),
+            name=f"failure-status-{int(target.run_id)}-heartbeat",
+        )
+        heartbeat.start()
+        try:
+            publish_postgres_run_failure_status(
+                self._runtime, run_id=int(target.run_id), github=self._github,
+                lease_owner=self._lease_owner,
+                lease_generation=target.delivery_lease_generation,
+                retry_delay=self._policy.retry_delay, lease_lost=lost,
+            )
+        except review_runs.FailureStatusLeaseLost:
+            logger.info("Failure status %s lost its lease", int(target.run_id))
+        finally:
+            stop.set()
+            heartbeat.join()
+
+    def _heartbeat_failure_status(
+        self, target: review_runs.FailureStatusTarget,
+        stop: threading.Event, lost: threading.Event,
+    ) -> None:
+        while not stop.wait(self._policy.heartbeat_interval.total_seconds()):
+            try:
+                with self._runtime.transaction() as connection:
+                    review_runs.heartbeat_failure_status(
+                        connection, run_id=target.run_id,
+                        lease_owner=self._lease_owner,
+                        lease_generation=target.delivery_lease_generation,
+                        lease_duration=self._policy.lease_duration,
+                    )
+            except review_runs.FailureStatusLeaseLost:
+                lost.set()
+                return
+            except _TRANSIENT_DATABASE_ERRORS as exc:
+                logger.warning("Failure status %s heartbeat deferred: %s", int(target.run_id), exc)
 
     def _deliver(self, publication: publications.StoredPublication) -> None:
         heartbeat_stop = threading.Event()

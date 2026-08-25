@@ -1087,8 +1087,9 @@ def claim_next_publication(
         LIMIT 1
         """
     ).fetchone()
+    terminal_claim = None
     if terminal is not None:
-        claim_publication(
+        terminal_claim = claim_publication(
             connection,
             PublicationId(int(terminal[0])),
             lease_owner=lease_owner,
@@ -1122,7 +1123,7 @@ def claim_next_publication(
         """
     ).fetchone()
     if row is None:
-        return None
+        return terminal_claim
     claim = claim_publication(
         connection,
         PublicationId(int(row[0])),

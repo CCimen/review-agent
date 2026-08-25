@@ -4,6 +4,7 @@ import os
 import sys
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 from threading import Barrier
 from typing import cast
@@ -326,9 +327,18 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
         self.assertEqual(failed.failure_code, "review_failed")
 
         with self.runtime.transaction() as connection:
-            recorded = postgres_review_runs.record_failure_status_comment(
+            claim = postgres_review_runs.claim_failure_status(
                 connection,
                 run_id=failed.id,
+                lease_owner="lifecycle-test",
+                lease_duration=timedelta(minutes=5),
+            )
+        with self.runtime.transaction() as connection:
+            recorded = postgres_review_runs.complete_failure_status(
+                connection,
+                run_id=failed.id,
+                lease_owner="lifecycle-test",
+                lease_generation=claim.target.delivery_lease_generation,
                 comment_id=8801,
             )
             comments = postgres_review_runs.failure_status_comments_for_pull_request(

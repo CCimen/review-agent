@@ -30,6 +30,7 @@ from ..domain.finding import (
 )
 from ..domain.review import (
     CoverageState,
+    FailureStatusDelivery,
     JsonObject,
     JsonValue,
     RepositoryId,
@@ -140,6 +141,10 @@ class ReviewRunReport:
     findings_count: int | None
     failure_code: str | None
     failure_status_comment_id: int | None
+    failure_status_delivery_status: FailureStatusDelivery
+    failure_status_delivery_attempt_count: int
+    failure_status_delivery_max_attempts: int
+    failure_status_delivery_failure_code: str | None
     started_at: datetime
     last_heartbeat_at: datetime
     completed_at: datetime | None
@@ -288,6 +293,10 @@ class _RunRow:
     findings_count: int | None
     failure_code: str | None
     failure_status_comment_id: int | None
+    failure_status_delivery_status: FailureStatusDelivery
+    failure_status_delivery_attempt_count: int
+    failure_status_delivery_max_attempts: int
+    failure_status_delivery_failure_code: str | None
     started_at: datetime
     last_heartbeat_at: datetime
     completed_at: datetime | None
@@ -828,6 +837,10 @@ def finding_stats(
 
 
 def _run(row: _RunRow) -> ReviewRunReport:
+    try:
+        delivery_status = FailureStatusDelivery(row.failure_status_delivery_status)
+    except ValueError as exc:
+        raise ReportingError("stored review run has an unknown delivery state") from exc
     return ReviewRunReport(
         id=row.id,
         repository=row.repository,
@@ -839,6 +852,10 @@ def _run(row: _RunRow) -> ReviewRunReport:
         findings_count=row.findings_count,
         failure_code=row.failure_code,
         failure_status_comment_id=row.failure_status_comment_id,
+        failure_status_delivery_status=delivery_status,
+        failure_status_delivery_attempt_count=row.failure_status_delivery_attempt_count,
+        failure_status_delivery_max_attempts=row.failure_status_delivery_max_attempts,
+        failure_status_delivery_failure_code=row.failure_status_delivery_failure_code,
         started_at=row.started_at,
         last_heartbeat_at=row.last_heartbeat_at,
         completed_at=row.completed_at,
@@ -849,7 +866,11 @@ _RUN_SELECT = """
     SELECT run.id, repository.full_name AS repository,
            pull_request.number AS pr_number, subject.base_sha, subject.head_sha,
            run.status, run.phase, run.findings_count, run.failure_code,
-           run.failure_status_comment_id, run.started_at,
+           run.failure_status_comment_id,
+           run.failure_status_delivery_status,
+           run.failure_status_delivery_attempt_count,
+           run.failure_status_delivery_max_attempts,
+           run.failure_status_delivery_failure_code, run.started_at,
            run.last_heartbeat_at, run.completed_at
     FROM review_agent.review_runs AS run
     JOIN review_agent.pull_requests AS pull_request

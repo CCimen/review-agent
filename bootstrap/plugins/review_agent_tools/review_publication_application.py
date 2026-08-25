@@ -10,6 +10,7 @@ import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .domain.review import ReviewRunId
     from .postgres.runtime import PostgreSQLRuntime
 
 from . import failure_codes, review_run_application
@@ -259,58 +260,94 @@ def publish_postgres_run_failure_status(
     *,
     run_id: int,
     github: GitHubPublicationGateway,
+    lease_owner: str | None = None,
+    lease_generation: int | None = None,
+    retry_delay: timedelta = timedelta(minutes=1),
+    lease_lost: threading.Event | None = None,
 ) -> PostgresFailureStatusResult:
-    """Publish one deterministic terminal-run status, then persist its ID."""
-    from .domain.review import ReviewRunId
+    """Deliver one leased deterministic terminal status with exact recovery."""
+    from .domain.review import FailureStatusDelivery, ReviewRunId
     from .postgres import review_runs as postgres_review_runs
 
     resolved_id = ReviewRunId(run_id)
+    owner = lease_owner
+    generation = lease_generation
+    if owner is None or generation is None:
+        with runtime.transaction() as connection:
+            existing_target = postgres_review_runs.failure_status_target(
+                connection, resolved_id
+            )
+        if (
+            existing_target.delivery_status is FailureStatusDelivery.POSTED
+            and existing_target.comment_id is not None
+            and existing_target.posted_at is not None
+        ):
+            return PostgresFailureStatusResult(
+                run_id=run_id, comment_id=existing_target.comment_id,
+                failure_code=existing_target.failure_code,
+                posted_at=existing_target.posted_at.isoformat().replace("+00:00", "Z"),
+            )
+        owner = f"operator-recovery-{run_id}"
+        with runtime.transaction() as connection:
+            claim = postgres_review_runs.claim_failure_status(
+                connection, run_id=resolved_id, lease_owner=owner,
+                lease_duration=timedelta(minutes=5),
+            )
+        generation = claim.target.delivery_lease_generation
     with runtime.transaction() as connection:
-        target = postgres_review_runs.failure_status_target(connection, resolved_id)
-    body = _failure_status_body(run_id, target.head_sha, target.failure_code)
-    if target.comment_id is not None:
-        comment = github.update_issue_comment(
-            target.repository,
-            target.comment_id,
-            body,
+        target = postgres_review_runs.require_live_failure_status_lease(
+            connection, run_id=resolved_id, lease_owner=owner,
+            lease_generation=generation,
         )
-    else:
+    body = _failure_status_body(run_id, target.head_sha, target.failure_code)
+    try:
+        listed_markers = _my_failure_status_comments(
+            github, target.repository, target.pr_number
+        )
+        current_markers = _cleanup_postgres_failure_status(
+            runtime, github=github, repository=target.repository,
+            pr_number=target.pr_number, exclude_run_id=resolved_id,
+            known_markers=listed_markers,
+        )
         marker = _failure_status_marker(run_id, target.head_sha)
         existing = next(
-            (
-                item
-                for item in _my_failure_status_comments(
-                    github,
-                    target.repository,
-                    target.pr_number,
-                )
-                if marker in item.body
-            ),
-            None,
+            (item for item in current_markers if marker in item.body), None
         )
+        if lease_lost is not None and lease_lost.is_set():
+            raise postgres_review_runs.FailureStatusLeaseLost("failure-status lease was lost")
+        with runtime.transaction() as connection:
+            postgres_review_runs.require_live_failure_status_lease(
+                connection, run_id=resolved_id, lease_owner=owner,
+                lease_generation=generation,
+            )
+        if lease_lost is not None and lease_lost.is_set():
+            raise postgres_review_runs.FailureStatusLeaseLost("failure-status lease was lost")
         comment = (
-            github.update_issue_comment(
-                target.repository,
-                existing.comment_id,
-                body,
-            )
+            github.update_issue_comment(target.repository, existing.comment_id, body)
             if existing is not None
-            else github.create_issue_comment(
-                target.repository,
-                target.pr_number,
-                body,
-            )
+            else github.create_issue_comment(target.repository, target.pr_number, body)
         )
+    except GitHubPublicationError as exc:
+        with runtime.transaction() as connection:
+            postgres_review_runs.retry_failure_status(
+                connection, run_id=resolved_id, lease_owner=owner,
+                lease_generation=generation,
+                failure_code=f"github_{exc.status or 'error'}", retry_delay=retry_delay,
+            )
+        raise
     with runtime.transaction() as connection:
-        recorded = postgres_review_runs.record_failure_status_comment(
-            connection,
-            run_id=resolved_id,
-            comment_id=comment.comment_id,
+        recorded = postgres_review_runs.complete_failure_status(
+            connection, run_id=resolved_id, lease_owner=owner,
+            lease_generation=generation, comment_id=comment.comment_id,
         )
     if recorded.posted_at is None:
         raise postgres_review_runs.ReviewRunError(
             "failure-status comment has no recorded timestamp"
         )
+    _cleanup_postgres_failure_status(
+        runtime, github=github, repository=recorded.repository,
+        pr_number=recorded.pr_number, exclude_run_id=resolved_id,
+    )
     return PostgresFailureStatusResult(
         run_id=run_id,
         comment_id=comment.comment_id,
@@ -326,15 +363,24 @@ def _cleanup_postgres_failure_status(
     repository: str,
     pr_number: int,
     scan_markers: bool = True,
-) -> None:
+    exclude_run_id: "ReviewRunId | None" = None,
+    known_markers: Sequence[IssueComment] | None = None,
+) -> tuple[IssueComment, ...]:
     """Remove stored and marker-recovered failure statuses after a real review."""
     from .postgres import review_runs as postgres_review_runs
 
     with runtime.transaction() as connection:
+        postgres_review_runs.suppress_unposted_failure_statuses_for_pull_request(
+            connection,
+            repository=repository,
+            pr_number=pr_number,
+            exclude_run_id=exclude_run_id,
+        )
         targets = postgres_review_runs.failure_status_comments_for_pull_request(
             connection,
             repository=repository,
             pr_number=pr_number,
+            exclude_run_id=exclude_run_id,
         )
     deleted: set[int] = set()
     retained: set[int] = set()
@@ -352,18 +398,26 @@ def _cleanup_postgres_failure_status(
                 run_id=target.run_id,
             )
     if not scan_markers:
-        return
-    try:
-        marker_comments = _my_failure_status_comments(github, repository, pr_number)
-    except GitHubPublicationError:
-        return
+        return ()
+    if known_markers is None:
+        try:
+            marker_comments = _my_failure_status_comments(github, repository, pr_number)
+        except GitHubPublicationError:
+            return ()
+    else:
+        marker_comments = known_markers
+    current_markers: list[IssueComment] = []
     for comment in marker_comments:
+        if exclude_run_id is not None and f"run={int(exclude_run_id)} " in comment.body:
+            current_markers.append(comment)
+            continue
         if comment.comment_id in deleted or comment.comment_id in retained:
             continue
         try:
             github.delete_issue_comment(repository, comment.comment_id)
         except GitHubPublicationError:
             pass
+    return tuple(current_markers)
 
 
 def publish_postgres_publication(

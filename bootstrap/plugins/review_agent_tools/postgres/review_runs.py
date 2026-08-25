@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, LiteralString, TypeAlias, cast
 
 import psycopg
@@ -15,6 +15,7 @@ from psycopg.rows import TupleRow, class_row
 
 from .. import failure_codes
 from ..domain.review import (
+    FailureStatusDelivery,
     PullRequestId,
     ReviewPhase,
     ReviewRunId,
@@ -44,6 +45,10 @@ class ReviewRunNotFound(ReviewRunError):
 
 class InvalidReviewTransition(ReviewRunError):
     """The requested transition is invalid for the stored run state."""
+
+
+class FailureStatusLeaseLost(ReviewRunError):
+    """A failure-status delivery no longer owns its exact lease."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +123,11 @@ class FailureStatusTarget:
     failure_code: str
     comment_id: int | None
     posted_at: datetime | None
+    delivery_status: FailureStatusDelivery
+    delivery_attempt_count: int
+    delivery_max_attempts: int
+    delivery_lease_owner: str | None
+    delivery_lease_generation: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +146,16 @@ class _FailureStatusTargetRow:
     failure_code: str | None
     comment_id: int | None
     posted_at: datetime | None
+    delivery_status: str
+    delivery_attempt_count: int
+    delivery_max_attempts: int
+    delivery_lease_owner: str | None
+    delivery_lease_generation: int
+
+
+@dataclass(frozen=True, slots=True)
+class FailureStatusClaim:
+    target: FailureStatusTarget
 
 
 @dataclass(frozen=True, slots=True)
@@ -387,7 +407,12 @@ def _failure_status_row(
                    pull_request.number AS pr_number, subject.head_sha,
                    run.status, run.failure_code,
                    run.failure_status_comment_id AS comment_id,
-                   run.failure_status_posted_at AS posted_at
+                   run.failure_status_posted_at AS posted_at,
+                   run.failure_status_delivery_status AS delivery_status,
+                   run.failure_status_delivery_attempt_count AS delivery_attempt_count,
+                   run.failure_status_delivery_max_attempts AS delivery_max_attempts,
+                   run.failure_status_delivery_lease_owner AS delivery_lease_owner,
+                   run.failure_status_delivery_lease_generation AS delivery_lease_generation
             FROM review_agent.review_runs AS run
             JOIN review_agent.pull_requests AS pull_request
               ON pull_request.id = run.pull_request_id
@@ -404,8 +429,9 @@ def _failure_status_row(
 def _failure_status_target(row: _FailureStatusTargetRow) -> FailureStatusTarget:
     try:
         status = ReviewStatus(row.status)
+        delivery_status = FailureStatusDelivery(row.delivery_status)
     except ValueError as exc:
-        raise ReviewRunError("stored review run has an unknown status") from exc
+        raise ReviewRunError("stored review run has an unknown lifecycle state") from exc
     if status not in {ReviewStatus.FAILED, ReviewStatus.SUPERSEDED}:
         raise InvalidReviewTransition("failure status requires a terminal failed run")
     if row.failure_code is None:
@@ -419,6 +445,11 @@ def _failure_status_target(row: _FailureStatusTargetRow) -> FailureStatusTarget:
         failure_code=row.failure_code,
         comment_id=row.comment_id,
         posted_at=row.posted_at,
+        delivery_status=delivery_status,
+        delivery_attempt_count=row.delivery_attempt_count,
+        delivery_max_attempts=row.delivery_max_attempts,
+        delivery_lease_owner=row.delivery_lease_owner,
+        delivery_lease_generation=row.delivery_lease_generation,
     )
 
 
@@ -431,6 +462,223 @@ def failure_status_target(
     if row is None:
         raise ReviewRunNotFound("review run does not exist")
     return _failure_status_target(row)
+
+
+def claim_next_failure_status(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    lease_owner: str,
+    lease_duration: timedelta,
+) -> FailureStatusClaim | None:
+    """Claim the oldest ready terminal status, recovering expired leases."""
+    _require_transaction(connection)
+    owner = lease_owner.strip()
+    if not owner or lease_duration <= timedelta(0):
+        raise ReviewRunError("a lease owner and positive duration are required")
+    connection.execute(
+        """
+        UPDATE review_agent.review_runs
+        SET failure_status_delivery_status = 'failed',
+            failure_status_delivery_failure_code = 'delivery_attempts_exhausted',
+            failure_status_delivery_available_at = NULL,
+            failure_status_delivery_lease_owner = NULL,
+            failure_status_delivery_lease_expires_at = NULL,
+            failure_status_delivery_last_heartbeat_at = NULL,
+            failure_status_delivery_completed_at = statement_timestamp()
+        WHERE failure_status_delivery_status = 'posting'
+          AND failure_status_delivery_lease_expires_at <= statement_timestamp()
+          AND failure_status_delivery_attempt_count >= failure_status_delivery_max_attempts
+        """
+    )
+    row = connection.execute(
+        """
+        WITH candidate AS (
+            SELECT id
+            FROM review_agent.review_runs
+            WHERE (
+                (
+                    failure_status_delivery_status IN ('pending', 'publish_failed')
+                    AND failure_status_delivery_available_at <= statement_timestamp()
+                ) OR (
+                    failure_status_delivery_status = 'posting'
+                    AND failure_status_delivery_lease_expires_at <= statement_timestamp()
+                    AND failure_status_delivery_attempt_count < failure_status_delivery_max_attempts
+                )
+            )
+              AND NOT EXISTS (
+                  SELECT 1 FROM review_agent.review_runs AS newer
+                  WHERE newer.pull_request_id = review_runs.pull_request_id
+                    AND newer.id > review_runs.id
+              )
+            ORDER BY failure_status_delivery_available_at, id
+            FOR UPDATE SKIP LOCKED LIMIT 1
+        )
+        UPDATE review_agent.review_runs AS run
+        SET failure_status_delivery_status = 'posting',
+            failure_status_delivery_attempt_count = run.failure_status_delivery_attempt_count + 1,
+            failure_status_delivery_lease_owner = %s,
+            failure_status_delivery_lease_generation = run.failure_status_delivery_lease_generation + 1,
+            failure_status_delivery_lease_expires_at = statement_timestamp() + %s,
+            failure_status_delivery_last_heartbeat_at = statement_timestamp(),
+            failure_status_delivery_failure_code = NULL
+        FROM candidate WHERE run.id = candidate.id RETURNING run.id
+        """,
+        (owner, lease_duration),
+    ).fetchone()
+    if row is None:
+        return None
+    target = failure_status_target(connection, ReviewRunId(int(row[0])))
+    return FailureStatusClaim(target=target)
+
+
+def claim_failure_status(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId,
+    lease_owner: str, lease_duration: timedelta,
+) -> FailureStatusClaim:
+    """Claim one explicit ready status for bounded operator recovery."""
+    _require_transaction(connection)
+    owner = lease_owner.strip()
+    if not owner or lease_duration <= timedelta(0):
+        raise ReviewRunError("a lease owner and positive duration are required")
+    changed = connection.execute(
+        """UPDATE review_agent.review_runs AS run SET
+        failure_status_delivery_status = 'posting',
+        failure_status_delivery_attempt_count = CASE
+            WHEN failure_status_delivery_status = 'failed' THEN 1
+            ELSE failure_status_delivery_attempt_count + 1
+        END,
+        failure_status_delivery_lease_owner = %s,
+        failure_status_delivery_lease_generation = failure_status_delivery_lease_generation + 1,
+        failure_status_delivery_lease_expires_at = statement_timestamp() + %s,
+        failure_status_delivery_last_heartbeat_at = statement_timestamp(),
+        failure_status_delivery_failure_code = NULL,
+        failure_status_delivery_completed_at = NULL
+        WHERE id = %s
+          AND (
+              (failure_status_delivery_status IN ('pending', 'publish_failed')
+               AND failure_status_delivery_available_at <= statement_timestamp()
+               AND failure_status_delivery_attempt_count < failure_status_delivery_max_attempts)
+              OR failure_status_delivery_status = 'failed'
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM review_agent.review_runs AS newer
+              WHERE newer.pull_request_id = run.pull_request_id
+                AND newer.id > run.id
+          )""",
+        (owner, lease_duration, run_id),
+    ).rowcount
+    if changed != 1:
+        raise FailureStatusLeaseLost("failure status is not ready to claim")
+    return FailureStatusClaim(target=failure_status_target(connection, run_id))
+
+
+def require_live_failure_status_lease(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    lease_owner: str,
+    lease_generation: int,
+) -> FailureStatusTarget:
+    _require_transaction(connection)
+    target = failure_status_target(connection, run_id)
+    eligible = connection.execute(
+        """
+        SELECT failure_status_delivery_status = 'posting'
+           AND failure_status_delivery_lease_owner = %s
+           AND failure_status_delivery_lease_generation = %s
+           AND failure_status_delivery_lease_expires_at > statement_timestamp()
+           AND NOT EXISTS (
+                SELECT 1 FROM review_agent.review_runs AS newer
+                WHERE newer.pull_request_id = run.pull_request_id
+                  AND newer.id > run.id
+           )
+        FROM review_agent.review_runs AS run WHERE run.id = %s
+        """,
+        (lease_owner, lease_generation, run_id),
+    ).fetchone()
+    if eligible != (True,):
+        raise FailureStatusLeaseLost("failure-status delivery lease was lost")
+    return target
+
+
+def heartbeat_failure_status(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId,
+    lease_owner: str, lease_generation: int, lease_duration: timedelta,
+) -> None:
+    _require_transaction(connection)
+    changed = connection.execute(
+        """UPDATE review_agent.review_runs AS run
+        SET failure_status_delivery_lease_expires_at = statement_timestamp() + %s,
+            failure_status_delivery_last_heartbeat_at = statement_timestamp()
+        WHERE id = %s AND failure_status_delivery_status = 'posting'
+          AND failure_status_delivery_lease_owner = %s
+          AND failure_status_delivery_lease_generation = %s
+          AND failure_status_delivery_lease_expires_at > statement_timestamp()""",
+        (lease_duration, run_id, lease_owner, lease_generation),
+    ).rowcount
+    if changed != 1:
+        raise FailureStatusLeaseLost("failure-status delivery lease was lost")
+
+
+def complete_failure_status(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId,
+    lease_owner: str, lease_generation: int, comment_id: int,
+) -> FailureStatusTarget:
+    _require_transaction(connection)
+    changed = connection.execute(
+        """UPDATE review_agent.review_runs AS run
+        SET failure_status_comment_id = %s,
+            failure_status_posted_at = statement_timestamp(),
+            failure_status_delivery_status = 'posted',
+            failure_status_delivery_available_at = NULL,
+            failure_status_delivery_lease_owner = NULL,
+            failure_status_delivery_lease_expires_at = NULL,
+            failure_status_delivery_last_heartbeat_at = NULL,
+            failure_status_delivery_failure_code = NULL,
+            failure_status_delivery_completed_at = statement_timestamp()
+        WHERE id = %s AND failure_status_delivery_status = 'posting'
+          AND failure_status_delivery_lease_owner = %s
+          AND failure_status_delivery_lease_generation = %s
+          AND failure_status_delivery_lease_expires_at > statement_timestamp()
+          AND NOT EXISTS (SELECT 1 FROM review_agent.review_runs AS newer
+              WHERE newer.pull_request_id = run.pull_request_id
+                AND newer.id > run.id)""",
+        (comment_id, run_id, lease_owner, lease_generation),
+    ).rowcount
+    if changed != 1:
+        raise FailureStatusLeaseLost("failure-status delivery lease was lost")
+    return failure_status_target(connection, run_id)
+
+
+def retry_failure_status(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId,
+    lease_owner: str, lease_generation: int, failure_code: str,
+    retry_delay: timedelta,
+) -> None:
+    _require_transaction(connection)
+    normalized_failure_code = failure_code.strip()
+    if not normalized_failure_code:
+        raise ReviewRunError("failure_code must not be blank")
+    target = failure_status_target(connection, run_id)
+    exhausted = target.delivery_attempt_count >= target.delivery_max_attempts
+    changed = connection.execute(
+        """UPDATE review_agent.review_runs SET
+        failure_status_delivery_status = %s,
+        failure_status_delivery_available_at = CASE WHEN %s THEN NULL ELSE statement_timestamp() + %s END,
+        failure_status_delivery_lease_owner = NULL,
+        failure_status_delivery_lease_expires_at = NULL,
+        failure_status_delivery_last_heartbeat_at = NULL,
+        failure_status_delivery_failure_code = %s,
+        failure_status_delivery_completed_at = CASE WHEN %s THEN statement_timestamp() ELSE NULL END
+        WHERE id = %s AND failure_status_delivery_status = 'posting'
+          AND failure_status_delivery_lease_owner = %s
+          AND failure_status_delivery_lease_generation = %s
+          AND failure_status_delivery_lease_expires_at > statement_timestamp()""",
+        ('failed' if exhausted else 'publish_failed', exhausted, retry_delay,
+         normalized_failure_code, exhausted, run_id, lease_owner, lease_generation),
+    ).rowcount
+    if changed != 1:
+        raise FailureStatusLeaseLost("failure-status delivery lease was lost")
 
 
 def failed_runs_needing_status(
@@ -447,7 +695,11 @@ def failed_runs_needing_status(
     conditions = [
         "run.status IN ('failed', 'superseded')",
         "run.failure_code IS NOT NULL",
-        "run.failure_status_comment_id IS NULL",
+        "run.failure_status_delivery_status IN ('pending', 'publish_failed', 'failed')",
+        "(run.failure_status_delivery_status = 'failed' OR "
+        "run.failure_status_delivery_available_at <= statement_timestamp())",
+        "NOT EXISTS (SELECT 1 FROM review_agent.review_runs AS newer "
+        "WHERE newer.pull_request_id = run.pull_request_id AND newer.id > run.id)",
     ]
     parameters: list[object] = []
     if repository is not None:
@@ -461,7 +713,12 @@ def failed_runs_needing_status(
         "SELECT run.id AS run_id, repository.full_name AS repository, "
         "pull_request.number AS pr_number, subject.head_sha, run.status, "
         "run.failure_code, run.failure_status_comment_id AS comment_id, "
-        "run.failure_status_posted_at AS posted_at "
+        "run.failure_status_posted_at AS posted_at, "
+        "run.failure_status_delivery_status AS delivery_status, "
+        "run.failure_status_delivery_attempt_count AS delivery_attempt_count, "
+        "run.failure_status_delivery_max_attempts AS delivery_max_attempts, "
+        "run.failure_status_delivery_lease_owner AS delivery_lease_owner, "
+        "run.failure_status_delivery_lease_generation AS delivery_lease_generation "
         "FROM review_agent.review_runs AS run "
         "JOIN review_agent.pull_requests AS pull_request "
         "ON pull_request.id = run.pull_request_id "
@@ -479,33 +736,41 @@ def failed_runs_needing_status(
     return tuple(_failure_status_target(row) for row in rows)
 
 
-def record_failure_status_comment(
+def suppress_unposted_failure_statuses_for_pull_request(
     connection: psycopg.Connection[TupleRow],
     *,
-    run_id: ReviewRunId,
-    comment_id: int,
-) -> FailureStatusTarget:
-    """Persist the provider comment identity after a successful external write."""
+    repository: str,
+    pr_number: int,
+    exclude_run_id: ReviewRunId | None = None,
+) -> None:
+    """Suppress unposted terminal statuses superseded by another PR outcome."""
     _require_transaction(connection)
-    if isinstance(comment_id, bool) or comment_id < 1:
-        raise ReviewRunError("comment_id must be positive")
-    row = _failure_status_row(connection, run_id, for_update=True)
-    if row is None:
-        raise ReviewRunNotFound("review run does not exist")
-    _failure_status_target(row)
+    if isinstance(pr_number, bool) or pr_number < 1:
+        raise ReviewRunError("pr_number must be positive")
     connection.execute(
         """
-        UPDATE review_agent.review_runs
-        SET failure_status_comment_id = %s,
-            failure_status_posted_at = statement_timestamp()
-        WHERE id = %s
+        UPDATE review_agent.review_runs AS run
+        SET failure_status_delivery_status = 'suppressed',
+            failure_status_delivery_available_at = NULL,
+            failure_status_delivery_lease_owner = NULL,
+            failure_status_delivery_lease_expires_at = NULL,
+            failure_status_delivery_last_heartbeat_at = NULL,
+            failure_status_delivery_failure_code = NULL,
+            failure_status_delivery_completed_at = statement_timestamp()
+        FROM review_agent.pull_requests AS pull_request,
+             review_agent.repositories AS repository
+        WHERE pull_request.id = run.pull_request_id
+          AND repository.id = pull_request.repository_id
+          AND repository.provider = 'github'
+          AND lower(repository.full_name) = lower(%s)
+          AND pull_request.number = %s
+          AND run.status IN ('failed', 'superseded')
+          AND run.failure_status_comment_id IS NULL
+          AND run.failure_status_delivery_status NOT IN ('suppressed', 'posted')
+          AND (%s::bigint IS NULL OR run.id <> %s::bigint)
         """,
-        (comment_id, run_id),
+        (repository.strip(), pr_number, exclude_run_id, exclude_run_id),
     )
-    recorded = _failure_status_row(connection, run_id)
-    if recorded is None:
-        raise ReviewRunNotFound("review run disappeared after status recording")
-    return _failure_status_target(recorded)
 
 
 def clear_failure_status_comment(
@@ -523,7 +788,14 @@ def clear_failure_status_comment(
         """
         UPDATE review_agent.review_runs
         SET failure_status_comment_id = NULL,
-            failure_status_posted_at = NULL
+            failure_status_posted_at = NULL,
+            failure_status_delivery_status = 'suppressed',
+            failure_status_delivery_available_at = NULL,
+            failure_status_delivery_lease_owner = NULL,
+            failure_status_delivery_lease_expires_at = NULL,
+            failure_status_delivery_last_heartbeat_at = NULL,
+            failure_status_delivery_failure_code = NULL,
+            failure_status_delivery_completed_at = statement_timestamp()
         WHERE id = %s
         """,
         (run_id,),
@@ -539,6 +811,7 @@ def failure_status_comments_for_pull_request(
     *,
     repository: str,
     pr_number: int,
+    exclude_run_id: ReviewRunId | None = None,
 ) -> tuple[StoredFailureStatusComment, ...]:
     """List stored failure-status comments for one GitHub pull request."""
     _require_transaction(connection)
@@ -558,9 +831,10 @@ def failure_status_comments_for_pull_request(
               AND lower(repository.full_name) = lower(%s)
               AND pull_request.number = %s
               AND run.failure_status_comment_id IS NOT NULL
+              AND (%s::bigint IS NULL OR run.id <> %s::bigint)
             ORDER BY run.id
             """,
-            (repository.strip(), pr_number),
+            (repository.strip(), pr_number, exclude_run_id, exclude_run_id),
         ).fetchall()
     return tuple(rows)
 
@@ -798,7 +1072,9 @@ def fail_run(
             UPDATE review_agent.review_runs
             SET status = 'failed', phase = 'failed', failure_code = %s,
                 findings_count = %s, completed_at = statement_timestamp(),
-                last_heartbeat_at = statement_timestamp()
+                last_heartbeat_at = statement_timestamp(),
+                failure_status_delivery_status = 'pending',
+                failure_status_delivery_available_at = statement_timestamp()
             WHERE id = %s AND status = 'running'
             RETURNING {_RUN_COLUMNS}
             """,
@@ -828,7 +1104,9 @@ def fail_active_runs(
             UPDATE review_agent.review_runs
             SET status = 'failed', phase = 'failed', failure_code = %s,
                 completed_at = statement_timestamp(),
-                last_heartbeat_at = statement_timestamp()
+                last_heartbeat_at = statement_timestamp(),
+                failure_status_delivery_status = 'pending',
+                failure_status_delivery_available_at = statement_timestamp()
             WHERE id = ANY(%s::bigint[]) AND status = 'running'
             RETURNING {_RUN_COLUMNS}
             """,
@@ -849,7 +1127,9 @@ def mark_superseded(
             SET status = 'superseded', phase = 'superseded',
                 failure_code = 'snapshot_superseded',
                 completed_at = statement_timestamp(),
-                last_heartbeat_at = statement_timestamp()
+                last_heartbeat_at = statement_timestamp(),
+                failure_status_delivery_status = 'pending',
+                failure_status_delivery_available_at = statement_timestamp()
             WHERE id = %s AND status = 'running'
             RETURNING {_RUN_COLUMNS}
             """,
@@ -906,7 +1186,9 @@ def mark_stale_runs_failed(
             "SET status = 'failed', phase = 'failed', "
             "failure_code = %s, "
             "completed_at = statement_timestamp(), "
-            "last_heartbeat_at = statement_timestamp() "
+            "last_heartbeat_at = statement_timestamp(), "
+            "failure_status_delivery_status = 'pending', "
+            "failure_status_delivery_available_at = statement_timestamp() "
             "FROM target WHERE run.id = target.id RETURNING run.id"
         )),
         tuple(parameters),

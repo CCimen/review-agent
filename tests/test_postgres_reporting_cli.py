@@ -4,7 +4,7 @@ import os
 import sys
 import unittest
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg
@@ -413,10 +413,58 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             {"completed": 1, "failed": 1},
         )
         self.assertEqual(stats.average_findings_per_completed_run, 2.0)
-
         coverage = operator_application.coverage(self.runtime, run_id=int(stale.run.id))
         self.assertEqual(coverage.changed_files_registered, 1)
         self.assertTrue(coverage.coverage_hash.startswith("sha256:"))
+
+    def test_failure_status_delivery_exhaustion_is_visible_to_operator(self) -> None:
+        started = self.start(pr_number=43, request_suffix="4301")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection, started.run.id, failure_code="review_deliver_error"
+            )
+        for attempt in range(3):
+            with self.runtime.transaction() as connection:
+                claim = review_runs.claim_failure_status(
+                    connection, run_id=started.run.id,
+                    lease_owner=f"failed-publisher-{attempt}",
+                    lease_duration=timedelta(minutes=1),
+                )
+                review_runs.retry_failure_status(
+                    connection, run_id=started.run.id,
+                    lease_owner=f"failed-publisher-{attempt}",
+                    lease_generation=claim.target.delivery_lease_generation,
+                    failure_code="github_unreachable", retry_delay=timedelta(0),
+                )
+
+        listed = operator_application.list_runs(
+            self.runtime, repository=self.repository, limit=10, failed_only=True
+        )
+
+        report = next(item for item in listed if item.id == started.run.id)
+        self.assertEqual(report.failure_status_delivery_status, "failed")
+        self.assertEqual(report.failure_status_delivery_attempt_count, 3)
+        self.assertEqual(report.failure_status_delivery_max_attempts, 3)
+        self.assertEqual(
+            report.failure_status_delivery_failure_code, "github_unreachable"
+        )
+
+        queued = operator_application.prepare_failure_status_queue(
+            self.runtime,
+            repository=self.repository,
+            pr_number=43,
+            older_than_minutes=60,
+        )
+        self.assertEqual(tuple(item.run_id for item in queued.targets), (started.run.id,))
+        with self.runtime.transaction() as connection:
+            recovered = review_runs.claim_failure_status(
+                connection,
+                run_id=started.run.id,
+                lease_owner="operator-recovery",
+                lease_duration=timedelta(minutes=1),
+            )
+        self.assertEqual(recovered.target.delivery_status, "posting")
+        self.assertEqual(recovered.target.delivery_attempt_count, 1)
 
     def test_decision_target_modes_are_explicit_and_pr_scoped(self) -> None:
         first = self.start(pr_number=46, request_suffix="4251")

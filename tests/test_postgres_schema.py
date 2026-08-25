@@ -236,7 +236,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             );
             """
             % (pull_request_id, subject_id),
-            "review_runs_lifecycle_ck",
+            "review_runs_failure_status_delivery_run_ck",
         )
         self.assert_rejected(
             """
@@ -250,7 +250,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             );
             """
             % (pull_request_id, subject_id),
-            "review_runs_lifecycle_ck",
+            "review_runs_failure_status_delivery_run_ck",
         )
         self.assert_rejected(
             """
@@ -285,15 +285,34 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             INSERT INTO review_agent.review_runs (
                 pull_request_id, review_subject_id, request_key, status, phase,
                 failure_code, failure_status_comment_id,
-                failure_status_posted_at, started_at, last_heartbeat_at,
-                completed_at
+                failure_status_posted_at, failure_status_delivery_status,
+                failure_status_delivery_completed_at,
+                started_at, last_heartbeat_at, completed_at
             ) VALUES (
                 %d, %d, 'superseded-with-status', 'superseded', 'superseded',
-                'snapshot_superseded', 100, CURRENT_TIMESTAMP,
+                'snapshot_superseded', 100, CURRENT_TIMESTAMP, 'posted',
+                CURRENT_TIMESTAMP,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
             """
             % (pull_request_id, subject_id)
+        )
+        self.assert_rejected(
+            """
+            INSERT INTO review_agent.review_runs (
+                pull_request_id, review_subject_id, request_key, status, phase,
+                failure_code, failure_status_delivery_status,
+                failure_status_delivery_available_at,
+                failure_status_delivery_failure_code,
+                started_at, last_heartbeat_at, completed_at
+            ) VALUES (
+                %d, %d, 'failed-delivery-without-code', 'failed', 'failed',
+                'review_failed', 'publish_failed', CURRENT_TIMESTAMP, NULL,
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            );
+            """
+            % (pull_request_id, subject_id),
+            "review_runs_failure_status_delivery_lifecycle_ck",
         )
         self.assert_rejected(
             """

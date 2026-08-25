@@ -383,6 +383,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         *,
         request_key: str = "github:issue-comment:publication-1",
         findings: tuple[FindingInput, ...] | None = None,
+        pr_number: int = 41,
     ) -> tuple[review_runs.ReviewRunId, review_finding_application.PostgresFindingBatch]:
         result = review_run_application.start_postgres_review(
             self.runtime,
@@ -390,7 +391,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 provider="github",
                 provider_repository_id=981,
                 repository="team/service",
-                pr_number=41,
+                pr_number=pr_number,
                 base_sha="b" * 40,
                 head_sha="a" * 40,
                 policy_revision="profile@1",
@@ -1497,6 +1498,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             cleared = review_runs.failure_status_target(connection, failed_run)
         self.assertIsNone(cleared.comment_id)
+        self.assertEqual(cleared.delivery_status, "suppressed")
 
         retry_run, _ = self.start_recorded_run(
             request_key="github:issue-comment:failed-status-retry"
@@ -1527,6 +1529,276 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             retried_cleanup = review_runs.failure_status_target(connection, retry_run)
         self.assertIsNone(retried_cleanup.comment_id)
+
+    def test_ordinary_publisher_delivers_one_durable_failure_status(self) -> None:
+        run_id, _ = self.start_recorded_run(request_key="failure-status-worker")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(connection, run_id, failure_code="review_deliver_error")
+        github = FakePostgresPublicationGitHub(self.runtime)
+        worker = PublicationWorker(
+            self.runtime, github,
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
+                retry_delay=timedelta(seconds=1), poll_interval=timedelta(milliseconds=10),
+                max_comment_bytes=60_000,
+            ),
+            lease_owner="failure-worker", stop_event=threading.Event(),
+        )
+
+        worker.run(once=True)
+
+        with self.runtime.transaction() as connection:
+            stored = review_runs.failure_status_target(connection, run_id)
+        self.assertEqual(stored.delivery_status, "posted")
+        self.assertEqual(stored.comment_id, github.comments[0].comment_id)
+        self.assertEqual(len(github.comments), 1)
+
+    def test_failure_status_reclaims_after_create_without_duplicate(self) -> None:
+        run_id, _ = self.start_recorded_run(request_key="failure-status-reclaim")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(connection, run_id, failure_code="review_deliver_error")
+            claim = review_runs.claim_failure_status(
+                connection, run_id=run_id, lease_owner="dead-worker",
+                lease_duration=timedelta(seconds=30),
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.kill_after_create = True
+        with self.assertRaises(ProcessDeath):
+            review_publication_application.publish_postgres_run_failure_status(
+                self.runtime, run_id=int(run_id), github=github,
+                lease_owner="dead-worker",
+                lease_generation=claim.target.delivery_lease_generation,
+            )
+        original_id = github.comments[0].comment_id
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET "
+                "failure_status_delivery_lease_expires_at = statement_timestamp() "
+                "WHERE id = %s", (run_id,),
+            )
+        worker = PublicationWorker(
+            self.runtime, github,
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
+                retry_delay=timedelta(seconds=1), poll_interval=timedelta(milliseconds=10),
+                max_comment_bytes=60_000,
+            ), lease_owner="recovery-worker", stop_event=threading.Event(),
+        )
+
+        worker.run(once=True)
+
+        self.assertEqual(len(github.comments), 1)
+        self.assertEqual(github.comments[0].comment_id, original_id)
+        with self.runtime.transaction() as connection:
+            stored = review_runs.failure_status_target(connection, run_id)
+        self.assertEqual(stored.delivery_status, "posted")
+
+    def test_failure_status_recovery_retries_when_marker_listing_fails(self) -> None:
+        run_id, _ = self.start_recorded_run(
+            request_key="failure-status-list-retry"
+        )
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection, run_id, failure_code="review_deliver_error"
+            )
+            claim = review_runs.claim_failure_status(
+                connection,
+                run_id=run_id,
+                lease_owner="interrupted-publisher",
+                lease_duration=timedelta(minutes=5),
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.kill_after_create = True
+        with self.assertRaises(ProcessDeath):
+            review_publication_application.publish_postgres_run_failure_status(
+                self.runtime,
+                run_id=int(run_id),
+                github=github,
+                lease_owner="interrupted-publisher",
+                lease_generation=claim.target.delivery_lease_generation,
+            )
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET "
+                "failure_status_delivery_lease_expires_at = statement_timestamp() "
+                "WHERE id = %s",
+                (run_id,),
+            )
+            recovered = review_runs.claim_next_failure_status(
+                connection,
+                lease_owner="recovery-publisher",
+                lease_duration=timedelta(minutes=5),
+            )
+        assert recovered is not None
+        github.fail_on_list_call = github.list_issue_comments_calls + 1
+
+        with self.assertRaises(GitHubPublicationError):
+            review_publication_application.publish_postgres_run_failure_status(
+                self.runtime,
+                run_id=int(run_id),
+                github=github,
+                lease_owner="recovery-publisher",
+                lease_generation=recovered.target.delivery_lease_generation,
+            )
+
+        self.assertEqual(len(github.comments), 1)
+        with self.runtime.transaction() as connection:
+            stored = review_runs.failure_status_target(connection, run_id)
+        self.assertEqual(stored.delivery_status, "publish_failed")
+
+    def test_newer_review_removes_an_unacknowledged_failure_status(self) -> None:
+        failed_run, _ = self.start_recorded_run(
+            request_key="failure-status-superseded-after-create"
+        )
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection, failed_run, failure_code="review_deliver_error"
+            )
+            claim = review_runs.claim_failure_status(
+                connection,
+                run_id=failed_run,
+                lease_owner="interrupted-publisher",
+                lease_duration=timedelta(minutes=5),
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.kill_after_create = True
+        with self.assertRaises(ProcessDeath):
+            review_publication_application.publish_postgres_run_failure_status(
+                self.runtime,
+                run_id=int(failed_run),
+                github=github,
+                lease_owner="interrupted-publisher",
+                lease_generation=claim.target.delivery_lease_generation,
+            )
+        orphan_id = github.comments[0].comment_id
+
+        newer_run, batch = self.start_recorded_run(
+            request_key="review-after-unacknowledged-failure"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=newer_run, plan=self.plan(batch)
+            )
+        github.kill_after_create = False
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(prepared.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+
+        self.assertNotIn(orphan_id, [item.comment_id for item in github.comments])
+        with self.runtime.transaction() as connection:
+            stored = review_runs.failure_status_target(connection, failed_run)
+        self.assertEqual(stored.delivery_status, "suppressed")
+        self.assertIsNone(stored.comment_id)
+
+    def test_publisher_alternates_ready_review_and_failure_status_work(self) -> None:
+        active_run, batch = self.start_recorded_run(
+            request_key="fairness-publication", pr_number=41
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=active_run, plan=self.plan(batch)
+            )
+        failed_run, _ = self.start_recorded_run(
+            request_key="fairness-failure", pr_number=42
+        )
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection, failed_run, failure_code="review_deliver_error"
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        worker = PublicationWorker(
+            self.runtime, github,
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
+                retry_delay=timedelta(seconds=1), poll_interval=timedelta(milliseconds=10),
+                max_comment_bytes=60_000,
+            ), lease_owner="fairness-worker", stop_event=threading.Event(),
+        )
+
+        worker.run(once=True)
+        worker.run(once=True)
+
+        with self.runtime.transaction() as connection:
+            publication = publications.get_publication(connection, prepared.id)
+            failure = review_runs.failure_status_target(connection, failed_run)
+        self.assertEqual(publication.status.value, "posted")
+        self.assertEqual(failure.delivery_status, "posted")
+
+    def test_newer_success_suppresses_older_pending_failure_status(self) -> None:
+        failed_run, _ = self.start_recorded_run(request_key="older-pending-failure")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(connection, failed_run, failure_code="review_deliver_error")
+        newer_run, batch = self.start_recorded_run(request_key="newer-success")
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=newer_run, plan=self.plan(batch)
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+
+        review_publication_application.publish_postgres_publication(
+            self.runtime, publication_id=int(prepared.id), github=github,
+            max_comment_bytes=60_000,
+        )
+
+        with self.runtime.transaction() as connection:
+            stored = review_runs.failure_status_target(connection, failed_run)
+        self.assertEqual(stored.delivery_status, "suppressed")
+        self.assertIsNone(stored.comment_id)
+
+    def test_manual_failure_recovery_excludes_an_older_pull_request_run(self) -> None:
+        older_run, _ = self.start_recorded_run(request_key="older-failure-recovery")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection, older_run, failure_code="review_deliver_error"
+            )
+        self.start_recorded_run(request_key="newer-review-recovery")
+
+        with self.runtime.transaction() as connection:
+            ordinary_claim = review_runs.claim_next_failure_status(
+                connection,
+                lease_owner="failure-worker",
+                lease_duration=timedelta(minutes=5),
+            )
+            queued = review_runs.failed_runs_needing_status(
+                connection, repository="team/service", pr_number=41
+            )
+            with self.assertRaises(review_runs.FailureStatusLeaseLost):
+                review_runs.claim_failure_status(
+                    connection,
+                    run_id=older_run,
+                    lease_owner="operator",
+                    lease_duration=timedelta(minutes=5),
+                )
+
+        self.assertIsNone(ordinary_claim)
+        self.assertEqual(queued, ())
+
+    def test_failure_status_retry_requires_a_nonblank_failure_code(self) -> None:
+        run_id, _ = self.start_recorded_run(request_key="blank-delivery-failure")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection, run_id, failure_code="review_deliver_error"
+            )
+            claim = review_runs.claim_failure_status(
+                connection,
+                run_id=run_id,
+                lease_owner="failure-worker",
+                lease_duration=timedelta(minutes=5),
+            )
+
+        with self.assertRaises(review_runs.ReviewRunError):
+            with self.runtime.transaction() as connection:
+                review_runs.retry_failure_status(
+                    connection,
+                    run_id=run_id,
+                    lease_owner="failure-worker",
+                    lease_generation=claim.target.delivery_lease_generation,
+                    failure_code="   ",
+                    retry_delay=timedelta(seconds=1),
+                )
 
     def test_structured_suggestion_part_posts_from_the_exact_persisted_payload(
         self,

@@ -3,7 +3,7 @@ sidebar_label: Operations
 slug: /operations
 title: Operations
 status: current
-last_verified: 2026-08-25
+last_verified: 2026-08-24
 ---
 
 # Operations
@@ -12,19 +12,9 @@ last_verified: 2026-08-25
 > [Deploy Review Agent](./DEPLOYMENT.md) for credentials and first deployment.
 
 This document owns runtime limits, persistent state, recovery, and operator
-commands. Jump straight to the task in front of you:
+commands.
 
-| Situation | Section |
-| --- | --- |
-| A review failed or never appeared | [Runbook](#runbook) |
-| A 403 or missing-permission error | [GitHub tokens](#github-tokens) |
-| Queue wait time grows | [Runtime configuration](#runtime-configuration) and [Capacity and incomplete coverage](#capacity-and-incomplete-coverage) |
-| Inspect stored runs and findings | [Memory and decisions](#memory-and-decisions) |
-| A developer reported a false positive | [Developer feedback](#developer-feedback) |
-| Back up, restore, or update | [Backup and recovery](#backup-and-recovery) and [Updating and validation](#updating-and-validation) |
-| Export data for private analysis | [Private reviewer-improvement exports](#private-reviewer-improvement-exports) |
-
-## GitHub tokens
+## GitHub Tokens
 
 Use separate fine-grained tokens for read, publication, and feedback. The
 [deployment guide](./DEPLOYMENT.md#create-the-credentials) shows the GitHub UI
@@ -46,10 +36,12 @@ commit from a proposed patch. Endpoint-specific failures such as
 `github_403_create_pull_request_review` identify the
 missing permission or org approval path.
 
-## Runtime configuration
+## Runtime Configuration
 
-`.env.example` contains the deployable defaults. These optional settings
-control queue load and worker behavior:
+`.env.example` contains the deployable defaults. These settings control queue
+load and worker behavior:
+
+All values are optional and have deployable defaults:
 
 - `REVIEW_AGENT_ACTIVE_JOB_LIMIT` — default `100`. Maximum queued, leased, and
   publication-waiting reviews; admission returns HTTP 429 at capacity.
@@ -79,7 +71,7 @@ postgresql://review_agent:<url-safe-password>@review-postgres:5432/review_agent
 Use the same URL-safe value for `REVIEW_AGENT_POSTGRES_PASSWORD` and the URL
 password. A hex value from `openssl rand -hex 32` needs no percent-encoding.
 
-## Capacity and incomplete coverage
+## Capacity And Incomplete Coverage
 
 The reviewer has no repository-size or model-era source-reading quota. It uses
 bounded pages and reports incomplete coverage when an external or safety
@@ -108,14 +100,14 @@ snapshot matching, authorization, and publication markers are protocols or
 security invariants, not capacity settings. Deployment profiles cannot change
 them.
 
-## Deployment topology
+## Deployment Topology
 
 The [deployment guide](./DEPLOYMENT.md#deploy) covers Compose, Dokploy, Coolify,
 Portainer, and OpenShift. The public review route targets
 `review-admission:8644`. Workers reach the private Hermes API on `8642`.
 PostgreSQL and Hermes stay off the public network.
 
-## Persistent state
+## Persistent State
 
 The deployment uses two named volumes:
 
@@ -182,7 +174,7 @@ curl -fsS http://127.0.0.1:8645/ready
 review-agent-feedback-bridge verify-config
 ```
 
-## GitHub trigger
+## GitHub Trigger
 
 The [deployment guide](./DEPLOYMENT.md#configure-github-actions) owns workflow
 installation, secret creation, and the username allowlist. The secret mapping is:
@@ -208,7 +200,7 @@ the repository's default branch before an `issue_comment` event can start it.
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` in Dokploy if the rendered review comment
 should show the copyable feedback commands documented below.
 
-## Run a review
+## Run A Review
 
 On any open pull request, including a draft, an allowlisted maintainer comments:
 
@@ -234,7 +226,7 @@ highest-priority, non-overlapping atomic patches.
 Different PRs may run concurrently. A second `/review` on the same PR is treated
 as a duplicate while a run is active.
 
-## Developer feedback
+## Developer Feedback
 
 Post feedback as a new top-level PR comment. Do not edit an old command and do
 not reply inside an inline diff thread.
@@ -301,15 +293,21 @@ Mark stale runs failed after a crash:
 review-agent-memory runs --mark-stalled --stale-after-minutes 10 --repo <org>/<repo> --pr <number>
 ```
 
-Mark stale runs and publish their deterministic failure-status comments:
+The ordinary publisher also delivers deterministic terminal failure statuses.
+It leases each status from PostgreSQL, recovers an existing marker after a
+crash, retries transient GitHub failures, and stops after the stored attempt
+limit. A later review for the same pull request suppresses obsolete status work.
+Manual recovery reopens an exhausted status with a fresh stored attempt budget.
+
+For bounded manual recovery, mark stale runs and deliver their queued statuses:
 
 ```bash
 review-agent-memory runs --publish-failure-status --stale-after-minutes 10 --repo <org>/<repo> --pr <number>
 ```
 
 This command exits with status 1 if any GitHub status comment fails to publish.
-Its JSON output identifies each failed run so the operator can inspect the cause
-and retry the same bounded command.
+Its JSON output identifies each failed delivery. `runs --failed` exposes the
+status delivery state, attempt count, maximum attempts, and last delivery failure.
 
 Common states:
 
@@ -325,7 +323,7 @@ The run ledger includes `phase`, `heartbeat`, and `failure`. A healthy run moves
 through `accepted`, `fetching_pr`, `collecting_diff`, `reviewing`, `rendering`,
 `publishing`, and `posted`.
 
-## Memory and decisions
+## Memory And Decisions
 
 List findings:
 
@@ -361,7 +359,7 @@ review-agent-memory decide <fingerprint> resolved \
 Other decision values are `accepted_risk`, `duplicate`, and `reopen`. Security
 owns the suppression trust rules in [docs/SECURITY.md](SECURITY.md).
 
-## Backup and recovery
+## Backup And Recovery
 
 Back up PostgreSQL securely. It may contain unpublished findings and
 human-entered reasons. Create a logical backup from the Compose host:
@@ -378,7 +376,7 @@ and feedback services, restore with `pg_restore --exit-on-error`, run
 environment at the restored database and redeploy. Recovery never converts or
 imports another database backend.
 
-## Private reviewer-improvement exports
+## Private Reviewer-Improvement Exports
 
 Export the registry:
 
@@ -475,7 +473,7 @@ The public webhook reviewer does not read `review-learning/`. Coach exports are
 private LLM input artifacts. They can contain bounded maintainer-entered reasons
 or repository text, so scrub them before committing or sharing.
 
-## Updating and validation
+## Updating And Validation
 
 `HERMES_IMAGE` is pinned to the Hermes v2026.8.3 release tag and its immutable
 multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.

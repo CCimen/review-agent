@@ -30,6 +30,16 @@ class ReviewStatus(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class FailureStatusDelivery(StrEnum):
+    NOT_REQUIRED = "not_required"
+    PENDING = "pending"
+    POSTING = "posting"
+    PUBLISH_FAILED = "publish_failed"
+    POSTED = "posted"
+    SUPPRESSED = "suppressed"
+    FAILED = "failed"
+
+
 class ReviewPhase(StrEnum):
     ACCEPTED = "accepted"
     FETCHING_PR = "fetching_pr"

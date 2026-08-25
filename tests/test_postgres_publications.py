@@ -807,7 +807,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             failed_run.failure_code, "publication_attempts_exhausted"
         )
 
-    def test_stale_sweep_clears_an_active_publication_lease(self) -> None:
+    def test_stale_sweep_leaves_publication_recovery_to_the_publisher(self) -> None:
         run_id, batch = self.start_recorded_run(
             request_key="github:issue-comment:stale-publication-lease"
         )
@@ -815,12 +815,13 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             prepared = publications.prepare_publication(
                 connection, run_id=run_id, plan=self.plan(batch)
             )
-            publications.claim_publication(
+            claimed = publications.claim_publication(
                 connection,
                 prepared.id,
                 lease_owner="stale-publisher",
                 lease_duration=timedelta(minutes=5),
             )
+            self.assertTrue(claimed.acquired)
             stale_at = datetime(2026, 8, 20, tzinfo=timezone.utc)
             connection.execute(
                 """
@@ -830,18 +831,36 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 """,
                 (stale_at, stale_at, run_id),
             )
+            connection.execute(
+                """
+                UPDATE review_agent.publications
+                SET delivery_lease_expires_at = statement_timestamp()
+                    - INTERVAL '1 second'
+                WHERE id = %s
+                """,
+                (prepared.id,),
+            )
             recovered = review_run_application.mark_stale_runs_failed_in_transaction(
                 connection,
                 cutoff=datetime(2026, 8, 24, tzinfo=timezone.utc),
                 repository=None,
                 pr_number=None,
             )
-            failed = publications.get_publication(connection, prepared.id)
+            expired = publications.get_publication(connection, prepared.id)
+            reclaimed = publications.claim_next_publication(
+                connection,
+                lease_owner="recovery-publisher",
+                lease_duration=timedelta(minutes=5),
+            )
+            retained = publications.get_publication(connection, prepared.id)
 
-        self.assertEqual(recovered, (run_id,))
-        self.assertEqual(failed.status, publications.PublicationStatus.FAILED)
-        self.assertIsNone(failed.delivery_lease_owner)
-        self.assertIsNone(failed.delivery_lease_expires_at)
+        self.assertEqual(recovered, ())
+        self.assertEqual(expired.status, publications.PublicationStatus.POSTING)
+        self.assertEqual(expired.delivery_lease_owner, "stale-publisher")
+        self.assertIsNotNone(reclaimed)
+        self.assertTrue(reclaimed.acquired)
+        self.assertEqual(retained.status, publications.PublicationStatus.POSTING)
+        self.assertEqual(retained.delivery_lease_owner, "recovery-publisher")
 
     def test_publication_intent_and_review_job_handoff_are_atomic(self) -> None:
         run_id, batch = self.start_recorded_run(
@@ -893,6 +912,45 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(prepared.status, publications.PublicationStatus.GENERATED)
         self.assertEqual(
             handed_off.status, jobs.ReviewJobStatus.AWAITING_PUBLICATION
+        )
+        with self.runtime.transaction() as connection:
+            stale_at = datetime(2026, 8, 20, tzinfo=timezone.utc)
+            connection.execute(
+                "UPDATE review_agent.review_runs "
+                "SET started_at = %s, last_heartbeat_at = %s WHERE id = %s",
+                (stale_at, stale_at, run_id),
+            )
+            generated_sweep = (
+                review_run_application.mark_stale_runs_failed_in_transaction(
+                    connection,
+                    cutoff=datetime(2026, 8, 24, tzinfo=timezone.utc),
+                    repository=None,
+                    pr_number=None,
+                )
+            )
+            posting = publications.claim_publication(connection, prepared.id)
+            assert posting.publication.posting_started_at is not None
+            retry = publications.fail_publication(
+                connection,
+                publication_id=prepared.id,
+                posting_started_at=posting.publication.posting_started_at,
+                failure_code="retryable_provider_error",
+            )
+            retry_sweep = (
+                review_run_application.mark_stale_runs_failed_in_transaction(
+                    connection,
+                    cutoff=datetime(2026, 8, 24, tzinfo=timezone.utc),
+                    repository=None,
+                    pr_number=None,
+                )
+            )
+            retained_job = jobs.get_job(connection, claimed.id)
+
+        self.assertEqual(generated_sweep, ())
+        self.assertEqual(retry.status, publications.PublicationStatus.PUBLISH_FAILED)
+        self.assertEqual(retry_sweep, ())
+        self.assertEqual(
+            retained_job.status, jobs.ReviewJobStatus.AWAITING_PUBLICATION
         )
 
     def test_process_death_after_github_success_recovers_marker_without_duplicate(

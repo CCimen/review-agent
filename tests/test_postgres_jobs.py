@@ -837,7 +837,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.assertIsNone(job.lease_owner)
         self.assertIsNone(job.failure_code)
 
-    def test_stale_sweep_skips_only_an_unexpired_lease(self) -> None:
+    def test_stale_sweep_leaves_job_recovery_to_the_job_owner(self) -> None:
         queued_pull = self.pull_request(provider_id=1021, number=31)
         queued_subject = self.subject(queued_pull, head_character="a")
         queued_run, queued_accepted = self.accept_job(
@@ -859,11 +859,19 @@ class PostgreSQLJobTests(unittest.TestCase):
                 lease_owner="worker-live",
                 lease_duration=timedelta(minutes=5),
             )
+            assert leased is not None
             stale_at = datetime(2026, 8, 20, tzinfo=timezone.utc)
             connection.execute(
                 "UPDATE review_agent.review_runs SET started_at = %s, "
                 "last_heartbeat_at = %s WHERE id IN (%s, %s)",
                 (stale_at, stale_at, queued_run.run.id, leased_run.run.id),
+            )
+            connection.execute(
+                "UPDATE review_agent.review_jobs "
+                "SET started_at = created_at, last_heartbeat_at = created_at, "
+                "lease_expires_at = created_at + INTERVAL '1 microsecond' "
+                "WHERE id = %s",
+                (leased.id,),
             )
             failed = review_run_application.mark_stale_runs_failed_in_transaction(
                 connection,
@@ -872,10 +880,17 @@ class PostgreSQLJobTests(unittest.TestCase):
                 pr_number=None,
             )
             queued_job = jobs.get_job(connection, queued_accepted.job.id)
-            live_job = jobs.get_job(connection, leased.id if leased else 0)
-        self.assertEqual(failed, (queued_run.run.id,))
-        self.assertEqual(queued_job.status, jobs.ReviewJobStatus.FAILED)
-        self.assertEqual(live_job.status, jobs.ReviewJobStatus.LEASED)
+            expired_job = jobs.get_job(connection, leased.id)
+            recovered = review_run_application.recover_expired_jobs_in_transaction(
+                connection,
+                limit=1,
+            )
+            recovered_job = jobs.get_job(connection, leased.id)
+        self.assertEqual(failed, ())
+        self.assertEqual(queued_job.status, jobs.ReviewJobStatus.QUEUED)
+        self.assertEqual(expired_job.status, jobs.ReviewJobStatus.LEASED)
+        self.assertEqual(recovered.jobs[0].id, leased.id)
+        self.assertEqual(recovered_job.status, jobs.ReviewJobStatus.QUEUED)
 
     def test_enqueue_translates_pull_request_lock_timeout(self) -> None:
         pull_request = self.pull_request(provider_id=1005, number=15)

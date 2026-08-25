@@ -13,6 +13,7 @@ from psycopg import errors
 from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
+from .. import failure_codes
 from ..domain.review import (
     PullRequestId,
     ReviewPhase,
@@ -866,16 +867,22 @@ def mark_stale_runs_failed(
     repository: str | None,
     pr_number: int | None,
 ) -> tuple[ReviewRunId, ...]:
-    """Atomically fail abandoned runs and any unfinished publication plan."""
+    """Fail old running runs that have no durable work owner."""
     _require_transaction(connection)
     conditions = [
         "run.status = 'running'",
         "run.last_heartbeat_at < %s",
+        # Unknown future states remain owned work until classified explicitly.
         "NOT EXISTS ("
         "SELECT 1 FROM review_agent.review_jobs AS live_job "
         "WHERE live_job.review_run_id = run.id "
-        "AND live_job.status = 'leased' "
-        "AND live_job.lease_expires_at > statement_timestamp()"
+        "AND live_job.status NOT IN "
+        "('superseded', 'succeeded', 'failed', 'dead_letter')"
+        ")",
+        "NOT EXISTS ("
+        "SELECT 1 FROM review_agent.publications AS live_publication "
+        "WHERE live_publication.review_run_id = run.id "
+        "AND live_publication.status NOT IN ('posted', 'failed', 'stale')"
         ")",
     ]
     parameters: list[object] = [cutoff]
@@ -885,6 +892,7 @@ def mark_stale_runs_failed(
     if pr_number is not None:
         conditions.append("pull_request.number = %s")
         parameters.append(pr_number)
+    parameters.append(failure_codes.STALE_TIMEOUT)
     rows = connection.execute(
         sql.SQL(cast(LiteralString,
             "WITH target AS ("
@@ -893,54 +901,14 @@ def mark_stale_runs_failed(
             "ON pull_request.id = run.pull_request_id "
             "JOIN review_agent.repositories AS repository "
             "ON repository.id = pull_request.repository_id "
-            f"WHERE {' AND '.join(conditions)} FOR UPDATE OF run"
+            f"WHERE {' AND '.join(conditions)} FOR UPDATE OF run SKIP LOCKED"
             ") UPDATE review_agent.review_runs AS run "
             "SET status = 'failed', phase = 'failed', "
-            "failure_code = 'stale_timeout', "
+            "failure_code = %s, "
             "completed_at = statement_timestamp(), "
             "last_heartbeat_at = statement_timestamp() "
             "FROM target WHERE run.id = target.id RETURNING run.id"
         )),
         tuple(parameters),
     ).fetchall()
-    run_ids = tuple(sorted(ReviewRunId(int(row[0])) for row in rows))
-    if not run_ids:
-        return ()
-    publication_ids = [
-        int(row[0])
-        for row in connection.execute(
-            """
-            UPDATE review_agent.publications
-            SET status = 'failed',
-                posting_started_at = COALESCE(
-                    posting_started_at, statement_timestamp()
-                ),
-                publish_failed_at = statement_timestamp(),
-                failure_code = 'stale_timeout',
-                delivery_lease_owner = NULL,
-                delivery_lease_expires_at = NULL,
-                delivery_last_heartbeat_at = NULL,
-                delivery_completed_at = statement_timestamp()
-            WHERE review_run_id = ANY(%s::bigint[])
-              AND status IN ('generated', 'posting', 'publish_failed')
-            RETURNING id
-            """,
-            ([int(run_id) for run_id in run_ids],),
-        ).fetchall()
-    ]
-    if publication_ids:
-        connection.execute(
-            """
-            UPDATE review_agent.publication_parts
-            SET status = 'publish_failed',
-                posting_started_at = COALESCE(
-                    posting_started_at, statement_timestamp()
-                ),
-                failure_at = statement_timestamp(),
-                failure_code = 'stale_timeout'
-            WHERE publication_id = ANY(%s::bigint[])
-              AND status IN ('pending', 'posting')
-            """,
-            (publication_ids,),
-        )
-    return run_ids
+    return tuple(sorted(ReviewRunId(int(row[0])) for row in rows))

@@ -317,17 +317,13 @@ def mark_stale_runs_failed_in_transaction(
     repository: str | None,
     pr_number: int | None,
 ) -> tuple[ReviewRunId, ...]:
-    """Fail stale runs and reconcile all related jobs with one batch update."""
-    run_ids = postgres_review_runs.mark_stale_runs_failed(
+    """Fail old running runs that have no durable job or publication owner."""
+    return postgres_review_runs.mark_stale_runs_failed(
         connection,
         cutoff=cutoff,
         repository=repository,
         pr_number=pr_number,
     )
-    postgres_jobs.reconcile_run_jobs(
-        connection, run_ids=run_ids, status=ReviewStatus.FAILED
-    )
-    return run_ids
 
 
 def start_postgres_review(

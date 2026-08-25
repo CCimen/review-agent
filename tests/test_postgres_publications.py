@@ -5,10 +5,12 @@ import os
 import sys
 import threading
 import unittest
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import psycopg
 
@@ -44,7 +46,10 @@ from review_agent_tools.github.publication import (  # noqa: E402
 from review_agent_tools.postgres import publications  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres import review_runs  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent_tools.postgres.runtime import (  # noqa: E402
+    PostgreSQLRuntime,
+    PostgreSQLUnavailable,
+)
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.publisher import (  # noqa: E402
     PublicationWorker,
@@ -76,6 +81,7 @@ class FakePostgresPublicationGitHub:
         self.fail_on_review_create = False
         self.list_issue_comments_calls = 0
         self.fail_on_list_call: int | None = None
+        self.before_target_read: Callable[[], None] | None = None
 
     def _outside_transaction(self) -> None:
         if self.fail_on_call:
@@ -90,6 +96,10 @@ class FakePostgresPublicationGitHub:
 
     def get_pull_request(self, repository: str, pr_number: int) -> PullRequestState:
         self._outside_transaction()
+        before_target_read = self.before_target_read
+        self.before_target_read = None
+        if before_target_read is not None:
+            before_target_read()
         return PullRequestState(
             state="open",
             draft=False,
@@ -503,9 +513,34 @@ class PostgreSQLPublicationTests(unittest.TestCase):
     @staticmethod
     def suggestion_plan(
         batch: review_finding_application.PostgresFindingBatch,
+        *,
+        two_comments: bool = False,
     ) -> PublicationPlan:
         finding = batch.items[0]
         key = "sha256:" + ("8" * 64)
+        comments: list[dict[str, object]] = [
+            {
+                "path": "backend/changed.py",
+                "body": (
+                    "```suggestion\nTrue\n```\n\n"
+                    f"review-agent:canonical publication={key}"
+                ),
+                "line": 7,
+                "side": "RIGHT",
+            }
+        ]
+        if two_comments:
+            comments.append(
+                {
+                    "path": "backend/changed.py",
+                    "body": (
+                        "```suggestion\nFalse\n```\n\n"
+                        f"review-agent:canonical publication={key}"
+                    ),
+                    "line": 8,
+                    "side": "RIGHT",
+                }
+            )
         return resolve_publication_plan(
             publication_key=key,
             rendered_markdown="review with suggestion\n",
@@ -532,17 +567,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     payload_schema_version=1,
                     payload={
                         "body": "Optional atomic patch",
-                        "comments": [
-                            {
-                                "path": "backend/changed.py",
-                                "body": (
-                                    "```suggestion\nTrue\n```\n\n"
-                                    f"review-agent:canonical publication={key}"
-                                ),
-                                "line": 7,
-                                "side": "RIGHT",
-                            }
-                        ],
+                        "comments": comments,
                     },
                 ),
             ),
@@ -721,6 +746,134 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     lease_generation=1,
                     lease_duration=timedelta(seconds=30),
                 )
+
+    def test_generation_takeover_before_create_blocks_the_old_publisher(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:lease-takeover-before-write"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch)
+            )
+            first = publications.claim_publication(
+                connection,
+                prepared.id,
+                lease_owner="publisher-one",
+                lease_duration=timedelta(seconds=30),
+            )
+
+        def take_over() -> None:
+            with self.runtime.transaction() as connection:
+                connection.execute(
+                    "UPDATE review_agent.publications "
+                    "SET delivery_lease_expires_at = statement_timestamp() "
+                    "- INTERVAL '1 second' WHERE id = %s",
+                    (prepared.id,),
+                )
+                publications.claim_publication(
+                    connection,
+                    prepared.id,
+                    lease_owner="publisher-two",
+                    lease_duration=timedelta(seconds=30),
+                    recover_expired=True,
+                )
+
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.before_target_read = take_over
+        with self.assertRaises(publications.PublicationLeaseLost):
+            review_publication_application.publish_postgres_publication(
+                self.runtime,
+                publication_id=int(prepared.id),
+                github=github,
+                max_comment_bytes=60_000,
+                lease_owner="publisher-one",
+                lease_generation=first.publication.delivery_lease_generation,
+            )
+
+        self.assertEqual(github.create_calls, 0)
+
+    def test_publication_heartbeat_survives_only_transient_database_failure(
+        self,
+    ) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:publication-heartbeat"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch)
+            )
+            claim = publications.claim_publication(
+                connection,
+                prepared.id,
+                lease_owner="publisher-one",
+                lease_duration=timedelta(seconds=1),
+            )
+        worker = PublicationWorker(
+            self.runtime,
+            FakePostgresPublicationGitHub(self.runtime),
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=1),
+                heartbeat_interval=timedelta(milliseconds=1),
+                retry_delay=timedelta(seconds=1),
+                poll_interval=timedelta(milliseconds=1),
+                max_comment_bytes=60_000,
+            ),
+            lease_owner="publisher-one",
+            stop_event=threading.Event(),
+        )
+        lease_lost = threading.Event()
+
+        with (
+            patch.object(
+                publications,
+                "heartbeat_publication",
+                side_effect=(
+                    PostgreSQLUnavailable("temporary outage"),
+                    publications.PublicationLeaseLost("lease replaced"),
+                ),
+            ) as heartbeat,
+            self.assertLogs("review_agent_tools.publisher", level="WARNING"),
+        ):
+            worker._heartbeat(claim.publication, threading.Event(), lease_lost)
+
+        self.assertTrue(lease_lost.is_set())
+        self.assertEqual(heartbeat.call_count, 2)
+
+    def test_unavailable_database_before_create_blocks_the_provider_write(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:database-fails-before-write"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch)
+            )
+            claim = publications.claim_publication(
+                connection,
+                prepared.id,
+                lease_owner="publisher-one",
+                lease_duration=timedelta(seconds=30),
+            )
+
+        github = FakePostgresPublicationGitHub(self.runtime)
+        held_connections = ExitStack()
+
+        def exhaust_pool() -> None:
+            for _ in range(self.runtime.pool_metrics().maximum_size):
+                held_connections.enter_context(self.runtime.transaction())
+
+        github.before_target_read = exhaust_pool
+        with held_connections:
+            with self.assertRaises(PostgreSQLUnavailable):
+                review_publication_application.publish_postgres_publication(
+                    self.runtime,
+                    publication_id=int(prepared.id),
+                    github=github,
+                    max_comment_bytes=60_000,
+                    lease_owner="publisher-one",
+                    lease_generation=claim.publication.delivery_lease_generation,
+                )
+
+        self.assertEqual(github.create_calls, 0)
 
     def test_terminal_run_publication_is_retired_without_github_delivery(self) -> None:
         run_id, batch = self.start_recorded_run(
@@ -972,6 +1125,12 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 max_comment_bytes=60_000,
             )
         self.assertEqual(len(github.comments), 1)
+        exact_body = prepared.parts[0].delivery.body
+        marker = exact_body[exact_body.index("<!--") :]
+        github.comments[0] = replace(
+            github.comments[0],
+            body=f"outdated body part=99/99\n\n{marker}",
+        )
 
         with self.runtime.transaction() as connection:
             connection.execute(
@@ -1000,6 +1159,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             (700, 701),
         )
         self.assertTrue(github.issue_comments_newest_first)
+        self.assertEqual(github.comments[0].body, exact_body)
 
         github.fail_on_call = True
         direct = review_publication_application.publish_postgres_publication(
@@ -1412,6 +1572,66 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             "```suggestion\nTrue\n```\n\n"
             + f"review-agent:canonical publication={key}",
         )
+
+    def test_suggestion_recovery_requires_one_exact_review_comment_multiset(
+        self,
+    ) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:exact-suggestion-recovery"
+        )
+        plan = self.suggestion_plan(batch, two_comments=True)
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=plan
+            )
+        key = plan.publication_key
+        first_body = (
+            "```suggestion\nTrue\n```\n\n"
+            f"review-agent:canonical publication={key}"
+        )
+        second_body = (
+            "```suggestion\nFalse\n```\n\n"
+            f"review-agent:canonical publication={key}"
+        )
+
+        def review_comment(
+            *, comment_id: int, review_id: int, body: str, line: int
+        ) -> PullRequestReviewComment:
+            return PullRequestReviewComment(
+                comment_id=comment_id,
+                review_id=review_id,
+                body=body,
+                author_login="review-agent[bot]",
+                path="backend/changed.py",
+                commit_id="a" * 40,
+                line=line,
+                side="RIGHT",
+                start_line=None,
+                start_side=None,
+            )
+
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.review_comments = [
+            review_comment(comment_id=770, review_id=77, body=first_body, line=7),
+            review_comment(comment_id=771, review_id=77, body=first_body, line=7),
+            review_comment(comment_id=780, review_id=78, body=first_body, line=7),
+            review_comment(comment_id=781, review_id=78, body=second_body, line=8),
+        ]
+
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(prepared.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+
+        suggestion = next(
+            part
+            for part in result.published_parts
+            if part.part_type is PublicationPartType.SUGGESTION_REVIEW
+        )
+        self.assertEqual(suggestion.external_id, 78)
+        self.assertEqual(result.recovered_parts, 1)
 
     def test_suggestion_failure_does_not_publish_a_misleading_summary(self) -> None:
         run_id, batch = self.start_recorded_run(

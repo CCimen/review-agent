@@ -127,9 +127,10 @@ class PublicationWorker:
 
     def _deliver(self, publication: publications.StoredPublication) -> None:
         heartbeat_stop = threading.Event()
+        lease_lost = threading.Event()
         heartbeat = threading.Thread(
             target=self._heartbeat,
-            args=(publication, heartbeat_stop),
+            args=(publication, heartbeat_stop, lease_lost),
             name=f"publication-{int(publication.id)}-heartbeat",
         )
         heartbeat.start()
@@ -142,6 +143,7 @@ class PublicationWorker:
                 lease_owner=self._lease_owner,
                 lease_generation=publication.delivery_lease_generation,
                 retry_delay=self._policy.retry_delay,
+                lease_lost=lease_lost,
             )
         except publications.PublicationLeaseLost:
             logger.info("Publication %s lost its lease", int(publication.id))
@@ -153,6 +155,7 @@ class PublicationWorker:
         self,
         publication: publications.StoredPublication,
         stop: threading.Event,
+        lease_lost: threading.Event,
     ) -> None:
         while not stop.wait(self._policy.heartbeat_interval.total_seconds()):
             try:
@@ -165,8 +168,9 @@ class PublicationWorker:
                         lease_duration=self._policy.lease_duration,
                     )
             except publications.PublicationLeaseLost:
+                lease_lost.set()
                 return
-            except Exception as exc:
+            except _TRANSIENT_DATABASE_ERRORS as exc:
                 logger.warning(
                     "Publication %s heartbeat deferred: %s",
                     int(publication.id),

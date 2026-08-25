@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
+import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -374,6 +376,7 @@ def publish_postgres_publication(
     lease_owner: str | None = None,
     lease_generation: int | None = None,
     retry_delay: timedelta = timedelta(seconds=30),
+    lease_lost: threading.Event | None = None,
 ) -> PostgresPublicationResult:
     """Deliver one prepared PostgreSQL plan without holding a database checkout.
 
@@ -388,6 +391,7 @@ def publish_postgres_publication(
         PublicationStatus,
         SuggestionReviewDelivery,
         extract_publication_key,
+        publication_marker,
     )
     from .postgres import publications as postgres_publications
     from .postgres import review_runs as postgres_review_runs
@@ -404,14 +408,12 @@ def publish_postgres_publication(
             publication = postgres_publications.get_publication(
                 connection, resolved_id
             )
-            if (
-                publication.status is not PublicationStatus.POSTING
-                or publication.delivery_lease_owner != lease_owner
-                or publication.delivery_lease_generation != lease_generation
-            ):
-                raise postgres_publications.PublicationLeaseLost(
-                    "publication delivery lease is no longer current"
-                )
+            postgres_publications.require_live_publication_lease(
+                connection,
+                publication_id=resolved_id,
+                lease_owner=lease_owner,
+                lease_generation=lease_generation,
+            )
             claim = postgres_publications.PublicationClaim(
                 publication=publication, acquired=True
             )
@@ -420,10 +422,6 @@ def publish_postgres_publication(
                 "lease_owner and lease_generation must be supplied together"
             )
     publication = claim.publication
-    resolved_lease_owner = (
-        publication.delivery_lease_owner or "direct-publication-call"
-    )
-    resolved_lease_generation = publication.delivery_lease_generation
     if publication.status is PublicationStatus.POSTED:
         supersession = _render_postgres_supersession(
             runtime,
@@ -468,6 +466,12 @@ def publish_postgres_publication(
             ),
             recovered_parts=0,
         )
+    resolved_lease_owner = publication.delivery_lease_owner
+    if resolved_lease_owner is None:
+        raise postgres_publications.InvalidPublicationTransition(
+            "posting publication has no delivery lease owner"
+        )
+    resolved_lease_generation = publication.delivery_lease_generation
     posting_started_at = publication.posting_started_at
     if posting_started_at is None:
         raise postgres_publications.InvalidPublicationTransition(
@@ -480,7 +484,7 @@ def publish_postgres_publication(
         for finding in publication.plan.findings
     )
     author_login = ""
-    issue_comments: dict[int, IssueComment] | None = None
+    issue_comments: dict[int, list[IssueComment]] | None = None
     review_comments: list[PullRequestReviewComment] | None = None
 
     def acknowledge(
@@ -498,6 +502,23 @@ def publish_postgres_publication(
                 lease_generation=resolved_lease_generation,
             )
 
+    def prove_provider_write() -> None:
+        if lease_lost is not None and lease_lost.is_set():
+            raise postgres_publications.PublicationLeaseLost(
+                "publication delivery lease is no longer current"
+            )
+        with runtime.transaction() as connection:
+            postgres_publications.require_live_publication_lease(
+                connection,
+                publication_id=resolved_id,
+                lease_owner=resolved_lease_owner,
+                lease_generation=resolved_lease_generation,
+            )
+        if lease_lost is not None and lease_lost.is_set():
+            raise postgres_publications.PublicationLeaseLost(
+                "publication delivery lease is no longer current"
+            )
+
     def stale_failure() -> str | None:
         pull = github.get_pull_request(publication.repository, publication.pr_number)
         return _postgres_target_failure(
@@ -508,8 +529,8 @@ def publish_postgres_publication(
 
     def recovered_issue_comments(
         comments: Sequence[IssueComment],
-    ) -> dict[int, IssueComment]:
-        found: dict[int, IssueComment] = {}
+    ) -> dict[int, list[IssueComment]]:
+        found: dict[int, list[IssueComment]] = {}
         for comment in comments:
             if (
                 comment.author_login.casefold() != author_login.casefold()
@@ -517,14 +538,14 @@ def publish_postgres_publication(
                 != publication.plan.publication_key
             ):
                 continue
-            token = " part="
+            token = f"{publication_marker(publication.plan.publication_key)} part="
             token_index = comment.body.find(token)
             if token_index < 0:
                 continue
             raw_number = comment.body[token_index + len(token) :].split("/", 1)[0]
             if not raw_number.isdigit() or int(raw_number) < 1:
                 continue
-            found.setdefault(int(raw_number), comment)
+            found.setdefault(int(raw_number), []).append(comment)
         return found
 
     def terminalize_stale(failure_code: str) -> PostgresPublicationResult:
@@ -573,21 +594,40 @@ def publish_postgres_publication(
                     )
                     # `setdefault` in recovery keeps this newest match.
                     issue_comments = recovered_issue_comments(listed)
-                existing = issue_comments.get(part.part_number)
+                candidates = issue_comments.get(part.part_number, [])
+                existing = next(
+                    (
+                        comment
+                        for comment in candidates
+                        if comment.body == part.delivery.body
+                    ),
+                    candidates[0] if candidates else None,
+                )
                 if existing is not None:
+                    if existing.body != part.delivery.body:
+                        stale_code = stale_failure()
+                        if stale_code is not None:
+                            return terminalize_stale(stale_code)
+                        prove_provider_write()
+                        existing = github.update_issue_comment(
+                            publication.repository,
+                            existing.comment_id,
+                            part.delivery.body,
+                        )
                     external_id = existing.comment_id
                     recovered += 1
                 else:
                     stale_code = stale_failure()
                     if stale_code is not None:
                         return terminalize_stale(stale_code)
+                    prove_provider_write()
                     created = github.create_issue_comment(
                         publication.repository,
                         publication.pr_number,
                         part.delivery.body,
                     )
                     external_id = created.comment_id
-                    issue_comments[part.part_number] = created
+                    issue_comments[part.part_number] = [created]
             else:
                 if not isinstance(part.delivery, SuggestionReviewDelivery):
                     raise postgres_publications.PublicationConflict(
@@ -614,31 +654,52 @@ def publish_postgres_publication(
                         publication.pr_number,
                         max_pages=_COMMENT_RECOVERY_SCAN_PAGES,
                     )
-                matches = [
-                    comment
-                    for comment in review_comments
-                    if comment.author_login.casefold() == author_login.casefold()
-                    and comment.commit_id.lower() == publication.head_sha.lower()
-                    and extract_publication_key(comment.body)
-                    == publication.plan.publication_key
-                    and any(
-                        comment.body == candidate.body
-                        and comment.path == candidate.path
-                        and comment.line == candidate.line
-                        and comment.side == candidate.side
-                        and comment.start_line == candidate.start_line
-                        and comment.start_side == candidate.start_side
-                        for candidate in expected
+                expected_signatures = Counter(
+                    (
+                        comment.body,
+                        comment.path,
+                        comment.line,
+                        comment.side,
+                        comment.start_line,
+                        comment.start_side,
                     )
-                ]
-                review_ids = {comment.review_id for comment in matches}
-                if len(matches) == len(expected) and len(review_ids) == 1:
-                    external_id = next(iter(review_ids))
+                    for comment in expected
+                )
+                comments_by_review: dict[int, list[PullRequestReviewComment]] = {}
+                for comment in review_comments:
+                    if (
+                        comment.author_login.casefold() == author_login.casefold()
+                        and comment.commit_id.lower() == publication.head_sha.lower()
+                        and extract_publication_key(comment.body)
+                        == publication.plan.publication_key
+                    ):
+                        comments_by_review.setdefault(comment.review_id, []).append(
+                            comment
+                        )
+                exact_review_ids = sorted(
+                    review_id
+                    for review_id, comments in comments_by_review.items()
+                    if Counter(
+                        (
+                            comment.body,
+                            comment.path,
+                            comment.line,
+                            comment.side,
+                            comment.start_line,
+                            comment.start_side,
+                        )
+                        for comment in comments
+                    )
+                    == expected_signatures
+                )
+                if exact_review_ids:
+                    external_id = exact_review_ids[-1]
                     recovered += 1
                 else:
                     stale_code = stale_failure()
                     if stale_code is not None:
                         return terminalize_stale(stale_code)
+                    prove_provider_write()
                     review = github.create_pull_request_review(
                         publication.repository,
                         publication.pr_number,

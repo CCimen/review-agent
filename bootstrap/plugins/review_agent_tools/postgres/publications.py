@@ -1225,13 +1225,49 @@ def heartbeat_publication(
 
 
 def _require_delivery_lease(
-    row: _PublicationRow, *, lease_owner: str, lease_generation: int
+    connection: psycopg.Connection[TupleRow],
+    row: _PublicationRow,
+    *,
+    lease_owner: str,
+    lease_generation: int,
 ) -> None:
     if (
         row.status != PublicationStatus.POSTING.value
         or row.delivery_lease_owner != lease_owner
         or row.delivery_lease_generation != lease_generation
     ):
+        raise PublicationLeaseLost("publication delivery lease is no longer current")
+    clock = connection.execute("SELECT statement_timestamp()").fetchone()
+    if (
+        clock is None
+        or not isinstance(clock[0], datetime)
+        or row.delivery_lease_expires_at is None
+        or row.delivery_lease_expires_at <= clock[0]
+    ):
+        raise PublicationLeaseLost("publication delivery lease has expired")
+
+
+def require_live_publication_lease(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    publication_id: PublicationId,
+    lease_owner: str,
+    lease_generation: int,
+) -> None:
+    """Prove one exact publisher generation is still live."""
+    _require_transaction(connection)
+    live = connection.execute(
+        """
+        SELECT 1
+        FROM review_agent.publications
+        WHERE id = %s AND status = 'posting'
+          AND delivery_lease_owner = %s
+          AND delivery_lease_generation = %s
+          AND delivery_lease_expires_at > statement_timestamp()
+        """,
+        (publication_id, lease_owner, lease_generation),
+    ).fetchone()
+    if live is None:
         raise PublicationLeaseLost("publication delivery lease is no longer current")
 
 
@@ -1259,7 +1295,10 @@ def acknowledge_part(
         else lease_generation
     )
     _require_delivery_lease(
-        row, lease_owner=lease_owner, lease_generation=generation
+        connection,
+        row,
+        lease_owner=lease_owner,
+        lease_generation=generation,
     )
     if row.posting_started_at != posting_started_at:
         raise InvalidPublicationTransition("publication posting generation changed")
@@ -1319,7 +1358,10 @@ def complete_publication(
         else lease_generation
     )
     _require_delivery_lease(
-        row, lease_owner=lease_owner, lease_generation=generation
+        connection,
+        row,
+        lease_owner=lease_owner,
+        lease_generation=generation,
     )
     if (
         row.status != PublicationStatus.POSTING.value
@@ -1399,7 +1441,10 @@ def fail_publication(
         else lease_generation
     )
     _require_delivery_lease(
-        row, lease_owner=lease_owner, lease_generation=generation
+        connection,
+        row,
+        lease_owner=lease_owner,
+        lease_generation=generation,
     )
     if (
         row.status != PublicationStatus.POSTING.value

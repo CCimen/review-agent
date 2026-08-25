@@ -23,6 +23,7 @@ from . import (
     review_finding_application,
     review_publication_application,
     review_publication_planner,
+    review_contract,
     review_run_application,
     schemas,
     settings,
@@ -231,6 +232,17 @@ def _github_publication_gateway() -> GitHubIssueCommentGateway:
     )
 
 
+def _installed_review_contract() -> review_contract.ReviewContract:
+    try:
+        installed = review_contract.load_installed_contract()
+    except review_contract.ReviewContractError as exc:
+        raise ToolInputError(str(exc)) from exc
+    configured = settings.ReviewAgentSettings.from_environment()
+    if installed.profile != configured.profile:
+        raise ToolInputError("configured profile does not match the installed reviewer")
+    return installed
+
+
 def _postgres_runtime() -> PostgreSQLRuntime:
     """Open and cache one healthy reviewer pool; failed opens are never cached."""
     global _process_runtime
@@ -240,6 +252,7 @@ def _postgres_runtime() -> PostgreSQLRuntime:
         if _process_runtime is not None:
             return _process_runtime
         configured = settings.ReviewAgentSettings.from_environment()
+        _installed_review_contract()
         candidate = PostgreSQLRuntime(
             configured.postgres_database_url,
             role=PostgreSQLRuntimeRole.REVIEWER,
@@ -581,17 +594,14 @@ def review_begin(args: dict[str, Any], **_: Any) -> str:
     try:
         repository = _allowlisted_repository(args.get("repository"))
         number = _pr_number(args.get("pr_number"))
-        pull = _pr(repository, number)
-        if pull.get("state") != "open":
-            raise ToolInputError("the pull request is no longer open")
-        base_sha = _pull_base_sha(pull)
-        head_sha = _pull_head_sha(pull)
         raw_existing_run_id = args.get("existing_run_id")
         existing_run_id = (
             _positive_id(raw_existing_run_id, field="existing_run_id")
             if raw_existing_run_id is not None
             else None
         )
+        subject: review_run_application.RunSubject | None = None
+        persisted: review_run_application.LiveRunState | None = None
         if existing_run_id is not None:
             run_id = existing_run_id
             subject = _run_subject(
@@ -602,6 +612,21 @@ def review_begin(args: dict[str, Any], **_: Any) -> str:
             persisted = review_run_application.load_live_run_state(
                 _postgres_runtime(), subject
             )
+            review_contract.require_matching_resolved_config(
+                cast(
+                    JsonObject,
+                    json.loads(persisted.resolved_config.canonical_json),
+                ),
+                _installed_review_contract(),
+            )
+
+        pull = _pr(repository, number)
+        if pull.get("state") != "open":
+            raise ToolInputError("the pull request is no longer open")
+        base_sha = _pull_base_sha(pull)
+        head_sha = _pull_head_sha(pull)
+        if existing_run_id is not None:
+            assert subject is not None and persisted is not None
             pull, _ = _review_run_snapshot(
                 repository=repository,
                 pr_number=number,
@@ -673,6 +698,7 @@ def review_begin(args: dict[str, Any], **_: Any) -> str:
         trigger_user = str(args.get("trigger_user") or "")
 
         configured = settings.ReviewAgentSettings.from_environment()
+        installed_contract = _installed_review_contract()
         request_key = (
             f"github:issue-comment:{trigger_comment_id}"
             if trigger_comment_id is not None
@@ -690,8 +716,11 @@ def review_begin(args: dict[str, Any], **_: Any) -> str:
                 base_sha=base_sha,
                 head_sha=head_sha,
                 policy_revision=configured.policy_revision(),
-                resolved_config_schema_version=1,
-                resolved_config={"profile": configured.profile},
+                resolved_config_schema_version=2,
+                resolved_config=cast(
+                    JsonObject,
+                    review_contract.resolved_config(installed_contract),
+                ),
                 request_key=request_key,
             )
         )
@@ -758,6 +787,15 @@ def review_begin(args: dict[str, Any], **_: Any) -> str:
         return _output(result)
     except ReviewRunTerminal as terminal:
         return _output(_run_terminal_payload(terminal.run_id))
+    except review_contract.ReviewContractError as exc:
+        if repository and number and run_id:
+            _mark_run_failed(
+                repository=repository,
+                pr_number=number,
+                run_id=run_id,
+                failure_code=failure_codes.REVIEW_CONTRACT_CHANGED,
+            )
+        return _error(str(exc))
     except (
         ToolInputError,
         memory_validation.ReviewMemoryError,

@@ -27,6 +27,7 @@ def _load_package() -> None:
 
 _load_package()
 
+from review_agent_tools import review_contract  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
@@ -112,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
     configured = ReviewAgentSettings.from_environment()
     policy = _policy()
     chat_settings = _chat_settings()
+    try:
+        review_contract.load_installed_contract()
+    except review_contract.ReviewContractError as exc:
+        parser.error(str(exc))
     lease_owner = default_lease_owner(os.environ)
     runtime = PostgreSQLRuntime(
         configured.postgres_database_url,

@@ -31,7 +31,6 @@ services:
         HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
     restart: "no"
     entrypoint: ["/opt/review-agent-bootstrap/install.sh"]
-    command: ["--force-agents"]
     environment:
       HERMES_HOME: /opt/data
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
@@ -140,6 +139,8 @@ services:
     entrypoint: ["/usr/local/bin/review-agent-admission"]
     command: ["serve", "--host", "0.0.0.0", "--port", "8644"]
     depends_on:
+      review-profile-install:
+        condition: service_completed_successfully
       review-db-migrate:
         condition: service_completed_successfully
     environment:

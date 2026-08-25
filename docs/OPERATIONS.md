@@ -113,7 +113,7 @@ The deployment uses two named volumes:
 
 | Volume | Mounted in | Purpose |
 | --- | --- | --- |
-| `hermes_review_data` | `hermes-review` at `/opt/data` | Hermes config, Codex OAuth state, sessions, managed skills, and plugins. |
+| `hermes_review_data` | Profile installer (write); Hermes and workers (read) | Hermes config, Codex OAuth state, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
 | `review_postgres_data` | `review-postgres` at `/var/lib/postgresql/data` | PostgreSQL review state. |
 
 Do not run two Hermes gateways against the same `hermes_review_data` volume.
@@ -134,11 +134,17 @@ does not make arbitrary skill prose safe.
 Keep the selected value in deployment configuration so redeploys remain
 explicit. When invoking the installer outside Compose, its receipt reuses the
 last selected profile if neither the flag nor environment value is supplied.
+The installer replaces managed config, SOUL, AGENTS, skills, and plugin files
+from source control. It records their exact digests together with the pinned
+Hermes image, model, reasoning effort, and tool-result budget. Admission stores
+that compact contract with every review subject. A worker refuses queued work
+before calling Hermes when its installed contract differs, and the normal
+durable failure-status path tells the developer to request a fresh review.
 
 Manual recovery only:
 
 ```bash
-/opt/review-agent-bootstrap/install.sh --force-agents
+/opt/review-agent-bootstrap/install.sh
 review-agent-database migrate
 review-agent-database ready
 ```

@@ -15,10 +15,12 @@ import threading
 import time
 import uuid
 from urllib import error, parse, request
+from typing import cast
 
 import psycopg
 
-from . import failure_codes, review_run_application
+from . import failure_codes, review_contract, review_run_application
+from .domain.review import JsonObject
 from .postgres import jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
 
@@ -101,6 +103,7 @@ class ClaimedReview:
     job: jobs.ReviewJob
     repository: str
     pr_number: int
+    resolved_config: JsonObject
 
 
 class HermesChatClient:
@@ -257,6 +260,9 @@ class ReviewWorker:
                 job=job,
                 repository=scope.repository,
                 pr_number=scope.pr_number,
+                resolved_config=cast(
+                    JsonObject, json.loads(scope.resolved_config.canonical_json)
+                ),
             )
 
     def _recover_if_due(self) -> None:
@@ -272,6 +278,36 @@ class ReviewWorker:
             )
 
     def _execute(self, claimed: ClaimedReview) -> None:
+        try:
+            installed_contract = review_contract.load_installed_contract()
+        except review_contract.ReviewContractError as exc:
+            logger.critical(
+                "Worker cannot verify its installed review contract: %s", exc
+            )
+            self._stop.set()
+            return
+        try:
+            review_contract.require_matching_resolved_config(
+                claimed.resolved_config, installed_contract
+            )
+        except review_contract.ReviewContractError as exc:
+            try:
+                with self._runtime.transaction() as connection:
+                    review_run_application.fail_claimed_job_in_transaction(
+                        connection,
+                        job_id=claimed.job.id,
+                        lease_owner=self._lease_owner,
+                        lease_generation=claimed.job.lease_generation,
+                        failure_code=failure_codes.JOB_TERMINAL_EXECUTION,
+                        retryable=False,
+                        retry_delay=None,
+                        run_failure_code=failure_codes.REVIEW_CONTRACT_CHANGED,
+                    )
+            except jobs.ReviewJobLeaseLost:
+                logger.info("Review job %s lost its lease", claimed.job.id)
+                return
+            logger.error("Review job %s rejected before Hermes: %s", claimed.job.id, exc)
+            return
         heartbeat_stop = threading.Event()
         lease_lost = threading.Event()
         heartbeat = threading.Thread(

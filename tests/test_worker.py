@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import review_run_application  # noqa: E402
+from review_agent_tools import review_contract, review_run_application  # noqa: E402
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
@@ -60,6 +60,12 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.start()
         self.addCleanup(self._stop_server)
+        contract = self._contract()
+        contract_loader = patch.object(
+            review_contract, "load_installed_contract", return_value=contract
+        )
+        contract_loader.start()
+        self.addCleanup(contract_loader.stop)
 
     def _stop_server(self) -> None:
         self.server.shutdown()
@@ -216,6 +222,68 @@ class WorkerBoundaryTests(unittest.TestCase):
         )
         fail_job.assert_not_called()
 
+    def test_worker_rejects_a_changed_contract_before_hermes(self) -> None:
+        runtime = Mock(spec=PostgreSQLRuntime)
+        runtime.transaction.return_value = nullcontext(Mock())
+        client = Mock(spec=HermesChatClient)
+        worker = ReviewWorker(
+            runtime,
+            client,
+            self._policy(),
+            lease_owner="worker-test",
+            stop_event=threading.Event(),
+        )
+        claimed = self._claim(generation=1)
+        claimed = ClaimedReview(
+            job=claimed.job,
+            repository=claimed.repository,
+            pr_number=claimed.pr_number,
+            resolved_config={"profile": "changed"},
+        )
+
+        with patch.object(
+            review_run_application,
+            "fail_claimed_job_in_transaction",
+        ) as fail_job:
+            worker._execute(claimed)
+
+        client.review.assert_not_called()
+        self.assertEqual(
+            fail_job.call_args.kwargs["run_failure_code"],
+            "review_contract_changed",
+        )
+        self.assertFalse(fail_job.call_args.kwargs["retryable"])
+
+    def test_worker_stops_without_terminalizing_when_contract_cannot_be_read(self) -> None:
+        runtime = Mock(spec=PostgreSQLRuntime)
+        runtime.transaction.return_value = nullcontext(Mock())
+        client = Mock(spec=HermesChatClient)
+        stop = threading.Event()
+        worker = ReviewWorker(
+            runtime,
+            client,
+            self._policy(),
+            lease_owner="worker-test",
+            stop_event=stop,
+        )
+
+        with (
+            patch.object(
+                review_contract,
+                "load_installed_contract",
+                side_effect=review_contract.ReviewContractError("receipt unreadable"),
+            ),
+            patch.object(
+                review_run_application,
+                "fail_claimed_job_in_transaction",
+            ) as fail_job,
+        ):
+            worker._execute(self._claim(generation=1))
+
+        self.assertTrue(stop.is_set())
+        client.review.assert_not_called()
+        fail_job.assert_not_called()
+
     def test_heartbeat_survives_transient_database_failure(self) -> None:
         runtime = Mock(spec=PostgreSQLRuntime)
         runtime.transaction.return_value = nullcontext(Mock())
@@ -294,6 +362,24 @@ class WorkerBoundaryTests(unittest.TestCase):
             ),
             repository="example/repository",
             pr_number=5,
+            resolved_config=review_contract.resolved_config(
+                WorkerBoundaryTests._contract()
+            ),
+        )
+
+    @staticmethod
+    def _contract() -> review_contract.ReviewContract:
+        return review_contract.ReviewContract(
+            profile="sundsvall-standard",
+            hermes_image="hermes@test",
+            model_provider="openai-codex",
+            model="gpt-test",
+            reasoning_effort="high",
+            plugin_result_max_chars=160_000,
+            profile_bundle_sha256="1" * 64,
+            managed_config_sha256="2" * 64,
+            engine_bundle_sha256="3" * 64,
+            sha256="4" * 64,
         )
 
 

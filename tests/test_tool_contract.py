@@ -12,8 +12,27 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 import review_agent_tools  # noqa: E402
-from review_agent_tools import review_run_application, schemas, tools  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    review_contract,
+    review_run_application,
+    schemas,
+    tools,
+)
+from review_agent_tools.domain.review import resolve_review_subject  # noqa: E402
 from review_agent_tools.postgres.coverage import FileIndexSummary  # noqa: E402
+
+TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
+    profile="sundsvall-standard",
+    hermes_image="hermes@test",
+    model_provider="openai-codex",
+    model="gpt-test",
+    reasoning_effort="high",
+    plugin_result_max_chars=160_000,
+    profile_bundle_sha256="1" * 64,
+    managed_config_sha256="2" * 64,
+    engine_bundle_sha256="3" * 64,
+    sha256="contract",
+)
 
 
 class _FakeRegistry:
@@ -102,6 +121,7 @@ class ToolContractTests(unittest.TestCase):
         requester.assert_not_called()
 
     def test_worker_continues_the_exact_run_without_starting_another(self) -> None:
+        contract = TEST_REVIEW_CONTRACT
         pull = {
             "state": "open",
             "title": "Continue",
@@ -130,6 +150,13 @@ class ToolContractTests(unittest.TestCase):
                 by_change_status=(("modified", 1),),
                 sample_paths=(),
             ),
+            resolved_config=resolve_review_subject(
+                base_sha="a" * 40,
+                head_sha="b" * 40,
+                policy_revision="policy-v1",
+                resolved_config_schema_version=2,
+                resolved_config=review_contract.resolved_config(contract),
+            ).resolved_config,
         )
         with (
             patch.dict(
@@ -151,6 +178,11 @@ class ToolContractTests(unittest.TestCase):
             patch.object(tools.review_run_application, "start_live_review") as start,
             patch.object(tools, "_changed_files") as changed,
             patch.object(tools, "_postgres_runtime"),
+            patch.object(
+                tools.review_contract,
+                "load_installed_contract",
+                return_value=contract,
+            ),
         ):
             result = json.loads(
                 tools.review_begin(
@@ -167,6 +199,68 @@ class ToolContractTests(unittest.TestCase):
         self.assertTrue(result["continued"])
         start.assert_not_called()
         changed.assert_not_called()
+
+    def test_changed_existing_run_contract_fails_before_github(self) -> None:
+        state = review_run_application.LiveRunState(
+            run_id=41,
+            phase="reviewing",
+            started_at="2026-08-24T10:00:00Z",
+            file_index=FileIndexSummary(
+                changed_files_reported=1,
+                changed_files_registered=1,
+                registration_complete=True,
+                by_domain=(("general", 1),),
+                by_review_mode=(("normal", 1),),
+                by_change_status=(("modified", 1),),
+                sample_paths=(),
+            ),
+            resolved_config=resolve_review_subject(
+                base_sha="a" * 40,
+                head_sha="b" * 40,
+                policy_revision="policy-v1",
+                resolved_config_schema_version=1,
+                resolved_config={"profile": "sundsvall-standard"},
+            ).resolved_config,
+        )
+        with (
+            patch.dict(
+                os.environ,
+                {"REVIEW_AGENT_ALLOWED_REPOSITORIES": self.repository},
+                clear=True,
+            ),
+            patch.object(tools, "_pr") as pull_reader,
+            patch.object(tools, "_postgres_runtime"),
+            patch.object(
+                tools.review_run_application,
+                "load_live_run_state",
+                return_value=state,
+            ),
+            patch.object(
+                tools.review_contract,
+                "load_installed_contract",
+                return_value=TEST_REVIEW_CONTRACT,
+            ),
+            patch.object(tools, "_mark_run_failed") as mark_failed,
+        ):
+            result = json.loads(
+                tools.review_begin(
+                    {
+                        "repository": self.repository,
+                        "pr_number": 1,
+                        "existing_run_id": 41,
+                    }
+                )
+            )
+
+        self.assertEqual(
+            result["error"],
+            "queued review contract does not match the installed reviewer",
+        )
+        pull_reader.assert_not_called()
+        self.assertEqual(
+            mark_failed.call_args.kwargs["failure_code"],
+            "review_contract_changed",
+        )
 
     def test_malformed_reserved_worker_session_fails_before_network(self) -> None:
         with (
@@ -260,6 +354,13 @@ class ToolContractTests(unittest.TestCase):
                 by_change_status=(),
                 sample_paths=(),
             ),
+            resolved_config=resolve_review_subject(
+                base_sha="a" * 40,
+                head_sha="b" * 40,
+                policy_revision="policy-v1",
+                resolved_config_schema_version=1,
+                resolved_config={"profile": "sundsvall-standard"},
+            ).resolved_config,
         )
         with (
             patch.dict(

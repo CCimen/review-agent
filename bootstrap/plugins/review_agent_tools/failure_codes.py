@@ -31,6 +31,8 @@ JOB_EXECUTION_FAILED: Final = "job_execution_failed"
 PUBLICATION_ATTEMPTS_EXHAUSTED: Final = "publication_attempts_exhausted"
 # An operator cancelled a queued or leased review after inspecting its state.
 OPERATOR_CANCELLED: Final = "operator_cancelled"
+# The immutable behavior captured at admission no longer matches this worker.
+REVIEW_CONTRACT_CHANGED: Final = "review_contract_changed"
 
 # Job-row causes are deliberately separate from final review-run outcomes.
 JOB_LEASE_EXPIRED: Final = "job_lease_expired"
@@ -52,6 +54,7 @@ ALL: Final = frozenset(
         JOB_EXECUTION_FAILED,
         PUBLICATION_ATTEMPTS_EXHAUSTED,
         OPERATOR_CANCELLED,
+        REVIEW_CONTRACT_CHANGED,
     }
 )
 

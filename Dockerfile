@@ -1,6 +1,8 @@
 ARG HERMES_IMAGE=nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e
 FROM ${HERMES_IMAGE}
 
+ENV REVIEW_AGENT_HERMES_IMAGE=${HERMES_IMAGE}
+
 USER root
 COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt
 RUN apt-get update \

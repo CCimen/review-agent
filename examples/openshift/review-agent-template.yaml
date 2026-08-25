@@ -69,7 +69,6 @@ objects:
             - name: install
               image: ${IMAGE}
               command: [/opt/review-agent-bootstrap/install.sh]
-              args: [--force-agents]
               envFrom:
                 - configMapRef:
                     name: review-agent-config
@@ -329,17 +328,23 @@ objects:
                       key: REVIEW_AGENT_DATABASE_URL
                 - name: REVIEW_AGENT_HERMES_CHAT_URL
                   value: http://hermes-review:8642/v1/chat/completions
-                - name: REVIEW_AGENT_SKILL_PATH
-                  value: /opt/review-agent-bootstrap/profiles/${PROFILE}/skills/review-agent-pr/SKILL.md
+                - name: HERMES_HOME
+                  value: /opt/data
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
                   drop: [ALL]
                 readOnlyRootFilesystem: true
               volumeMounts:
+                - name: data
+                  mountPath: /opt/data
+                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
           volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: review-agent-hermes-data
             - name: tmp
               emptyDir: {}
   - apiVersion: networking.k8s.io/v1

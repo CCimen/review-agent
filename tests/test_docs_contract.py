@@ -385,6 +385,9 @@ class DocsContractTests(unittest.TestCase):
         hermes_section = compose.split("  hermes-review:", 1)[1].split(
             "\n  review-admission:", 1
         )[0]
+        admission_section = compose.split("  review-admission:", 1)[1].split(
+            "\n  review-worker:", 1
+        )[0]
         reviewer_section = compose.split("  hermes-review:", 1)[1].split(
             "\n  hermes-review-feedback:", 1
         )[0]
@@ -403,6 +406,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("no-new-privileges:true", hermes_section)
         self.assertNotIn("\n      GH_TOKEN:", reviewer_section)
         self.assertIn("PYTHONDONTWRITEBYTECODE", reviewer_section)
+        self.assertNotIn("hermes_review_data:/opt/data", admission_section)
         self.assertNotIn("hermes_review_data:/opt/data", feedback_section)
         self.assertNotIn("env_file:", feedback_section)
         self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", feedback_section)
@@ -418,7 +422,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn(
             'entrypoint: ["/opt/review-agent-bootstrap/install.sh"]', profile_section
         )
-        self.assertIn('command: ["--force-agents"]', profile_section)
+        self.assertNotIn("--force-agents", profile_section)
         self.assertIn("HERMES_HOME: /opt/data", profile_section)
         self.assertIn("REVIEW_AGENT_PROFILE", profile_section)
         self.assertIn("hermes_review_data:/opt/data", profile_section)
@@ -447,7 +451,7 @@ class DocsContractTests(unittest.TestCase):
             "PostgreSQL",
             "Exited (0)",
             "Manual recovery only",
-            "/opt/review-agent-bootstrap/install.sh --force-agents",
+            "/opt/review-agent-bootstrap/install.sh",
             "review-agent-database migrate",
             "review-agent-database ready",
         ]:
@@ -651,6 +655,10 @@ class DocsContractTests(unittest.TestCase):
         env_example = read(".env.example")
         operations = read("docs/OPERATIONS.md")
         dockerfile = read("Dockerfile")
+        openshift = read("examples/openshift/review-agent-template.yaml")
+        openshift_worker = openshift.split(
+            "      name: review-agent-worker", 1
+        )[1].split("  - apiVersion: networking.k8s.io/v1", 1)[0]
 
         digest = "nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e"
         self.assertIn(digest, compose)
@@ -667,6 +675,10 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("pg_dump", operations)
         self.assertIn("pg_restore --exit-on-error", operations)
         self.assertIn("review-agent-database ready", operations)
+        self.assertIn("name: HERMES_HOME\n                  value: /opt/data", openshift_worker)
+        self.assertIn("mountPath: /opt/data\n                  readOnly: true", openshift_worker)
+        self.assertIn("claimName: review-agent-hermes-data", openshift_worker)
+        self.assertNotIn("REVIEW_AGENT_SKILL_PATH", openshift_worker)
 
     def test_managed_profile_owns_the_codex_model(self):
         config = read("bootstrap/config.yaml")

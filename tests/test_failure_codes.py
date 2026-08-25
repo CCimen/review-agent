@@ -24,6 +24,10 @@ class FailureCodesTests(unittest.TestCase):
         self.assertEqual(failure_codes.JOB_RETRY_EXHAUSTED, "job_retry_exhausted")
         self.assertEqual(failure_codes.JOB_EXECUTION_FAILED, "job_execution_failed")
         self.assertEqual(
+            failure_codes.REVIEW_CONTRACT_CHANGED,
+            "review_contract_changed",
+        )
+        self.assertEqual(
             failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
             "publication_attempts_exhausted",
         )
@@ -51,6 +55,7 @@ class FailureCodesTests(unittest.TestCase):
             failure_codes.JOB_EXECUTION_FAILED,
             failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
             failure_codes.OPERATOR_CANCELLED,
+            failure_codes.REVIEW_CONTRACT_CHANGED,
         ]
         self.assertEqual(failure_codes.ALL, frozenset(codes))
         self.assertEqual(len(failure_codes.ALL), len(codes))

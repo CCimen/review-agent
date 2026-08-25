@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import psycopg
 
@@ -20,6 +20,7 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 from review_agent_tools import (  # noqa: E402
     failure_codes,
     operator_application,
+    review_contract,
     review_run_application,
 )
 from review_agent_tools.domain.review import (  # noqa: E402
@@ -42,6 +43,18 @@ from review_agent_tools.worker import (  # noqa: E402
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 ACTIVE_JOB_LIMIT = 100
 PRIORITY_AGING_INTERVAL = timedelta(minutes=15)
+TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
+    profile="team-standard",
+    hermes_image="hermes@test",
+    model_provider="openai-codex",
+    model="gpt-test",
+    reasoning_effort="high",
+    plugin_result_max_chars=160_000,
+    profile_bundle_sha256="1" * 64,
+    managed_config_sha256="2" * 64,
+    engine_bundle_sha256="3" * 64,
+    sha256="4" * 64,
+)
 
 
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
@@ -77,8 +90,8 @@ class PostgreSQLJobTests(unittest.TestCase):
             base_sha="b" * 40,
             head_sha=head_character * 40,
             policy_revision="profile@1",
-            resolved_config_schema_version=1,
-            resolved_config={"profile": "team-standard"},
+            resolved_config_schema_version=2,
+            resolved_config=review_contract.resolved_config(TEST_REVIEW_CONTRACT),
         )
         with self.runtime.transaction() as connection:
             return registry.create_or_get_subject(
@@ -638,7 +651,12 @@ class PostgreSQLJobTests(unittest.TestCase):
             stop_event=stop,
         )
 
-        worker.run()
+        with patch.object(
+            review_contract,
+            "load_installed_contract",
+            return_value=TEST_REVIEW_CONTRACT,
+        ):
+            worker.run()
 
         with self.runtime.transaction() as connection:
             first = review_runs.get_run(connection, first_run.run.id)

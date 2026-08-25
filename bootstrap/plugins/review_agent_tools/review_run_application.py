@@ -23,6 +23,7 @@ from .domain.review import (
     ReviewRunId,
     ReviewStatus,
     ReviewSubjectId,
+    ResolvedConfig,
     classify_file_domain,
     classify_review_mode,
     resolve_changed_file,
@@ -138,6 +139,7 @@ class LiveRunState:
     phase: RunPhase
     started_at: str
     file_index: postgres_coverage.FileIndexSummary
+    resolved_config: ResolvedConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +270,7 @@ def fail_claimed_job_in_transaction(
     failure_code: str,
     retryable: bool,
     retry_delay: timedelta | None,
+    run_failure_code: str | None = None,
 ) -> postgres_jobs.JobFailureResult:
     """Fail one claim after locking its run before its job row."""
     current_job = postgres_jobs.get_job(connection, job_id)
@@ -292,7 +295,7 @@ def fail_claimed_job_in_transaction(
         postgres_review_runs.fail_active_runs(
             connection,
             run_ids=(run.id,),
-            failure_code=outcome.run_failure_code,
+            failure_code=run_failure_code or outcome.run_failure_code,
         )
     return outcome
 
@@ -599,6 +602,7 @@ def load_live_run_state(
         phase=cast(RunPhase, scope.run.phase.value),
         started_at=_timestamp(scope.run.started_at),
         file_index=file_index,
+        resolved_config=scope.resolved_config,
     )
 
 

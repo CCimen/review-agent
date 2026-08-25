@@ -4,10 +4,8 @@ import importlib.util
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
-import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -16,6 +14,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_SOURCE = ROOT / "bootstrap" / "profiles" / "sundsvall-standard"
 PLUGIN_SOURCE = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
+HERMES_IMAGE = "nousresearch/hermes-agent:test@sha256:" + "1" * 64
 
 
 def load_installer():
@@ -25,18 +24,7 @@ def load_installer():
     if spec is None or spec.loader is None:
         raise AssertionError("could not load bootstrap installer")
     module = importlib.util.module_from_spec(spec)
-    previous_yaml = sys.modules.get("yaml")
-    yaml_stub = types.ModuleType("yaml")
-    yaml_stub.safe_load = json.loads
-    yaml_stub.safe_dump = lambda value, **_kwargs: json.dumps(value, indent=2) + "\n"
-    sys.modules["yaml"] = yaml_stub
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        if previous_yaml is None:
-            sys.modules.pop("yaml", None)
-        else:
-            sys.modules["yaml"] = previous_yaml
+    spec.loader.exec_module(module)
     return module
 
 
@@ -53,47 +41,32 @@ def tree_bytes(root: Path) -> dict[str, bytes]:
 class ProfileBundleTests(unittest.TestCase):
     def setUp(self) -> None:
         self.install = load_installer()
-        self.managed_config = {
-            "model": {"provider": "openai-codex", "default": "gpt-5.6-sol"},
-            "agent": {"reasoning_effort": "xhigh"},
-            "platforms": {
-                "webhook": {
-                    "extra": {
-                        "routes": {
-                            "review-agent": {"skills": ["review-agent-pr"]}
-                        }
-                    }
-                }
-            },
-        }
+
+    def load_installed_contract(self, hermes_home: Path):
+        with mock.patch.dict(
+            os.environ,
+            {"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
+        ):
+            return self.install.review_contract.load_installed_contract(hermes_home)
 
     def run_installer(
         self,
         hermes_home: Path,
         *arguments: str,
-        existing_config: dict[str, object] | None = None,
         profiles_source: Path | None = None,
         profile_environment: str | None = "sundsvall-standard",
-    ) -> tuple[int, mock.Mock]:
-        existing_config = existing_config or {}
-
-        def load_config(path: Path) -> dict[str, object]:
-            if path == hermes_home / "config.yaml":
-                return existing_config
-            if path == self.install.SOURCE / "config.yaml":
-                return self.managed_config
-            raise AssertionError(f"unexpected config path: {path}")
-
-        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
-
+    ) -> int:
         with (
             mock.patch.dict(
                 os.environ,
-                (
-                    {"REVIEW_AGENT_PROFILE": profile_environment}
-                    if profile_environment is not None
-                    else {}
-                ),
+                {
+                    **(
+                        {"REVIEW_AGENT_PROFILE": profile_environment}
+                        if profile_environment is not None
+                        else {}
+                    ),
+                    "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
+                },
                 clear=True,
             ),
             mock.patch.object(self.install, "HERMES_HOME", hermes_home),
@@ -102,12 +75,6 @@ class ProfileBundleTests(unittest.TestCase):
                 "PROFILES_SOURCE",
                 profiles_source or self.install.PROFILES_SOURCE,
             ),
-            mock.patch.object(self.install, "load_yaml", side_effect=load_config),
-            mock.patch.object(
-                self.install.subprocess,
-                "run",
-                return_value=completed,
-            ) as run,
             mock.patch.object(
                 sys,
                 "argv",
@@ -116,7 +83,7 @@ class ProfileBundleTests(unittest.TestCase):
         ):
             result = self.install.main()
 
-        return result, run
+        return result
 
     def assert_profile_assets_installed(self, hermes_home: Path) -> None:
         self.assertEqual(
@@ -150,15 +117,7 @@ class ProfileBundleTests(unittest.TestCase):
                 original_config,
                 encoding="utf-8",
             )
-            existing_config = {
-                "model": {"default": "stale-model"},
-                "operator": {"keep": True},
-            }
-
-            first, enable = self.run_installer(
-                hermes_home,
-                existing_config=existing_config,
-            )
+            first = self.run_installer(hermes_home)
 
             self.assertEqual(0, first)
             self.assert_profile_assets_installed(hermes_home)
@@ -166,11 +125,20 @@ class ProfileBundleTests(unittest.TestCase):
                 tree_bytes(PLUGIN_SOURCE),
                 tree_bytes(hermes_home / "plugins" / "review_agent_tools"),
             )
-            installed_config = json.loads(
-                (hermes_home / "config.yaml").read_text(encoding="utf-8")
+            installed_config_bytes = (hermes_home / "config.yaml").read_bytes()
+            self.assertEqual(
+                (self.install.SOURCE / "config.yaml").read_bytes(),
+                installed_config_bytes,
             )
-            self.assertEqual("gpt-5.6-sol", installed_config["model"]["default"])
-            self.assertTrue(installed_config["operator"]["keep"])
+            installed_config = installed_config_bytes.decode("utf-8")
+            self.assertEqual(
+                ["review-agent-tools"],
+                self.install.load_yaml(hermes_home / "config.yaml")["plugins"][
+                    "enabled"
+                ],
+            )
+            self.assertNotIn("stale-model", installed_config)
+            self.assertNotIn("operator:\n", installed_config)
             self.assertEqual(
                 original_config,
                 (hermes_home / "config.yaml.before-review-agent").read_text(
@@ -183,20 +151,12 @@ class ProfileBundleTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual("sundsvall-standard", receipt["profile"])
+            self.assertEqual("sundsvall-standard", receipt["contract"]["profile"])
             self.assertEqual(["review-agent-pr", "ponytail"], receipt["skills"])
-            enable.assert_called_once_with(
-                ["hermes", "plugins", "enable", "review-agent-tools"],
-                check=False,
-                text=True,
-                capture_output=True,
-                env=mock.ANY,
-            )
-            self.assertEqual(
-                str(hermes_home),
-                enable.call_args.kwargs["env"]["HERMES_HOME"],
-            )
-
+            self.assertEqual(2, receipt["schema_version"])
+            self.assertEqual(HERMES_IMAGE, receipt["contract"]["hermes_image"])
+            self.assertTrue(receipt["files"])
+            self.assertNotIn("files", receipt["contract"])
             (hermes_home / "skills" / "review-agent-pr" / "stale.txt").write_text(
                 "stale", encoding="utf-8"
             )
@@ -204,9 +164,8 @@ class ProfileBundleTests(unittest.TestCase):
                 "stale = True\n", encoding="utf-8"
             )
 
-            repeated, repeated_enable = self.run_installer(
+            repeated = self.run_installer(
                 hermes_home,
-                existing_config=installed_config,
             )
 
             self.assertEqual(0, repeated)
@@ -215,13 +174,49 @@ class ProfileBundleTests(unittest.TestCase):
                 tree_bytes(PLUGIN_SOURCE),
                 tree_bytes(hermes_home / "plugins" / "review_agent_tools"),
             )
-            repeated_enable.assert_called_once()
 
-    def test_preserve_soul_and_force_agents_keep_existing_flag_behavior(self) -> None:
+    def test_receipt_detects_installed_behavior_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            hermes_home = Path(temp) / "hermes-home"
+            installed = self.run_installer(hermes_home)
+
+            self.assertEqual(0, installed)
+            contract = self.load_installed_contract(hermes_home)
+            self.assertEqual("sundsvall-standard", contract.profile)
+
+            (hermes_home / "SOUL.md").write_text(
+                "# Changed outside the selected profile\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                self.install.review_contract.ReviewContractError,
+                "do not match the receipt",
+            ):
+                self.load_installed_contract(hermes_home)
+
+    def test_packaged_and_installed_files_resolve_to_the_same_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            hermes_home = Path(temp) / "hermes-home"
+            installed = self.run_installer(hermes_home)
+            self.assertEqual(0, installed)
+
+            with mock.patch.dict(
+                os.environ,
+                {"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
+            ):
+                packaged_contract = (
+                    self.install.review_contract.load_packaged_contract(
+                        "sundsvall-standard",
+                        self.install.SOURCE,
+                    )
+                )
+
+            self.assertEqual(self.load_installed_contract(hermes_home), packaged_contract)
+
+    def test_redeploy_restores_source_controlled_soul_and_agents(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             hermes_home = Path(temp) / "hermes-home"
 
-            installed, _enable = self.run_installer(hermes_home)
+            installed = self.run_installer(hermes_home)
             self.assertEqual(0, installed)
 
             soul_target = hermes_home / "SOUL.md"
@@ -229,23 +224,12 @@ class ProfileBundleTests(unittest.TestCase):
             soul_target.write_bytes(b"operator soul\n")
             agents_target.write_bytes(b"operator agents\n")
 
-            preserved, _enable = self.run_installer(
-                hermes_home,
-                "--preserve-soul",
+            repeated = self.run_installer(hermes_home)
+
+            self.assertEqual(0, repeated)
+            self.assertEqual(
+                (PROFILE_SOURCE / "SOUL.md").read_bytes(), soul_target.read_bytes()
             )
-
-            self.assertEqual(0, preserved)
-            self.assertEqual(b"operator soul\n", soul_target.read_bytes())
-            self.assertEqual(b"operator agents\n", agents_target.read_bytes())
-
-            forced, _enable = self.run_installer(
-                hermes_home,
-                "--preserve-soul",
-                "--force-agents",
-            )
-
-            self.assertEqual(0, forced)
-            self.assertEqual(b"operator soul\n", soul_target.read_bytes())
             self.assertEqual(
                 (PROFILE_SOURCE / "workspace" / "AGENTS.md").read_bytes(),
                 agents_target.read_bytes(),
@@ -253,23 +237,6 @@ class ProfileBundleTests(unittest.TestCase):
             self.assertEqual(
                 b"operator agents\n",
                 (hermes_home / "workspace" / "AGENTS.md.before-review-agent").read_bytes(),
-            )
-
-    def test_skip_plugin_enable_still_installs_the_complete_profile(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            hermes_home = Path(temp) / "hermes-home"
-
-            completed, enable = self.run_installer(
-                hermes_home,
-                "--skip-plugin-enable",
-            )
-
-            self.assertEqual(0, completed)
-            enable.assert_not_called()
-            self.assert_profile_assets_installed(hermes_home)
-            self.assertEqual(
-                tree_bytes(PLUGIN_SOURCE),
-                tree_bytes(hermes_home / "plugins" / "review_agent_tools"),
             )
 
     def test_selected_profile_survives_redeploy_and_removes_unlisted_skills(
@@ -295,18 +262,18 @@ class ProfileBundleTests(unittest.TestCase):
             )
             hermes_home = root / "hermes-home"
 
-            initial, _enable = self.run_installer(
+            initial = self.run_installer(
                 hermes_home,
                 profiles_source=profiles,
             )
-            selected, _enable = self.run_installer(
+            selected = self.run_installer(
                 hermes_home,
                 "--profile",
                 "team-standard",
                 profiles_source=profiles,
                 profile_environment=None,
             )
-            repeated, _enable = self.run_installer(
+            repeated = self.run_installer(
                 hermes_home,
                 profiles_source=profiles,
                 profile_environment=None,
@@ -329,7 +296,7 @@ class ProfileBundleTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual("team-standard", receipt["profile"])
+            self.assertEqual("team-standard", receipt["contract"]["profile"])
 
     def test_profile_contract_rejects_unknown_and_runtime_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -370,13 +337,13 @@ class ProfileBundleTests(unittest.TestCase):
                     encoding="utf-8",
                 )
                 with self.assertRaisesRegex(
-                    self.install.ProfileError, "missing managed route skill"
+                    self.install.ProfileError, "missing required review skill"
                 ):
                     self.install.load_profile(
                         "unsafe-profile", required_skills=("review-agent-pr",)
                     )
 
-    def test_installer_rejects_missing_route_skill_before_writing_home(self) -> None:
+    def test_installer_rejects_missing_review_skill_before_writing_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             profiles = root / "profiles"
@@ -405,7 +372,7 @@ class ProfileBundleTests(unittest.TestCase):
                 '{"profile": "truncated"}', encoding="utf-8"
             )
 
-            completed, _enable = self.run_installer(
+            completed = self.run_installer(
                 hermes_home,
                 "--profile",
                 "sundsvall-standard",
@@ -418,7 +385,7 @@ class ProfileBundleTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual("sundsvall-standard", receipt["profile"])
+            self.assertEqual("sundsvall-standard", receipt["contract"]["profile"])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 import hmac
@@ -20,7 +21,11 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import review_agent_admission as admission_entrypoint  # noqa: E402
 
-from review_agent_tools import admission, review_run_application  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    admission,
+    review_contract,
+    review_run_application,
+)
 from review_agent_tools.domain.review import (  # noqa: E402
     PullRequestId,
     ReviewPhase,
@@ -63,6 +68,18 @@ class AdmissionTests(unittest.TestCase):
             "head": {"sha": "a" * 40},
         }
         self.runtime = Mock()
+        self.contract = review_contract.ReviewContract(
+            profile="sundsvall-standard",
+            hermes_image="hermes@test",
+            model_provider="openai-codex",
+            model="gpt-test",
+            reasoning_effort="high",
+            plugin_result_max_chars=160_000,
+            profile_bundle_sha256="1" * 64,
+            managed_config_sha256="2" * 64,
+            engine_bundle_sha256="3" * 64,
+            sha256="4" * 64,
+        )
 
     @staticmethod
     def payload() -> dict[str, object]:
@@ -101,7 +118,11 @@ class AdmissionTests(unittest.TestCase):
     def test_signed_payload_admits_the_exact_github_snapshot(self) -> None:
         with patch.object(
             admission, "admit_postgres_review", return_value=self.admitted()
-        ) as admit:
+        ) as admit, patch.object(
+            admission.review_contract,
+            "load_packaged_contract",
+            return_value=self.contract,
+        ):
             response = admission.admit_review(
                 payload=self.payload(),
                 delivery_id="7001",
@@ -118,7 +139,23 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(request.request_key, "github:issue-comment:7001")
         self.assertEqual(request.base_sha, "b" * 40)
         self.assertEqual(request.head_sha, "a" * 40)
+        self.assertEqual(request.resolved_config_schema_version, 2)
+        self.assertEqual(
+            request.resolved_config["review_contract"], self.contract.to_json()
+        )
         self.assertEqual(admit.call_args.kwargs["active_job_limit"], 25)
+
+    def test_readiness_fails_when_configured_profile_is_not_packaged(self) -> None:
+        self.runtime.database_url = self.config.database_url
+        with (
+            patch.object(
+                admission.review_contract,
+                "load_packaged_contract",
+                return_value=replace(self.contract, profile="other-profile"),
+            ),
+            self.assertRaisesRegex(admission.AdmissionError, "configured profile"),
+        ):
+            admission.ready_check(self.config, self.runtime)
 
     def test_delivery_id_and_comment_id_must_match(self) -> None:
         with patch.object(admission, "admit_postgres_review") as admit:

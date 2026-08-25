@@ -10,6 +10,8 @@ from typing import cast
 import urllib.parse
 
 from .github_webhook import verify_signature as _verify_signature
+from . import review_contract
+from .domain.review import JsonObject
 from .postgres import jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime
 from .review_run_application import (
@@ -236,7 +238,18 @@ def ready_check(config: AdmissionConfig, runtime: PostgreSQLRuntime) -> dict[str
     if config.database_url != runtime.database_url:
         raise AdmissionError("admission runtime does not match its configured database")
     runtime.readiness()
+    _admission_contract(config.profile)
     return {"status": "ready"}
+
+
+def _admission_contract(profile: str) -> review_contract.ReviewContract:
+    try:
+        contract = review_contract.load_packaged_contract(profile)
+    except review_contract.ReviewContractError as exc:
+        raise AdmissionError(str(exc)) from exc
+    if contract.profile != profile:
+        raise AdmissionError("configured profile does not match the packaged reviewer")
+    return contract
 
 
 def admit_review(
@@ -261,6 +274,7 @@ def admit_review(
     if snapshot.state != "open":
         raise AdmissionError("pull request is not open")
 
+    contract = _admission_contract(config.profile)
     admitted = admit_postgres_review(
         runtime,
         PostgresRunRequest(
@@ -271,8 +285,8 @@ def admit_review(
             base_sha=snapshot.base_sha,
             head_sha=snapshot.head_sha,
             policy_revision=config.policy_revision,
-            resolved_config_schema_version=1,
-            resolved_config={"profile": config.profile},
+            resolved_config_schema_version=2,
+            resolved_config=cast(JsonObject, review_contract.resolved_config(contract)),
             request_key=f"github:issue-comment:{request.comment_id}",
             trigger_comment_id=request.comment_id,
             trigger_user=request.requester,

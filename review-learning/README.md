@@ -177,7 +177,7 @@ Weak signals are ignored:
    change.
 5. `shadow`: the change is measured on real reviews without making it a gate.
 6. `active`: the change is deployed through version control and
-   `/opt/review-agent-bootstrap/install.sh --force-agents`.
+   `/opt/review-agent-bootstrap/install.sh`.
 7. `retired/replaced`: a better canonical owner absorbs it or the lesson stops
    matching current architecture.
 

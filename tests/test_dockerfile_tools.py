@@ -10,7 +10,6 @@ from fnmatch import fnmatch
 import importlib.util
 from pathlib import Path
 import types
-from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,13 +97,17 @@ class DockerfileToolsTests(unittest.TestCase):
             dockerfile,
         )
 
-    def test_container_installs_the_pinned_postgresql_driver(self) -> None:
+    def test_container_installs_the_pinned_python_dependencies(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
         self.assertEqual(
-            requirements,
-            "psycopg[binary]==3.3.4\npsycopg-pool==3.3.1\n",
+            requirements.splitlines(),
+            [
+                "psycopg[binary]==3.3.4",
+                "psycopg-pool==3.3.1",
+                "PyYAML==6.0.3",
+            ],
         )
         self.assertIn(
             "COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt",
@@ -148,28 +151,11 @@ class DockerfileToolsTests(unittest.TestCase):
             self.assertFalse((target / "old_module.py").exists())
             self.assertFalse((target / "__pycache__").exists())
 
-    def test_managed_model_overrides_stale_selection_without_losing_other_config(self) -> None:
-        install = _load_install_module()
-        existing = {
-            "model": {
-                "provider": "openai-codex",
-                "default": "gpt-5.5",
-                "operator_note": "preserve",
-            },
-            "agent": {"reasoning_effort": "medium", "custom_setting": True},
-        }
-        managed = {
-            "model": {"provider": "openai-codex", "default": "gpt-5.6-sol"},
-            "agent": {"reasoning_effort": "xhigh"},
-        }
+    def test_container_records_the_pinned_hermes_base_for_contracts(self) -> None:
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
-        merged = install.deep_merge(existing, managed)
-
-        self.assertEqual("gpt-5.6-sol", merged["model"]["default"])
-        self.assertEqual("openai-codex", merged["model"]["provider"])
-        self.assertEqual("preserve", merged["model"]["operator_note"])
-        self.assertEqual("xhigh", merged["agent"]["reasoning_effort"])
-        self.assertTrue(merged["agent"]["custom_setting"])
+        self.assertIn("ARG HERMES_IMAGE=", dockerfile)
+        self.assertIn("ENV REVIEW_AGENT_HERMES_IMAGE=${HERMES_IMAGE}", dockerfile)
 
     def test_installed_memory_cli_imports_support_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

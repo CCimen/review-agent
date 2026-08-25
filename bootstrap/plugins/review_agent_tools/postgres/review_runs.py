@@ -21,6 +21,8 @@ from ..domain.review import (
     ReviewRunId,
     ReviewStatus,
     ReviewSubjectId,
+    ResolvedConfig,
+    decode_resolved_config,
 )
 
 
@@ -75,6 +77,7 @@ class ReviewRunScope:
     pr_number: int
     base_sha: str
     head_sha: str
+    resolved_config: ResolvedConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +99,8 @@ class _ReviewRunScopeRow:
     pr_number: int
     base_sha: str
     head_sha: str
+    resolved_config_schema_version: int
+    resolved_config_json: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,7 +320,9 @@ def get_run_scope(
                    run.started_at, run.last_heartbeat_at, run.completed_at,
                    repository.full_name AS repository,
                    pull_request.number AS pr_number,
-                   subject.base_sha, subject.head_sha
+                   subject.base_sha, subject.head_sha,
+                   subject.resolved_config_schema_version,
+                   subject.resolved_config::text AS resolved_config_json
             FROM review_agent.review_runs AS run
             JOIN review_agent.pull_requests AS pull_request
               ON pull_request.id = run.pull_request_id
@@ -351,6 +358,10 @@ def get_run_scope(
         pr_number=row.pr_number,
         base_sha=row.base_sha,
         head_sha=row.head_sha,
+        resolved_config=decode_resolved_config(
+            row.resolved_config_json,
+            schema_version=row.resolved_config_schema_version,
+        ),
     )
 
 
@@ -382,6 +393,7 @@ def validate_snapshot(
             pr_number=scope.pr_number,
             base_sha=scope.base_sha,
             head_sha=scope.head_sha,
+            resolved_config=scope.resolved_config,
         ), False, True
     updated = advance_phase(connection, run_id, phase)
     return ReviewRunScope(
@@ -390,6 +402,7 @@ def validate_snapshot(
         pr_number=scope.pr_number,
         base_sha=scope.base_sha,
         head_sha=scope.head_sha,
+        resolved_config=scope.resolved_config,
     ), True, False
 
 

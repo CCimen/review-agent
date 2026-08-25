@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "ec6bfa60ba4b79c5dcfa3ce3ccdff6bcd7898beb"
 
-active_task: T121
+active_task: T122
 
 tasks:
   - id: T001
@@ -2563,7 +2563,7 @@ tasks:
   - id: T121
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Freeze the smallest complete automatic durable terminal-failure delivery correction for H5."
     inputs:
@@ -2577,6 +2577,51 @@ tasks:
       - "Do not mix Medium review findings into this slice."
     expected_output:
       - "Exact canonical owner, lifecycle invariants, allowed files, migrations if unavoidable, tests, verification, non-goals, rollback, and stop conditions"
+    receipt:
+      result: done
+      decision: "Represent H5 as a narrowly leased terminal-run delivery substate on review_runs, delivered by the existing publisher; do not force failures into review publications or create a second queue."
+      evidence:
+        - "The current publisher never claims terminal runs; best-effort in-band posting and the manual operator scan miss job death, retry exhaustion, and orphan recovery."
+        - "The review-publication table requires a running run, rendered review plan, review number, findings, and one row per run, so a failure kind would branch and weaken its existing invariants."
+        - "The terminal run already owns immutable repository, PR, head SHA, failure code, and comment identity, making a prefixed delivery substate the smallest coherent durable owner."
+        - "A newer run for the same pull request must suppress the older terminal intent before any provider write; a later successful review suppresses and cleans prior failure comments."
+      spawned_tasks:
+        - T122
+  - id: T122
+    type: worker
+    assignee: Worker
+    status: active
+    reasoning_hint: high
+    objective: "Implement automatic durable terminal-failure delivery through the existing publisher."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/005_failure_status_delivery.sql
+      - bootstrap/plugins/review_agent_tools/postgres/review_runs.py
+      - bootstrap/plugins/review_agent_tools/review_run_application.py
+      - bootstrap/plugins/review_agent_tools/review_publication_application.py
+      - bootstrap/plugins/review_agent_tools/publisher.py
+      - bootstrap/plugins/review_agent_tools/postgres/reporting.py
+      - bootstrap/plugins/review_agent_tools/operator_application.py
+      - tools/review_agent_memory.py
+      - tests/test_postgres_migrations.py
+      - tests/test_postgres_jobs.py
+      - tests/test_postgres_publications.py
+      - tests/test_postgres_reporting_cli.py
+      - docs/OPERATIONS.md
+      - docs/goals/build-review-platform/state.yaml
+    verify:
+      - "focused tests.test_postgres_jobs tests.test_postgres_publications tests.test_postgres_reporting_cli tests.test_postgres_migrations"
+      - "uv run --with-requirements requirements.txt ./scripts/check_postgres_schema.sh"
+      - "uv run --with-requirements requirements.txt pyright -p ."
+      - "uv run --with-requirements requirements.txt ./scripts/check_bundle.sh"
+      - "python3 scripts/check_docs.py"
+      - "Claude Opus/high stable commit gate with score at least 8"
+    stop_if:
+      - "Any terminal failure path can bypass pending-intent initialization."
+      - "Newer-run suppression cannot serialize through existing pull-request/run locks."
+      - "Exact marker/body recovery requires payload duplication or a GitHub gateway change."
+      - "One publisher cannot serve both delivery types without starvation."
+      - "Migration checks cannot express one coherent failure-delivery lifecycle."
+      - "The slice expands into a publication-kind refactor, new table/queue/broker, generic delivery interface, exactly-once claim, or Medium review findings."
     receipt: null
   - id: T199
     type: judge

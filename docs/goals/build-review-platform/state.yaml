@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Approved maintainability-first core and public documentation complete."
-  status: done
+  tranche: "Verify the post-refactor reliability review against current main, implement confirmed pre-pilot corrections in bounded owner-level slices, and audit readiness."
+  status: active
 
 rules:
   pm_owns_state: true
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 20
+  completed_write_tasks_in_thread: 1
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "e1bb98752f656086276b6e6982c7142c565068b0"
+  last_verified_revision: "09eb385a629bf294bac0de75d7d68097217d7d0f"
 
-active_task: null
+active_task: T117
 
 tasks:
   - id: T001
@@ -2295,9 +2295,168 @@ tasks:
         - "T112 presents the implemented core as current, keeps optional integrations outside it, and enforces navigation, built routes, and search against one ten-document public manifest."
         - "Refactor-plan phases map to completed typed ownership, PostgreSQL cutover, durable admission/jobs, exact-run recovery, atomic publication handoff, and ambiguous-write recovery tasks."
         - "No required queued or blocked task remains; GitHub App, policy overlays, chat, scanners, feedback-sidecar packaging, and resource tuning remain deliberate non-core boundaries."
+  - id: T114
+    type: scout
+    assignee: Scout
+    status: done
+    reasoning_hint: high
+    objective: "Reconcile every finding in reviewagents.md against current main, identify stale or disproven claims, and rank the smallest verified pre-pilot corrections by risk and ownership."
+    inputs:
+      - /Users/ccimen/Downloads/reviewagents.md
+      - refactor-plan1.md
+      - "Current source revision bd73e9bbf263ee1f950e6ff28104bddb8566d912"
+      - "T111-T113 completion receipts"
+    constraints:
+      - "Read-only; do not edit files."
+      - "Treat the review as evidence, not authority, and verify every claim in current source."
+      - "Separate correctness blockers from maintainability candidates, measured performance work, and explicitly deferred product scope."
+      - "Prefer existing canonical owners and deletion/consolidation over new frameworks or speculative abstractions."
+    expected_output:
+      - "Per-finding current disposition with source evidence"
+      - "Ranked confirmed blockers and non-blockers"
+      - "Canonical owner and smallest complete correction for the top slice"
+      - "Exact verification commands and stop conditions"
+    receipt:
+      result: done
+      summary: "Verified all five High and eleven Medium review findings against current source: five High and eight Medium are confirmed; three Medium items remain measurement- or policy-gated. Ranked stale-run liveness ownership first because current SQL and tests prove it can destroy healthy durable work."
+      evidence:
+        - "H1 confirmed: immutable subjects store only the profile key while behavior-affecting profile/config/model values and installer merge remain mutable."
+        - "H2 confirmed: stale-run recovery excludes only a live leased job and can fail queued, awaiting-publication, generated, posting, and retryable publication-owned work."
+        - "H3 confirmed: finding path and suppression filtering occurs after repository-wide limits."
+        - "H4 confirmed: publisher lease loss does not signal the delivery loop and ambiguous recovery is not exact."
+        - "H5 confirmed: terminal failure delivery remains an unclaimed operator scan rather than a durable publisher-owned intent."
+        - "Strict typing, database roles, rate-limit classification, active-job indexing, database-ahead policy, canonical JSON naming, safe exception logging, and workflow retry UX are real Medium candidates."
+        - "Large-PR budgeting, source transport caps, and file-layout policy extraction are deferred until measurement or a second real policy need."
+      next_recommended_task: T115
+      spawned_tasks:
+        - T115
+  - id: T115
+    type: judge
+    assignee: Judge
+    status: done
+    reasoning_hint: high
+    objective: "Select the first complete implementation slice from the verified review findings and freeze its owner, files, acceptance checks, non-goals, and rollback boundary."
+    inputs:
+      - "T114 receipt"
+      - "Current source and behavior contracts"
+    constraints:
+      - "Read-only; do not implement."
+      - "Reject stale, speculative, compatibility, and broad god-module work that is not required for the selected failure mode."
+      - "Keep optional GitHub App, chat, scanners, external broker, and administration work outside this tranche."
+    expected_output:
+      - "Decision and risk rationale"
+      - "Exact Worker objective and canonical owner"
+      - "allowed_files, verify, stop_if, and explicit non-goals"
+    receipt:
+      result: done
+      decision: "Implement H2 as one bounded ownership correction: stale-run recovery may fail only an old running run with no nonterminal job or publication."
+      evidence:
+        - "Job and publication recovery already own their respective leases; the stale sweep currently competes with both."
+        - "Use FOR UPDATE OF run SKIP LOCKED so concurrent lifecycle transitions are deferred safely."
+        - "Two adapted lifecycle tests plus the existing operator orphan test are sufficient; do not add one test per enum value."
+      spawned_tasks:
+        - T116
+  - id: T116
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Implement the first verified review-remediation slice selected by T115."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/postgres/review_runs.py
+      - bootstrap/plugins/review_agent_tools/review_run_application.py
+      - tests/test_postgres_jobs.py
+      - tests/test_postgres_publications.py
+      - docs/goals/build-review-platform/state.yaml
+    verify:
+      - "./scripts/check_postgres_schema.sh"
+      - "./scripts/check_bundle.sh"
+    stop_if:
+      - "Any nonterminal job or publication is still terminalized by the sweep."
+      - "Correctness requires schema, migration, or public-contract changes."
+      - "Job enqueue or publication creation does not serialize through the run lock."
+      - "Focused PostgreSQL verification fails twice for the same cause."
+      - "The slice expands into adjacent review findings."
+    receipt:
+      result: done
+      summary: "Made stale-run recovery fail only genuinely ownerless work while preserving the existing job and publication recovery owners."
+      decision: "Stale-run recovery is orphan-only; durable jobs and publications retain their existing recovery ownership."
+      implementation_revision: "09eb385a629bf294bac0de75d7d68097217d7d0f"
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+        - "bootstrap/plugins/review_agent_tools/review_run_application.py"
+        - "tests/test_postgres_jobs.py"
+        - "tests/test_postgres_publications.py"
+      commands:
+        - cmd: "uv run --with-requirements requirements.txt ./scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "134 PostgreSQL tests plus schema, backup, and recovery contracts passed."
+        - cmd: "uv run --with-requirements requirements.txt ./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright and 354 tests passed; 120 PostgreSQL environment-gated tests skipped."
+        - cmd: "focused stale-run ownership tests and uv-managed strict Pyright"
+          status: pass
+          summary: "Four lifecycle cases passed and strict Pyright reported zero errors."
+        - cmd: "Claude Opus/high commit gate"
+          status: pass
+          summary: "Session review-agent-h2-orphan-recovery reached green at score 8 on iteration 2."
+      evidence:
+        - "The sweep excludes every state not explicitly terminal, fails safe for future states, and defers locked runs with SKIP LOCKED."
+        - "Removed duplicate publication terminalization and guaranteed no-op job reconciliation from the stale-run path."
+        - "Four focused lifecycle cases, 134 real PostgreSQL tests, strict Pyright, and the 354-test bundle passed."
+        - "Claude Opus/high session review-agent-h2-orphan-recovery was green at 8/10 on iteration 2 with no blocker."
+      spawned_tasks:
+        - T117
+  - id: T117
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Freeze the smallest complete correction for finding-context filtering before limits (H3), using the existing reporting owner."
+    inputs:
+      - "T114 H3 receipt"
+      - "Current reporting and review-context query paths at revision 09eb385a629bf294bac0de75d7d68097217d7d0f"
+    constraints:
+      - "Read-only; do not implement."
+      - "Keep SQL filtering and typed hydration in the existing reporting owner; reject generic query repositories and broad module splits."
+      - "Define only behavior needed to prevent unrelated or suppressed findings from consuming the context limit."
+    expected_output:
+      - "Exact owner, allowed files, query contract, tests, verification, non-goals, rollback, and stop conditions"
+    receipt: null
+  - id: T118
+    type: worker
+    assignee: Worker
+    status: queued
+    reasoning_hint: high
+    objective: "Implement the H3 finding-context limit correction selected by T117."
+    allowed_files: []
+    verify: []
+    stop_if:
+      - "T117 does not authorize an exact bounded slice."
+      - "The change expands into a generic repository, module split, or unrelated reporting behavior."
+      - "Focused PostgreSQL verification fails twice for the same cause."
+    receipt: null
+  - id: T199
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "Audit whether the verified pre-pilot review-remediation tranche is complete and whether any required correction remains."
+    inputs:
+      - "T114-T116 and any spawned task receipts"
+      - "Current validation and revisions"
+    constraints:
+      - "Read-only; do not edit files."
+      - "Do not reopen explicitly deferred product scope or speculative performance work."
+    expected_output:
+      - "complete | not_complete"
+      - "Evidence mapped to confirmed review findings"
+      - "Direct blockers only"
+      - "Next bounded task when not complete"
+    receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-e1bb9875"
+  dirty_fingerprint: "goal-control-files-only-after-bd73e9bb"
   last_verification:
     result: pass
     task: T113

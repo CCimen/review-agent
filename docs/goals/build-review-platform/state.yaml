@@ -8,7 +8,7 @@ goal:
   slug: "build-review-platform"
   kind: open_ended
   tranche: "Verify the post-refactor reliability review against current main, implement confirmed pre-pilot corrections in bounded owner-level slices, and audit readiness."
-  status: active
+  status: done
 
 rules:
   pm_owns_state: true
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "5a319a8634a429a8d73443bc098c922d4052a9a3"
 
-active_task: T203
+active_task: null
 
 tasks:
   - id: T001
@@ -2930,7 +2930,7 @@ tasks:
   - id: T203
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Measure the production image by layer, remove only proven unnecessary bytes without weakening runtime behavior, and prepare one secure GitHub Container Registry workflow that publishes versioned images only when a release tag is created."
     constraints:
@@ -2942,8 +2942,11 @@ tasks:
       - "Keep ordinary pull-request CI as validation only; package publication must require a version tag or published release."
     allowed_files:
       - .dockerignore
+      - .env.example
       - .github/workflows/**
       - Dockerfile
+      - compose.yaml
+      - examples/openshift/review-agent-template.yaml
       - requirements.txt
       - scripts/**
       - tests/test_dockerfile_tools.py
@@ -2966,17 +2969,63 @@ tasks:
       - "The workflow would publish from pull requests, mutable branches, forks, or an untrusted build context."
       - "Multi-platform publication cannot preserve the pinned base identity or pass built-image smoke checks."
       - "The slice requires a release, tag, registry migration, dependency rewrite, or files outside the listed owners."
-    receipt: null
+    receipt:
+      result: done
+      decision: complete
+      summary: "Reduced the measured Review Agent image overlay by 59.2%, made one released image consumable across every service, and prepared least-privilege release-only GHCR publication without creating a tag or release. All 60 approved board tasks are complete."
+      commit: "80eb0480f4159ab19c297270da250c86df0eea4b"
+      changed_files:
+        - Dockerfile
+        - .dockerignore
+        - .env.example
+        - compose.yaml
+        - examples/openshift/review-agent-template.yaml
+        - .github/workflows/ci.yml
+        - .github/workflows/release-image.yml
+        - scripts/check_image.sh
+        - tests/test_dockerfile_tools.py
+        - tests/test_ci_workflow.py
+        - benchmarks/image-footprint.md
+        - README.md
+        - docs/DEPLOYMENT.md
+      commands:
+        - cmd: "production arm64 image build and shared image contract smoke"
+          status: pass
+          summary: "The 2,780,156,196-byte candidate retained curl, excluded gh, and passed admission, worker, publisher, immutable-contract, arbitrary-UID installer, and Hermes gateway checks."
+        - cmd: "uv run --no-project --isolated --with-requirements requirements.txt bash ./scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright reported zero diagnostics and 383 tests passed with 136 expected database-gated skips."
+        - cmd: "focused exact-tree Dockerfile, release-workflow, Compose, OpenShift, and documentation checks"
+          status: pass
+          summary: "Twelve focused tests, workflow YAML, SemVer guards, deployment rendering, and the ten-document contract passed."
+        - cmd: "Node 24 documentation typecheck, build, and published-route validation"
+          status: pass
+          summary: "Docusaurus built all public pages and the route/search contract passed."
+        - cmd: "Claude Opus/high stable commit gate"
+          status: pass
+          summary: "Session review-agent-image-ghcr-release reached green at score 8 on iteration 3 after two bounded blocker corrections."
+        - cmd: "GitHub checks for 80eb0480f4159ab19c297270da250c86df0eea4b"
+          status: pass
+          summary: "Python bundle, real container build, documentation build, and GitHub Pages deployment completed successfully."
+      evidence:
+        - "The final image is 37,392,423 bytes smaller than the measured baseline while keeping psycopg[binary] and the digest-pinned Hermes base."
+        - "Only a published GitHub release with a Docker-compatible SemVer tag can write packages; prereleases cannot move latest, external actions are SHA-pinned, and publish permissions are job-scoped."
+        - "Compose release deployments use pull plus --no-build, while local builds remain explicit; the same image reference covers all Review Agent services."
+        - "The shared image check is the canonical runtime artifact contract in both main CI and release verification."
+        - "The published documentation site contains the current image selection, package visibility, scaling, and deployment instructions."
+      before_first_release:
+        - "Publish one prerelease and confirm the GHCR attestation, two-platform index, prerelease latest behavior, and emulated arm64 build time end to end."
+        - "Choose the package retention policy, then make the first package public if anonymous pulls are intended; public visibility cannot be reversed."
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-2a0dbeab"
+  dirty_fingerprint: "goal-control-files-only-after-80eb0480"
   last_verification:
     result: pass
-    task: T122
+    task: T203
     commands:
-      - "149-test PostgreSQL schema, readiness, backup, and restore contract"
-      - "Strict Pyright with zero diagnostics"
-      - "374-test bundle with 135 expected database skips"
-      - "Ten-document public documentation contract"
-      - "Claude Opus/high session review-agent-t200-effective-contract green at score 8"
-      - "Source revision 2a0dbeabd694d9b413c3155cd6e285444011da9f"
+      - "Strict Pyright with zero diagnostics and 383-test bundle"
+      - "Production image build and shared runtime artifact smoke"
+      - "Ten-document source and built-route documentation contract"
+      - "Claude Opus/high session review-agent-image-ghcr-release green at score 8"
+      - "GitHub Python bundle, container, docs build, and Pages deployment checks"
+      - "Source revision 80eb0480f4159ab19c297270da250c86df0eea4b"

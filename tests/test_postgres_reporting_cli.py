@@ -72,7 +72,15 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         return replace(item, **overrides)
 
-    def start(self, *, pr_number: int, request_suffix: str) -> review_runs.StartedRun:
+    def start(
+        self,
+        *,
+        pr_number: int,
+        request_suffix: str,
+        head_sha: str | None = None,
+        paths: tuple[str, ...] = ("src/flags.py",),
+    ) -> review_runs.StartedRun:
+        selected_head = head_sha or self.head_sha
         result = review_run_application.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
@@ -81,7 +89,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 repository=self.repository,
                 pr_number=pr_number,
                 base_sha="b" * 40,
-                head_sha=self.head_sha,
+                head_sha=selected_head,
                 policy_revision="profile@1",
                 resolved_config_schema_version=1,
                 resolved_config={"profile": "sundsvall-standard"},
@@ -92,13 +100,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         review_run_application.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
-            files=(
+            files=tuple(
                 review_run_application.PostgresChangedFile(
-                    path="src/flags.py",
-                    change_status="modified",
-                ),
+                    path=path, change_status="modified"
+                )
+                for path in paths
             ),
-            changed_files_reported=1,
+            changed_files_reported=len(paths),
             registration_complete=True,
         )
         return result
@@ -109,18 +117,159 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         *,
         findings: tuple[FindingInput, ...] | None = None,
     ) -> review_finding_application.PostgresFindingBatch:
+        selected = findings if findings is not None else (self.finding(),)
         return review_finding_application.record_postgres_findings(
             self.runtime,
             run_id=run.run.id,
             head_sha=self.head_sha,
-            findings=findings if findings is not None else (self.finding(),),
-            changed_files=(
+            findings=selected,
+            changed_files=tuple(
                 review_finding_application.ChangedFile(
-                    path="src/flags.py",
+                    path=path,
                     context_hash="c" * 40,
                     context_hash_source="blob",
+                )
+                for path in dict.fromkeys(item.path for item in selected)
+            ),
+        )
+
+    def test_live_context_filters_before_limit_and_resolves_repeat_suppression(
+        self,
+    ) -> None:
+        prior = self.start(pr_number=60, request_suffix="4401")
+        prior_batch = self.record_finding(
+            prior,
+            findings=(
+                self.finding(),
+                self.finding(
+                    rule_id="reliability.retry-contract",
+                    anchor="retry contract",
+                    title="Retry contract can lose a request",
                 ),
             ),
+        )
+        operator_application.decide_finding(
+            self.runtime,
+            operator_application.OperatorDecisionRequest(
+                repository=self.repository,
+                fingerprint=prior_batch.items[0].fingerprint,
+                decision="false_positive",
+                reason="The reviewed context proves this is intentional.",
+                actor="operator@example.org",
+                occurrence_id=int(prior_batch.items[0].occurrence_id),
+                expires_days=45,
+            ),
+            now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
+        )
+        self.start(
+            pr_number=60,
+            request_suffix="4402",
+            head_sha="d" * 40,
+        )
+
+        unrelated = tuple(
+            self.finding(path=f"src/unrelated_{index:03d}.py")
+            for index in range(200)
+        )
+        self.record_finding(
+            self.start(
+                pr_number=61,
+                request_suffix="4403",
+                paths=tuple(item.path for item in unrelated),
+            ),
+            findings=unrelated,
+        )
+
+        context = review_finding_application.load_live_context(
+            self.runtime,
+            review_finding_application.FindingContextQuery(
+                repository=self.repository,
+                paths=("src/flags.py",),
+                pr_number=60,
+            ),
+        )
+
+        self.assertEqual(
+            {item["fingerprint"] for item in context["recent_findings"]},
+            {item.fingerprint for item in prior_batch.items},
+        )
+        self.assertEqual(
+            [item["fingerprint"] for item in context["historical_suppressions"]],
+            [prior_batch.items[0].fingerprint],
+        )
+        self.assertEqual(
+            [item["fingerprint"] for item in context["repeat_review_findings"]],
+            [prior_batch.items[1].fingerprint],
+        )
+
+        repository_context = review_finding_application.load_live_context(
+            self.runtime,
+            review_finding_application.FindingContextQuery(
+                repository=self.repository,
+                paths=(),
+            ),
+        )
+        self.assertEqual(len(repository_context["recent_findings"]), 30)
+        self.assertEqual(
+            [
+                item["path"]
+                for item in repository_context["recent_findings"]
+                if not str(item["path"]).startswith("src/unrelated_")
+            ],
+            [],
+        )
+
+    def test_visible_finding_limit_is_applied_after_suppression(self) -> None:
+        visible_findings = (
+            self.finding(path="src/visible_one.py"),
+            self.finding(path="src/visible_two.py"),
+        )
+        visible = self.record_finding(
+            self.start(
+                pr_number=62,
+                request_suffix="4411",
+                paths=tuple(item.path for item in visible_findings),
+            ),
+            findings=visible_findings,
+        )
+        suppressed_findings = (
+            self.finding(path="src/suppressed_one.py"),
+            self.finding(path="src/suppressed_two.py"),
+        )
+        suppressed = self.record_finding(
+            self.start(
+                pr_number=63,
+                request_suffix="4412",
+                paths=tuple(item.path for item in suppressed_findings),
+            ),
+            findings=suppressed_findings,
+        )
+        for item in suppressed.items:
+            operator_application.decide_finding(
+                self.runtime,
+                operator_application.OperatorDecisionRequest(
+                    repository=self.repository,
+                    fingerprint=item.fingerprint,
+                    decision="false_positive",
+                    reason="The reviewed context proves this is intentional.",
+                    actor="operator@example.org",
+                    occurrence_id=int(item.occurrence_id),
+                    expires_days=45,
+                ),
+                now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
+            )
+
+        listed = operator_application.list_findings(
+            self.runtime,
+            repository=self.repository,
+            limit=2,
+            include_suppressed=False,
+            now=datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(
+            {item.fingerprint for item in listed},
+            {item.fingerprint for item in visible.items},
         )
 
     def test_finding_inspection_decision_stats_and_bounded_export(self) -> None:

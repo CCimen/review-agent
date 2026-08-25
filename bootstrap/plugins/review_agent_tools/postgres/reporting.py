@@ -16,6 +16,7 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
 from ..domain.finding import (
+    SUPPRESSIVE_DECISION_KINDS,
     DecisionKind,
     FindingCategory,
     FindingDecision,
@@ -458,23 +459,107 @@ def list_findings(
 ) -> tuple[FindingReport, ...]:
     """List latest finding state with one set-oriented decision lookup."""
     _require_transaction(connection)
-    where = ""
-    parameters: tuple[object, ...]
-    if repository is None:
-        parameters = (limit,)
-    else:
-        where = "WHERE lower(repository.full_name) = lower(%s)"
-        parameters = (repository, limit)
+    conditions: list[str] = []
+    parameters: list[object] = []
+    if repository is not None:
+        conditions.append("lower(repository.full_name) = lower(%s)")
+        parameters.append(repository)
+    if not include_suppressed:
+        conditions.append(
+            "NOT COALESCE("
+            "decision.decision = ANY(%s::text[]) "
+            "AND decision.expires_at > %s "
+            "AND decision.context_hash <> '' "
+            "AND decision.context_hash = occurrence.context_hash, false)"
+        )
+        parameters.extend(
+            ([item.value for item in SUPPRESSIVE_DECISION_KINDS], now)
+        )
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    parameters.append(limit)
     with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
         rows = cursor.execute(
-            f"{_FINDING_SELECT} {where} "
-            "ORDER BY identity.last_seen_at DESC, identity.id DESC LIMIT %s",
-            parameters,
+            _trusted_sql(
+                f"{_FINDING_SELECT} {where} "
+                "ORDER BY identity.last_seen_at DESC, identity.id DESC LIMIT %s"
+            ),
+            tuple(parameters),
         ).fetchall()
     items = tuple(_finding(row, now=now) for row in rows)
-    if include_suppressed:
-        return items
-    return tuple(item for item in items if not item.suppressed)
+    return items
+
+
+def list_finding_context(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    repository_id: RepositoryId,
+    paths: Sequence[str],
+    limit: int,
+    now: datetime,
+) -> tuple[FindingReport, ...]:
+    """Return bounded reviewer history after applying its exact path scope."""
+    _require_transaction(connection)
+    conditions = ["identity.repository_id = %s"]
+    parameters: list[object] = [repository_id]
+    # An empty path scope intentionally asks for bounded repository-wide context.
+    if paths:
+        conditions.append("identity.path = ANY(%s::text[])")
+        parameters.append(list(paths))
+    parameters.append(limit)
+    with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
+        rows = cursor.execute(
+            _trusted_sql(
+                f"{_FINDING_SELECT} WHERE {' AND '.join(conditions)} "
+                "ORDER BY identity.last_seen_at DESC, identity.id DESC LIMIT %s"
+            ),
+            tuple(parameters),
+        ).fetchall()
+    return tuple(_finding(row, now=now) for row in rows)
+
+
+def active_repeat_suppressions(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    repository_id: RepositoryId,
+    fingerprint_contexts: Sequence[tuple[str, str]],
+    now: datetime,
+) -> frozenset[str]:
+    """Resolve active suppressions for the exact repeated finding contexts."""
+    _require_transaction(connection)
+    if not fingerprint_contexts:
+        return frozenset()
+    fingerprints, context_hashes = zip(*fingerprint_contexts, strict=True)
+    rows = connection.execute(
+        """
+        WITH target(fingerprint, context_hash) AS (
+            SELECT * FROM unnest(%s::text[], %s::text[])
+        )
+        SELECT identity.fingerprint
+        FROM target
+        JOIN review_agent.finding_identities AS identity
+          ON identity.repository_id = %s
+         AND identity.fingerprint = target.fingerprint
+        JOIN LATERAL (
+            SELECT stored.*
+            FROM review_agent.finding_decisions AS stored
+            WHERE stored.finding_id = identity.id
+            ORDER BY stored.id DESC
+            LIMIT 1
+        ) AS decision ON true
+        WHERE decision.decision = ANY(%s::text[])
+          AND decision.expires_at > %s
+          AND decision.context_hash <> ''
+          AND decision.context_hash = target.context_hash
+        """,
+        (
+            list(fingerprints),
+            list(context_hashes),
+            repository_id,
+            [item.value for item in SUPPRESSIVE_DECISION_KINDS],
+            now,
+        ),
+    ).fetchall()
+    return frozenset(str(row[0]) for row in rows)
 
 
 def finding_detail(

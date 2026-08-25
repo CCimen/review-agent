@@ -551,20 +551,19 @@ def load_live_context(
     )
     moment = datetime.now(timezone.utc)
     with runtime.transaction() as connection:
-        recent_reports = postgres_reporting.list_findings(
+        repository = postgres_reporting.repository_scope(
+            connection, repository=query.repository
+        )
+        recent_reports = postgres_reporting.list_finding_context(
             connection,
-            repository=query.repository,
-            limit=MAX_FINDINGS_PER_REVIEW,
-            include_suppressed=True,
+            repository_id=repository.id,
+            paths=clean_paths,
+            limit=30,
             now=moment,
         )
-        if clean_paths:
-            selected = tuple(item for item in recent_reports if item.path in clean_paths)
-        else:
-            selected = recent_reports
-        selected = selected[:30]
 
         repeats: tuple[RepeatFinding, ...] = ()
+        suppressed_repeat_fingerprints = frozenset[str]()
         active_publication_fingerprints: set[str] | None = None
         if query.pr_number is not None:
             active = connection.execute(
@@ -585,6 +584,16 @@ def load_live_context(
                     connection,
                     run_id=ReviewRunId(int(active[0])),
                     limit=MAX_FINDINGS_PER_REVIEW,
+                )
+                suppressed_repeat_fingerprints = (
+                    postgres_reporting.active_repeat_suppressions(
+                        connection,
+                        repository_id=repository.id,
+                        fingerprint_contexts=tuple(
+                            (item.fingerprint, item.context_hash) for item in repeats
+                        ),
+                        now=moment,
+                    )
                 )
                 rows = connection.execute(
                     """
@@ -607,10 +616,9 @@ def load_live_context(
                 if rows:
                     active_publication_fingerprints = {str(row[0]) for row in rows}
 
-    reports_by_fingerprint = {item.fingerprint: item for item in recent_reports}
     recent: list[dict[str, object]] = []
     suppressions: list[dict[str, object]] = []
-    for item in selected:
+    for item in recent_reports:
         latest_decision = (
             {"decision": item.latest_decision.value}
             if item.latest_decision is not None
@@ -661,8 +669,8 @@ def load_live_context(
             and item.fingerprint not in active_publication_fingerprints
         ):
             continue
-        report = reports_by_fingerprint.get(item.fingerprint)
-        if report is not None and report.suppressed:
+        # The publication planner records the matching prior item as suppressed.
+        if item.fingerprint in suppressed_repeat_fingerprints:
             continue
         repeat_payloads.append(
             {

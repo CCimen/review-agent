@@ -29,7 +29,10 @@ from review_agent_tools.domain.review import (  # noqa: E402
     resolve_review_subject,
 )
 from review_agent_tools.postgres import jobs, registry, review_runs  # noqa: E402
-from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent_tools.postgres.runtime import (  # noqa: E402
+    PostgreSQLRuntime,
+    PostgreSQLRuntimeRole,
+)
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 from review_agent_tools.worker import (  # noqa: E402
@@ -665,6 +668,108 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.assertEqual(second.review_run_id, second_run.run.id)
         self.assertEqual(second.status, jobs.ReviewJobStatus.QUEUED)
         client.review.assert_called_once()
+
+    def test_worker_executes_only_its_bounded_cross_repository_slots(self) -> None:
+        accepted = []
+        for offset in range(4):
+            pull_request = self.pull_request(
+                provider_id=1100 + offset, number=40 + offset
+            )
+            subject = self.subject(
+                pull_request, head_character=chr(ord("c") + offset)
+            )
+            accepted.append(
+                self.accept_job(
+                    pull_request,
+                    subject,
+                    request_key=f"github:manual:concurrent-worker-{offset}",
+                )
+            )
+
+        worker_runtime = PostgreSQLRuntime(
+            PostgresDatabaseUrl(DSN),
+            role=PostgreSQLRuntimeRole.WORKER,
+            worker_concurrency=4,
+        )
+        worker_runtime.open()
+        self.addCleanup(worker_runtime.close)
+        stop = threading.Event()
+        all_started = threading.Event()
+        release = threading.Event()
+        lock = threading.Lock()
+        active = 0
+        maximum_active = 0
+        errors: list[BaseException] = []
+        client = Mock(spec=HermesChatClient)
+
+        def review(*_args: object, **_kwargs: object) -> None:
+            nonlocal active, maximum_active
+            with lock:
+                active += 1
+                maximum_active = max(maximum_active, active)
+                if active == 4:
+                    all_started.set()
+            release.wait(timeout=5)
+            with lock:
+                active -= 1
+            raise HermesRequestError("concurrency probe", retryable=False)
+
+        client.review.side_effect = review
+        worker = ReviewWorker(
+            worker_runtime,
+            client,
+            WorkerPolicy(
+                lease_duration=timedelta(seconds=5),
+                heartbeat_interval=timedelta(seconds=1),
+                retry_delay=timedelta(seconds=1),
+                poll_interval=timedelta(milliseconds=10),
+                request_timeout=timedelta(seconds=5),
+                recovery_interval=timedelta(seconds=30),
+                recovery_batch_size=10,
+                priority_aging_interval=PRIORITY_AGING_INTERVAL,
+                concurrency=4,
+            ),
+            lease_owner="worker-concurrency-probe",
+            stop_event=stop,
+        )
+
+        def run_worker() -> None:
+            try:
+                worker.run()
+            except BaseException as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        with patch.object(
+            review_contract,
+            "load_installed_contract",
+            return_value=TEST_REVIEW_CONTRACT,
+        ):
+            runner = threading.Thread(target=run_worker)
+            runner.start()
+            self.assertTrue(all_started.wait(timeout=5))
+            with self.runtime.transaction() as connection:
+                leased = connection.execute(
+                    "SELECT count(*) FROM review_agent.review_jobs "
+                    "WHERE status = 'leased'"
+                ).fetchone()
+            self.assertEqual(leased, (4,))
+            metrics = worker_runtime.pool_metrics()
+            self.assertEqual(metrics.waiting_requests, 0)
+            self.assertLessEqual(metrics.size, 5)
+            stop.set()
+            release.set()
+            runner.join(timeout=5)
+
+        self.assertFalse(runner.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(maximum_active, 4)
+        self.assertEqual(client.review.call_count, 4)
+        with self.runtime.transaction() as connection:
+            statuses = tuple(
+                jobs.get_job(connection, enqueued.job.id).status
+                for _, enqueued in accepted
+            )
+        self.assertEqual(statuses, (jobs.ReviewJobStatus.FAILED,) * 4)
 
     def test_exhausted_retry_dead_letters_and_releases_the_active_run(self) -> None:
         pull_request = self.pull_request(provider_id=1017, number=27)

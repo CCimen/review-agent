@@ -9,7 +9,7 @@ from enum import StrEnum
 
 import psycopg
 from psycopg.rows import TupleRow
-from psycopg_pool import ConnectionPool, PoolClosed, PoolTimeout
+from psycopg_pool import ConnectionPool
 
 from ..postgres_migrations import runner
 from ..settings import PostgresDatabaseUrl
@@ -60,10 +60,23 @@ _POOL_SHAPES = {
     PostgreSQLRuntimeRole.REVIEWER: _PoolShape(1, 4, 8),
     PostgreSQLRuntimeRole.FEEDBACK: _PoolShape(1, 4, 8),
     PostgreSQLRuntimeRole.OPERATOR: _PoolShape(0, 1, 1),
-    # One request executor plus its lease-heartbeat thread. Scale throughput by
-    # worker processes; do not let one process multiply model turns implicitly.
-    PostgreSQLRuntimeRole.WORKER: _PoolShape(0, 2, 2),
 }
+
+
+def _pool_shape(
+    role: PostgreSQLRuntimeRole, *, worker_concurrency: int
+) -> _PoolShape:
+    if isinstance(worker_concurrency, bool) or worker_concurrency < 1:
+        raise ValueError("worker_concurrency must be positive")
+    if role is PostgreSQLRuntimeRole.WORKER:
+        # A review stops its heartbeat before its terminal transaction, so each
+        # active job can hold at most one checkout. The extra connection belongs
+        # to the dispatcher. Pool size and waiters remain tied to execution slots.
+        maximum = worker_concurrency + 1
+        return _PoolShape(0, maximum, maximum)
+    if worker_concurrency != 1:
+        raise ValueError("worker_concurrency is only valid for the worker role")
+    return _POOL_SHAPES[role]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,11 +104,12 @@ class PostgreSQLRuntime:
         database_url: PostgresDatabaseUrl,
         *,
         role: PostgreSQLRuntimeRole = PostgreSQLRuntimeRole.REVIEWER,
+        worker_concurrency: int = 1,
     ) -> None:
         self._open_attempted = False
         self._database_url = database_url
         self._role = role
-        shape = _POOL_SHAPES[role]
+        shape = _pool_shape(role, worker_concurrency=worker_concurrency)
         application_name = f"review-agent-{role.value}"
         self._pool: ConnectionPool[psycopg.Connection[TupleRow]] = ConnectionPool(
             conninfo=database_url,
@@ -218,7 +232,7 @@ class PostgreSQLRuntime:
             psycopg.errors.LockNotAvailable,
         ):
             raise
-        except (PoolClosed, PoolTimeout, psycopg.OperationalError) as exc:
+        except psycopg.OperationalError as exc:
             raise PostgreSQLUnavailable(
                 "PostgreSQL transaction could not complete"
             ) from exc

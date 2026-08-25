@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run one serial PostgreSQL-backed Review Agent worker process."""
+"""Run one bounded-concurrency PostgreSQL-backed Review Agent worker process."""
 
 from __future__ import annotations
 
@@ -77,6 +77,7 @@ def _policy() -> WorkerPolicy:
         priority_aging_interval=_seconds(
             "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS", "900"
         ),
+        concurrency=_positive_integer("REVIEW_AGENT_WORKER_CONCURRENCY", "4"),
     )
 
 
@@ -121,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     runtime = PostgreSQLRuntime(
         configured.postgres_database_url,
         role=PostgreSQLRuntimeRole.WORKER,
+        worker_concurrency=policy.concurrency,
     )
     runtime.open()
     try:

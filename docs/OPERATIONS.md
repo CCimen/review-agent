@@ -48,6 +48,10 @@ All values are optional and have deployable defaults:
 - `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS` — default `900`. Wait time that
   offsets one priority point.
 - `REVIEW_AGENT_JOB_MAX_ATTEMPTS` — default `3`. Review-worker attempt budget.
+- `REVIEW_AGENT_WORKER_CONCURRENCY` — default `4`. Maximum simultaneous reviews
+  per worker process. The dispatcher claims only when a slot is free, so pending
+  work cannot build an in-memory executor queue. Total cross-repository slots
+  equal this value multiplied by the worker replica count.
 - `REVIEW_AGENT_JOB_LEASE_SECONDS` / `REVIEW_AGENT_JOB_HEARTBEAT_SECONDS` —
   defaults `120` / `30`. Keep the heartbeat below half the lease.
 - `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS` — default `7200`. Maximum duration of
@@ -60,6 +64,22 @@ All values are optional and have deployable defaults:
   signed admission requests per process.
 - `REVIEW_AGENT_PUBLISH_MAX_BYTES` — default `60000`. Bytes per GitHub comment
   part, not a finding cap.
+- `REVIEW_AGENT_POSTGRES_MAX_CONNECTIONS` — default `200` for the bundled
+  Compose database. External PostgreSQL deployments own this setting.
+
+Plan maximum database pool capacity with this formula:
+
+```text
+worker replicas × (worker concurrency + 1)
++ admission replicas × 4
++ Hermes replicas × 4
++ publisher replicas × 2
++ feedback replicas × 4
++ one connection per concurrent operator command
+```
+
+Pools open connections on demand. Keep the configured maximum below the
+database limit with headroom for maintenance and monitoring.
 
 Use one database per environment. The example Compose network keeps PostgreSQL
 private and uses this service-local URL shape:

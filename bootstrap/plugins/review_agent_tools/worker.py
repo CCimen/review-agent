@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import timedelta
 from http import HTTPStatus
@@ -58,6 +59,7 @@ class WorkerPolicy:
     recovery_interval: timedelta
     recovery_batch_size: int
     priority_aging_interval: timedelta
+    concurrency: int = 1
 
     def __post_init__(self) -> None:
         positive_durations = {
@@ -78,6 +80,8 @@ class WorkerPolicy:
             )
         if isinstance(self.recovery_batch_size, bool) or self.recovery_batch_size < 1:
             raise WorkerConfigurationError("recovery_batch_size must be positive")
+        if isinstance(self.concurrency, bool) or self.concurrency < 1:
+            raise WorkerConfigurationError("concurrency must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,7 +188,7 @@ class HermesChatClient:
 
 
 class ReviewWorker:
-    """Claim and execute at most one review at a time in this process."""
+    """Claim only enough reviews to fill this process's bounded execution slots."""
 
     def __init__(
         self,
@@ -206,31 +210,56 @@ class ReviewWorker:
         self._next_recovery_at = 0.0
 
     def run(self, *, once: bool = False) -> None:
-        """Recover expired work, then claim serially until stopped."""
-        while not self._stop.is_set():
-            try:
-                claimed = self._claim()
-            except _TRANSIENT_DATABASE_ERRORS as exc:
-                if once:
-                    raise
-                logger.warning("Review worker claim deferred: %s", exc)
-                if self._stop.wait(self._policy.poll_interval.total_seconds()):
-                    return
-                continue
-            if claimed is None:
-                if once or self._stop.wait(self._policy.poll_interval.total_seconds()):
-                    return
-                continue
-            logger.info(
-                "Claimed review job %s at lease generation %s",
-                claimed.job.id,
-                claimed.job.lease_generation,
-            )
-            try:
+        """Recover expired work, then claim only while an execution slot is free."""
+        if once:
+            claimed = self._claim()
+            if claimed is not None:
+                self._log_claim(claimed)
                 self._execute(claimed)
+            return
+
+        active: dict[Future[None], ClaimedReview] = {}
+        fatal_error: Exception | None = None
+        with ThreadPoolExecutor(
+            max_workers=self._policy.concurrency,
+            thread_name_prefix="review-agent-job",
+        ) as executor:
+            while not self._stop.is_set():
+                fatal_error = self._reap_completed(active)
+                if fatal_error is not None:
+                    break
+                if len(active) >= self._policy.concurrency:
+                    self._wait_for_work_or_completion(active)
+                    continue
+                try:
+                    claimed = self._claim()
+                except _TRANSIENT_DATABASE_ERRORS as exc:
+                    logger.warning("Review worker claim deferred: %s", exc)
+                    self._wait_for_work_or_completion(active)
+                    continue
+                if claimed is None:
+                    self._wait_for_work_or_completion(active)
+                    continue
+                self._log_claim(claimed)
+                active[executor.submit(self._execute, claimed)] = claimed
+
+        # Executor shutdown has joined every active review. Observe each result
+        # and then propagate the first unexpected defect with its job logged.
+        drained_error = self._reap_completed(active)
+        if fatal_error is None:
+            fatal_error = drained_error
+        if fatal_error is not None:
+            raise fatal_error
+
+    def _reap_completed(
+        self, active: dict[Future[None], ClaimedReview]
+    ) -> Exception | None:
+        fatal_error: Exception | None = None
+        for completed in tuple(future for future in active if future.done()):
+            claimed = active.pop(completed)
+            try:
+                completed.result()
             except _TRANSIENT_DATABASE_ERRORS as exc:
-                if once:
-                    raise
                 # The lease will either remain live through its heartbeat or
                 # expire into the bounded recovery path. Never guess a state
                 # transition while PostgreSQL is unavailable.
@@ -239,10 +268,31 @@ class ReviewWorker:
                     claimed.job.id,
                     exc,
                 )
-                if self._stop.wait(self._policy.poll_interval.total_seconds()):
-                    return
-            if once:
-                return
+            except Exception as exc:
+                logger.exception(
+                    "Review job %s failed unexpectedly", claimed.job.id
+                )
+                self._stop.set()
+                if fatal_error is None:
+                    fatal_error = exc
+        return fatal_error
+
+    def _wait_for_work_or_completion(
+        self, active: dict[Future[None], ClaimedReview]
+    ) -> None:
+        timeout = self._policy.poll_interval.total_seconds()
+        if active:
+            wait(active, timeout=timeout, return_when=FIRST_COMPLETED)
+        else:
+            self._stop.wait(timeout)
+
+    @staticmethod
+    def _log_claim(claimed: ClaimedReview) -> None:
+        logger.info(
+            "Claimed review job %s at lease generation %s",
+            claimed.job.id,
+            claimed.job.lease_generation,
+        )
 
     def _claim(self) -> ClaimedReview | None:
         self._recover_if_due()

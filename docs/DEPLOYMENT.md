@@ -13,9 +13,9 @@ import TabItem from '@theme/TabItem';
 # Deploy Review Agent
 
 > **TL;DR**: Build one image, provide PostgreSQL and three scoped GitHub tokens,
-> then expose only the admission endpoint. Add worker replicas to process more
-> repositories at once. Queue limits protect shared compute and do not limit PR
-> size.
+> then expose only the admission endpoint. Tune bounded worker concurrency, then
+> add replicas when you need more isolation or capacity. Queue limits protect
+> shared compute and do not limit PR size.
 
 ## Runtime shape
 
@@ -231,15 +231,30 @@ association check can now comment `/review`.
 
 ## Scale and operate the queue
 
-Each worker runs one model review at a time. PostgreSQL prevents two live leases
-for the same repository, while priority aging lets older ready jobs advance.
-Scale workers to increase cross-repository throughput:
+Each worker process runs up to `REVIEW_AGENT_WORKER_CONCURRENCY` model reviews at
+once (`4` by default) and claims work only when a slot is free. PostgreSQL
+prevents two live leases for the same repository, while priority aging lets
+older ready jobs advance. Increase the per-process value while CPU, memory, and
+provider capacity remain healthy; add replicas when you need more capacity or
+failure isolation:
 
 ```bash
-docker compose up -d --scale review-worker=3
-# or
-oc scale deployment/review-agent-worker --replicas=3
+# 100 cross-repository slots, plus room for 20 queued reviews.
+REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
+  docker compose up -d --scale review-worker=10
+
+oc set env deployment/review-agent-admission REVIEW_AGENT_ACTIVE_JOB_LIMIT=120
+oc set env deployment/review-agent-worker REVIEW_AGENT_WORKER_CONCURRENCY=10
+oc scale deployment/review-agent-worker --replicas=10
 ```
+
+Set `REVIEW_AGENT_ACTIVE_JOB_LIMIT` at or above the number of active and queued
+reviews you intend to accept. The bundled Compose database allows 200
+connections; use the pool formula in Operations to size an external database.
+Confirm that the model provider accepts the chosen concurrency. Compose limits
+each worker container to 64 PIDs. Keep per-replica concurrency at or below 25
+for thread headroom, or raise the PID limit after a capacity test. The shown
+value of 10 stays within the shipped limit.
 
 Scale `review-publisher` the same way when publication wait time grows. The
 database prevents two publishers from owning the same delivery generation.

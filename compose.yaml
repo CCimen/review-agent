@@ -1,6 +1,7 @@
 services:
   review-postgres:
     image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    command: ["postgres", "-c", "max_connections=${REVIEW_AGENT_POSTGRES_MAX_CONNECTIONS:-200}"]
     restart: unless-stopped
     environment:
       POSTGRES_DB: review_agent
@@ -209,6 +210,7 @@ services:
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
       REVIEW_AGENT_HERMES_CHAT_URL: "http://hermes-review:8642/v1/chat/completions"
       API_SERVER_KEY: "${API_SERVER_KEY:?set API_SERVER_KEY}"
+      REVIEW_AGENT_WORKER_CONCURRENCY: "${REVIEW_AGENT_WORKER_CONCURRENCY:-4}"
       REVIEW_AGENT_JOB_LEASE_SECONDS: "${REVIEW_AGENT_JOB_LEASE_SECONDS:-120}"
       REVIEW_AGENT_JOB_HEARTBEAT_SECONDS: "${REVIEW_AGENT_JOB_HEARTBEAT_SECONDS:-30}"
       REVIEW_AGENT_JOB_RETRY_SECONDS: "${REVIEW_AGENT_JOB_RETRY_SECONDS:-30}"

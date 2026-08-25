@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -29,6 +30,7 @@ from review_agent_tools.worker import (  # noqa: E402
     HermesRequestError,
     HermesChatSettings,
     ReviewWorker,
+    WorkerConfigurationError,
     WorkerPolicy,
 )
 
@@ -182,6 +184,159 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.assertEqual(attempts, 2)
         self.assertIn("claim deferred", "\n".join(logged.output))
         client.review.assert_not_called()
+
+    def test_worker_claims_only_for_available_execution_slots(self) -> None:
+        stop = threading.Event()
+        runtime = Mock(spec=PostgreSQLRuntime)
+        client = Mock(spec=HermesChatClient)
+        worker = ReviewWorker(
+            runtime,
+            client,
+            replace(self._policy(), concurrency=2),
+            lease_owner="worker-test",
+            stop_event=stop,
+        )
+        claims = [
+            replace(
+                self._claim(generation=1),
+                job=replace(
+                    self._claim(generation=1).job,
+                    id=job_id,
+                    review_run_id=ReviewRunId(job_id + 100),
+                ),
+            )
+            for job_id in range(1, 5)
+        ]
+        two_started = threading.Event()
+        release = threading.Event()
+        lock = threading.Lock()
+        active = 0
+        maximum_active = 0
+        completed: list[int] = []
+        errors: list[BaseException] = []
+
+        def claim() -> ClaimedReview | None:
+            if claims:
+                return claims.pop(0)
+            stop.set()
+            return None
+
+        def execute(claimed: ClaimedReview) -> None:
+            nonlocal active, maximum_active
+            with lock:
+                active += 1
+                maximum_active = max(maximum_active, active)
+                if active == 2:
+                    two_started.set()
+            release.wait()
+            with lock:
+                completed.append(claimed.job.id)
+                active -= 1
+
+        def run_worker() -> None:
+            try:
+                worker.run()
+            except BaseException as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        with (
+            patch.object(worker, "_claim", side_effect=claim) as claim_job,
+            patch.object(worker, "_execute", side_effect=execute),
+        ):
+            runner = threading.Thread(target=run_worker)
+            runner.start()
+            self.assertTrue(two_started.wait(timeout=2))
+            self.assertEqual(claim_job.call_count, 2)
+            release.set()
+            runner.join(timeout=2)
+
+        self.assertFalse(runner.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(maximum_active, 2)
+        self.assertCountEqual(completed, [1, 2, 3, 4])
+
+    def test_worker_concurrency_must_be_positive(self) -> None:
+        with self.assertRaisesRegex(
+            WorkerConfigurationError, "concurrency must be positive"
+        ):
+            replace(self._policy(), concurrency=0)
+
+    def test_unexpected_execution_error_stops_and_fails_after_active_drain(
+        self,
+    ) -> None:
+        stop = threading.Event()
+        worker = ReviewWorker(
+            Mock(spec=PostgreSQLRuntime),
+            Mock(spec=HermesChatClient),
+            replace(self._policy(), concurrency=2),
+            lease_owner="worker-test",
+            stop_event=stop,
+        )
+        claims = [
+            replace(
+                self._claim(generation=1),
+                job=replace(self._claim(generation=1).job, id=job_id),
+            )
+            for job_id in (1, 2)
+        ]
+        second_started = threading.Event()
+        release = threading.Event()
+        errors: list[BaseException] = []
+
+        def claim() -> ClaimedReview | None:
+            return claims.pop(0) if claims else None
+
+        def execute(claimed: ClaimedReview) -> None:
+            if claimed.job.id == 1:
+                second_started.wait(timeout=2)
+                raise RuntimeError("unexpected probe")
+            second_started.set()
+            release.wait()
+
+        def run_worker() -> None:
+            try:
+                worker.run()
+            except BaseException as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        with (
+            patch.object(worker, "_claim", side_effect=claim) as claim_job,
+            patch.object(worker, "_execute", side_effect=execute),
+            self.assertLogs("review_agent_tools.worker", level="ERROR") as logged,
+        ):
+            runner = threading.Thread(target=run_worker)
+            runner.start()
+            stopped_before_drain = stop.wait(timeout=2)
+            still_draining = runner.is_alive()
+            release.set()
+            runner.join(timeout=2)
+
+        self.assertTrue(stopped_before_drain)
+        self.assertTrue(still_draining)
+        self.assertFalse(runner.is_alive())
+        self.assertEqual(claim_job.call_count, 2)
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+        self.assertIn("Review job 1 failed unexpectedly", "\n".join(logged.output))
+
+    def test_once_executes_only_one_review_at_higher_concurrency(self) -> None:
+        worker = ReviewWorker(
+            Mock(spec=PostgreSQLRuntime),
+            Mock(spec=HermesChatClient),
+            replace(self._policy(), concurrency=4),
+            lease_owner="worker-test",
+            stop_event=threading.Event(),
+        )
+        claimed = self._claim(generation=1)
+
+        with (
+            patch.object(worker, "_claim", return_value=claimed) as claim_job,
+            patch.object(worker, "_execute") as execute,
+        ):
+            worker.run(once=True)
+
+        claim_job.assert_called_once_with()
+        execute.assert_called_once_with(claimed)
 
     def test_worker_does_not_guess_outcome_after_transient_state_read(self) -> None:
         stop = threading.Event()

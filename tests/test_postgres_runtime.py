@@ -19,6 +19,7 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLNotReady,
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
+    PostgreSQLRuntimeRole,
     PostgreSQLUnavailable,
 )
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
@@ -40,6 +41,20 @@ class PostgreSQLRuntimeConstructionTests(unittest.TestCase):
         self.assertEqual(metrics.minimum_size, 1)
         self.assertEqual(metrics.maximum_size, 4)
         self.assertEqual(metrics.waiting_requests, 0)
+
+    def test_worker_pool_scales_with_bounded_execution_slots(self) -> None:
+        runtime = PostgreSQLRuntime(
+            PostgresDatabaseUrl("postgresql://invalid@127.0.0.1:1/unreachable"),
+            role=PostgreSQLRuntimeRole.WORKER,
+            worker_concurrency=4,
+        )
+        self.addCleanup(runtime.close)
+
+        metrics = runtime.pool_metrics()
+
+        self.assertFalse(metrics.open)
+        self.assertEqual(metrics.minimum_size, 0)
+        self.assertEqual(metrics.maximum_size, 5)
 
     def test_explicit_open_fails_closed_when_database_is_unavailable(self) -> None:
         password = "very-secret-password"
@@ -64,6 +79,20 @@ class PostgreSQLRuntimeConstructionTests(unittest.TestCase):
             PostgreSQLRuntimeError, "cannot be reopened after close"
         ):
             runtime.open()
+
+    def test_worker_open_fails_closed_when_database_is_unavailable(self) -> None:
+        runtime = PostgreSQLRuntime(
+            PostgresDatabaseUrl("postgresql://invalid@127.0.0.1:1/unreachable"),
+            role=PostgreSQLRuntimeRole.WORKER,
+            worker_concurrency=4,
+        )
+        self.addCleanup(runtime.close)
+
+        with self.assertLogs("psycopg.pool", level="WARNING"):
+            with self.assertRaises(PostgreSQLUnavailable):
+                runtime.open(timeout=0.1)
+
+        self.assertFalse(runtime.pool_metrics().open)
 
 
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")

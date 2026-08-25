@@ -11,6 +11,9 @@ parameters:
   - name: ALLOWED_REPOSITORIES
     description: Comma-separated owner/repository allowlist.
     required: true
+  - name: WORKER_CONCURRENCY
+    description: Concurrent reviews per worker replica.
+    value: "4"
 objects:
   - apiVersion: v1
     kind: ConfigMap
@@ -24,6 +27,7 @@ objects:
       REVIEW_AGENT_JOB_MAX_ATTEMPTS: "3"
       REVIEW_AGENT_JOB_PRIORITY: "0"
       REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS: "900"
+      REVIEW_AGENT_WORKER_CONCURRENCY: ${WORKER_CONCURRENCY}
       REVIEW_AGENT_JOB_LEASE_SECONDS: "120"
       REVIEW_AGENT_JOB_HEARTBEAT_SECONDS: "30"
       REVIEW_AGENT_JOB_RETRY_SECONDS: "30"

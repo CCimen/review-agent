@@ -5,7 +5,7 @@ goal:
   slug: "github-app-pilot"
   kind: specific
   tranche: "Implement and verify the durable installation, repository activation, webhook delivery, and repository-scoped token foundation for a CCimen/review-agent pilot."
-  status: blocked
+  status: active
 
 rules:
   pm_owns_state: true
@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: null
+active_task: T023
 
 tasks:
   - id: T001
@@ -1103,29 +1103,18 @@ tasks:
   - id: T023
     type: pm
     assignee: PM
-    status: blocked
+    status: active
     reasoning_hint: high
     objective: "Run the owner-controlled CCimen/review-agent direct-App admission pilot against a real deployed Review Agent environment, then decide the source-read and publication cutover sequence from live evidence."
     inputs:
       - "T021 owner-controlled pilot checklist"
       - "T022 public pilot guide"
       - "Commits 91340641e04fb91c8084ddeee95e8e630c208c47 and 343dace55be7947cba5ce4adac033bf7b906db9e"
+      - "Authorized Dokploy target: Sundsvall Utveckling / Review-agent / production (project clTN0YnHVNEd0ulV_3-gu, environment bqdiCtn-g207jYYw3jzUl)."
     constraints:
       - "Use CCimen/review-agent only; do not touch Sundsvallskommun."
       - "Do not claim App-only operation while source reads, publication, and feedback use current scoped tokens."
       - "Do not create credentials until the exact public admission URL and deployment secret owner are proven."
-    receipt:
-      result: blocked
-      summary: "Local implementation, documentation, CI, and GitHub Pages are ready, but there is no Review Agent project or Compose deployment visible in the connected Dokploy account and therefore no public admission URL or secret target for a safe live App registration."
-      evidence:
-        - "Dokploy project search for review returned zero projects"
-        - "Dokploy Compose search for review returned zero deployments"
-        - "The complete connected Dokploy inventory contains 42 unrelated production projects, no selectable deployment server, and no safe owner-controlled pilot environment."
-        - "CCimen/review-agent has no repository webhook and only the GitHub Pages environment; no partial App registration needs recovery."
-      unblock_when:
-        - "Connect an owner-controlled Dokploy workspace with a selectable server, or identify another approved deployment target for the pilot."
-        - "Deploy the default stack and assign its HTTPS admission hostname before creating the App credentials."
-      next_after_unblock: "Register the owner-only App, store its credentials, install only on CCimen/review-agent, reconcile and explicitly enable it, then prove one accepted same-repository /review without a duplicate run."
   - id: T999
     type: judge
     assignee: Judge

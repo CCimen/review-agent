@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "3b83ba7c96191198caafdb86ab0e8394c199cb0f"
 
-active_task: T015
+active_task: T017
 
 tasks:
   - id: T001
@@ -397,7 +397,7 @@ tasks:
   - id: T007
     type: worker
     assignee: Worker
-    status: queued
+    status: blocked
     reasoning_hint: high
     objective: "Cut source reads, publication, feedback, deployment, and onboarding to GitHub App tokens; delete the PAT/Actions compatibility path after live pilot acceptance."
     allowed_files: []
@@ -406,11 +406,13 @@ tasks:
       - "Direct App admission has not passed local and live pilot verification."
       - "Deletion would remove the only working route before the owner approves the pilot."
       - "The change requires Sundsvallskommun access."
-    receipt: null
+    receipt:
+      result: blocked
+      reason: "Superseded by the dependency-ordered direct-admission, source-read, publication, feedback, App-only pilot, and final compatibility-deletion slices frozen after T006. This card must not execute as one broad cutover."
   - id: T008
     type: worker
     assignee: Worker
-    status: queued
+    status: blocked
     reasoning_hint: default
     objective: "Add organization onboarding, LLM setup artifacts, repository administration/reporting, and accurate public documentation after the App route ships."
     allowed_files: []
@@ -419,7 +421,9 @@ tasks:
       - "A documented command or capability is not implemented."
       - "Generated LLM documentation would include non-public goal material."
       - "The slice expands into a custom administration UI."
-    receipt: null
+    receipt:
+      result: blocked
+      reason: "Deferred until the App-backed runtime stages ship. Onboarding, public documentation, reporting, OpenShift examples, and release work must describe verified behavior rather than precede it."
   - id: T010
     type: scout
     assignee: Scout
@@ -593,7 +597,7 @@ tasks:
   - id: T015
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Freeze the smallest complete locally testable GitHub App activation Worker after T006 and define the separate owner-controlled live-pilot acceptance gate without broadening into source-read, publication, feedback, PAT deletion, public docs, or release work."
     inputs:
@@ -613,6 +617,93 @@ tasks:
       - "Exact Worker objective, canonical owners, allowed_files, acceptance, verify, stop_if, rollback, and non-goals"
       - "Manual live-pilot gate with decisive collaborator-permission/token checks"
       - "Re-sliced queued follow-ups in dependency order"
+    receipt:
+      result: done
+      decision: "Freeze one opt-in direct GitHub App admission activation slice. It may receive and process App webhooks into the existing run/job queue, while Hermes source reads, publication, and feedback remain PAT-backed. This is not an App-only end-to-end pilot."
+      next_allowed_task: T017
+      summary: "Reduced the activation scope to one sequential recoverable delivery worker, minimum stable-repository enable/disable controls, explicit terminal provider/registry outcomes, private-key file isolation, and an opt-in Compose profile. Deferred normalized-contract cleanup and every downstream token cutover."
+      evidence:
+        - "T003-T006 receipts and commit 3b83ba7c96191198caafdb86ab0e8394c199cb0f"
+        - "GitHub rate-limit, App endpoint-permission, installation-token, and webhook contracts"
+        - "All 13 existing T017 paths match the remote main tree at 6233d9baa8915fd41d5a353811dba3565be0c886"
+        - "The three proposed new T017 paths are clear"
+      pm_disposition: "Rejected a separate baseline-recreation task: the local Git object database points at an unrelated historical remote, while the authoritative CCimen/review-agent remote and every exact candidate path were verified directly by blob identity. Exact-file remote commits remain the safe workflow for the preserved dirty workspace."
+      blocked_tasks:
+        - T007
+        - T008
+      spawned_tasks:
+        - T017
+  - id: T017
+    type: worker
+    assignee: Worker
+    status: active
+    reasoning_hint: high
+    objective: "Activate the dormant direct GitHub App admission path behind one opt-in Compose profile by adding a sequential recoverable delivery worker and minimum stable-repository enable/disable controls, while terminalizing permanent provider authorization denials and repository-name conflicts and leaving the default PAT/Actions runtime unchanged."
+    canonical_owner:
+      processing: "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+      worker_lifecycle: "bootstrap/plugins/review_agent_tools/github/app_worker.py"
+      provider_http_classification: "bootstrap/plugins/review_agent_tools/source_control.py"
+      enablement_state: "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      operator_use_cases: "bootstrap/plugins/review_agent_tools/operator_application.py"
+      operator_cli: "tools/review_agent_database.py"
+      worker_entrypoint: "tools/review_agent_github_app_worker.py"
+      opt_in_runtime: "compose.yaml"
+    allowed_files:
+      - ".env.example"
+      - "Dockerfile"
+      - "compose.yaml"
+      - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+      - "bootstrap/plugins/review_agent_tools/github/app_worker.py"
+      - "bootstrap/plugins/review_agent_tools/source_control.py"
+      - "bootstrap/plugins/review_agent_tools/operator_application.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "tools/review_agent_github_app_worker.py"
+      - "tools/review_agent_database.py"
+      - "tests/test_github_app_activation.py"
+      - "tests/test_github_app_processor.py"
+      - "tests/test_source_control.py"
+      - "tests/test_postgres_github_app.py"
+      - "tests/test_dockerfile_tools.py"
+      - "tests/test_docs_contract.py"
+    acceptance:
+      - "Name and test this milestone as direct-App admission only; make no App-only end-to-end claim."
+      - "One single-threaded worker reuses GitHubAppProcessor and the existing PostgreSQL ledger, supports --once, bounded polling/recovery, signal shutdown between calls, and transient-database backoff without a second queue."
+      - "Unexpected defects exit nonzero and leave the fenced lease for existing expiry recovery; no guessed transition is written."
+      - "Rate-limit 429/403 and 5xx/network failures remain retryable; plain 401/403 authorization denials terminalize as provider_authorization_denied."
+      - "RepositoryNameConflict rolls back admission and terminalizes as repository_name_conflict with no run/job or recovery churn."
+      - "App ID and a bounded regular private-key file fail closed; PEM never enters an environment value, argument, log, PostgreSQL, response, Hermes, or another container."
+      - "The opt-in github-app-pilot Compose profile mounts the key read-only only into the App worker, with database and egress access but no Hermes data volume or runtime network."
+      - "Default Compose startup does not start the App worker or require App configuration; the optional App webhook secret alone controls whether admission exposes the dormant route."
+      - "The database CLI adds only provider-repository-ID enable and disable commands with explicit actor/reason; enable also requires an explicit profile."
+      - "PAT/Actions admission and every PAT-backed source-read, publication, and feedback service remain unchanged."
+      - "The stable candidate receives one Claude Opus high commit gate, green with score at least 8."
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_source_control tests.test_github_app_activation tests.test_dockerfile_tools tests.test_docs_contract"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_processor tests.test_postgres_github_app tests.test_postgres_webhook_deliveries"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "docker compose --env-file .env.example config --quiet"
+      - "docker compose --env-file .env.example --profile github-app-pilot config --quiet"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check <changed Python files>"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_image.sh review-agent:github-app-pilot"
+      - "Claude Opus high pre-commit gate: green with score at least 8 in one resumable session"
+    stop_if:
+      - "Any allowed existing path diverges from authoritative remote main or a user-owned change would be overwritten."
+      - "A file outside allowed_files, migration, second queue/admission path, broker, or concurrent processor is required."
+      - "The private key would enter an environment value, Hermes, PostgreSQL, logs, another container, or a public response."
+      - "Default Compose startup requires App configuration or activates the App route/worker."
+      - "Rate-limited 403 responses cannot be distinguished safely from plain authorization denial."
+      - "Repository-name conflict cannot roll back admission and terminalize the delivery atomically."
+      - "Enablement cannot use stable provider repository ID with explicit actor, profile, and reason."
+      - "Tests require live credentials, App registration, deployment, or Sundsvallskommun access."
+      - "Verification or the Claude gate fails twice for the same unexplained reason."
+    non_goals:
+      - "No live credentials, App registration, installation, webhook redelivery, or external mutation."
+      - "No Hermes source-read, publication, feedback, or PAT/Actions cutover."
+      - "No App-only end-to-end claim, public docs, OpenShift expansion, release, onboarding, or organization rollout."
+      - "No generic reporting/UI, normalized-category cleanup, migration, forks, or all-repositories support."
+    rollback: "Disable the pilot repository, stop the github-app-pilot profile, clear the optional App webhook secret, and revert the activation commit. Existing PostgreSQL lifecycle/delivery history remains recoverable and the PAT/Actions route remains live."
     receipt: null
   - id: T999
     type: judge

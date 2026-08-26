@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "3b83ba7c96191198caafdb86ab0e8394c199cb0f"
 
-active_task: T014
+active_task: T015
 
 tasks:
   - id: T001
@@ -554,7 +554,7 @@ tasks:
   - id: T014
     type: scout
     assignee: Scout
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Map the smallest complete dormant-to-pilot activation slice after T006, separating local worker/runtime wiring from live GitHub App registration and verification, and re-slice the overbroad T007 cutover without deleting the working PAT route prematurely."
     inputs:
@@ -573,6 +573,46 @@ tasks:
       - "Smallest locally complete activation Worker slice"
       - "Explicit live-pilot manual gate and decisive permission checks"
       - "Re-sliced follow-up tasks for publication, feedback, PAT deletion, onboarding, and docs"
+    receipt:
+      result: done
+      summary: "Mapped an opt-in local GitHub App delivery worker over the existing ledger, token service, PostgreSQL authorization, and review-worker patterns while preserving the default PAT/Actions runtime. Separated locally testable activation from owner-controlled App registration and a live direct-admission pilot."
+      evidence:
+        - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+        - "bootstrap/plugins/review_agent_tools/worker.py"
+        - "bootstrap/plugins/review_agent_tools/operator_application.py"
+        - "tools/review_agent_worker.py"
+        - "tools/review_agent_database.py"
+        - "compose.yaml"
+        - "Dockerfile"
+        - "Official GitHub webhook, App permission, and installation-token contracts"
+      decision_needed: "Freeze whether the next milestone is a direct-App admission pilot with PAT-backed Hermes/publication still live, or an App-only end-to-end pilot that requires later source-read and publication cutovers first."
+      spawned_tasks:
+        - T015
+  - id: T015
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Freeze the smallest complete locally testable GitHub App activation Worker after T006 and define the separate owner-controlled live-pilot acceptance gate without broadening into source-read, publication, feedback, PAT deletion, public docs, or release work."
+    inputs:
+      - "T003-T006 implementation receipts"
+      - "T014 activation owner map"
+      - "Deferred T006 operator-failure findings"
+      - "Current settings, worker, CLI, Compose, Docker, and operator owners"
+    constraints:
+      - "Read-only; do not implement."
+      - "Challenge T014's broad allowed-file list and split operator reporting or deployment polish when not required for a working opt-in processor."
+      - "Use one existing PostgreSQL delivery queue and no Celery, Redis, generic credential broker, or second admission path."
+      - "Keep the default PAT/Actions route unchanged and live."
+      - "The user requires one Claude Opus high gate for the eventual stable Worker commit; do not substitute a Codex gate."
+      - "No live App registration, installation, credential use, Sundsvallskommun action, docs publication, release, or external mutation."
+    expected_output:
+      - "Pilot definition and explicit non-claim about remaining PAT-backed stages"
+      - "Exact Worker objective, canonical owners, allowed_files, acceptance, verify, stop_if, rollback, and non-goals"
+      - "Manual live-pilot gate with decisive collaborator-permission/token checks"
+      - "Re-sliced queued follow-ups in dependency order"
     receipt: null
   - id: T999
     type: judge
@@ -610,11 +650,10 @@ checks:
   dirty_fingerprint: "local worktree contains preserved user-owned documentation changes; exact commits must be staged from the remote base"
   last_verification:
     result: pass
-    task: T005
+    task: T006
     commands:
-      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_dockerfile_tools"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_processor tests.test_github_webhook tests.test_admission tests.test_postgres_github_app"
       - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_auth.py bootstrap/plugins/review_agent_tools/postgres/github_app.py tests/test_github_app_auth.py tests/test_postgres_github_app.py tests/test_dockerfile_tools.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_processor.py bootstrap/plugins/review_agent_tools/github_webhook.py bootstrap/plugins/review_agent_tools/admission.py bootstrap/plugins/review_agent_tools/review_run_application.py bootstrap/plugins/review_agent_tools/postgres/github_app.py tests/test_github_app_processor.py tests/test_github_webhook.py tests/test_admission.py tests/test_postgres_github_app.py"
       - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH python -m pip check"
       - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"

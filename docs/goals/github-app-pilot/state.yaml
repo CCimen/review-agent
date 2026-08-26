@@ -30,12 +30,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 4
+  completed_write_tasks_in_thread: 5
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "ddb3facdfd13ea2e4991f77b20d1dce2ccabe26d"
+  last_verified_revision: "54f47a1b6dd1a6615edd2f8762ad4da39a87086e"
 
-active_task: T020
+active_task: T021
 
 tasks:
   - id: T001
@@ -855,7 +855,7 @@ tasks:
   - id: T020
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add one manual selected-installation reconciliation command that reads current installation metadata and all accessible repositories through the existing GitHub App credential owner, then atomically repairs the existing PostgreSQL installation/access state without automatically enabling any repository."
     canonical_owner:
@@ -913,6 +913,49 @@ tasks:
       - "No all-repositories activation, fork support, source-read/publication/feedback cutover, PAT/Actions deletion, or App-only claim."
       - "No scorecard, doctor command, llms files, setup skill, public App deployment docs, admin UI, release, or ruleset change."
     rollback: "Revert the reconciliation commit. Event-driven lifecycle processing, existing PostgreSQL history, the opt-in direct-App worker, and the default PAT/Actions route remain unchanged; the removed manual repair command creates no new schema or background process."
+    receipt:
+      result: done
+      commit: "54f47a1b6dd1a6615edd2f8762ad4da39a87086e"
+      summary: "Added one manual selected-installation repair command. It fetches a complete minimum-permission GitHub inventory before opening one atomic reconciliation transaction, preserves enablement only under the same current installation, fails closed on cross-installation ownership conflicts, and reports sanitized retryable or permanent operator outcomes."
+      evidence:
+        - "Focused GitHub App auth, inventory, activation, and CLI behavior: 24 tests passed"
+        - "PostgreSQL schema/recovery contract: 174 tests passed; migration 7 ready; backup/restore passed"
+        - "Full bundle: 459 tests passed with 170 expected environment-gated skips"
+        - "Ruff clean; strict Pyright 0 errors/warnings"
+        - "Default and github-app-pilot Compose rendering passed"
+        - "Claude Opus high session review-agent-github-app-reconciliation: iterations 1/2 required verified fixes; iteration 3 green, score 8"
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_inventory.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+        - "bootstrap/plugins/review_agent_tools/operator_application.py"
+        - "tools/review_agent_database.py"
+        - "tools/review_agent_github_app_worker.py"
+        - "tests/test_github_app_auth.py"
+        - "tests/test_github_app_inventory.py"
+        - "tests/test_postgres_github_app.py"
+      deferred:
+        - "Replace per-repository reconciliation grants with a set-based PostgreSQL operation if live organization-scale measurement shows transaction cost is material; do not add an arbitrary repository-count ceiling."
+  - id: T021
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Audit the committed installation reconciliation as the final local prerequisite for a CCimen/review-agent direct-App admission pilot, then freeze the owner-controlled registration, credential, rollback, and acceptance gate without claiming source-read, publication, feedback, or App-only cutover."
+    inputs:
+      - "T020 receipt"
+      - "Commit 54f47a1b6dd1a6615edd2f8762ad4da39a87086e"
+      - "Current remote CI"
+      - "Official GitHub App registration, installation, webhook, token, and redelivery contracts"
+    constraints:
+      - "Read-only; do not register an App, create credentials, mutate installations, or touch Sundsvallskommun."
+      - "Do not start another model review loop; T020 already has one converged Claude gate."
+      - "Distinguish a direct-App admission pilot from App-backed source reads, publication, feedback, or PAT deletion."
+    expected_output:
+      - "Local milestone complete or exact blocker"
+      - "Smallest owner-controlled pilot checklist"
+      - "Required permissions, event subscriptions, secrets, verification evidence, and rollback"
+      - "Exact next task after pilot acceptance or failure"
   - id: T999
     type: judge
     assignee: Judge
@@ -949,10 +992,13 @@ checks:
   dirty_fingerprint: "local worktree contains preserved user-owned documentation changes; exact commits must be staged from the remote base"
   last_verification:
     result: pass
-    task: T006
+    task: T020
     commands:
-      - "PATH=/tmp/review-agent-venv/bin:$PATH REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_processor tests.test_github_webhook tests.test_admission tests.test_postgres_github_app"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_github_app_inventory tests.test_github_app_activation"
       - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_processor.py bootstrap/plugins/review_agent_tools/github_webhook.py bootstrap/plugins/review_agent_tools/admission.py bootstrap/plugins/review_agent_tools/review_run_application.py bootstrap/plugins/review_agent_tools/postgres/github_app.py tests/test_github_app_processor.py tests/test_github_webhook.py tests/test_admission.py tests/test_postgres_github_app.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_auth.py bootstrap/plugins/review_agent_tools/github/app_inventory.py bootstrap/plugins/review_agent_tools/postgres/github_app.py bootstrap/plugins/review_agent_tools/operator_application.py tools/review_agent_database.py tools/review_agent_github_app_worker.py tests/test_github_app_auth.py tests/test_github_app_inventory.py tests/test_postgres_github_app.py"
       - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
       - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "docker compose --env-file .env.example config --quiet"
+      - "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE=/dev/null docker compose --env-file .env.example --profile github-app-pilot config --quiet"
+      - "Claude Opus high session review-agent-github-app-reconciliation iteration 3: green, score 8"

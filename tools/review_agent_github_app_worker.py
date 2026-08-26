@@ -27,11 +27,6 @@ def _load_package() -> None:
 
 _load_package()
 
-from review_agent_tools.github.app_auth import (  # noqa: E402
-    GitHubAppConfigurationError,
-    ReviewReadTokenService,
-    load_private_key_file,
-)
 from review_agent_tools.github.app_processor import (  # noqa: E402
     GitHubAppProcessor,
     ProcessorConfig,
@@ -41,6 +36,12 @@ from review_agent_tools.github.app_worker import (  # noqa: E402
     GitHubAppWorkerConfigurationError,
     GitHubAppWorkerPolicy,
     default_github_app_worker_name,
+)
+from review_agent_tools.github.gateway import (  # noqa: E402
+    GitHubGatewayProtocolError,
+)
+from review_agent_tools.github.gateway_client import (  # noqa: E402
+    ReviewGitHubGatewayClient,
 )
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
@@ -80,15 +81,15 @@ def _seconds(name: str, default: str) -> timedelta:
         raise GitHubAppWorkerConfigurationError(f"{name} must be a number") from exc
 
 
-def _private_key() -> str:
-    raw_path = os.environ.get("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE", "").strip()
-    if not raw_path:
+def _gateway_client() -> ReviewGitHubGatewayClient:
+    gateway_url = os.environ.get("REVIEW_AGENT_GITHUB_GATEWAY_URL", "").strip()
+    if not gateway_url:
         raise GitHubAppWorkerConfigurationError(
-            "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE is required"
+            "REVIEW_AGENT_GITHUB_GATEWAY_URL is required"
         )
     try:
-        return load_private_key_file(raw_path)
-    except GitHubAppConfigurationError as exc:
+        return ReviewGitHubGatewayClient(gateway_url)
+    except GitHubGatewayProtocolError as exc:
         raise GitHubAppWorkerConfigurationError(str(exc)) from exc
 
 
@@ -113,8 +114,7 @@ def main(argv: list[str] | None = None) -> int:
 
     configured = ReviewAgentSettings.from_environment()
     try:
-        app_id = _positive_integer("REVIEW_AGENT_GITHUB_APP_ID")
-        private_key = _private_key()
+        gateway = _gateway_client()
         policy = GitHubAppWorkerPolicy(
             poll_interval=_seconds("REVIEW_AGENT_GITHUB_APP_POLL_SECONDS", "2"),
             recovery_interval=_seconds(
@@ -141,11 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         processor = GitHubAppProcessor(
             postgres=runtime,
-            tokens=ReviewReadTokenService(
-                app_id=app_id,
-                private_key_pem=private_key,
-                postgres=runtime,
-            ),
+            gateway=gateway,
             config=ProcessorConfig(
                 profile=configured.profile,
                 policy_revision=configured.policy_revision(),

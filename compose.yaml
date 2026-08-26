@@ -252,6 +252,61 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  review-github-gateway:
+    profiles: ["github-app-pilot"]
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
+    build:
+      context: .
+      args:
+        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
+    restart: unless-stopped
+    user: "10000:10000"
+    entrypoint: ["/usr/local/bin/review-agent-github-gateway"]
+    command: ["serve", "--host", "0.0.0.0", "--port", "8646"]
+    depends_on:
+      review-db-migrate:
+        condition: service_completed_successfully
+    environment:
+      REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
+      REVIEW_AGENT_GITHUB_APP_ID: "${REVIEW_AGENT_GITHUB_APP_ID:-}"
+      REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github-app-private-key.pem
+      REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    expose:
+      - "8646"
+    networks:
+      - review-github-egress
+      - review-database
+      - review-github-control
+    secrets:
+      - source: github_app_private_key
+        target: github-app-private-key.pem
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8646/ready >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+          pids: 64
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   review-github-app-worker:
     profiles: ["github-app-pilot"]
     image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
@@ -265,10 +320,11 @@ services:
     depends_on:
       review-db-migrate:
         condition: service_completed_successfully
+      review-github-gateway:
+        condition: service_healthy
     environment:
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
-      REVIEW_AGENT_GITHUB_APP_ID: "${REVIEW_AGENT_GITHUB_APP_ID:-}"
-      REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github-app-private-key.pem
+      REVIEW_AGENT_GITHUB_GATEWAY_URL: "http://review-github-gateway:8646"
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
       REVIEW_AGENT_POLICY_REVISION: "${REVIEW_AGENT_POLICY_REVISION:-policy-v1}"
       REVIEW_AGENT_ACTIVE_JOB_LIMIT: "${REVIEW_AGENT_ACTIVE_JOB_LIMIT:-100}"
@@ -282,11 +338,8 @@ services:
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
     networks:
-      - review-egress
       - review-database
-    secrets:
-      - source: github_app_private_key
-        target: github-app-private-key.pem
+      - review-github-control
     read_only: true
     cap_drop:
       - ALL
@@ -414,6 +467,9 @@ networks:
   review-database:
     internal: true
   review-runtime:
+    internal: true
+  review-github-egress:
+  review-github-control:
     internal: true
 
 volumes:

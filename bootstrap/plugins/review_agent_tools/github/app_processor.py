@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import cast
-import urllib.parse
 
 import psycopg
 from psycopg.rows import TupleRow
@@ -19,12 +18,12 @@ from ..review_run_application import (
     PostgresRunRequest,
     admit_postgres_review_in_transaction,
 )
-from ..source_control import GitHubReadClient, GitHubReadError
-from .app_auth import (
-    GitHubAppTokenPermanent,
-    GitHubAppTokenRetryable,
-    ReviewReadTokenService,
+from .gateway import (
+    GitHubGatewayProtocolError,
+    GitHubGatewayRejected,
+    GitHubGatewayRetryable,
 )
+from .gateway_client import ReviewGitHubGatewayClient
 
 
 _IGNORED_REASONS = frozenset(
@@ -51,35 +50,12 @@ class ProcessorConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class PullSnapshot:
-    repository_id: int
-    repository: str
-    number: int
-    state: str
-    base_sha: str
-    head_sha: str
-    head_repository_id: int | None
-    head_repository: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class ProcessingResult:
     delivery_id: int
     status: webhook_deliveries.DeliveryStatus
     reason: str | None
     run_id: int | None = None
     job_id: int | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _ReviewCommand:
-    provider_installation_id: int
-    provider_repository_id: int
-    repository: str
-    pr_number: int
-    comment_id: int
-    sender_id: int
-    sender_login: str
 
 
 class _Reject(Exception):
@@ -110,70 +86,6 @@ def _text(value: object, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise _Reject("invalid_normalized_payload")
     return value.strip()
-
-
-def _github_object(value: object, field: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
-    return cast(Mapping[str, object], value)
-
-
-def _github_text(value: object, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
-    return value.strip()
-
-
-def _github_int(value: object, field: str) -> int:
-    if type(value) is not int or value < 1:
-        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
-    return value
-
-
-def _github_repository_name(value: object) -> str:
-    name = _github_text(value, "repository name")
-    parts = name.split("/")
-    if len(parts) != 2 or not all(parts):
-        raise GitHubReadError(
-            "invalid_json", "GitHub returned an invalid repository name"
-        )
-    return name
-
-
-def read_pull_snapshot(
-    github: GitHubReadClient, repository: str, pr_number: int
-) -> PullSnapshot:
-    """Read the exact live pull request and both repository identities."""
-    quoted = urllib.parse.quote(repository, safe="/")
-    root = _github_object(
-        github.request_json(f"/repos/{quoted}/pulls/{pr_number}"),
-        "GitHub pull request",
-    )
-    base = _github_object(root.get("base"), "pull request base")
-    head = _github_object(root.get("head"), "pull request head")
-    base_repository = _github_object(base.get("repo"), "base repository")
-    raw_head_repository = head.get("repo")
-    if raw_head_repository is None:
-        head_repository_id = None
-        head_repository = None
-    else:
-        head_repository_object = _github_object(raw_head_repository, "head repository")
-        head_repository_id = _github_int(
-            head_repository_object.get("id"), "head repository id"
-        )
-        head_repository = _github_repository_name(
-            head_repository_object.get("full_name")
-        )
-    return PullSnapshot(
-        repository_id=_github_int(base_repository.get("id"), "repository id"),
-        repository=_github_repository_name(base_repository.get("full_name")),
-        number=_github_int(root.get("number"), "pull request number"),
-        state=_github_text(root.get("state"), "pull request state").lower(),
-        base_sha=_github_text(base.get("sha"), "base sha"),
-        head_sha=_github_text(head.get("sha"), "head sha"),
-        head_repository_id=head_repository_id,
-        head_repository=head_repository,
-    )
 
 
 def _installation_definition(
@@ -235,28 +147,6 @@ def _payload(
     return _object(delivery.normalized_payload, "normalized_payload")
 
 
-def _review_command(
-    delivery: webhook_deliveries.WebhookDelivery,
-) -> _ReviewCommand:
-    payload = _payload(delivery)
-    if payload.get("kind") != "issue_comment":
-        raise _Reject("invalid_normalized_payload")
-    installation_id = delivery.provider_installation_id
-    repository_id = delivery.provider_repository_id
-    repository = delivery.repository_full_name
-    if installation_id is None or repository_id is None or repository is None:
-        raise _Reject("invalid_normalized_payload")
-    return _ReviewCommand(
-        provider_installation_id=installation_id,
-        provider_repository_id=repository_id,
-        repository=repository,
-        pr_number=_positive(payload.get("pr_number"), "pr_number"),
-        comment_id=_positive(payload.get("comment_id"), "comment_id"),
-        sender_id=_positive(payload.get("sender_id"), "sender_id"),
-        sender_login=_text(payload.get("sender_login"), "sender_login"),
-    )
-
-
 class GitHubAppProcessor:
     """Consume one durable App delivery without introducing another queue."""
 
@@ -264,14 +154,12 @@ class GitHubAppProcessor:
         self,
         *,
         postgres: PostgreSQLRuntime,
-        tokens: ReviewReadTokenService,
+        gateway: ReviewGitHubGatewayClient,
         config: ProcessorConfig,
-        github_factory: Callable[[str], GitHubReadClient] = GitHubReadClient,
     ) -> None:
         self._postgres = postgres
-        self._tokens = tokens
+        self._gateway = gateway
         self._config = config
-        self._github_factory = github_factory
 
     def process_next(self, *, lease_owner: str) -> ProcessingResult | None:
         """Claim and resolve one ready delivery."""
@@ -456,26 +344,20 @@ class GitHubAppProcessor:
         lease_owner: str,
         actor: str,
     ) -> ProcessingResult:
-        command = _review_command(delivery)
         try:
-            token = self._tokens.token_for(command.provider_repository_id)
-            github = self._github_factory(token.value)
-            self._authorize_sender(github, command)
-            snapshot = read_pull_snapshot(github, command.repository, command.pr_number)
-        except GitHubAppTokenRetryable as exc:
-            raise _Retry("token_exchange_unavailable") from exc
-        except GitHubAppTokenPermanent as exc:
-            raise _Reject("provider_authorization_denied") from exc
-        except github_app.GitHubAppReviewReadUnauthorized as exc:
-            raise _Reject("repository_not_authorized") from exc
-        except GitHubReadError as exc:
-            if exc.kind in {"unreachable", "http_error", "rate_limited"}:
-                raise _Retry("github_read_unavailable") from exc
-            if exc.kind in {"unauthorized", "forbidden"}:
-                raise _Reject("provider_authorization_denied") from exc
-            raise _Reject("github_read_invalid") from exc
-
-        self._validate_snapshot(command, snapshot)
+            authorized = self._gateway.authorize_review_delivery(
+                delivery_id=delivery.id,
+                lease_owner=lease_owner,
+                lease_generation=delivery.lease_generation,
+            )
+        except GitHubGatewayRetryable as exc:
+            raise _Retry(exc.reason) from exc
+        except GitHubGatewayRejected as exc:
+            if exc.reason == "delivery_lease_lost":
+                return ProcessingResult(delivery.id, delivery.status, exc.reason)
+            raise _Reject(exc.reason) from exc
+        except GitHubGatewayProtocolError as exc:
+            raise _Retry("github_gateway_invalid_response") from exc
         try:
             contract = review_contract.load_packaged_contract(self._config.profile)
         except review_contract.ReviewContractError as exc:
@@ -485,27 +367,27 @@ class GitHubAppProcessor:
             with self._postgres.transaction() as connection:
                 github_app.authorize_review_admission(
                     connection,
-                    provider_repository_id=command.provider_repository_id,
-                    provider_installation_id=command.provider_installation_id,
+                    provider_repository_id=authorized.provider_repository_id,
+                    provider_installation_id=authorized.provider_installation_id,
                     profile_key=self._config.profile,
                 )
                 admitted = admit_postgres_review_in_transaction(
                     connection,
                     PostgresRunRequest(
                         provider="github",
-                        provider_repository_id=snapshot.repository_id,
-                        repository=snapshot.repository,
-                        pr_number=snapshot.number,
-                        base_sha=snapshot.base_sha,
-                        head_sha=snapshot.head_sha,
+                        provider_repository_id=authorized.provider_repository_id,
+                        repository=authorized.repository,
+                        pr_number=authorized.pr_number,
+                        base_sha=authorized.base_sha,
+                        head_sha=authorized.head_sha,
                         policy_revision=self._config.policy_revision,
                         resolved_config_schema_version=2,
                         resolved_config=cast(
                             JsonObject, review_contract.resolved_config(contract)
                         ),
-                        request_key=f"github:issue-comment:{command.comment_id}",
-                        trigger_comment_id=command.comment_id,
-                        trigger_user=command.sender_login,
+                        request_key=f"github:issue-comment:{authorized.comment_id}",
+                        trigger_comment_id=authorized.comment_id,
+                        trigger_user=authorized.sender_login,
                     ),
                     priority=self._config.job_priority,
                     max_attempts=self._config.job_max_attempts,
@@ -530,44 +412,6 @@ class GitHubAppProcessor:
             run_id=int(admitted.run.run.id),
             job_id=admitted.job.job.id,
         )
-
-    @staticmethod
-    def _authorize_sender(github: GitHubReadClient, command: _ReviewCommand) -> None:
-        repository = urllib.parse.quote(command.repository, safe="/")
-        login = urllib.parse.quote(command.sender_login, safe="")
-        payload = _github_object(
-            github.request_json(
-                f"/repos/{repository}/collaborators/{login}/permission",
-                max_bytes=65_536,
-            ),
-            "collaborator permission",
-        )
-        user = _github_object(payload.get("user"), "permission user")
-        permission = _github_text(payload.get("permission"), "permission").lower()
-        if (
-            permission not in {"write", "admin"}
-            or _github_int(user.get("id"), "permission user id") != command.sender_id
-            or _github_text(user.get("login"), "permission user login").casefold()
-            != command.sender_login.casefold()
-        ):
-            raise _Reject("sender_not_authorized")
-
-    @staticmethod
-    def _validate_snapshot(command: _ReviewCommand, snapshot: PullSnapshot) -> None:
-        if (
-            snapshot.repository_id != command.provider_repository_id
-            or snapshot.repository.casefold() != command.repository.casefold()
-            or snapshot.number != command.pr_number
-        ):
-            raise _Reject("pull_request_identity_mismatch")
-        if snapshot.state != "open":
-            raise _Reject("pull_request_not_open")
-        if (
-            snapshot.head_repository_id != snapshot.repository_id
-            or snapshot.head_repository is None
-            or snapshot.head_repository.casefold() != snapshot.repository.casefold()
-        ):
-            raise _Reject("fork_source_not_supported")
 
     def _finish(
         self,

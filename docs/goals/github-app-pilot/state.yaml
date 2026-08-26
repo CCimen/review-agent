@@ -4,7 +4,7 @@ goal:
   title: "GitHub App pilot"
   slug: "github-app-pilot"
   kind: specific
-  tranche: "Implement and verify the durable installation, repository activation, webhook delivery, and repository-scoped token foundation for a CCimen/review-agent pilot."
+  tranche: "Complete and validate one GitHub-App-only deployment candidate before the first end-to-end CCimen/review-agent pilot."
   status: active
 
 rules:
@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T023
+active_task: T026
 
 tasks:
   - id: T001
@@ -931,7 +931,7 @@ tasks:
       - "New or restored repositories remain enabled=false. Existing enabled state is preserved only for a repository still available through the same installation. No sync result can enable a repository."
       - "Every actual state transition retains the supplied bounded actor/reason in existing append-only audit owners; an exact repeated sync creates no duplicate access audit."
       - "The CLI command is sync-github-app-installation with required provider installation ID, actor, and reason, and returns bounded JSON counts without credentials."
-      - "The command runs from the opt-in App worker container, which already owns the key mount and database/egress access; Compose topology and the default PAT/Actions route remain unchanged."
+      - "The command runs from the opt-in GitHub gateway container, which owns the key mount and database/dedicated-egress access; the default PAT/Actions route remains unchanged."
       - "Provider 404/permission denial is a sanitized permanent failure; rate limits, 5xx, network failures, and timeouts are retryable. No failed provider fetch mutates PostgreSQL."
       - "The stable candidate receives one Claude Opus high commit gate, green with score at least 8."
     verify:
@@ -1045,6 +1045,7 @@ tasks:
       - "website/docusaurus.config.ts"
       - "website/public-documents.json"
       - "tests/test_docs_contract.py"
+      - "docs/GITHUB_APP_PILOT.md"
       - "tools/review_agent_github_app_worker.py"
       - "tests/test_github_app_activation.py"
     acceptance:
@@ -1103,7 +1104,7 @@ tasks:
   - id: T023
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Run the owner-controlled CCimen/review-agent direct-App admission pilot against a real deployed Review Agent environment, then decide the source-read and publication cutover sequence from live evidence."
     inputs:
@@ -1115,6 +1116,208 @@ tasks:
       - "Use CCimen/review-agent only; do not touch Sundsvallskommun."
       - "Do not claim App-only operation while source reads, publication, and feedback use current scoped tokens."
       - "Do not create credentials until the exact public admission URL and deployment secret owner are proven."
+    receipt:
+      result: done
+      summary: "Superseded the admission-only pilot before external mutation. The owner approved an App-only first pilot with no production compatibility requirement, so the next tranche must cut over source reads, publication, and feedback and delete the transitional credential paths before deployment."
+      evidence:
+        - "review-agent-app-only-deployment-blueprint.zip reviewed at 8cd6af1545cb54281cf1fb1749086539b7b73b44"
+        - "Owner decision: no PAT fallback and no admission-only product pilot"
+      spawned_tasks:
+        - T024
+  - id: T024
+    type: scout
+    assignee: Scout
+    status: done
+    reasoning_hint: high
+    objective: "Map the smallest complete App-only cutover owners and freeze the deterministic GitHub gateway interface against current main without repeating completed App foundation work."
+    inputs:
+      - "Current main at 8cd6af1545cb54281cf1fb1749086539b7b73b44"
+      - "T003-T022 receipts"
+      - "review-agent-app-only-deployment-blueprint.zip"
+      - "Current source-read, publication, feedback, lease, settings, Compose, and OpenShift owners"
+    constraints:
+      - "Read-only."
+      - "Treat the blueprint as review evidence, not repository authority."
+      - "The private key stays outside Hermes and PostgreSQL; no raw token may cross the gateway interface."
+      - "Reuse current App auth, exact review subject, publication parts, feedback application, and durable lease owners."
+      - "Do not create a generic broker, provider interface, second queue, PAT fallback, SQLite path, or Sundsvallskommun change."
+    expected_output:
+      - "Verified canonical owner map and duplicate paths to delete"
+      - "Closed gateway operation interface with authorization and lease proofs"
+      - "Smallest complete T026 allowed files, acceptance tests, stop conditions, and rollback"
+      - "Dependencies and deletion gates for source, publication, feedback, deployment, docs, and pilot"
+    receipt:
+      result: done
+      note: "notes/T024-app-only-owner-map.md"
+      summary: "Mapped the existing App credential, durable delivery, exact review subject, job lease, publication lease, feedback, settings, and deployment owners. The smallest first slice is a closed internal gateway for direct-App admission reads, which removes the runtime private key from the event worker without broadening into model tools, publication, feedback, or deletion work."
+      evidence:
+        - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+        - "bootstrap/plugins/review_agent_tools/source_control.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/publications.py"
+        - "bootstrap/plugins/review_agent_tools/review_feedback_application.py"
+        - "compose.yaml"
+        - "examples/openshift/review-agent-template.yaml"
+      corrections:
+        - "Preserve the current publication-level lease; do not invent a publication-part lease."
+        - "Deepen ReviewRunScope with stable repository identity only when the source-read cutover lands."
+      spawned_tasks:
+        - T025
+  - id: T025
+    type: judge
+    assignee: Judge
+    status: done
+    reasoning_hint: high
+    objective: "Choose and freeze the smallest complete deterministic GitHub gateway slice from the T024 evidence."
+    inputs:
+      - "T024 receipt and note"
+      - "Current App authorization, review subject, lease, and publication contracts"
+    constraints:
+      - "Read-only."
+      - "Reject any interface that returns credentials, proxies arbitrary GitHub requests, duplicates durable authority, or broadens into a generic provider framework."
+    expected_output:
+      - "Decision"
+      - "Exact T026 objective, canonical owner, allowed files, acceptance, verify, stop_if, non-goals, and rollback"
+    receipt:
+      result: done
+      decision: "Establish the closed gateway with the existing direct-App admission reads first. This removes the private key and installation token owner from the event worker through the smallest already-proven provider operation, while leaving model source, publication, feedback, and compatibility deletion as separate atomic cutovers."
+      next_allowed_task: T026
+      summary: "Froze one deep gateway module with one fixed admission operation and a narrow typed client. The caller supplies only durable delivery lease identity; the gateway derives provider identity and state, performs GitHub I/O outside PostgreSQL transactions, rechecks authority, and never returns credentials or accepts arbitrary provider requests."
+      evidence:
+        - "T024 owner map and current App processor behavior"
+        - "Current durable webhook-delivery lease and PostgreSQL App authorization owners"
+        - "Current GitHub App token and source-read transport"
+      review_note: "The delegated Judge ended during an interrupted wait without a deliverable receipt; the PM completed the bounded source-backed decision and did not start another reviewer."
+      corrections:
+        - "Publication remains leased at publication level; later work must not invent part leases."
+      spawned_tasks:
+        - T026
+  - id: T026
+    type: worker
+    assignee: Worker
+    status: active
+    reasoning_hint: high
+    objective: "Add one internal Review-Agent-specific GitHub gateway and move the existing direct-App admission reads behind it, so the gateway becomes the sole runtime private-key and installation-token owner for the pilot profile while the event worker sends only durable delivery lease identity."
+    canonical_owner:
+      gateway_operation: "bootstrap/plugins/review_agent_tools/github/gateway.py"
+      internal_client: "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      delivery_lease: "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+      app_authorization_and_tokens: "bootstrap/plugins/review_agent_tools/github/app_auth.py and postgres/github_app.py"
+      final_admission_transaction: "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+    allowed_files:
+      - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+      - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+      - "bootstrap/plugins/review_agent_tools/github/app_worker.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+      - "bootstrap/plugins/review_agent_tools/source_control.py"
+      - "bootstrap/plugins/review_agent_tools/admission.py"
+      - "tools/review_agent_github_app_worker.py"
+      - "tools/review_agent_github_gateway.py"
+      - "Dockerfile"
+      - "compose.yaml"
+      - "tests/test_github_app_auth.py"
+      - "tests/test_github_app_processor.py"
+      - "tests/test_github_app_activation.py"
+      - "tests/test_github_gateway.py"
+      - "tests/test_github_gateway_entrypoint.py"
+      - "tests/test_source_control.py"
+      - "tests/test_postgres_webhook_deliveries.py"
+      - "tests/test_dockerfile_tools.py"
+      - "tests/test_docs_contract.py"
+    acceptance:
+      - "The event worker request contains only delivery ID, lease owner, and lease generation; it cannot supply provider URL, method, token, installation, repository, requester, or pull-request identity."
+      - "Missing, expired, wrong-owner, or stale-generation delivery lease fails before GitHub I/O."
+      - "Current selected-repository App access is checked before provider I/O and both lease and App access are rechecked afterwards."
+      - "Collaborator numeric identity and login match the signed delivery and current permission is write or admin."
+      - "The pull snapshot matches the stable repository ID and PR number, is open, and has a same-repository head."
+      - "The existing repository-restricted review-read token and cache reauthorization remain canonical; 401 refreshes once only and provider failures remain typed and secret-safe."
+      - "The gateway client has no generic request method and the gateway exposes no token or arbitrary provider proxy."
+      - "The gateway is the only runtime private-key mount, has no public ingress, and the App event worker receives no key or App ID."
+      - "The existing final admission transaction, delivery completion, selected-repository policy, and issue-comment idempotency remain unchanged."
+      - "The default non-profile Compose route remains unchanged in this slice."
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> python -m unittest -v tests.test_github_gateway tests.test_github_gateway_entrypoint tests.test_github_app_processor tests.test_github_app_auth tests.test_postgres_webhook_deliveries tests.test_dockerfile_tools tests.test_docs_contract"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check <changed Python files>"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "docker compose --env-file .env.example --profile github-app-pilot config --quiet"
+      - "Claude Opus high pre-commit gate green with score at least 8 in one resumable session"
+    stop_if:
+      - "The operation must accept a caller-supplied provider URL, method, token, installation ID, repository identity, requester, or pull-request number."
+      - "The private key, App JWT, or installation token would enter the event worker, Hermes, PostgreSQL, logs, exceptions, tool output, or HTTP response."
+      - "A live delivery lease and current App authorization cannot be proved both before and after provider I/O."
+      - "The gateway needs a generic provider abstraction, second queue, migration, PAT fallback, or public ingress."
+      - "The existing final admission transaction, request-key idempotency, selected-repository policy, or same-repository fork policy would change."
+      - "Keeping the opt-in pilot profile runnable requires files outside allowed_files."
+      - "Verification fails twice for the same unexplained reason."
+    non_goals:
+      - "No Hermes source-tool, publication, or feedback cutover."
+      - "No PAT, workflow, legacy route, allowlist, default Compose, or OpenShift deletion."
+      - "No new operator, doctor, onboarding, release, fork, or all-repositories work; update only operator text broken by this credential move."
+      - "No generic permission registry, token endpoint, provider interface, or database migration."
+      - "No Sundsvallskommun mutation or live credential use."
+    rollback: "Stop the optional pilot profile, revert the T026 commit, and restart the prior profile. No schema or durable contract changes are required; abandoned deliveries remain recoverable through the existing lease-expiry path."
+    receipt: null
+  - id: T027
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "Cut model-facing exact source reads to the gateway and delete the read PAT and environment repository allowlist in one bounded Worker slice."
+    receipt: null
+  - id: T028
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "Cut deterministic publication to the gateway and delete publication PAT and read-token fallback in one bounded Worker slice."
+    receipt: null
+  - id: T029
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "Process App feedback through the durable feedback application and gateway, then delete the feedback sidecar, HMAC route, PAT, and actor allowlist."
+    receipt: null
+  - id: T030
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "Make the App-only Compose and OpenShift topology the default and delete the legacy admission route, copied workflow, App pilot profile, and transitional configuration."
+    receipt: null
+  - id: T031
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "Add the minimum secret-safe capabilities, preflight, doctor, registration URL, inventory, and dry-run smoke operator experience required before deployment."
+    receipt: null
+  - id: T032
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "Publish concise App-only documentation, generated public LLM context, validated non-secret installation configuration, and one canonical installation skill with required mirrors."
+    receipt: null
+  - id: T033
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "Run the automated App-only candidate gate and prove no live PAT, allowlist, copied workflow, legacy route, sidecar, or credential exposure remains."
+    receipt: null
+  - id: T034
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "Deploy the exact candidate and run the owner-controlled App-only end-to-end pilot on CCimen/review-agent, including publication, feedback, redelivery, recovery, removal, and rotation evidence."
+    receipt: null
+  - id: T035
+    type: pm
+    assignee: PM
+    status: queued
+    objective: "After the pilot passes, add the approved license, CODEOWNERS, main ruleset, release notes, backup and rollback proof, then publish one v0.1.0-rc.1 prerelease and GHCR image."
+    receipt: null
   - id: T999
     type: judge
     assignee: Judge

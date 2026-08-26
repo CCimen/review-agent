@@ -13,9 +13,11 @@ keeps an explicit PostgreSQL enablement gate. Prove the path first on
 
 ## Current Tranche
 
-Map the current authentication and lifecycle owners, implement and verify the
-durable GitHub App foundation, then audit whether the foundation is safe enough
-for the direct-webhook cutover tranche.
+Complete and validate one GitHub-App-only deployment candidate before the first
+end-to-end pilot. Move exact source reads, deterministic publication, and
+feedback behind one internal Review-Agent-specific GitHub gateway, then delete
+the PAT, copied-workflow, repository-allowlist, custom-HMAC, and feedback-sidecar
+paths before deploying to `CCimen/review-agent`.
 
 ## Non-Negotiable Constraints
 
@@ -24,8 +26,10 @@ for the direct-webhook cutover tranche.
 - App access and Review Agent enablement remain separate gates.
 - The App private key never enters Hermes or PostgreSQL.
 - Installation tokens are repository-scoped, permission-reduced, cached only in memory, and never logged.
-- Preserve the current working trigger until the App foundation passes local validation.
-- Delete the PAT/Actions path when the direct App route passes the pilot; do not retain a long-lived compatibility layer.
+- There are no production compatibility obligations and no PAT fallback will remain.
+- The first full pilot must exercise App-backed admission, source reads, publication, and feedback.
+- One internal deterministic GitHub gateway is the only private-key and installation-token owner; it never returns a raw token.
+- Support selected-repository installations only for the first release.
 - Use existing PostgreSQL transactions, durable jobs, publisher leases, and GitHub transports before adding machinery.
 - Do not add Redis, Celery, Kafka, a policy engine, or an administration UI.
 - Keep public documentation accurate about shipped versus target behavior.
@@ -33,9 +37,10 @@ for the direct-webhook cutover tranche.
 
 ## Stop Rule
 
-Stop when the tranche audit passes, all safe local work is blocked, or the next
-step requires the owner to approve an App installation or place credentials.
-Do not claim a live pilot from mocked or local tests.
+Stop when the App-only candidate audit passes, all safe local work is blocked,
+or the next step requires the owner to approve an App installation or place
+credentials. Do not claim a live pilot from mocked or local tests, successful
+webhook intake, or a PAT-backed downstream review.
 
 ## Canonical Board
 

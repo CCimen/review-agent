@@ -26,6 +26,14 @@ from review_agent_tools.github.app_auth import (  # noqa: E402
     ReviewReadToken,
     ReviewReadTokenService,
 )
+from review_agent_tools.github.gateway import (  # noqa: E402
+    GitHubGatewayProtocolError,
+    GitHubGatewayRejected,
+    ReviewGitHubGateway,
+)
+from review_agent_tools.github.gateway_client import (  # noqa: E402
+    ReviewGitHubGatewayClient,
+)
 from review_agent_tools.postgres import (  # noqa: E402
     github_app,
     jobs,
@@ -47,6 +55,7 @@ DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 class _Tokens:
     def __init__(self) -> None:
         self.repository_ids: list[int] = []
+        self.invalidated_repository_ids: list[int] = []
 
     def token_for(self, provider_repository_id: int) -> ReviewReadToken:
         self.repository_ids.append(provider_repository_id)
@@ -54,6 +63,9 @@ class _Tokens:
             "installation-token",
             datetime.now(timezone.utc) + timedelta(hours=1),
         )
+
+    def invalidate(self, provider_repository_id: int) -> None:
+        self.invalidated_repository_ids.append(provider_repository_id)
 
 
 class _GitHub(GitHubReadClient):
@@ -106,6 +118,16 @@ class _GitHub(GitHubReadClient):
         }
 
 
+class _RejectedGateway:
+    def authorize_review_delivery(self, **_values: object) -> object:
+        raise GitHubGatewayRejected("delivery_lease_lost")
+
+
+class _ProtocolFailureGateway:
+    def authorize_review_delivery(self, **_values: object) -> object:
+        raise GitHubGatewayProtocolError("invalid response")
+
+
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
 class GitHubAppProcessorTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -131,12 +153,23 @@ class GitHubAppProcessorTests(unittest.TestCase):
         )
 
     def processor(
-        self, github: _GitHub | None = None
+        self,
+        github: _GitHub | None = None,
+        gateway: object | None = None,
     ) -> app_processor.GitHubAppProcessor:
         client = github or _GitHub()
-        return app_processor.GitHubAppProcessor(
+        gateway_service = ReviewGitHubGateway(
             postgres=self.runtime,
             tokens=cast(ReviewReadTokenService, self.tokens),
+            profile="sundsvall-standard",
+            github_factory=lambda _: client,
+        )
+        return app_processor.GitHubAppProcessor(
+            postgres=self.runtime,
+            gateway=cast(
+                ReviewGitHubGatewayClient,
+                gateway if gateway is not None else gateway_service,
+            ),
             config=app_processor.ProcessorConfig(
                 profile="sundsvall-standard",
                 policy_revision="policy-v1",
@@ -145,7 +178,6 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 active_job_limit=100,
                 retry_delay=timedelta(0),
             ),
-            github_factory=lambda _: client,
         )
 
     def register(self, event: str, payload: object) -> int:
@@ -492,6 +524,46 @@ class GitHubAppProcessorTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(counts, (1, 1))
         self.assertEqual(repository_name, ("CCimen/review-agent",))
+
+    def test_lost_gateway_lease_stops_without_terminalizing_or_admitting(self) -> None:
+        self.enable_repository()
+        delivery_id = self.register("issue_comment", self.review_payload())
+
+        result = self.processor(gateway=_RejectedGateway()).process_next(
+            lease_owner="worker-1"
+        )
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "processing")
+        self.assertEqual(result.reason if result else None, "delivery_lease_lost")
+        with self.runtime.transaction() as connection:
+            delivery = webhook_deliveries.get_delivery(connection, delivery_id)
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.review_runs), "
+                "(SELECT count(*) FROM review_agent.review_jobs)"
+            ).fetchone()
+        self.assertEqual(delivery.status, webhook_deliveries.DeliveryStatus.PROCESSING)
+        self.assertEqual(counts, (0, 0))
+
+    def test_invalid_gateway_response_retries_without_admitting(self) -> None:
+        self.enable_repository()
+        delivery_id = self.register("issue_comment", self.review_payload())
+
+        result = self.processor(gateway=_ProtocolFailureGateway()).process_next(
+            lease_owner="worker-1"
+        )
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "received")
+        self.assertEqual(
+            result.reason if result else None, "github_gateway_invalid_response"
+        )
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.review_runs), "
+                "(SELECT count(*) FROM review_agent.review_jobs)"
+            ).fetchone()
+        self.assertEqual(counts, (0, 0))
 
     def test_mismatched_sender_and_cross_repository_head_reject(self) -> None:
         self.enable_repository()

@@ -42,6 +42,26 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET:-", compose)
         self.assertIn("target: github-app-private-key.pem", compose)
         self.assertIn("source: github_app_private_key", compose)
+        self.assertIn("review-github-gateway:", compose)
+        self.assertIn("REVIEW_AGENT_GITHUB_GATEWAY_URL", compose)
+        self.assertEqual(compose.count("source: github_app_private_key"), 1)
+        worker = compose.split("  review-github-app-worker:", 1)[1].split(
+            "\n  review-publisher:", 1
+        )[0]
+        gateway = compose.split("  review-github-gateway:", 1)[1].split(
+            "\n  review-github-app-worker:", 1
+        )[0]
+        self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE", worker)
+        self.assertNotIn("REVIEW_AGENT_GITHUB_APP_ID", worker)
+        self.assertNotIn("review-egress", worker)
+        self.assertIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE", gateway)
+        self.assertIn("REVIEW_AGENT_GITHUB_APP_ID", gateway)
+        self.assertIn("review-github-egress", gateway)
+        self.assertNotIn("review-egress", gateway)
+        self.assertIn("review-github-control", gateway)
+        self.assertIn("review-github-control", worker)
+        self.assertNotIn("review-runtime", gateway)
+        self.assertNotIn("review-ingress", gateway)
         self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY=", compose)
         self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY=", environment)
 

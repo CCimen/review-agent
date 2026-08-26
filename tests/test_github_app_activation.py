@@ -7,7 +7,6 @@ import logging
 import os
 from pathlib import Path
 import sys
-import tempfile
 import threading
 from typing import cast
 import unittest
@@ -131,41 +130,24 @@ class GitHubAppWorkerEntrypointTests(unittest.TestCase):
             format="%(levelname)s %(name)s %(message)s",
         )
 
-    def test_private_key_loader_accepts_only_bounded_regular_utf8_file(self) -> None:
+    def test_worker_requires_one_valid_internal_gateway_origin(self) -> None:
         module = _entrypoint_module()
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            key = root / "app.pem"
-            key.write_text("private-key-pem", encoding="utf-8")
-            with patch.dict(
-                os.environ,
-                {"REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": str(key)},
-                clear=False,
-            ):
-                self.assertEqual(module._private_key(), "private-key-pem")
-
-            link = root / "key-link.pem"
-            link.symlink_to(key)
-            with patch.dict(
-                os.environ,
-                {"REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": str(link)},
-                clear=False,
-            ):
-                with self.assertRaises(
-                    app_worker.GitHubAppWorkerConfigurationError
-                ):
-                    module._private_key()
-
-    def test_app_id_is_strictly_positive(self) -> None:
-        module = _entrypoint_module()
-        for value in ("", "not-an-integer", "0", "-1"):
+        for value in ("", "not-a-url", "ftp://gateway", "http://user@gateway"):
             with self.subTest(value=value), patch.dict(
-                os.environ, {"REVIEW_AGENT_GITHUB_APP_ID": value}, clear=False
+                os.environ, {"REVIEW_AGENT_GITHUB_GATEWAY_URL": value}, clear=False
             ):
                 with self.assertRaises(
                     app_worker.GitHubAppWorkerConfigurationError
                 ):
-                    module._positive_integer("REVIEW_AGENT_GITHUB_APP_ID")
+                    module._gateway_client()
+
+        with patch.dict(
+            os.environ,
+            {"REVIEW_AGENT_GITHUB_GATEWAY_URL": "http://review-github-gateway:8646"},
+            clear=False,
+        ):
+            client = module._gateway_client()
+        self.assertIsInstance(client, module.ReviewGitHubGatewayClient)
 
 
 if __name__ == "__main__":

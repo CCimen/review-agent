@@ -262,6 +262,30 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
         self.assertEqual(second.value, "second")
         self.assertEqual(exchange.call_count, 2)
 
+    def test_explicit_invalidation_forces_one_repository_token_refresh(self) -> None:
+        with (
+            patch.object(
+                github_app,
+                "authorize_review_read",
+                return_value=self.authorization,
+            ),
+            patch.object(
+                self.service._opener,
+                "open",
+                side_effect=[
+                    self.response(token="first"),
+                    self.response(token="second"),
+                ],
+            ) as exchange,
+        ):
+            first = self.service.token_for(9001, now=NOW)
+            self.service.invalidate(9001)
+            second = self.service.token_for(9001, now=NOW + timedelta(minutes=1))
+
+        self.assertEqual(first.value, "first")
+        self.assertEqual(second.value, "second")
+        self.assertEqual(exchange.call_count, 2)
+
     def test_near_expiry_provider_token_is_rejected(self) -> None:
         response = _Response(
             json.dumps(

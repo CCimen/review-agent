@@ -92,6 +92,27 @@ class GitHubReadClientTests(unittest.TestCase):
         self.assertTrue(truncated)
         self.assertEqual(headers, {"etag": "snapshot", "content_type": "text/plain"})
 
+    def test_request_can_disable_transport_retries_and_shorten_timeout(self) -> None:
+        transient = _http_error(502)
+        client = source_control.GitHubReadClient(
+            "read-token",
+            request_timeout_seconds=10,
+            max_attempts=1,
+        )
+
+        with patch.object(
+            source_control.urllib.request,
+            "urlopen",
+            side_effect=transient,
+        ) as opener:
+            with self.assertRaises(source_control.GitHubReadError) as raised:
+                client.request("/repos/example/project")
+
+        self.assertEqual(raised.exception.kind, "http_error")
+        self.assertEqual(opener.call_count, 1)
+        self.assertEqual(opener.call_args.kwargs["timeout"], 10)
+        self.assertTrue(transient.closed)
+
     def test_request_sets_authorization_only_when_token_present(self) -> None:
         authorizations: list[str | None] = []
 

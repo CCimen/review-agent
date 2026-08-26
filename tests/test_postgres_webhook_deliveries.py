@@ -121,6 +121,19 @@ class PostgreSQLWebhookDeliveryTests(unittest.TestCase):
                     lease_generation=claimed.lease_generation,
                     lease_duration=timedelta(minutes=2),
                 )
+                live = webhook_deliveries.require_live_delivery(
+                    connection,
+                    delivery_id=claimed.id,
+                    lease_owner="webhook-worker-1",
+                    lease_generation=claimed.lease_generation,
+                )
+                with self.assertRaises(webhook_deliveries.DeliveryLeaseLost):
+                    webhook_deliveries.require_live_delivery(
+                        connection,
+                        delivery_id=claimed.id,
+                        lease_owner="another-worker",
+                        lease_generation=claimed.lease_generation,
+                    )
                 with self.assertRaises(webhook_deliveries.DeliveryLeaseLost):
                     webhook_deliveries.finish_delivery(
                         connection,
@@ -148,6 +161,7 @@ class PostgreSQLWebhookDeliveryTests(unittest.TestCase):
                     )
 
         self.assertIsNotNone(heartbeat.lease_expires_at)
+        self.assertEqual(live.id, claimed.id)
         self.assertIsNotNone(claimed.lease_expires_at)
         assert heartbeat.lease_expires_at is not None
         assert claimed.lease_expires_at is not None

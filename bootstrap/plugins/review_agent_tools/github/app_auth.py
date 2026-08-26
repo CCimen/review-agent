@@ -410,6 +410,13 @@ class ReviewReadTokenService:
             )
             return token
 
+    def invalidate(self, provider_repository_id: int) -> None:
+        """Forget one cached repository token before a single credential retry."""
+        if type(provider_repository_id) is not int or provider_repository_id < 1:
+            raise ValueError("provider_repository_id must be positive")
+        with self._scope_lock(provider_repository_id):
+            self._cache.pop(provider_repository_id, None)
+
     def _scope_lock(self, provider_repository_id: int) -> threading.Lock:
         with self._locks_guard:
             return self._locks.setdefault(provider_repository_id, threading.Lock())

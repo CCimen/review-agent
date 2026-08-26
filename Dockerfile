@@ -19,6 +19,7 @@ RUN cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory 
     && cp /usr/local/bin/review_agent_admission.py /usr/local/bin/review-agent-admission \
     && cp /usr/local/bin/review_agent_worker.py /usr/local/bin/review-agent-worker \
     && cp /usr/local/bin/review_agent_publisher.py /usr/local/bin/review-agent-publisher \
+    && cp /usr/local/bin/review_agent_github_gateway.py /usr/local/bin/review-agent-github-gateway \
     && cp /usr/local/bin/review_agent_github_app_worker.py /usr/local/bin/review-agent-github-app-worker \
     && cp /usr/local/bin/review_agent_hermes_contract.py /usr/local/bin/review-agent-hermes-contract \
     && chmod 0755 /opt/review-agent-bootstrap/install.sh \
@@ -29,6 +30,7 @@ RUN cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory 
     /usr/local/bin/review-agent-admission \
     /usr/local/bin/review-agent-hermes-contract \
     /usr/local/bin/review-agent-worker \
+    /usr/local/bin/review-agent-github-gateway \
     /usr/local/bin/review-agent-github-app-worker \
     /usr/local/bin/review-agent-publisher
 

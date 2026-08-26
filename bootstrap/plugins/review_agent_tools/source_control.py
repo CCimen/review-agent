@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from typing import Literal
+from typing import Literal, cast
 
 
 GitHubReadErrorKind = Literal[
@@ -24,7 +27,8 @@ GitHubReadErrorKind = Literal[
 
 _API_ROOT = "https://api.github.com"
 _RETRYABLE_STATUS = frozenset({502, 503, 504})
-_MAX_ATTEMPTS = 3
+_DEFAULT_MAX_ATTEMPTS = 3
+_DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
 _MAX_ERROR_RESPONSE_BYTES = 4_096
 
 
@@ -61,8 +65,20 @@ class GitHubReadError(Exception):
 class GitHubReadClient:
     """Perform authenticated, bounded GET requests against the GitHub API."""
 
-    def __init__(self, read_token: str) -> None:
+    def __init__(
+        self,
+        read_token: str,
+        *,
+        request_timeout_seconds: float = _DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+    ) -> None:
+        if request_timeout_seconds <= 0:
+            raise ValueError("request_timeout_seconds must be positive")
+        if type(max_attempts) is not int or max_attempts < 1:
+            raise ValueError("max_attempts must be a positive integer")
         self._read_token = read_token
+        self._request_timeout_seconds = request_timeout_seconds
+        self._max_attempts = max_attempts
 
     def request(
         self,
@@ -83,9 +99,11 @@ class GitHubReadClient:
         request = urllib.request.Request(
             f"{_API_ROOT}{endpoint}", headers=headers, method="GET"
         )
-        for attempt in range(_MAX_ATTEMPTS):
+        for attempt in range(self._max_attempts):
             try:
-                with urllib.request.urlopen(request, timeout=30) as response:
+                with urllib.request.urlopen(
+                    request, timeout=self._request_timeout_seconds
+                ) as response:
                     data = response.read(max_bytes + 1)
                     truncated = len(data) > max_bytes
                     if truncated:
@@ -98,7 +116,10 @@ class GitHubReadClient:
             except urllib.error.HTTPError as exc:
                 rate_limited = is_github_rate_limit_error(exc)
                 exc.close()
-                if exc.code in _RETRYABLE_STATUS and attempt + 1 < _MAX_ATTEMPTS:
+                if (
+                    exc.code in _RETRYABLE_STATUS
+                    and attempt + 1 < self._max_attempts
+                ):
                     time.sleep(0.5 * (attempt + 1))
                     continue
                 if exc.code == 401:
@@ -142,3 +163,81 @@ class GitHubReadClient:
             raise GitHubReadError(
                 "invalid_json", "GitHub returned invalid JSON"
             ) from exc
+
+
+@dataclass(frozen=True, slots=True)
+class PullSnapshot:
+    """Exact live pull-request and base/head repository identities."""
+
+    repository_id: int
+    repository: str
+    number: int
+    state: str
+    base_sha: str
+    head_sha: str
+    head_repository_id: int | None
+    head_repository: str | None
+
+
+def _github_object(value: object, field: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
+    return cast(Mapping[str, object], value)
+
+
+def _github_text(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
+    return value.strip()
+
+
+def _github_int(value: object, field: str) -> int:
+    if type(value) is not int or value < 1:
+        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
+    return value
+
+
+def _github_repository_name(value: object) -> str:
+    name = _github_text(value, "repository name")
+    parts = name.split("/")
+    if len(parts) != 2 or not all(parts):
+        raise GitHubReadError(
+            "invalid_json", "GitHub returned an invalid repository name"
+        )
+    return name
+
+
+def read_pull_snapshot(
+    github: GitHubReadClient, repository: str, pr_number: int
+) -> PullSnapshot:
+    """Read the exact live pull request and both repository identities."""
+    quoted = urllib.parse.quote(repository, safe="/")
+    root = _github_object(
+        github.request_json(f"/repos/{quoted}/pulls/{pr_number}"),
+        "GitHub pull request",
+    )
+    base = _github_object(root.get("base"), "pull request base")
+    head = _github_object(root.get("head"), "pull request head")
+    base_repository = _github_object(base.get("repo"), "base repository")
+    raw_head_repository = head.get("repo")
+    if raw_head_repository is None:
+        head_repository_id = None
+        head_repository = None
+    else:
+        head_repository_object = _github_object(raw_head_repository, "head repository")
+        head_repository_id = _github_int(
+            head_repository_object.get("id"), "head repository id"
+        )
+        head_repository = _github_repository_name(
+            head_repository_object.get("full_name")
+        )
+    return PullSnapshot(
+        repository_id=_github_int(base_repository.get("id"), "repository id"),
+        repository=_github_repository_name(base_repository.get("full_name")),
+        number=_github_int(root.get("number"), "pull request number"),
+        state=_github_text(root.get("state"), "pull request state").lower(),
+        base_sha=_github_text(base.get("sha"), "base sha"),
+        head_sha=_github_text(head.get("sha"), "head sha"),
+        head_repository_id=head_repository_id,
+        head_repository=head_repository,
+    )

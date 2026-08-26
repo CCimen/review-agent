@@ -420,6 +420,37 @@ def get_delivery(
     return _delivery(row)
 
 
+def require_live_delivery(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    delivery_id: int,
+    lease_owner: str,
+    lease_generation: int,
+) -> WebhookDelivery:
+    """Return one exact unexpired processing lease or fail closed."""
+    _require_transaction(connection)
+    resolved_id = _integer(delivery_id, field="delivery_id", minimum=1)
+    owner = _actor(lease_owner, field="lease_owner")
+    generation = _integer(lease_generation, field="lease_generation", minimum=1)
+    with connection.cursor(row_factory=class_row(_DeliveryRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            SELECT {_DELIVERY_COLUMNS}
+            FROM review_agent.github_webhook_deliveries
+            WHERE id = %s
+              AND status = 'processing'
+              AND lease_owner = %s
+              AND lease_generation = %s
+              AND lease_expires_at > statement_timestamp()
+            FOR SHARE
+            """,
+            (resolved_id, owner, generation),
+        ).fetchone()
+    if row is None:
+        raise DeliveryLeaseLost(get_delivery(connection, resolved_id))
+    return _delivery(row)
+
+
 def register_delivery(
     connection: psycopg.Connection[TupleRow],
     *,

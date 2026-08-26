@@ -15,7 +15,6 @@ from .github_webhook import (
     UnsupportedGitHubEvent,
     normalize_event,
 )
-from .github import app_processor
 from . import review_contract
 from .domain.review import JsonObject
 from .postgres import jobs, review_runs, webhook_deliveries
@@ -25,18 +24,13 @@ from .review_run_application import (
     admit_postgres_review,
 )
 from .settings import PostgresDatabaseUrl, ReviewAgentSettings, SettingsError
-from .source_control import GitHubReadClient
+from .source_control import GitHubReadClient, read_pull_snapshot
 
 
 DEFAULT_PATH = "/webhooks/review-agent"
 GITHUB_APP_PATH = "/webhooks/github-app"
 DEFAULT_PORT = 8644
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
-
-# Temporary compatibility exports for callers of the original admission seam.
-PullSnapshot = app_processor.PullSnapshot
-read_pull_snapshot = app_processor.read_pull_snapshot
-
 
 class AdmissionError(ValueError):
     """The signed request does not satisfy the admission contract."""

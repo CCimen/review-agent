@@ -112,7 +112,7 @@ Fetch the complete selected-repository inventory and reconcile it into
 PostgreSQL:
 
 ```bash
-docker compose --profile github-app-pilot exec review-github-app-worker \
+docker compose --profile github-app-pilot exec review-github-gateway \
   review-agent-database sync-github-app-installation \
   --provider-installation-id <installation-id> \
   --actor "github:<operator>" \
@@ -124,7 +124,7 @@ seen or restored repository remains disabled. Enable only the stable repository
 ID you intend to test:
 
 ```bash
-docker compose --profile github-app-pilot exec review-github-app-worker \
+docker compose --profile github-app-pilot exec review-github-gateway \
   review-agent-database enable-github-app-repository \
   --provider-repository-id <repository-id> \
   --profile sundsvall-standard \

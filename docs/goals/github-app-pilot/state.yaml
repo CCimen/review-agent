@@ -33,9 +33,9 @@ continuity:
   completed_write_tasks_in_thread: 4
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "3b83ba7c96191198caafdb86ab0e8394c199cb0f"
+  last_verified_revision: "ad399fe5a2836426835ea56b58170a2e9bd46021"
 
-active_task: T017
+active_task: T018
 
 tasks:
   - id: T001
@@ -636,7 +636,7 @@ tasks:
   - id: T017
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Activate the dormant direct GitHub App admission path behind one opt-in Compose profile by adding a sequential recoverable delivery worker and minimum stable-repository enable/disable controls, while terminalizing permanent provider authorization denials and repository-name conflicts and leaving the default PAT/Actions runtime unchanged."
     canonical_owner:
@@ -653,23 +653,27 @@ tasks:
       - "Dockerfile"
       - "compose.yaml"
       - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+      - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
       - "bootstrap/plugins/review_agent_tools/github/app_worker.py"
       - "bootstrap/plugins/review_agent_tools/source_control.py"
       - "bootstrap/plugins/review_agent_tools/operator_application.py"
       - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
       - "tools/review_agent_github_app_worker.py"
       - "tools/review_agent_database.py"
       - "tests/test_github_app_activation.py"
+      - "tests/test_github_app_auth.py"
       - "tests/test_github_app_processor.py"
       - "tests/test_source_control.py"
       - "tests/test_postgres_github_app.py"
+      - "tests/test_postgres_jobs.py"
       - "tests/test_dockerfile_tools.py"
       - "tests/test_docs_contract.py"
     acceptance:
       - "Name and test this milestone as direct-App admission only; make no App-only end-to-end claim."
       - "One single-threaded worker reuses GitHubAppProcessor and the existing PostgreSQL ledger, supports --once, bounded polling/recovery, signal shutdown between calls, and transient-database backoff without a second queue."
       - "Unexpected defects exit nonzero and leave the fenced lease for existing expiry recovery; no guessed transition is written."
-      - "Rate-limit 429/403 and 5xx/network failures remain retryable; plain 401/403 authorization denials terminalize as provider_authorization_denied."
+      - "Rate-limit 429/403 and 5xx/network failures remain retryable using bounded headers or GitHub's bounded secondary-limit message; plain 401/403 authorization denials terminalize as provider_authorization_denied."
       - "RepositoryNameConflict rolls back admission and terminalizes as repository_name_conflict with no run/job or recovery churn."
       - "App ID and a bounded regular private-key file fail closed; PEM never enters an environment value, argument, log, PostgreSQL, response, Hermes, or another container."
       - "The opt-in github-app-pilot Compose profile mounts the key read-only only into the App worker, with database and egress access but no Hermes data volume or runtime network."
@@ -704,7 +708,80 @@ tasks:
       - "No App-only end-to-end claim, public docs, OpenShift expansion, release, onboarding, or organization rollout."
       - "No generic reporting/UI, normalized-category cleanup, migration, forks, or all-repositories support."
     rollback: "Disable the pilot repository, stop the github-app-pilot profile, clear the optional App webhook secret, and revert the activation commit. Existing PostgreSQL lifecycle/delivery history remains recoverable and the PAT/Actions route remains live."
-    receipt: null
+    receipt:
+      result: done
+      commit: "ad399fe5a2836426835ea56b58170a2e9bd46021"
+      summary: "Activated one opt-in direct GitHub App admission worker over the existing durable delivery ledger. The worker is sequential and recoverable, secrets remain file-mounted only into the App worker, stable provider denials and repository conflicts terminalize, and repeated request keys reuse their existing run/job even after terminal completion. The default PAT/Actions route remains unchanged."
+      evidence:
+        - "444 bundled tests passed; 166 intentionally skipped"
+        - "171 PostgreSQL schema and recovery tests passed"
+        - "59 focused activation tests passed"
+        - "37 focused real-PostgreSQL processor and job tests passed after duplicate-terminal recovery fix"
+        - "Ruff passed"
+        - "Pyright strict passed with 0 errors"
+        - "Default and github-app-pilot Compose configurations passed"
+        - "Production image validation passed"
+        - "Claude Opus high commit gate green with score 8"
+      deferred:
+        - "A jobless terminal run with the same request key remains a bounded explicit-error seam for a later owner-level cleanup."
+        - "Move the pull snapshot owner fully out of the legacy admission module only when the PAT admission path is deleted."
+        - "Live App credentials, collaborator permission behavior, webhook redelivery, and owner-controlled pilot proof remain external gates."
+      spawned_tasks:
+        - T018
+  - id: T018
+    type: worker
+    assignee: Worker
+    status: active
+    reasoning_hint: high
+    objective: "Reconcile the supplied GitHub App follow-up review with current main and close only the verified installation-bootstrap contract gaps: fail closed on conflicting repository identities, expose the native-App request bound to operators, and add the missing behavior proof without redesigning the already-working processor."
+    inputs:
+      - "review-agent-github-app-follow-up-review.zip"
+      - "External review of revision f0e6daa57bb013561dc5a9ad0082baa1947bd9c3"
+      - "Current remote main at ad399fe5a2836426835ea56b58170a2e9bd46021"
+    canonical_owner:
+      normalization: "bootstrap/plugins/review_agent_tools/github_webhook.py"
+      request_bound: "tools/review_agent_admission.py"
+      deployment_configuration: "compose.yaml and .env.example"
+      lifecycle_application: "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+    allowed_files:
+      - ".env.example"
+      - "compose.yaml"
+      - "bootstrap/plugins/review_agent_tools/github_webhook.py"
+      - "tools/review_agent_admission.py"
+      - "tests/test_github_webhook.py"
+      - "tests/test_github_app_processor.py"
+      - "tests/test_admission.py"
+    acceptance:
+      - "Preserve the existing bounded installation.created repositories array and existing atomic grants; every initial repository remains disabled."
+      - "Preserve repository_selection on installation and installation_repositories events; keep all-repositories processing explicitly unsupported until reconciliation exists."
+      - "Collapse exact duplicate repository entries but reject a provider repository ID mapped to conflicting names and a normalized name mapped to conflicting IDs before persistence."
+      - "Prove empty, one, several, exact-duplicate, conflicting-ID, and conflicting-name repository arrays at the normalization or processor boundary in proportion to risk."
+      - "Expose REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES through Compose and .env.example as an operator-tunable denial-of-service bound distinct from the 64 KiB Actions admission bound."
+      - "Use a conservative 2 MiB default below GitHub's 25 MiB provider cap; valid App input above 64 KiB is accepted, while input above the App bound returns 413 before normalization or persistence."
+      - "Retain the existing 1 MiB normalized-payload persistence guard and never persist raw webhook bodies or signatures."
+      - "Do not add a metrics framework solely for this slice; the HTTP access log and later observability slice may expose payload-size telemetry through the canonical metrics owner."
+      - "PAT/Actions behavior, public cutover docs, source reads, publication, feedback, and live credentials remain unchanged."
+      - "The stable candidate receives one Claude Opus high commit gate, green with score at least 8."
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_webhook tests.test_admission"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_processor tests.test_postgres_github_app tests.test_postgres_webhook_deliveries"
+      - "docker compose --env-file .env.example config --quiet"
+      - "docker compose --env-file .env.example --profile github-app-pilot config --quiet"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github_webhook.py tools/review_agent_admission.py tests/test_github_webhook.py tests/test_github_app_processor.py tests/test_admission.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "Claude Opus high pre-commit gate: green with score at least 8 in one resumable session"
+    stop_if:
+      - "Current main no longer contains the initial-repository, selection, or independent-App-bound behavior verified at task freeze."
+      - "The correction requires a migration, new queue, new ingress route, generic event framework, or files outside allowed_files."
+      - "Supporting all-repositories installations would require claiming inventory completeness without a reconciliation operation."
+      - "Tests require live credentials, App registration, deployment, or Sundsvallskommun access."
+      - "Verification or the Claude gate fails twice for the same unexplained reason."
+    non_goals:
+      - "No manual reconciliation command, daily scheduler, scorecard, llms files, setup skill, public App-cutover docs, or custom admin UI."
+      - "No live pilot, organization mutation, PAT/Actions deletion, source-read/publication/feedback cutover, or release."
+      - "No payload-size metrics subsystem; defer telemetry to the existing observability owner."
+    rollback: "Revert the bounded normalization/configuration commit. The existing selected-repository processor remains available, the default PAT/Actions route remains live, and no database state or migration changes are involved."
   - id: T999
     type: judge
     assignee: Judge

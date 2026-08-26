@@ -1120,9 +1120,11 @@ tasks:
       evidence:
         - "Dokploy project search for review returned zero projects"
         - "Dokploy Compose search for review returned zero deployments"
+        - "The complete connected Dokploy inventory contains 42 unrelated production projects, no selectable deployment server, and no safe owner-controlled pilot environment."
+        - "CCimen/review-agent has no repository webhook and only the GitHub Pages environment; no partial App registration needs recovery."
       unblock_when:
-        - "Deploy the default stack or identify the existing deployment target and public admission hostname."
-        - "Confirm that the connected Dokploy account is the intended CCimen pilot environment."
+        - "Connect an owner-controlled Dokploy workspace with a selectable server, or identify another approved deployment target for the pilot."
+        - "Deploy the default stack and assign its HTTPS admission hostname before creating the App credentials."
       next_after_unblock: "Register the owner-only App, store its credentials, install only on CCimen/review-agent, reconcile and explicitly enable it, then prove one accepted same-repository /review without a duplicate run."
   - id: T999
     type: judge

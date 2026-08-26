@@ -8,12 +8,12 @@ parameters:
     required: true
   - name: PROFILE
     value: sundsvall-standard
-  - name: ALLOWED_REPOSITORIES
-    description: Comma-separated owner/repository allowlist.
-    required: true
   - name: WORKER_CONCURRENCY
     description: Concurrent reviews per worker replica.
     value: "4"
+  - name: FEEDBACK_ENABLED
+    description: Enable durable PR feedback commands.
+    value: "false"
 objects:
   - apiVersion: v1
     kind: ConfigMap
@@ -21,7 +21,6 @@ objects:
       name: review-agent-config
     data:
       REVIEW_AGENT_PROFILE: ${PROFILE}
-      REVIEW_AGENT_ALLOWED_REPOSITORIES: ${ALLOWED_REPOSITORIES}
       REVIEW_AGENT_POLICY_REVISION: policy-v1
       REVIEW_AGENT_ACTIVE_JOB_LIMIT: "100"
       REVIEW_AGENT_JOB_MAX_ATTEMPTS: "3"
@@ -40,10 +39,16 @@ objects:
       REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS: "30"
       REVIEW_AGENT_PUBLICATION_RETRY_SECONDS: "30"
       REVIEW_AGENT_PUBLICATION_POLL_SECONDS: "2"
-      REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES: "65536"
+      REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES: "2097152"
       REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS: "8"
       REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS: "30"
-      REVIEW_AGENT_FEEDBACK_ENABLED: "false"
+      REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS: "8"
+      REVIEW_AGENT_GITHUB_APP_POLL_SECONDS: "2"
+      REVIEW_AGENT_GITHUB_APP_RECOVERY_SECONDS: "30"
+      REVIEW_AGENT_GITHUB_APP_RECOVERY_BATCH_SIZE: "100"
+      REVIEW_AGENT_GITHUB_APP_DATABASE_BACKOFF_SECONDS: "1"
+      REVIEW_AGENT_GITHUB_APP_DATABASE_BACKOFF_MAX_SECONDS: "30"
+      REVIEW_AGENT_FEEDBACK_ENABLED: ${FEEDBACK_ENABLED}
       HERMES_DASHBOARD: "0"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
@@ -161,6 +166,8 @@ objects:
                     secretKeyRef:
                       name: review-agent-database
                       key: REVIEW_AGENT_DATABASE_URL
+                - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
+                  value: http://review-agent-github-gateway:8646
                 - name: HERMES_HOME
                   value: /opt/data
                 - name: HOME
@@ -188,6 +195,13 @@ objects:
                   port: api
                 initialDelaySeconds: 90
                 periodSeconds: 30
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 2Gi
+                limits:
+                  cpu: "2"
+                  memory: 8Gi
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -239,14 +253,17 @@ objects:
               envFrom:
                 - configMapRef:
                     name: review-agent-config
-                - secretRef:
-                    name: review-agent-admission
               env:
                 - name: REVIEW_AGENT_DATABASE_URL
                   valueFrom:
                     secretKeyRef:
                       name: review-agent-database
                       key: REVIEW_AGENT_DATABASE_URL
+                - name: REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-github-app
+                      key: REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET
               ports:
                 - name: http
                   containerPort: 8644
@@ -262,6 +279,13 @@ objects:
                   port: http
                 initialDelaySeconds: 10
                 periodSeconds: 30
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -300,6 +324,148 @@ objects:
   - apiVersion: apps/v1
     kind: Deployment
     metadata:
+      name: review-agent-github-gateway
+    spec:
+      replicas: 0
+      selector:
+        matchLabels:
+          app: review-agent-github-gateway
+      template:
+        metadata:
+          labels:
+            app: review-agent-github-gateway
+        spec:
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: gateway
+              image: ${IMAGE}
+              command: [/usr/local/bin/review-agent-github-gateway]
+              args: [serve, --host, 0.0.0.0, --port, "8646"]
+              envFrom:
+                - configMapRef:
+                    name: review-agent-config
+              env:
+                - name: REVIEW_AGENT_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-database
+                      key: REVIEW_AGENT_DATABASE_URL
+                - name: REVIEW_AGENT_GITHUB_APP_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-github-app
+                      key: REVIEW_AGENT_GITHUB_APP_ID
+                - name: REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE
+                  value: /run/secrets/github-app-private-key.pem
+              ports:
+                - name: http
+                  containerPort: 8646
+              readinessProbe:
+                httpGet:
+                  path: /ready
+                  port: http
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: http
+                initialDelaySeconds: 10
+                periodSeconds: 30
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: app-key
+                  mountPath: /run/secrets
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: app-key
+              secret:
+                secretName: review-agent-github-app
+                defaultMode: 0444
+                items:
+                  - key: github-app-private-key.pem
+                    path: github-app-private-key.pem
+            - name: tmp
+              emptyDir: {}
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: review-agent-github-gateway
+    spec:
+      selector:
+        app: review-agent-github-gateway
+      ports:
+        - name: http
+          port: 8646
+          targetPort: http
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: review-agent-github-app-worker
+    spec:
+      replicas: 0
+      selector:
+        matchLabels:
+          app: review-agent-github-app-worker
+      template:
+        metadata:
+          labels:
+            app: review-agent-github-app-worker
+        spec:
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: app-worker
+              image: ${IMAGE}
+              command: [/usr/local/bin/review-agent-github-app-worker]
+              envFrom:
+                - configMapRef:
+                    name: review-agent-config
+              env:
+                - name: REVIEW_AGENT_DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-database
+                      key: REVIEW_AGENT_DATABASE_URL
+                - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
+                  value: http://review-agent-github-gateway:8646
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: [ALL]
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
       name: review-agent-worker
     spec:
       replicas: 0
@@ -321,8 +487,6 @@ objects:
               envFrom:
                 - configMapRef:
                     name: review-agent-config
-                - secretRef:
-                    name: review-agent-worker
               env:
                 - name: REVIEW_AGENT_DATABASE_URL
                   valueFrom:
@@ -331,8 +495,20 @@ objects:
                       key: REVIEW_AGENT_DATABASE_URL
                 - name: REVIEW_AGENT_HERMES_CHAT_URL
                   value: http://hermes-review:8642/v1/chat/completions
+                - name: API_SERVER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-hermes
+                      key: API_SERVER_KEY
                 - name: HERMES_HOME
                   value: /opt/data
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -367,6 +543,29 @@ objects:
           ports:
             - protocol: TCP
               port: 8642
+  - apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: review-agent-github-gateway-ingress
+    spec:
+      podSelector:
+        matchLabels:
+          app: review-agent-github-gateway
+      policyTypes: [Ingress]
+      ingress:
+        - from:
+            - podSelector:
+                matchLabels:
+                  app: hermes-review
+            - podSelector:
+                matchLabels:
+                  app: review-agent-github-app-worker
+            - podSelector:
+                matchLabels:
+                  app: review-agent-publisher
+          ports:
+            - protocol: TCP
+              port: 8646
   - apiVersion: apps/v1
     kind: Deployment
     metadata:
@@ -391,14 +590,21 @@ objects:
               envFrom:
                 - configMapRef:
                     name: review-agent-config
-                - secretRef:
-                    name: review-agent-publisher
               env:
                 - name: REVIEW_AGENT_DATABASE_URL
                   valueFrom:
                     secretKeyRef:
                       name: review-agent-database
                       key: REVIEW_AGENT_DATABASE_URL
+                - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
+                  value: http://review-agent-github-gateway:8646
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:

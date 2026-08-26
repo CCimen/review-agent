@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T030
+active_task: T031
 
 tasks:
   - id: T001
@@ -1824,13 +1824,82 @@ tasks:
   - id: T030
     type: pm
     assignee: PM
-    status: active
+    status: done
     objective: "Make the App-only Compose and OpenShift topology the default and delete the legacy admission route, copied workflow, App pilot profile, and transitional configuration."
-    receipt: null
+    receipt:
+      result: done
+      decision: "Compose is already App-only and profile-free after T036-T038. Keep it unchanged. Bring the OpenShift template to the same canonical topology, delete its repository allowlist and token-era secret references, mount the App key only into the private gateway, and document one accurate OpenShift setup path."
+      preflight:
+        - "compose.yaml has no service profile and starts admission, App delivery worker, private gateway, review worker, publisher, Hermes, migrations, and PostgreSQL by default."
+        - "The legacy Actions/HMAC admission route and copied workflow were deleted by T036 and T038."
+        - "The OpenShift template still has REVIEW_AGENT_ALLOWED_REPOSITORIES and no App gateway or App delivery worker."
+      acceptance:
+        - "OpenShift exposes only App webhook admission and contains the gateway and App delivery worker."
+        - "The App private key is mounted only into the gateway; Hermes, admission, workers, and publisher receive neither key nor installation token."
+        - "Hermes source reads, App delivery authorization, feedback acknowledgement, and publication use the private gateway URL."
+        - "No repository allowlist, PAT-oriented worker/publisher secret, pilot profile, copied workflow, or legacy route remains live."
+        - "The public deployment page gives concise, runnable OpenShift secret and rollout instructions."
+      non_goals:
+        - "No operator doctor, registration assistant, generated LLM guide, Dokploy mutation, live GitHub call, or release work."
+        - "No Helm chart, Kubernetes operator, service mesh, autoscaler, or external secret controller."
+      next_allowed_task: T039
+      spawned_tasks:
+        - T039
+  - id: T039
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Bring the checked-in OpenShift template and deployment guide to App-only topology parity with Compose, deleting token-era configuration rather than layering compatibility."
+    allowed_files:
+      - "examples/openshift/review-agent-template.yaml"
+      - "docs/DEPLOYMENT.md"
+      - "docs/OPERATIONS.md"
+      - "scripts/check_bundle.sh"
+      - "tests/test_docs_contract.py"
+      - "website/src/pages/index.tsx"
+      - "docs/goals/github-app-pilot/state.yaml"
+    verify:
+      - "python3 scripts/check_docs.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -q tests.test_docs_contract"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "OpenShift template parses as YAML after parameter substitution checks."
+      - "Claude Opus high pre-commit gate is green with score at least 8 in the existing App-only plan context."
+    stop_if:
+      - "The template requires a PAT, repository allowlist, key outside the gateway, copied repository workflow, or second admission path."
+      - "The change requires a Helm chart, operator, external secret controller, service mesh, or live cluster mutation."
+      - "The App-only secret ownership or OpenShift arbitrary-UID contract cannot be represented without changing the image."
+    receipt:
+      result: done
+      commit: "the commit containing this receipt"
+      summary: "Brought the OpenShift template to App-only parity with Compose. Added the private App gateway and durable App delivery worker, routed source reads and writes through the gateway, isolated the App key to one pod, removed the repository allowlist and token-era component secrets, and published one runnable OpenShift setup path."
+      evidence:
+        - "Full bundle: 488 passed, 177 skipped; strict Pyright and all YAML contracts passed"
+        - "OpenShift contract parses the template and binds credentials, gateway clients, key volume, selectors, and resources to exact Deployment owners"
+        - "Docusaurus TypeScript and production build passed"
+        - "Docs contract: 11 public documents"
+        - "Claude Opus high gate: green, score 8, session review-agent-openshift-app-only"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -q tests.test_docs_contract"
+        - "npm run typecheck && npm run build (website)"
+        - "python3 scripts/check_docs.py"
+      changed_files:
+        - "docs/DEPLOYMENT.md"
+        - "docs/goals/github-app-pilot/state.yaml"
+        - "examples/openshift/review-agent-template.yaml"
+        - "scripts/check_bundle.sh"
+        - "tests/test_docs_contract.py"
+        - "website/src/pages/index.tsx"
+      scope_expansion: "Added the landing-page snippet and bundle checker after the gate proved they were direct owners of a broken public command and missing repeatable manifest validation. No adjacent application or platform machinery was added."
+      deferred:
+        - "Initialization Job resource-quota defaults and safe Job replacement during upgrades belong to T031 operator preflight and update UX."
+        - "Live Route, arbitrary-UID, network-policy, and Hermes-login proof belong to T034."
+      rollback: "Revert the commit before an OpenShift deployment. Existing Compose deployments are unchanged."
   - id: T031
     type: pm
     assignee: PM
-    status: queued
+    status: active
     objective: "Add the minimum secret-safe capabilities, preflight, doctor, registration URL, inventory, and dry-run smoke operator experience required before deployment."
     receipt: null
   - id: T032

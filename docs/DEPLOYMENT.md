@@ -19,7 +19,7 @@ import TabItem from '@theme/TabItem';
 
 ## Runtime shape
 
-![Review Agent runtime: GitHub Actions enters through admission, review workers use Hermes, a separate publisher writes to GitHub, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.png)
+![Review Agent runtime: GitHub App webhooks enter through admission, review workers use Hermes, a separate publisher writes through the private App gateway, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.png)
 
 One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
@@ -121,7 +121,7 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 4. Route the review hostname to `review-admission:8644`.
 
    :::warning[Keep private services off the proxy]
-   Do not route `hermes-review`, `review-worker`, `review-publisher`, or
+   Do not route `hermes-review`, `review-worker`, `review-publisher`,
    `review-github-gateway`, or `review-postgres`. Only admission belongs on the
    ingress network.
    :::
@@ -152,18 +152,51 @@ the host.
 </TabItem>
 <TabItem value="openshift" label="OpenShift">
 
-The checked-in OpenShift template is not yet App-only. Do not deploy that
-template with legacy GitHub credentials. Use the Compose stack while the
-OpenShift topology is brought to the same private-gateway contract.
+The template expects an existing PostgreSQL database and three secrets. Set the
+webhook variable to the exact value registered in the GitHub App, then create
+the secrets in the target project:
 
-The template omits `runAsUser`, drops Linux capabilities, and uses the direct
-Hermes command instead of the image's root-oriented init process. OpenShift can
-assign a UID from the namespace range under `restricted-v2`. Writable state is
-limited to the PVC, `/opt/data`, and `emptyDir` mounts. Hermes uses a `Recreate`
-deployment strategy because its PVC is `ReadWriteOnce`; the worker-only network
-policy protects the private API. Red Hat documents the
-[arbitrary UID image contract](https://docs.redhat.com/en/documentation/openshift_container_platform/4.11/html/images/creating-images#images-create-guide-openshift_create-images)
-and the [restricted-v2 SCC](https://docs.redhat.com/en/documentation/openshift_container_platform/4.15/html/authentication_and_authorization/managing-pod-security-policies).
+```bash
+export REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET='paste-the-registered-value'
+oc create secret generic review-agent-database \
+  --from-literal=REVIEW_AGENT_DATABASE_URL='postgresql://...'
+oc create secret generic review-agent-hermes \
+  --from-literal=API_SERVER_KEY="$(openssl rand -hex 32)"
+oc create secret generic review-agent-github-app \
+  --from-literal=REVIEW_AGENT_GITHUB_APP_ID='123456' \
+  --from-literal=REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET="$REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET" \
+  --from-file=github-app-private-key.pem=./github-app-private-key.pem
+```
+
+Render the template with one immutable image, wait for its initialization jobs,
+then start the six long-running components:
+
+```bash
+oc process -f examples/openshift/review-agent-template.yaml \
+  -p IMAGE=ghcr.io/ccimen/review-agent:vX.Y.Z \
+  -p WORKER_CONCURRENCY=4 | oc apply -f -
+oc wait --for=condition=complete job/review-agent-profile-install \
+  job/review-agent-db-migrate --timeout=10m
+oc scale deployment/hermes-review deployment/review-agent-admission \
+  deployment/review-agent-github-gateway \
+  deployment/review-agent-github-app-worker deployment/review-agent-worker \
+  deployment/review-agent-publisher --replicas=1
+oc get route review-agent
+```
+
+Use `https://<route-host>/webhooks/github-app` as the App webhook URL. Connect
+Codex inside Hermes once, then restart that deployment:
+
+```bash
+oc rsh deployment/hermes-review hermes auth add openai-codex
+oc rollout restart deployment/hermes-review
+```
+
+Only admission has a Route. The template mounts the App key into the private
+gateway pod and allows gateway ingress only from Hermes, the App delivery
+worker, and the publisher. It omits `runAsUser`, drops Linux capabilities, and
+uses PVC or `emptyDir` mounts for writable paths so OpenShift can assign an
+arbitrary UID under `restricted-v2`.
 
 </TabItem>
 </Tabs>
@@ -189,9 +222,8 @@ failure isolation:
 REVIEW_AGENT_ACTIVE_JOB_LIMIT=120 REVIEW_AGENT_WORKER_CONCURRENCY=10 \
   docker compose up -d --scale review-worker=10
 
-oc set env deployment/review-agent-admission REVIEW_AGENT_ACTIVE_JOB_LIMIT=120
+oc set env deployment/review-agent-github-app-worker REVIEW_AGENT_ACTIVE_JOB_LIMIT=120
 oc set env deployment/review-agent-worker REVIEW_AGENT_WORKER_CONCURRENCY=10
-oc scale deployment/review-agent-worker --replicas=10
 ```
 
 Set `REVIEW_AGENT_ACTIVE_JOB_LIMIT` at or above the number of active and queued
@@ -201,6 +233,12 @@ Confirm that the model provider accepts the chosen concurrency. Compose limits
 each worker container to 64 PIDs. Keep per-replica concurrency at or below 25
 for thread headroom, or raise the PID limit after a capacity test. The shown
 value of 10 stays within the shipped limit.
+
+The OpenShift worker reads the managed profile from a `ReadWriteOnce` PVC.
+Keep one worker replica unless the storage class provides `ReadWriteMany` or
+the scheduler constrains all consumers to the volume's node. Increase
+per-process concurrency first; add replicas only after satisfying that storage
+contract.
 
 Scale `review-publisher` the same way when publication wait time grows. The
 database prevents two publishers from owning the same delivery generation.

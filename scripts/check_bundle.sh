@@ -37,6 +37,7 @@ for relative in [
     "compose.yaml",
     "bootstrap/config.yaml",
     "bootstrap/plugins/review_agent_tools/plugin.yaml",
+    "examples/openshift/review-agent-template.yaml",
 ]:
     path = root / relative
     if yaml is not None:

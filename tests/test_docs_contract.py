@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 import unittest
 from pathlib import Path
+from typing import cast
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +17,18 @@ def read(relative: str) -> str:
 
 def words(text: str) -> str:
     return re.sub(r"\s+", " ", text)
+
+
+def mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise AssertionError("expected a mapping")
+    return cast(dict[str, object], value)
+
+
+def sequence(value: object) -> list[object]:
+    if not isinstance(value, list):
+        raise AssertionError("expected a sequence")
+    return cast(list[object], value)
 
 
 class DocsContractTests(unittest.TestCase):
@@ -67,6 +82,108 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("review-ingress", gateway)
         self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY=", compose)
         self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY=", environment)
+
+    def test_openshift_runtime_matches_the_app_only_credential_boundary(self):
+        template = read("examples/openshift/review-agent-template.yaml")
+        deployment = read("docs/DEPLOYMENT.md")
+
+        document = mapping(yaml.safe_load(template))
+        containers: dict[str, dict[str, object]] = {}
+        pod_specs: dict[str, dict[str, object]] = {}
+        for raw_object in sequence(document["objects"]):
+            resource = mapping(raw_object)
+            if resource.get("kind") != "Deployment":
+                continue
+            name = str(mapping(resource["metadata"])["name"])
+            spec = mapping(resource["spec"])
+            pod_template = mapping(spec["template"])
+            pod_spec = mapping(pod_template["spec"])
+            container = mapping(sequence(pod_spec["containers"])[0])
+            containers[name] = container
+            pod_specs[name] = pod_spec
+
+        self.assertEqual(len(containers), 6)
+        for name, container in containers.items():
+            resources = mapping(container["resources"])
+            for field in ("requests", "limits"):
+                values = mapping(resources[field])
+                self.assertIn("cpu", values, name)
+                self.assertIn("memory", values, name)
+
+        env_entries = {
+            name: {
+                str(mapping(item)["name"]): mapping(item)
+                for item in sequence(container.get("env", []))
+            }
+            for name, container in containers.items()
+        }
+        env_names = {name: set(entries) for name, entries in env_entries.items()}
+        app_credentials = {
+            "REVIEW_AGENT_GITHUB_APP_ID",
+            "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE",
+        }
+        self.assertTrue(
+            app_credentials <= env_names["review-agent-github-gateway"]
+        )
+        for name, names in env_names.items():
+            if name != "review-agent-github-gateway":
+                self.assertTrue(app_credentials.isdisjoint(names), name)
+        self.assertIn(
+            "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET",
+            env_names["review-agent-admission"],
+        )
+        for name, names in env_names.items():
+            if name != "review-agent-admission":
+                self.assertNotIn("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET", names)
+        app_id = env_entries["review-agent-github-gateway"][
+            "REVIEW_AGENT_GITHUB_APP_ID"
+        ]
+        app_id_ref = mapping(mapping(app_id["valueFrom"])["secretKeyRef"])
+        self.assertEqual(app_id_ref["name"], "review-agent-github-app")
+        webhook = env_entries["review-agent-admission"][
+            "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET"
+        ]
+        webhook_ref = mapping(mapping(webhook["valueFrom"])["secretKeyRef"])
+        self.assertEqual(webhook_ref["name"], "review-agent-github-app")
+        self.assertEqual(
+            {
+                name
+                for name, names in env_names.items()
+                if "REVIEW_AGENT_GITHUB_GATEWAY_URL" in names
+            },
+            {
+                "hermes-review",
+                "review-agent-github-app-worker",
+                "review-agent-publisher",
+            },
+        )
+        key_mounts = {
+            name
+            for name, pod_spec in pod_specs.items()
+            if any(
+                mapping(volume).get("name") == "app-key"
+                for volume in sequence(pod_spec.get("volumes", []))
+            )
+        }
+        self.assertEqual(key_mounts, {"review-agent-github-gateway"})
+        for name in ("review-agent-worker", "review-agent-publisher"):
+            for source in sequence(containers[name].get("envFrom", [])):
+                self.assertNotIn("secretRef", mapping(source), name)
+        gateway_volumes = {
+            str(mapping(volume)["name"]): mapping(volume)
+            for volume in sequence(
+                pod_specs["review-agent-github-gateway"].get("volumes", [])
+            )
+        }
+        key_secret = mapping(gateway_volumes["app-key"]["secret"])
+        self.assertEqual(key_secret["secretName"], "review-agent-github-app")
+
+        self.assertNotIn("ALLOWED_REPOSITORIES", template)
+        self.assertNotIn("REVIEW_AGENT_ALLOWED_REPOSITORIES", template)
+        self.assertNotIn("REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES", template)
+        self.assertNotIn("not yet App-only", deployment)
+        self.assertIn("oc process -f examples/openshift/review-agent-template.yaml", deployment)
+        self.assertNotIn("ALLOWED_REPOSITORIES", read("website/src/pages/index.tsx"))
 
     def test_learning_runbook_uses_the_current_postgresql_cli(self):
         learning = read("review-learning/README.md")

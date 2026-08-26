@@ -436,10 +436,19 @@ class PostgreSQLJobTests(unittest.TestCase):
                 lease_duration=timedelta(minutes=2),
             )
             retained = jobs.get_job(connection, accepted.job.id)
+            repeated = jobs.enqueue_run(
+                connection,
+                review_run_id=started.run.id,
+                priority=0,
+                max_attempts=3,
+                active_job_limit=ACTIVE_JOB_LIMIT,
+            )
 
         self.assertIsNone(claimed)
         self.assertEqual(retained.status, jobs.ReviewJobStatus.FAILED)
         self.assertEqual(retained.failure_code, failure_codes.JOB_RUN_FAILED)
+        self.assertIsInstance(repeated, jobs.DuplicateJob)
+        self.assertEqual(repeated.job.id, retained.id)
 
     def test_heartbeat_extends_only_a_live_exact_lease(self) -> None:
         pull_request = self.pull_request(provider_id=1015, number=25)
@@ -675,9 +684,7 @@ class PostgreSQLJobTests(unittest.TestCase):
             pull_request = self.pull_request(
                 provider_id=1100 + offset, number=40 + offset
             )
-            subject = self.subject(
-                pull_request, head_character=chr(ord("c") + offset)
-            )
+            subject = self.subject(pull_request, head_character=chr(ord("c") + offset))
             accepted.append(
                 self.accept_job(
                     pull_request,

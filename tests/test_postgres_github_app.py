@@ -481,6 +481,24 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
         self.assertTrue(renamed.enabled)
         self.assertEqual(renamed.enabled_at, enabled.enabled_at)
 
+    def test_operator_lookup_resolves_stable_provider_repository_id(self) -> None:
+        installation = self.installation()
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                access = github_app.grant_repository_access(
+                    connection,
+                    installation_id=installation.id,
+                    provider_repository_id=9001,
+                    full_name="CCimen/review-agent",
+                    actor="github-app:installation_repositories",
+                    reason="repository selected",
+                )
+                resolved = github_app.get_repository_access_by_provider_id(
+                    connection, 9001
+                )
+
+        self.assertEqual(resolved, access)
+
     def test_concurrent_suspend_cannot_overwrite_terminal_deletion(self) -> None:
         installation = self.installation()
         with psycopg.connect(DSN) as connection:

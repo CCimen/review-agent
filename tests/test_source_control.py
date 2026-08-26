@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import email.message
+import io
+import json
 import sys
 import unittest
 import urllib.error
@@ -40,10 +42,33 @@ def _http_error(code: int) -> urllib.error.HTTPError:
     )
 
 
+def _http_error_with_headers(
+    code: int, headers: dict[str, str]
+) -> urllib.error.HTTPError:
+    message = email.message.Message()
+    for name, value in headers.items():
+        message[name] = value
+    return urllib.error.HTTPError(
+        "https://api.github.com/x", code, "err", message, None
+    )
+
+
+def _http_error_with_body(code: int, message: str) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(
+        "https://api.github.com/x",
+        code,
+        "err",
+        email.message.Message(),
+        io.BytesIO(json.dumps({"message": message}).encode()),
+    )
+
+
 class GitHubReadClientTests(unittest.TestCase):
     def test_request_retries_transient_failure_and_closes_response(self) -> None:
         transient = _http_error(502)
-        response = _FakeResponse(b"abcdef", {"ETag": "snapshot", "Content-Type": "text/plain"})
+        response = _FakeResponse(
+            b"abcdef", {"ETag": "snapshot", "Content-Type": "text/plain"}
+        )
         client = source_control.GitHubReadClient("read-token")
 
         with (
@@ -54,7 +79,9 @@ class GitHubReadClientTests(unittest.TestCase):
                 side_effect=[transient, response],
             ) as opener,
         ):
-            data, truncated, headers = client.request("/repos/example/project", max_bytes=4)
+            data, truncated, headers = client.request(
+                "/repos/example/project", max_bytes=4
+            )
 
         self.assertEqual(opener.call_count, 2)
         sleeper.assert_called_once_with(0.5)
@@ -74,7 +101,9 @@ class GitHubReadClientTests(unittest.TestCase):
             return _FakeResponse()
 
         with patch.object(source_control.urllib.request, "urlopen", open_request):
-            source_control.GitHubReadClient("read-token").request("/repos/example/project")
+            source_control.GitHubReadClient("read-token").request(
+                "/repos/example/project"
+            )
             source_control.GitHubReadClient("").request("/repos/example/project")
 
         self.assertEqual(authorizations, ["Bearer read-token", None])
@@ -99,6 +128,23 @@ class GitHubReadClientTests(unittest.TestCase):
                 self.assertEqual(error.exception.kind, kind)
                 self.assertEqual(opener.call_count, 1)
                 self.assertTrue(terminal.closed)
+
+    def test_request_distinguishes_rate_limits_from_authorization_denials(self) -> None:
+        client = source_control.GitHubReadClient("")
+
+        for error in (
+            _http_error(429),
+            _http_error_with_headers(403, {"Retry-After": "30"}),
+            _http_error_with_headers(403, {"X-RateLimit-Remaining": "0"}),
+            _http_error_with_body(403, "You have exceeded a secondary rate limit."),
+        ):
+            with self.subTest(status=error.code, headers=dict(error.headers.items())):
+                with patch.object(
+                    source_control.urllib.request, "urlopen", side_effect=error
+                ):
+                    with self.assertRaises(source_control.GitHubReadError) as raised:
+                        client.request("/repos/example/project")
+                self.assertEqual(raised.exception.kind, "rate_limited")
 
     def test_request_classifies_network_failure_without_retry(self) -> None:
         client = source_control.GitHubReadClient("")

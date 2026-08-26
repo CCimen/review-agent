@@ -54,10 +54,14 @@ def _private_key() -> tuple[str, str]:
         serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     ).decode("ascii")
-    public = key.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo,
-    ).decode("ascii")
+    public = (
+        key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("ascii")
+    )
     return private, public
 
 
@@ -360,6 +364,31 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
             "rate limited",
             {"retry-after": "60"},
             io.BytesIO(b"private"),
+        )
+        with (
+            patch.object(
+                github_app,
+                "authorize_review_read",
+                return_value=self.authorization,
+            ),
+            patch.object(self.service._opener, "open", side_effect=error),
+            self.assertRaises(app_auth.GitHubAppTokenRetryable),
+        ):
+            self.service.token_for(9001, now=NOW)
+
+        self.assertTrue(error.fp.closed)
+
+    def test_secondary_rate_limit_message_is_retryable_without_headers(self) -> None:
+        error = urllib.error.HTTPError(
+            "https://github.test",
+            403,
+            "rate limited",
+            {},
+            io.BytesIO(
+                json.dumps(
+                    {"message": "You have exceeded a secondary rate limit."}
+                ).encode()
+            ),
         )
         with (
             patch.object(

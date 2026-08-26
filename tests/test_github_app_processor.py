@@ -16,7 +16,11 @@ import psycopg
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
-from review_agent_tools import github_webhook, review_contract  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    github_webhook,
+    review_contract,
+    review_run_application,
+)
 from review_agent_tools.github import app_processor  # noqa: E402
 from review_agent_tools.github.app_auth import (  # noqa: E402
     ReviewReadToken,
@@ -25,12 +29,16 @@ from review_agent_tools.github.app_auth import (  # noqa: E402
 from review_agent_tools.postgres import (  # noqa: E402
     github_app,
     jobs,
+    registry,
     webhook_deliveries,
 )
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
-from review_agent_tools.source_control import GitHubReadClient  # noqa: E402
+from review_agent_tools.source_control import (  # noqa: E402
+    GitHubReadClient,
+    GitHubReadError,
+)
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
@@ -57,6 +65,7 @@ class _GitHub(GitHubReadClient):
         permission: str = "write",
         head_repository_id: int | None = 9001,
         before_pull: object | None = None,
+        request_error: GitHubReadError | None = None,
     ) -> None:
         super().__init__("unused")
         self.permission_user_id = permission_user_id
@@ -64,10 +73,13 @@ class _GitHub(GitHubReadClient):
         self.permission = permission
         self.head_repository_id = head_repository_id
         self.before_pull = before_pull
+        self.request_error = request_error
         self.endpoints: list[str] = []
 
     def request_json(self, endpoint: str, *, max_bytes: int = 2_000_000) -> object:
         self.endpoints.append(endpoint)
+        if self.request_error is not None:
+            raise self.request_error
         if endpoint.endswith("/permission"):
             return {
                 "permission": self.permission,
@@ -262,6 +274,30 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(delivery.status, "rejected")
         self.assertEqual(installations, (0,))
 
+    def test_repository_name_conflict_rolls_back_and_terminalizes(self) -> None:
+        with self.runtime.transaction() as connection:
+            registry.ensure_repository(
+                connection,
+                registry.RepositoryDefinition(
+                    provider="github",
+                    provider_repository_id=9002,
+                    full_name="CCimen/review-agent",
+                ),
+            )
+        delivery_id = self.register("installation", self.installation_payload())
+
+        result = self.processor().process_next(lease_owner="worker-1")
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.reason if result else None, "repository_name_conflict")
+        with self.runtime.transaction() as connection:
+            delivery = webhook_deliveries.get_delivery(connection, delivery_id)
+            installation_count = connection.execute(
+                "SELECT count(*) FROM review_agent.github_app_installations"
+            ).fetchone()
+        self.assertEqual(delivery.status, "rejected")
+        self.assertEqual(installation_count, (0,))
+
     def test_repository_changes_follow_current_installation_and_fence_stale_removal(
         self,
     ) -> None:
@@ -396,6 +432,15 @@ class GitHubAppProcessorTests(unittest.TestCase):
             first = self.processor(github).process_next(lease_owner="worker-1")
             second_delivery = self.register("issue_comment", self.review_payload())
             second = self.processor(github).process_next(lease_owner="worker-2")
+            assert first is not None and first.run_id is not None
+            with self.runtime.transaction() as connection:
+                review_run_application.fail_run_in_transaction(
+                    connection,
+                    review_run_application.ReviewRunId(first.run_id),
+                    failure_code="stale_timeout",
+                )
+            third_delivery = self.register("issue_comment", self.review_payload())
+            third = self.processor(github).process_next(lease_owner="worker-3")
 
         self.assertEqual(first.delivery_id if first else None, first_delivery)
         self.assertEqual(second.delivery_id if second else None, second_delivery)
@@ -405,7 +450,11 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(
             first.job_id if first else None, second.job_id if second else None
         )
-        self.assertEqual(self.tokens.repository_ids, [9001, 9001])
+        self.assertEqual(third.delivery_id if third else None, third_delivery)
+        self.assertEqual(third.status if third else None, "accepted")
+        self.assertEqual(first.run_id, third.run_id if third else None)
+        self.assertEqual(first.job_id, third.job_id if third else None)
+        self.assertEqual(self.tokens.repository_ids, [9001, 9001, 9001])
         self.assertEqual(
             github.endpoints[0],
             "/repos/CCimen/review-agent/collaborators/ccimen/permission",
@@ -442,6 +491,22 @@ class GitHubAppProcessorTests(unittest.TestCase):
         )
         self.assertEqual(fork.delivery_id if fork else None, fork_id)
         self.assertEqual(fork.reason if fork else None, "fork_source_not_supported")
+
+    def test_provider_denials_terminalize_while_rate_limits_retry(self) -> None:
+        self.enable_repository()
+        for kind, expected_status, expected_reason in (
+            ("unauthorized", "rejected", "provider_authorization_denied"),
+            ("forbidden", "rejected", "provider_authorization_denied"),
+            ("rate_limited", "received", "github_read_unavailable"),
+        ):
+            with self.subTest(kind=kind):
+                delivery_id = self.register("issue_comment", self.review_payload())
+                result = self.processor(
+                    _GitHub(request_error=GitHubReadError(kind, "provider failure"))
+                ).process_next(lease_owner=f"worker-{kind}")
+                self.assertEqual(result.delivery_id if result else None, delivery_id)
+                self.assertEqual(result.status if result else None, expected_status)
+                self.assertEqual(result.reason if result else None, expected_reason)
 
     def test_revocation_during_github_io_cannot_commit_a_run(self) -> None:
         self.enable_repository()

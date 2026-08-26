@@ -13,7 +13,7 @@ from psycopg.rows import TupleRow
 
 from .. import review_contract
 from ..domain.review import JsonObject, JsonValue
-from ..postgres import github_app, jobs, webhook_deliveries
+from ..postgres import github_app, jobs, registry, webhook_deliveries
 from ..postgres.runtime import PostgreSQLRuntime
 from ..review_run_application import (
     PostgresRunRequest,
@@ -299,6 +299,14 @@ class GitHubAppProcessor:
                 webhook_deliveries.TerminalStatus.REJECTED,
                 exc.reason,
             )
+        except registry.RepositoryNameConflict:
+            return self._finish(
+                delivery,
+                lease_owner,
+                actor,
+                webhook_deliveries.TerminalStatus.REJECTED,
+                "repository_name_conflict",
+            )
         except github_app.GitHubAppStateError:
             return self._finish(
                 delivery,
@@ -457,12 +465,14 @@ class GitHubAppProcessor:
         except GitHubAppTokenRetryable as exc:
             raise _Retry("token_exchange_unavailable") from exc
         except GitHubAppTokenPermanent as exc:
-            raise _Reject("token_exchange_rejected") from exc
+            raise _Reject("provider_authorization_denied") from exc
         except github_app.GitHubAppReviewReadUnauthorized as exc:
             raise _Reject("repository_not_authorized") from exc
         except GitHubReadError as exc:
-            if exc.kind in {"unreachable", "http_error", "unauthorized", "forbidden"}:
+            if exc.kind in {"unreachable", "http_error", "rate_limited"}:
                 raise _Retry("github_read_unavailable") from exc
+            if exc.kind in {"unauthorized", "forbidden"}:
+                raise _Reject("provider_authorization_denied") from exc
             raise _Reject("github_read_invalid") from exc
 
         self._validate_snapshot(command, snapshot)

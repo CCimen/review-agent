@@ -17,6 +17,17 @@ def words(text: str) -> str:
 
 
 class DocsContractTests(unittest.TestCase):
+    def test_direct_app_admission_runtime_is_opt_in_and_key_isolated(self):
+        compose = read("compose.yaml")
+        environment = read(".env.example")
+
+        self.assertIn('profiles: ["github-app-pilot"]', compose)
+        self.assertIn("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET:-", compose)
+        self.assertIn("target: github-app-private-key.pem", compose)
+        self.assertIn("source: github_app_private_key", compose)
+        self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY=", compose)
+        self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY=", environment)
+
     def test_learning_runbook_uses_the_current_postgresql_cli(self):
         learning = read("review-learning/README.md")
 

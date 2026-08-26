@@ -13,6 +13,7 @@ GitHubReadErrorKind = Literal[
     "invalid_endpoint",
     "unauthorized",
     "forbidden",
+    "rate_limited",
     "not_found",
     "diff_unavailable",
     "http_error",
@@ -24,6 +25,27 @@ GitHubReadErrorKind = Literal[
 _API_ROOT = "https://api.github.com"
 _RETRYABLE_STATUS = frozenset({502, 503, 504})
 _MAX_ATTEMPTS = 3
+_MAX_ERROR_RESPONSE_BYTES = 4_096
+
+
+def is_github_rate_limit_error(exc: urllib.error.HTTPError) -> bool:
+    """Recognize GitHub's bounded primary and secondary limit signals."""
+    if exc.code == 429:
+        return True
+    if exc.code != 403:
+        return False
+    if (
+        exc.headers.get("retry-after") is not None
+        or exc.headers.get("x-ratelimit-remaining") == "0"
+    ):
+        return True
+    try:
+        raw = exc.read(_MAX_ERROR_RESPONSE_BYTES + 1)
+    except (AttributeError, OSError, ValueError):
+        return False
+    if len(raw) > _MAX_ERROR_RESPONSE_BYTES:
+        return False
+    return b"secondary rate limit" in raw.lower()
 
 
 class GitHubReadError(Exception):
@@ -74,6 +96,7 @@ class GitHubReadClient:
                     }
                     return data, truncated, response_headers
             except urllib.error.HTTPError as exc:
+                rate_limited = is_github_rate_limit_error(exc)
                 exc.close()
                 if exc.code in _RETRYABLE_STATUS and attempt + 1 < _MAX_ATTEMPTS:
                     time.sleep(0.5 * (attempt + 1))
@@ -82,9 +105,13 @@ class GitHubReadClient:
                     raise GitHubReadError(
                         "unauthorized", "GitHub rejected the read token"
                     ) from exc
+                if rate_limited:
+                    raise GitHubReadError(
+                        "rate_limited", "GitHub rate-limited the read request"
+                    ) from exc
                 if exc.code == 403:
                     raise GitHubReadError(
-                        "forbidden", "GitHub denied or rate-limited the read request"
+                        "forbidden", "GitHub denied the read request"
                     ) from exc
                 if exc.code == 404:
                     raise GitHubReadError("not_found", "not found") from exc
@@ -102,9 +129,7 @@ class GitHubReadClient:
                 ) from exc
         raise GitHubReadError("unreachable", "GitHub could not be reached")
 
-    def request_json(
-        self, endpoint: str, *, max_bytes: int = 2_000_000
-    ) -> object:
+    def request_json(self, endpoint: str, *, max_bytes: int = 2_000_000) -> object:
         raw, truncated, _ = self.request(endpoint, max_bytes=max_bytes)
         if truncated:
             raise GitHubReadError(
@@ -114,4 +139,6 @@ class GitHubReadClient:
         try:
             return json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise GitHubReadError("invalid_json", "GitHub returned invalid JSON") from exc
+            raise GitHubReadError(
+                "invalid_json", "GitHub returned invalid JSON"
+            ) from exc

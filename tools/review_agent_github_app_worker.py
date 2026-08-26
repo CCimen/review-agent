@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Run the opt-in direct GitHub App admission worker."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import timedelta
+import os
+from pathlib import Path
+import signal
+import stat
+import sys
+import threading
+
+
+_MAX_PRIVATE_KEY_BYTES = 64 * 1024
+
+
+def _load_package() -> None:
+    candidates = (
+        Path("/opt/review-agent-bootstrap/plugins"),
+        Path(__file__).resolve().parents[1] / "bootstrap" / "plugins",
+    )
+    for candidate in candidates:
+        if (candidate / "review_agent_tools" / "github" / "app_worker.py").is_file():
+            sys.path.insert(0, str(candidate))
+            return
+    raise SystemExit("Could not locate the review_agent_tools package")
+
+
+_load_package()
+
+from review_agent_tools.github.app_auth import ReviewReadTokenService  # noqa: E402
+from review_agent_tools.github.app_processor import (  # noqa: E402
+    GitHubAppProcessor,
+    ProcessorConfig,
+)
+from review_agent_tools.github.app_worker import (  # noqa: E402
+    GitHubAppWorker,
+    GitHubAppWorkerConfigurationError,
+    GitHubAppWorkerPolicy,
+    default_github_app_worker_name,
+)
+from review_agent_tools.postgres.runtime import (  # noqa: E402
+    PostgreSQLRuntime,
+    PostgreSQLRuntimeRole,
+)
+from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+
+
+def _positive_integer(name: str, default: str | None = None) -> int:
+    raw = os.environ.get(name, default or "").strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise GitHubAppWorkerConfigurationError(f"{name} must be an integer") from exc
+    if value < 1:
+        raise GitHubAppWorkerConfigurationError(f"{name} must be positive")
+    return value
+
+
+def _nonnegative_integer(name: str, default: str) -> int:
+    raw = os.environ.get(name, default).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise GitHubAppWorkerConfigurationError(f"{name} must be an integer") from exc
+    if value < 0:
+        raise GitHubAppWorkerConfigurationError(f"{name} must be zero or greater")
+    return value
+
+
+def _seconds(name: str, default: str) -> timedelta:
+    raw = os.environ.get(name, default).strip()
+    try:
+        value = float(raw)
+        return timedelta(seconds=value)
+    except (OverflowError, ValueError) as exc:
+        raise GitHubAppWorkerConfigurationError(f"{name} must be a number") from exc
+
+
+def _private_key() -> str:
+    raw_path = os.environ.get("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE", "").strip()
+    if not raw_path:
+        raise GitHubAppWorkerConfigurationError(
+            "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE is required"
+        )
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(raw_path, flags)
+    except OSError as exc:
+        raise GitHubAppWorkerConfigurationError(
+            "GitHub App private key file could not be opened"
+        ) from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise GitHubAppWorkerConfigurationError(
+                "GitHub App private key must be a regular file"
+            )
+        if metadata.st_size > _MAX_PRIVATE_KEY_BYTES:
+            raise GitHubAppWorkerConfigurationError(
+                "GitHub App private key file exceeds the size limit"
+            )
+        with os.fdopen(descriptor, "rb", closefd=True) as handle:
+            descriptor = -1
+            raw = handle.read(_MAX_PRIVATE_KEY_BYTES + 1)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(raw) > _MAX_PRIVATE_KEY_BYTES:
+        raise GitHubAppWorkerConfigurationError(
+            "GitHub App private key file exceeds the size limit"
+        )
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GitHubAppWorkerConfigurationError(
+            "GitHub App private key file must be UTF-8 PEM"
+        ) from exc
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--once", action="store_true", help="claim at most one delivery"
+    )
+    args = parser.parse_args(argv)
+    stop = threading.Event()
+
+    def request_stop(_signal: int, _frame: object) -> None:
+        stop.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+
+    configured = ReviewAgentSettings.from_environment()
+    try:
+        app_id = _positive_integer("REVIEW_AGENT_GITHUB_APP_ID")
+        private_key = _private_key()
+        policy = GitHubAppWorkerPolicy(
+            poll_interval=_seconds("REVIEW_AGENT_GITHUB_APP_POLL_SECONDS", "2"),
+            recovery_interval=_seconds(
+                "REVIEW_AGENT_GITHUB_APP_RECOVERY_SECONDS", "30"
+            ),
+            recovery_batch_size=_positive_integer(
+                "REVIEW_AGENT_GITHUB_APP_RECOVERY_BATCH_SIZE", "100"
+            ),
+            database_backoff_initial=_seconds(
+                "REVIEW_AGENT_GITHUB_APP_DATABASE_BACKOFF_SECONDS", "1"
+            ),
+            database_backoff_maximum=_seconds(
+                "REVIEW_AGENT_GITHUB_APP_DATABASE_BACKOFF_MAX_SECONDS", "30"
+            ),
+        )
+    except GitHubAppWorkerConfigurationError as exc:
+        parser.error(str(exc))
+    runtime = PostgreSQLRuntime(
+        configured.postgres_database_url,
+        role=PostgreSQLRuntimeRole.WORKER,
+        worker_concurrency=1,
+    )
+    runtime.open()
+    try:
+        processor = GitHubAppProcessor(
+            postgres=runtime,
+            tokens=ReviewReadTokenService(
+                app_id=app_id,
+                private_key_pem=private_key,
+                postgres=runtime,
+            ),
+            config=ProcessorConfig(
+                profile=configured.profile,
+                policy_revision=configured.policy_revision(),
+                job_priority=_nonnegative_integer("REVIEW_AGENT_JOB_PRIORITY", "0"),
+                job_max_attempts=_positive_integer(
+                    "REVIEW_AGENT_JOB_MAX_ATTEMPTS", "3"
+                ),
+                active_job_limit=_positive_integer(
+                    "REVIEW_AGENT_ACTIVE_JOB_LIMIT", "100"
+                ),
+            ),
+        )
+        GitHubAppWorker(
+            runtime,
+            processor,
+            policy,
+            lease_owner=default_github_app_worker_name(),
+            stop_event=stop,
+        ).run(once=args.once)
+        return 0
+    finally:
+        runtime.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

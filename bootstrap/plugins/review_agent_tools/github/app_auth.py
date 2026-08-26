@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from ..postgres import github_app
 from ..postgres.runtime import PostgreSQLRuntime
+from ..source_control import is_github_rate_limit_error
 
 
 _TOKEN_REFRESH_MARGIN: Final = timedelta(minutes=5)
@@ -168,9 +169,7 @@ class ReviewReadTokenService:
         self, provider_repository_id: int
     ) -> github_app.ReviewReadAuthorization:
         with self._postgres.transaction() as connection:
-            return github_app.authorize_review_read(
-                connection, provider_repository_id
-            )
+            return github_app.authorize_review_read(connection, provider_repository_id)
 
     def _exchange(
         self,
@@ -218,17 +217,7 @@ class ReviewReadTokenService:
                     )
                 result = json.loads(raw_result)
         except urllib.error.HTTPError as exc:
-            retryable = (
-                exc.code == 429
-                or exc.code >= 500
-                or (
-                    exc.code == 403
-                    and (
-                        exc.headers.get("retry-after") is not None
-                        or exc.headers.get("x-ratelimit-remaining") == "0"
-                    )
-                )
-            )
+            retryable = exc.code >= 500 or is_github_rate_limit_error(exc)
             exc.close()
             if retryable:
                 raise GitHubAppTokenRetryable(
@@ -260,7 +249,5 @@ class ReviewReadTokenService:
                 "GitHub installation token response was invalid"
             )
         if expires_at - now <= _TOKEN_REFRESH_MARGIN:
-            raise GitHubAppTokenPermanent(
-                "GitHub installation token expires too soon"
-            )
+            raise GitHubAppTokenPermanent("GitHub installation token expires too soon")
         return ReviewReadToken(value=value, expires_at=expires_at)

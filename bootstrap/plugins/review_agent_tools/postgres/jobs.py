@@ -421,12 +421,11 @@ def enqueue_run(
         raise ReviewJobBusy("review run is busy while enqueuing") from exc
     if locked_run is None:
         raise ReviewJobError("review run disappeared while enqueuing")
-    if locked_run.status != ReviewStatus.RUNNING:
-        raise ReviewJobError("only an active review run can be enqueued")
-
     existing = _by_run(connection, resolved_run_id)
     if existing is not None:
         return DuplicateJob(existing)
+    if locked_run.status != ReviewStatus.RUNNING:
+        raise ReviewJobError("only an active review run can be enqueued")
 
     # Serialize only admission count/insert operations. Worker updates do not
     # contend on this transaction-scoped namespace lock.
@@ -672,9 +671,7 @@ def handoff_to_publication(
     if job_id is None or lease_generation is None:
         raise ReviewJobError("job_id and lease_generation must be supplied together")
     resolved_job_id = _integer(job_id, field="job_id", minimum=1)
-    generation = _integer(
-        lease_generation, field="lease_generation", minimum=1
-    )
+    generation = _integer(lease_generation, field="lease_generation", minimum=1)
     with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
         row = cursor.execute(
             f"""

@@ -41,9 +41,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("migrate", "ready", "jobs", "retry-job", "cancel-job"),
+        choices=(
+            "migrate",
+            "ready",
+            "jobs",
+            "retry-job",
+            "cancel-job",
+            "enable-github-app-repository",
+            "disable-github-app-repository",
+        ),
     )
     parser.add_argument("--job-id", type=int)
+    parser.add_argument("--provider-repository-id", type=int)
+    parser.add_argument("--profile")
+    parser.add_argument("--actor")
+    parser.add_argument("--reason")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument(
         "--status",
@@ -99,6 +111,46 @@ def main(argv: list[str] | None = None) -> int:
                         }
                         for report in reports
                     ],
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.command in {
+            "enable-github-app-repository",
+            "disable-github-app-repository",
+        }:
+            for option, value in (
+                ("--provider-repository-id", args.provider_repository_id),
+                ("--actor", args.actor),
+                ("--reason", args.reason),
+            ):
+                if value is None:
+                    parser.error(f"{option} is required for {args.command}")
+            if args.command == "enable-github-app-repository" and args.profile is None:
+                parser.error(f"--profile is required for {args.command}")
+            if args.command == "enable-github-app-repository":
+                access = operator_application.enable_github_app_repository(
+                    runtime,
+                    provider_repository_id=args.provider_repository_id,
+                    profile=args.profile,
+                    actor=args.actor,
+                    reason=args.reason,
+                )
+            else:
+                access = operator_application.disable_github_app_repository(
+                    runtime,
+                    provider_repository_id=args.provider_repository_id,
+                    actor=args.actor,
+                    reason=args.reason,
+                )
+            print(
+                json.dumps(
+                    {
+                        "enabled": access.enabled,
+                        "profile": access.profile_key,
+                        "provider_repository_id": access.provider_repository_id,
+                    },
                     separators=(",", ":"),
                     sort_keys=True,
                 )

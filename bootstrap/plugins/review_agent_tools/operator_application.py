@@ -21,6 +21,7 @@ from . import failure_codes, review_run_application
 from .postgres import coaching as postgres_coaching
 from .postgres import decisions as postgres_decisions
 from .postgres import findings as postgres_findings
+from .postgres import github_app as postgres_github_app
 from .postgres import jobs as postgres_jobs
 from .postgres import reporting as postgres_reporting
 from .postgres import review_runs as postgres_review_runs
@@ -81,6 +82,51 @@ ACTIVE_JOB_STATUSES = (
     postgres_jobs.ReviewJobStatus.QUEUED,
     postgres_jobs.ReviewJobStatus.LEASED,
 )
+
+
+def enable_github_app_repository(
+    runtime: PostgreSQLRuntime,
+    *,
+    provider_repository_id: int,
+    profile: str,
+    actor: str,
+    reason: str,
+) -> postgres_github_app.RepositoryAccessState:
+    """Enable direct-App admission by GitHub's stable repository ID."""
+    with runtime.transaction() as connection:
+        current = postgres_github_app.get_repository_access_by_provider_id(
+            connection,
+            _positive(provider_repository_id, field="provider_repository_id"),
+        )
+        return postgres_github_app.enable_repository(
+            connection,
+            repository_id=current.repository_id,
+            profile_key=profile,
+            trigger_mode=postgres_github_app.TriggerMode.MANUAL,
+            actor=actor,
+            reason=reason,
+        )
+
+
+def disable_github_app_repository(
+    runtime: PostgreSQLRuntime,
+    *,
+    provider_repository_id: int,
+    actor: str,
+    reason: str,
+) -> postgres_github_app.RepositoryAccessState:
+    """Disable direct-App admission by GitHub's stable repository ID."""
+    with runtime.transaction() as connection:
+        current = postgres_github_app.get_repository_access_by_provider_id(
+            connection,
+            _positive(provider_repository_id, field="provider_repository_id"),
+        )
+        return postgres_github_app.disable_repository(
+            connection,
+            repository_id=current.repository_id,
+            actor=actor,
+            reason=reason,
+        )
 
 
 def _now(value: datetime | None) -> datetime:

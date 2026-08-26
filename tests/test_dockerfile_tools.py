@@ -96,6 +96,10 @@ class DockerfileToolsTests(unittest.TestCase):
             "cp /usr/local/bin/review_agent_feedback_bridge.py /usr/local/bin/review-agent-feedback-bridge",
             dockerfile,
         )
+        self.assertIn(
+            "cp /usr/local/bin/review_agent_github_app_worker.py /usr/local/bin/review-agent-github-app-worker",
+            dockerfile,
+        )
 
     def test_container_installs_the_pinned_python_dependencies(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")

@@ -483,6 +483,30 @@ def get_repository_access(
     return _access(row)
 
 
+def get_repository_access_by_provider_id(
+    connection: psycopg.Connection[TupleRow], provider_repository_id: int
+) -> RepositoryAccessState:
+    """Resolve App access by GitHub's stable repository identity."""
+    _require_transaction(connection)
+    with connection.cursor(row_factory=class_row(_RepositoryAccessRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            SELECT {_ACCESS_COLUMNS}
+            FROM review_agent.github_app_repository_access AS access
+            JOIN review_agent.repositories AS repository
+              ON repository.id = access.repository_id
+            WHERE repository.provider = 'github'
+              AND repository.provider_repository_id = %s
+            """,
+            (_positive(provider_repository_id, "provider_repository_id"),),
+        ).fetchone()
+    if row is None:
+        raise GitHubAppRepositoryNotFound(
+            "GitHub App repository access was not found"
+        )
+    return _access(row)
+
+
 def authorize_review_read(
     connection: psycopg.Connection[TupleRow], provider_repository_id: int
 ) -> ReviewReadAuthorization:

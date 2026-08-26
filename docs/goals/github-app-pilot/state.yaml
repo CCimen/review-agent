@@ -5,7 +5,7 @@ goal:
   slug: "github-app-pilot"
   kind: specific
   tranche: "Implement and verify the durable installation, repository activation, webhook delivery, and repository-scoped token foundation for a CCimen/review-agent pilot."
-  status: active
+  status: blocked
 
 rules:
   pm_owns_state: true
@@ -30,12 +30,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 5
+  completed_write_tasks_in_thread: 6
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "54f47a1b6dd1a6615edd2f8762ad4da39a87086e"
+  last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T021
+active_task: null
 
 tasks:
   - id: T001
@@ -712,6 +712,33 @@ tasks:
       result: done
       commit: "ad399fe5a2836426835ea56b58170a2e9bd46021"
       summary: "Activated one opt-in direct GitHub App admission worker over the existing durable delivery ledger. The worker is sequential and recoverable, secrets remain file-mounted only into the App worker, stable provider denials and repository conflicts terminalize, and repeated request keys reuse their existing run/job even after terminal completion. The default PAT/Actions route remains unchanged."
+      changed_files:
+        - ".env.example"
+        - "Dockerfile"
+        - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_worker.py"
+        - "bootstrap/plugins/review_agent_tools/operator_application.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+        - "bootstrap/plugins/review_agent_tools/source_control.py"
+        - "compose.yaml"
+        - "tests/test_dockerfile_tools.py"
+        - "tests/test_docs_contract.py"
+        - "tests/test_github_app_activation.py"
+        - "tests/test_github_app_auth.py"
+        - "tests/test_github_app_processor.py"
+        - "tests/test_postgres_github_app.py"
+        - "tests/test_postgres_jobs.py"
+        - "tests/test_source_control.py"
+        - "tools/review_agent_database.py"
+        - "tools/review_agent_github_app_worker.py"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_source_control tests.test_github_app_activation tests.test_dockerfile_tools tests.test_docs_contract"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+        - "docker compose --env-file .env.example --profile github-app-pilot config --quiet"
       evidence:
         - "444 bundled tests passed; 166 intentionally skipped"
         - "171 PostgreSQL schema and recovery tests passed"
@@ -791,6 +818,23 @@ tasks:
       result: done
       commit: "ddb3facdfd13ea2e4991f77b20d1dce2ccabe26d"
       summary: "Verified that current main already preserved initial installation repositories, repository selection, and an independent App request bound, then closed only the real gaps: contradictory stable repository identities now fail before persistence, empty and large selected installations are proved, the App limit is exposed as a 2 MiB service ceiling, server settings validate before PostgreSQL opens, and normalized-envelope overflow is a typed logged 413."
+      changed_files:
+        - ".env.example"
+        - "bootstrap/plugins/review_agent_tools/admission.py"
+        - "bootstrap/plugins/review_agent_tools/github_webhook.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+        - "compose.yaml"
+        - "tests/test_admission.py"
+        - "tests/test_github_app_processor.py"
+        - "tests/test_github_webhook.py"
+        - "tests/test_postgres_webhook_deliveries.py"
+        - "tools/review_agent_admission.py"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_webhook tests.test_admission"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+        - "docker compose --env-file .env.example --profile github-app-pilot config --quiet"
       evidence:
         - "450 bundled tests passed; 168 intentionally skipped"
         - "172 PostgreSQL schema, recovery, backup, and restore tests passed"
@@ -917,6 +961,12 @@ tasks:
       result: done
       commit: "54f47a1b6dd1a6615edd2f8762ad4da39a87086e"
       summary: "Added one manual selected-installation repair command. It fetches a complete minimum-permission GitHub inventory before opening one atomic reconciliation transaction, preserves enablement only under the same current installation, fails closed on cross-installation ownership conflicts, and reports sanitized retryable or permanent operator outcomes."
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_github_app_inventory tests.test_github_app_activation"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+        - "docker compose --env-file .env.example --profile github-app-pilot config --quiet"
       evidence:
         - "Focused GitHub App auth, inventory, activation, and CLI behavior: 24 tests passed"
         - "PostgreSQL schema/recovery contract: 174 tests passed; migration 7 ready; backup/restore passed"
@@ -939,7 +989,7 @@ tasks:
   - id: T021
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the committed installation reconciliation as the final local prerequisite for a CCimen/review-agent direct-App admission pilot, then freeze the owner-controlled registration, credential, rollback, and acceptance gate without claiming source-read, publication, feedback, or App-only cutover."
     inputs:
@@ -956,6 +1006,124 @@ tasks:
       - "Smallest owner-controlled pilot checklist"
       - "Required permissions, event subscriptions, secrets, verification evidence, and rollback"
       - "Exact next task after pilot acceptance or failure"
+    receipt:
+      result: done
+      decision: "The local direct-App admission milestone is complete and current CI is green. Update public documentation for the shipped opt-in path before the owner creates credentials or starts the CCimen/review-agent pilot."
+      summary: "The pilot may prove direct signed App intake, selected-installation lifecycle, requester authorization, durable admission, and duplicate safety. Hermes source reads, publication, and feedback still use the existing credentials, so the pilot cannot support an App-only or workflow-free product claim yet."
+      evidence:
+        - "T020 implementation commit 54f47a1b6dd1a6615edd2f8762ad4da39a87086e"
+        - "Board receipt commit 7c444662bff6644eef825a7cda3740c2bef1b4f8"
+        - "Remote Python bundle run 32949166984 completed successfully"
+        - "Official GitHub App installation, token, webhook, collaborator-permission, and failed-delivery contracts"
+      owner_controlled_pilot:
+        - "Register one owner-only GitHub App for the CCimen pilot and set the webhook URL to /webhooks/github-app with a dedicated high-entropy secret."
+        - "Grant Metadata read, Contents read, Issues read, and Pull requests read; subscribe to issue_comment only. GitHub sends installation lifecycle events automatically."
+        - "Store the App ID, webhook secret, and private-key file in the deployment secret manager; start the opt-in github-app-pilot worker profile."
+        - "Install with Only select repositories and select CCimen/review-agent only."
+        - "Run sync-github-app-installation, verify active/selected state, and confirm the repository remains disabled."
+        - "Enable the stable repository ID with an explicit profile, actor, and reason."
+        - "Post one new top-level /review as an authorized maintainer and prove one terminal accepted App delivery plus one run/job under the existing idempotency key."
+        - "Confirm any simultaneous legacy Actions delivery creates no second run. The resulting review still uses the current PAT-backed source-read and publication stages."
+      rollback: "Disable the repository, stop the github-app-pilot profile, remove the App webhook secret and private-key mount, and keep the existing Actions/PAT path active. Retain delivery and audit rows for diagnosis."
+      next_task: T022
+  - id: T022
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Update the public GitHub Pages documentation and README for the shipped opt-in direct-App admission and manual installation reconciliation path, while keeping the default PAT/Actions setup and the remaining App-backed source-read, publication, feedback, and cutover work explicit."
+    allowed_files:
+      - "README.md"
+      - "docs/GETTING_STARTED.md"
+      - "docs/HOW_REVIEWS_WORK.md"
+      - "docs/DEPLOYMENT.md"
+      - "docs/OPERATIONS.md"
+      - "docs/SECURITY.md"
+      - "docs/ROADMAP.md"
+      - "docs/GITHUB_APP_PILOT.md"
+      - "website/sidebars.ts"
+      - "website/docusaurus.config.ts"
+      - "website/public-documents.json"
+      - "tests/test_docs_contract.py"
+      - "tools/review_agent_github_app_worker.py"
+      - "tests/test_github_app_activation.py"
+    acceptance:
+      - "A new operator can tell the default production path from the optional direct-App admission pilot within one screen."
+      - "The App guide lists exact registration permissions, issue_comment subscription, selected-repository installation, secret placement, Compose profile, reconciliation, enablement, proof, and rollback steps."
+      - "The guide says that source reads, publication, and feedback remain on the current credentials and does not claim workflow-free or App-only operation."
+      - "Deployment and Operations link to one canonical App pilot page instead of copying a second long runbook."
+      - "README and How Reviews Work describe both signed intake paths without changing the current review execution and publication contract."
+      - "Roadmap moves the locally shipped App foundation out of planned work and retains only the live pilot and downstream cutovers as pending."
+      - "GitHub Pages navigation and local search include the new guide, with no new search dependency or decorative image."
+      - "Use concise public prose and existing Docusaurus callouts, tabs, and navigation; no wall of text or stale SQLite/migration/legacy narrative."
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_docs_contract"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "npm --prefix website run build"
+      - "rg checks for contradictory App-only, workflow-free, and planned-foundation claims"
+      - "Claude Opus high commit gate green with score at least 8"
+    non_goals:
+      - "No live GitHub App registration, credential creation, installation mutation, webhook test, or Sundsvallskommun access."
+      - "No runtime change beyond enabling the App worker's existing bounded delivery outcome log after the commit gate proved the public diagnostic was otherwise unreachable."
+      - "No Compose, OpenShift template, release, package, scorecard, llms files, setup skill, or image generation."
+    receipt:
+      result: done
+      commits:
+        - "91340641e04fb91c8084ddeee95e8e630c208c47"
+        - "343dace55be7947cba5ce4adac033bf7b906db9e"
+      summary: "Published one canonical direct-App admission pilot guide and concise links from the repository overview, onboarding, lifecycle, deployment, operations, security, and capability pages. The Docusaurus sidebar, footer, public allowlist, and local search index include the guide. A direct reliability blocker found at the commit gate was closed in the App worker entrypoint so documented accepted/rejected delivery outcomes are visible in bounded Docker logs."
+      changed_files:
+        - "README.md"
+        - "docs/GETTING_STARTED.md"
+        - "docs/HOW_REVIEWS_WORK.md"
+        - "docs/DEPLOYMENT.md"
+        - "docs/OPERATIONS.md"
+        - "docs/SECURITY.md"
+        - "docs/ROADMAP.md"
+        - "docs/GITHUB_APP_PILOT.md"
+        - "website/sidebars.ts"
+        - "website/docusaurus.config.ts"
+        - "website/public-documents.json"
+        - "tools/review_agent_github_app_worker.py"
+        - "tests/test_docs_contract.py"
+        - "tests/test_github_app_activation.py"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_activation tests.test_docs_contract — 35 passed"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python scripts/check_docs.py — passed, 11 public documents"
+        - "npm --prefix website run build — passed"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check tools/review_agent_github_app_worker.py tests/test_github_app_activation.py — passed"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright — 0 errors"
+        - "Claude Opus high session review-agent-github-app-docs: iterations 1 and 2 changes_required; iteration 3 green with score 8"
+        - "Remote Python bundle run 32953533774 — passed"
+        - "GitHub Pages run 32953533810 — build and deploy passed"
+        - "Live page and search-index probes found the guide and reconciliation command"
+      scope_adjustment: "The frozen docs-only scope was widened by two files after the gate proved that the existing INFO outcome record was unreachable without entrypoint logging. The correction reused the worker's current logger and Compose rotation, added no API, status command, dependency, or tuning surface, and was separately committed."
+      deferred:
+        - "The owner-controlled live pilot remains the next gate. It must prove the collaborator-permission endpoint, one accepted delivery/run/job, and duplicate safety before any downstream token cutover."
+  - id: T023
+    type: pm
+    assignee: PM
+    status: blocked
+    reasoning_hint: high
+    objective: "Run the owner-controlled CCimen/review-agent direct-App admission pilot against a real deployed Review Agent environment, then decide the source-read and publication cutover sequence from live evidence."
+    inputs:
+      - "T021 owner-controlled pilot checklist"
+      - "T022 public pilot guide"
+      - "Commits 91340641e04fb91c8084ddeee95e8e630c208c47 and 343dace55be7947cba5ce4adac033bf7b906db9e"
+    constraints:
+      - "Use CCimen/review-agent only; do not touch Sundsvallskommun."
+      - "Do not claim App-only operation while source reads, publication, and feedback use current scoped tokens."
+      - "Do not create credentials until the exact public admission URL and deployment secret owner are proven."
+    receipt:
+      result: blocked
+      summary: "Local implementation, documentation, CI, and GitHub Pages are ready, but there is no Review Agent project or Compose deployment visible in the connected Dokploy account and therefore no public admission URL or secret target for a safe live App registration."
+      evidence:
+        - "Dokploy project search for review returned zero projects"
+        - "Dokploy Compose search for review returned zero deployments"
+      unblock_when:
+        - "Deploy the default stack or identify the existing deployment target and public admission hostname."
+        - "Confirm that the connected Dokploy account is the intended CCimen pilot environment."
+      next_after_unblock: "Register the owner-only App, store its credentials, install only on CCimen/review-agent, reconcile and explicitly enable it, then prove one accepted same-repository /review without a duplicate run."
   - id: T999
     type: judge
     assignee: Judge
@@ -992,13 +1160,12 @@ checks:
   dirty_fingerprint: "local worktree contains preserved user-owned documentation changes; exact commits must be staged from the remote base"
   last_verification:
     result: pass
-    task: T020
+    task: T022
     commands:
-      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_github_app_inventory tests.test_github_app_activation"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_auth.py bootstrap/plugins/review_agent_tools/github/app_inventory.py bootstrap/plugins/review_agent_tools/postgres/github_app.py bootstrap/plugins/review_agent_tools/operator_application.py tools/review_agent_database.py tools/review_agent_github_app_worker.py tests/test_github_app_auth.py tests/test_github_app_inventory.py tests/test_postgres_github_app.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_activation tests.test_docs_contract — 35 passed"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python scripts/check_docs.py — passed"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check tools/review_agent_github_app_worker.py tests/test_github_app_activation.py — passed"
       - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
-      - "docker compose --env-file .env.example config --quiet"
-      - "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE=/dev/null docker compose --env-file .env.example --profile github-app-pilot config --quiet"
-      - "Claude Opus high session review-agent-github-app-reconciliation iteration 3: green, score 8"
+      - "npm --prefix website run build"
+      - "Claude Opus high session review-agent-github-app-docs iteration 3: green, score 8"
+      - "Remote Python bundle 32953533774 and GitHub Pages 32953533810 passed"

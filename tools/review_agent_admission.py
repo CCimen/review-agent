@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import sys
 import threading
-from typing import cast
+from typing import Mapping, cast
 
 import psycopg
 
@@ -41,11 +42,13 @@ from review_agent_tools.settings import SettingsError  # noqa: E402
 from review_agent_tools.source_control import GitHubReadClient, GitHubReadError  # noqa: E402
 
 
-GITHUB_WEBHOOK_PROVIDER_MAX_BODY_BYTES = 25 * 1024 * 1024
+GITHUB_APP_MAX_BODY_BYTES = 2_097_152
 
 
-def _positive_integer(name: str, default: int) -> int:
-    raw = os.environ.get(name, str(default)).strip()
+def _positive_integer(
+    environment: Mapping[str, str], name: str, default: int
+) -> int:
+    raw = environment.get(name, str(default)).strip()
     try:
         value = int(raw)
     except ValueError as exc:
@@ -55,11 +58,47 @@ def _positive_integer(name: str, default: int) -> int:
     return value
 
 
-def _bounded_positive_integer(name: str, default: int, maximum: int) -> int:
-    value = _positive_integer(name, default)
+def _bounded_positive_integer(
+    environment: Mapping[str, str], name: str, default: int, maximum: int
+) -> int:
+    value = _positive_integer(environment, name, default)
     if value > maximum:
         raise SettingsError(f"{name} must not exceed {maximum}")
     return value
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionServerConfig:
+    application: admission.AdmissionConfig
+    max_body_bytes: int
+    github_app_max_body_bytes: int
+    max_concurrent_requests: int
+    request_timeout_seconds: int
+
+
+def load_server_config(
+    environment: Mapping[str, str] | None = None,
+) -> AdmissionServerConfig:
+    """Validate transport and application settings before opening PostgreSQL."""
+    values = os.environ if environment is None else environment
+    return AdmissionServerConfig(
+        application=admission.load_config(values),
+        max_body_bytes=_positive_integer(
+            values, "REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES", 65_536
+        ),
+        github_app_max_body_bytes=_bounded_positive_integer(
+            values,
+            "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES",
+            GITHUB_APP_MAX_BODY_BYTES,
+            GITHUB_APP_MAX_BODY_BYTES,
+        ),
+        max_concurrent_requests=_positive_integer(
+            values, "REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS", 8
+        ),
+        request_timeout_seconds=_positive_integer(
+            values, "REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS", 30
+        ),
+    )
 
 
 class AdmissionRequestHandler(BaseHTTPRequestHandler):
@@ -189,7 +228,11 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
             self._write(202, response.to_json())
         except admission.GitHubAppDeliveryConflict:
             self._write(409, admission.response_body("delivery_conflict"))
-        except (admission.AdmissionError, SettingsError):
+        except admission.GitHubAppPayloadTooLarge as exc:
+            print(f"GitHub App webhook rejected: {exc}", file=sys.stderr)
+            self._write(413, admission.response_body("payload_too_large"))
+        except (admission.AdmissionError, SettingsError) as exc:
+            print(f"GitHub App webhook rejected: {exc}", file=sys.stderr)
             self._write(400, admission.response_body("bad_request"))
         except (PostgreSQLRuntimeError, psycopg.Error) as exc:
             print(f"GitHub App webhook database failure: {exc}", file=sys.stderr)
@@ -246,7 +289,8 @@ class AdmissionServer(ThreadingHTTPServer):
 
 
 def serve(host: str, port: int) -> None:
-    config = admission.load_config()
+    server_config = load_server_config()
+    config = server_config.application
     runtime = PostgreSQLRuntime(
         config.database_url, role=PostgreSQLRuntimeRole.ADMISSION
     )
@@ -256,20 +300,10 @@ def serve(host: str, port: int) -> None:
         config=config,
         github=GitHubReadClient(config.token),
         runtime=runtime,
-        max_body_bytes=_positive_integer(
-            "REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES", 65_536
-        ),
-        github_app_max_body_bytes=_bounded_positive_integer(
-            "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES",
-            1_048_576,
-            GITHUB_WEBHOOK_PROVIDER_MAX_BODY_BYTES,
-        ),
-        max_concurrent_requests=_positive_integer(
-            "REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS", 8
-        ),
-        request_timeout_seconds=_positive_integer(
-            "REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS", 30
-        ),
+        max_body_bytes=server_config.max_body_bytes,
+        github_app_max_body_bytes=server_config.github_app_max_body_bytes,
+        max_concurrent_requests=server_config.max_concurrent_requests,
+        request_timeout_seconds=server_config.request_timeout_seconds,
     )
     print(f"Review Agent admission listening on {host}:{port}", flush=True)
     try:
@@ -286,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=admission.DEFAULT_PORT)
     args = parser.parse_args(argv)
     if args.command == "verify-config":
-        config = admission.load_config()
+        config = load_server_config().application
         runtime = PostgreSQLRuntime(
             config.database_url, role=PostgreSQLRuntimeRole.ADMISSION
         )

@@ -27,6 +27,10 @@ class WebhookDeliveryError(ValueError):
     """A webhook-delivery operation violates its durable contract."""
 
 
+class NormalizedPayloadTooLarge(WebhookDeliveryError):
+    """The resumable envelope exceeds its durable storage/privacy guard."""
+
+
 class DeliveryNotFound(WebhookDeliveryError):
     """The requested webhook delivery does not exist."""
 
@@ -269,7 +273,9 @@ def _normalized_payload(value: JsonObject) -> dict[str, JsonValue]:
     if not isinstance(decoded, dict):
         raise WebhookDeliveryError("normalized_payload must be an object")
     if len(encoded) > NORMALIZED_PAYLOAD_MAX_BYTES:
-        raise WebhookDeliveryError("normalized_payload exceeds the storage guard")
+        raise NormalizedPayloadTooLarge(
+            "normalized_payload exceeds the storage guard"
+        )
     return cast(dict[str, JsonValue], decoded)
 
 

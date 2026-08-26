@@ -101,8 +101,25 @@ def _repositories(value: object, field: str) -> list[JsonValue]:
     if not isinstance(value, list):
         raise GitHubWebhookError(f"{field} must be an array")
     repositories: list[JsonValue] = []
+    names_by_id: dict[int, str] = {}
+    ids_by_name: dict[str, int] = {}
     for item in cast(list[object], value):
         repository_id, full_name = _repository(item)
+        normalized_name = full_name.casefold()
+        prior_name = names_by_id.get(repository_id)
+        if prior_name is not None:
+            if prior_name != normalized_name:
+                raise GitHubWebhookError(
+                    f"{field} repository id maps to conflicting names"
+                )
+            continue
+        prior_id = ids_by_name.get(normalized_name)
+        if prior_id is not None and prior_id != repository_id:
+            raise GitHubWebhookError(
+                f"{field} repository name maps to conflicting ids"
+            )
+        names_by_id[repository_id] = normalized_name
+        ids_by_name[normalized_name] = repository_id
         repositories.append({"full_name": full_name, "id": repository_id})
     return repositories
 

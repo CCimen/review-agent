@@ -187,6 +187,46 @@ class AdmissionTests(unittest.TestCase):
         self.assertNotIn("body", definition.normalized_payload)
         self.runtime.transaction.assert_called_once_with()
 
+    def test_large_installation_payload_normalizes_before_registration(self) -> None:
+        payload = {
+            "action": "created",
+            "installation": {
+                "id": 7001,
+                "account": {"id": 8001, "login": "CCimen", "type": "User"},
+                "repository_selection": "selected",
+                "permissions": {
+                    "contents": "read",
+                    "issues": "write",
+                    "pull_requests": "write",
+                },
+            },
+            "repositories": [
+                {"id": 10_000 + index, "full_name": f"CCimen/repository-{index}"}
+                for index in range(1_300)
+            ],
+        }
+        body = json.dumps(payload).encode("utf-8")
+        self.assertGreater(len(body), 65_536)
+        registration = Mock(spec=admission.webhook_deliveries.RegisteredDelivery)
+
+        with patch.object(
+            admission.webhook_deliveries,
+            "register_delivery",
+            return_value=registration,
+        ) as register:
+            response = admission.receive_github_app_delivery(
+                body=body,
+                payload=payload,
+                delivery_id="688e2f40-35c1-11ef-9b3a-0242ac120002",
+                event="installation",
+                config=self.config,
+                runtime=self.runtime,
+            )
+
+        definition = register.call_args.kwargs["definition"]
+        self.assertEqual(response.status, "received")
+        self.assertEqual(len(definition.normalized_payload["repositories"]), 1_300)
+
     def test_readiness_fails_when_configured_profile_is_not_packaged(self) -> None:
         self.runtime.database_url = self.config.database_url
         with (
@@ -319,7 +359,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             github=self.github,
             runtime=self.runtime,
             max_body_bytes=128,
-            github_app_max_body_bytes=512,
+            github_app_max_body_bytes=100_000,
             max_concurrent_requests=2,
             request_timeout_seconds=2,
         )
@@ -456,15 +496,79 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
         self.runtime.transaction.assert_not_called()
 
     def test_github_app_route_has_an_independent_body_limit(self) -> None:
-        body = json.dumps({"padding": "x" * 140}).encode("utf-8")
+        body = json.dumps(
+            {
+                "action": "created",
+                "installation": {"id": 7001},
+                "padding": "x" * 70_000,
+            }
+        ).encode("utf-8")
         self.assertGreater(len(body), self.server.max_body_bytes)
         self.assertLess(len(body), self.server.github_app_max_body_bytes)
 
-        status, _, response_body = self._post_app(body, event="workflow_run")
+        with patch.object(
+            admission_entrypoint.admission,
+            "receive_github_app_delivery",
+            return_value=admission.WebhookReceiptResponse("received"),
+        ) as receive:
+            status, _, response_body = self._post_app(body, event="installation")
 
         self.assertEqual(
             (status, json.loads(response_body)),
-            (202, {"status": "ignored"}),
+            (202, {"status": "received"}),
+        )
+        receive.assert_called_once()
+
+        with patch.object(
+            admission_entrypoint.admission,
+            "receive_github_app_delivery",
+            create=True,
+        ) as receive:
+            status, _, response_body = self._post_app(b"x" * 100_001)
+        self.assertEqual(
+            (status, json.loads(response_body)),
+            (413, {"status": "payload_too_large"}),
+        )
+        receive.assert_not_called()
+
+    def test_server_config_rejects_an_app_bound_above_the_service_ceiling(
+        self,
+    ) -> None:
+        with patch.object(
+            admission_entrypoint.admission,
+            "load_config",
+            return_value=self.server.config,
+        ):
+            configured = admission_entrypoint.load_server_config({})
+            self.assertEqual(configured.github_app_max_body_bytes, 2_097_152)
+
+            with self.assertRaisesRegex(
+                SettingsError,
+                "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES must not exceed 2097152",
+            ):
+                admission_entrypoint.load_server_config(
+                    {"REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES": "2097153"}
+                )
+
+    def test_normalized_payload_overflow_is_an_observable_413(self) -> None:
+        with (
+            patch.object(
+                admission_entrypoint.admission,
+                "receive_github_app_delivery",
+                side_effect=admission.GitHubAppPayloadTooLarge(
+                    "normalized payload exceeds storage guard"
+                ),
+            ),
+            patch("builtins.print") as logged,
+        ):
+            status, _, body = self._post_app(event="installation")
+
+        self.assertEqual(
+            (status, json.loads(body)),
+            (413, {"status": "payload_too_large"}),
+        )
+        self.assertTrue(
+            any("GitHub App webhook rejected" in str(call) for call in logged.mock_calls)
         )
 
     def test_signature_and_request_size_fail_before_admission(self) -> None:

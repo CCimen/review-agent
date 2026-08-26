@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -80,6 +81,23 @@ class PostgreSQLWebhookDeliveryTests(unittest.TestCase):
         self.assertEqual(stored.max_attempts, 3)
         self.assertEqual(stored.status, webhook_deliveries.DeliveryStatus.RECEIVED)
         self.assertIsNotNone(stored.normalized_payload)
+
+    def test_oversized_normalized_payload_has_a_typed_failure(self) -> None:
+        definition = replace(
+            self.definition(),
+            normalized_payload={
+                "padding": "x" * webhook_deliveries.NORMALIZED_PAYLOAD_MAX_BYTES
+            },
+        )
+
+        with psycopg.connect(DSN) as connection:
+            with self.assertRaises(webhook_deliveries.NormalizedPayloadTooLarge):
+                with connection.transaction():
+                    webhook_deliveries.register_delivery(
+                        connection,
+                        definition=definition,
+                        max_attempts=3,
+                    )
 
     def test_exact_live_lease_is_required_to_finish_and_payload_is_cleared(
         self,

@@ -91,7 +91,7 @@ class GitHubWebhookTests(unittest.TestCase):
                 "installation": {
                     "id": 7001,
                     "account": {"id": 8001, "login": "CCimen", "type": "User"},
-                    "repository_selection": "all",
+                    "repository_selection": "selected",
                     "permissions": {
                         "contents": "read",
                         "issues": "write",
@@ -102,6 +102,60 @@ class GitHubWebhookTests(unittest.TestCase):
         )
 
         self.assertEqual(normalized.normalized["repositories"], [])
+
+    def test_installation_repositories_deduplicate_or_reject_conflicts(self) -> None:
+        def normalize(repositories: list[dict[str, object]]) -> list[object]:
+            event = github_webhook.normalize_event(
+                "installation",
+                {
+                    "action": "created",
+                    "installation": {
+                        "id": 7001,
+                        "account": {
+                            "id": 8001,
+                            "login": "CCimen",
+                            "type": "User",
+                        },
+                        "repository_selection": "selected",
+                        "permissions": {
+                            "contents": "read",
+                            "issues": "write",
+                            "pull_requests": "write",
+                        },
+                    },
+                    "repositories": repositories,
+                },
+            )
+            value = event.normalized["repositories"]
+            assert isinstance(value, list)
+            return value
+
+        repository = {"id": 42, "full_name": "CCimen/review-agent"}
+        self.assertEqual(
+            normalize([repository, repository.copy()]),
+            [{"full_name": "CCimen/review-agent", "id": 42}],
+        )
+
+        with self.assertRaisesRegex(
+            github_webhook.GitHubWebhookError,
+            "repository id maps to conflicting names",
+        ):
+            normalize(
+                [
+                    repository,
+                    {"id": 42, "full_name": "CCimen/another-repository"},
+                ]
+            )
+        with self.assertRaisesRegex(
+            github_webhook.GitHubWebhookError,
+            "repository name maps to conflicting ids",
+        ):
+            normalize(
+                [
+                    repository,
+                    {"id": 43, "full_name": "ccimen/review-agent"},
+                ]
+            )
 
     def test_issue_comment_normalizes_review_and_typed_feedback(self) -> None:
         review = github_webhook.normalize_event(

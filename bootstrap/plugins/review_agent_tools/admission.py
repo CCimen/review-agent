@@ -50,6 +50,10 @@ class GitHubAppDeliveryConflict(AdmissionError):
     """A GitHub delivery GUID was reused for different immutable input."""
 
 
+class GitHubAppPayloadTooLarge(AdmissionError):
+    """A signed App delivery cannot fit the durable normalized envelope."""
+
+
 @dataclass(frozen=True, slots=True)
 class AdmissionConfig:
     secret: str
@@ -326,6 +330,8 @@ def receive_github_app_delivery(
             )
     except webhook_deliveries.DeliveryConflict as exc:
         raise GitHubAppDeliveryConflict(str(exc)) from exc
+    except webhook_deliveries.NormalizedPayloadTooLarge as exc:
+        raise GitHubAppPayloadTooLarge(str(exc)) from exc
     except webhook_deliveries.WebhookDeliveryError as exc:
         raise AdmissionError(str(exc)) from exc
 

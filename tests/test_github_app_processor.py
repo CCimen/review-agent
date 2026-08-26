@@ -240,7 +240,11 @@ class GitHubAppProcessorTests(unittest.TestCase):
             authorization(connection, 9001)
 
     def test_installation_created_grants_selected_repositories_disabled(self) -> None:
-        delivery_id = self.register("installation", self.installation_payload())
+        payload = self.installation_payload()
+        repositories = payload["repositories"]
+        assert isinstance(repositories, list)
+        repositories.append({"id": 9002, "full_name": "CCimen/second-repository"})
+        delivery_id = self.register("installation", payload)
 
         result = self.processor().process_next(lease_owner="worker-1")
 
@@ -249,14 +253,31 @@ class GitHubAppProcessorTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             installation = github_app.get_installation_by_provider_id(connection, 7001)
             access = connection.execute(
-                "SELECT repository_id FROM review_agent.github_app_repository_access"
-            ).fetchone()
-            assert access is not None
-            repository = github_app.get_repository_access(connection, access[0])
+                "SELECT repository_id, enabled "
+                "FROM review_agent.github_app_repository_access "
+                "ORDER BY repository_id"
+            ).fetchall()
             delivery = webhook_deliveries.get_delivery(connection, delivery_id)
         self.assertEqual(installation.repository_selection, "selected")
-        self.assertFalse(repository.enabled)
+        self.assertEqual(len(access), 2)
+        self.assertTrue(all(not row[1] for row in access))
         self.assertIsNone(delivery.normalized_payload)
+
+    def test_installation_created_accepts_no_selected_repositories(self) -> None:
+        payload = self.installation_payload()
+        payload["repositories"] = []
+        delivery_id = self.register("installation", payload)
+
+        result = self.processor().process_next(lease_owner="worker-empty")
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "accepted")
+        with self.runtime.transaction() as connection:
+            access_count = connection.execute(
+                "SELECT count(*) "
+                "FROM review_agent.github_app_repository_access"
+            ).fetchone()
+        self.assertEqual(access_count, (0,))
 
     def test_all_repository_installation_is_explicitly_rejected(self) -> None:
         delivery_id = self.register(

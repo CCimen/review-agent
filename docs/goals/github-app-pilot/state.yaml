@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "470df8f12821cdf532addd866ce0f527955dd673"
 
-active_task: T013
+active_task: T006
 
 tasks:
   - id: T001
@@ -308,15 +308,59 @@ tasks:
   - id: T006
     type: worker
     assignee: Worker
-    status: queued
-    reasoning_hint: default
-    objective: "Implement direct App event processing, requester authorization, repository lifecycle synchronization, and admission into the existing run/job transaction."
-    allowed_files: []
-    verify: []
+    status: active
+    reasoning_hint: high
+    objective: "Add one dormant direct GitHub App processor that consumes every durable delivery category through the existing fenced ledger, synchronizes selected-repository lifecycle state, authorizes same-repository review requests with the T005 token, and atomically reauthorizes, admits into the existing run/job transaction, and completes the delivery lease."
+    canonical_owner:
+      orchestration: "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+      normalization: "bootstrap/plugins/review_agent_tools/github_webhook.py"
+      lifecycle_and_authorization: "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      run_job_admission: "bootstrap/plugins/review_agent_tools/review_run_application.py"
+      delivery_ledger_unchanged: "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+    allowed_files:
+      - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+      - "bootstrap/plugins/review_agent_tools/github_webhook.py"
+      - "bootstrap/plugins/review_agent_tools/admission.py"
+      - "bootstrap/plugins/review_agent_tools/review_run_application.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "tests/test_github_app_processor.py"
+      - "tests/test_github_webhook.py"
+      - "tests/test_admission.py"
+      - "tests/test_postgres_github_app.py"
+    acceptance:
+      - "Claim one delivery in a short transaction through the existing SKIP LOCKED ledger; perform no GitHub network request while holding that transaction."
+      - "Installation and repository-access mutations and fenced delivery completion share one transaction; installation.created grants its bounded selected repository list with reviews disabled."
+      - "The pilot rejects all-repositories installations and ambiguous selection changes with an explicit unsupported-selection result."
+      - "Repository removal is conditional on the expected installation; late events cannot mutate access now owned by a newer installation."
+      - "Ignored deliveries terminalize with their bounded reason; feedback terminalizes ignored with feedback_not_cut_over."
+      - "Review authorization combines signed sender identity with a live calculated write/admin permission whose numeric identity and login match."
+      - "The live pull request is open, matches the signed PR and stable base repository ID, and has a same-repository live head; cross-repository or deleted heads reject with fork_source_not_supported."
+      - "One final transaction locks and reauthorizes repository access, installation permissions, and profile, then admits the existing run/job and completes the fenced delivery."
+      - "Revocation, profile change, installation mismatch, queue pressure, or lease loss cannot leave an inconsistent committed run/job/delivery outcome."
+      - "Preserve request_key github:issue-comment:{comment_id}; redelivery or dual-path processing creates no second run or job."
+      - "No credential, raw body, signature, or unbounded provider response is persisted or logged."
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_processor tests.test_github_webhook tests.test_admission tests.test_postgres_github_app"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_processor.py bootstrap/plugins/review_agent_tools/github_webhook.py bootstrap/plugins/review_agent_tools/admission.py bootstrap/plugins/review_agent_tools/review_run_application.py bootstrap/plugins/review_agent_tools/postgres/github_app.py tests/test_github_app_processor.py tests/test_github_webhook.py tests/test_admission.py tests/test_postgres_github_app.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "Claude Opus high commit gate: green with score at least 8"
     stop_if:
-      - "A documented command or capability is not implemented."
-      - "Generated LLM documentation would include non-public goal material."
-      - "The slice expands into a custom administration UI."
+      - "Initial selected repositories cannot be normalized without retaining the raw webhook."
+      - "The base-repository installation token cannot prove calculated permission plus matching numeric sender identity."
+      - "Final PostgreSQL reauthorization, existing run/job admission, and fenced delivery completion cannot share one transaction."
+      - "A stale lifecycle delivery can enable reviews or mutate access owned by a newer installation."
+      - "Cross-repository fork work would be admitted before its source reads are supported."
+      - "The pilot requires all-repositories installation reconciliation."
+      - "Implementation needs a second queue, second admission path, generic event framework, migration, or files outside allowed_files."
+      - "Tests require live credentials, App registration, deployment changes, or Sundsvallskommun access."
+      - "Verification fails twice for the same unexplained reason."
+    non_goals:
+      - "No live App registration, installation, deployment, CLI, worker activation, or public documentation change."
+      - "No Hermes cutover, publication, feedback application, PAT deletion, cross-repository fork support, or all-repositories reconciliation."
+      - "No automatic pull-request trigger, administration UI, organization onboarding, or Sundsvallskommun change."
+    rollback: "Revert the T006 code commit. The dormant processor adds no migration or deployment surface; durable deliveries remain recoverable and the PAT/Actions route stays live."
     receipt: null
   - id: T007
     type: worker
@@ -446,7 +490,7 @@ tasks:
   - id: T013
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Freeze the smallest complete T006 processor contract, including honest fork and pre-cutover feedback behavior."
     inputs:
@@ -463,7 +507,18 @@ tasks:
       - "Exact T006 objective and canonical owner"
       - "allowed_files"
       - "acceptance, verify, stop_if, rollback, and explicit non-goals"
-    receipt: null
+    receipt:
+      result: done
+      decision: "Approve one dormant selected-repository processor. Reject cross-repository fork reviews and all-repositories installations in the pilot rather than admitting work the current token and source-read contracts cannot safely complete; terminal-ignore direct-App feedback until T007."
+      next_allowed_task: T006
+      summary: "Froze one processor over the existing ledger, token owner, lifecycle state, and run/job admission transaction. Final authorization uses database locks so concurrent revocation cannot race admission, and every stored category reaches an explicit retry or terminal outcome."
+      evidence:
+        - "T003-T005 implementation and verification receipts"
+        - "T012 owner map"
+        - "Official GitHub installation repository, calculated permission, pull-request, and pull-ref contracts"
+      blocked_tasks:
+        - T007
+        - T008
   - id: T999
     type: judge
     assignee: Judge

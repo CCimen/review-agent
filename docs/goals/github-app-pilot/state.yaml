@@ -30,12 +30,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 2
+  completed_write_tasks_in_thread: 3
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "84d21155327923ece564906aa3def666244194cc"
+  last_verified_revision: "470df8f12821cdf532addd866ce0f527955dd673"
 
-active_task: T005
+active_task: T012
 
 tasks:
   - id: T001
@@ -255,7 +255,7 @@ tasks:
   - id: T005
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add a dormant Review-Agent-specific review-read token service that reauthorizes one stable repository ID, signs a short-lived App JWT, exchanges it for a repository-restricted installation token, and caches only in process memory without exposing the private key to Hermes."
     allowed_files:
@@ -280,7 +280,31 @@ tasks:
       - "Tests require live credentials, Sundsvallskommun access, or GitHub App installation changes."
       - "Files outside allowed_files are required."
       - "Verification fails twice for the same unexplained reason."
-    receipt: null
+    receipt:
+      result: done
+      commit: "470df8f12821cdf532addd866ce0f527955dd673"
+      summary: "Added one dormant Review-Agent-specific GitHub App credential owner. Every token return reauthorizes current PostgreSQL installation and repository access, the outbound exchange is restricted to one stable GitHub repository ID and minimum review-read permissions, and credentials remain in bounded process memory behind HTTPS same-origin transport controls."
+      evidence:
+        - "Focused token and container contract: 19 tests passed"
+        - "PostgreSQL schema and recovery contract: 168 tests passed"
+        - "Full bundle: 420 tests passed with 152 expected PostgreSQL skips"
+        - "Ruff, Pyright, and pip dependency checks passed"
+        - "Claude Opus high commit gate: green, score 8"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_dockerfile_tools"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_auth.py bootstrap/plugins/review_agent_tools/postgres/github_app.py tests/test_github_app_auth.py tests/test_postgres_github_app.py tests/test_dockerfile_tools.py"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH python -m pip check"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      changed_files:
+        - "requirements.txt"
+        - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+        - "tests/test_github_app_auth.py"
+        - "tests/test_postgres_github_app.py"
+        - "tests/test_dockerfile_tools.py"
+      rollback: "Revert commit 470df8f1 before wiring a live App secret. The service remains dormant and no deployment or Hermes route consumes it."
   - id: T006
     type: worker
     assignee: Worker
@@ -384,6 +408,30 @@ tasks:
         - T006
         - T007
         - T008
+  - id: T012
+    type: scout
+    assignee: Scout
+    status: active
+    reasoning_hint: high
+    objective: "Map the smallest complete direct GitHub App event-processing slice after durable webhook intake and repository-scoped review-read token minting."
+    inputs:
+      - "T003 installation and repository activation receipt"
+      - "T004 durable webhook-delivery receipt"
+      - "T005 repository-scoped token receipt"
+      - "Current requester authorization, source-read, admission, and job owners"
+      - "Official GitHub App requester, installation, repository, and fork contracts"
+    constraints:
+      - "Read-only."
+      - "Reuse the existing run/job admission transaction and token owner."
+      - "Resolve all supported delivery categories and fork behavior explicitly."
+      - "Do not wire publication, deployment, PAT deletion, public onboarding, or Sundsvallskommun resources."
+      - "Prefer one complete processor owner over a second admission path or generic event framework."
+    expected_output:
+      - "Canonical processor and requester-authorization owners"
+      - "Event-category state transitions and idempotency boundaries"
+      - "Exact fork-read and repository-lifecycle behavior"
+      - "Smallest complete T006 allowed_files, tests, stop conditions, and rollback"
+    receipt: null
   - id: T999
     type: judge
     assignee: Judge
@@ -420,8 +468,11 @@ checks:
   dirty_fingerprint: "local worktree contains preserved user-owned documentation changes; exact commits must be staged from the remote base"
   last_verification:
     result: pass
-    task: T004
+    task: T005
     commands:
-      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -q tests.test_github_webhook tests.test_admission"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_dockerfile_tools"
       - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_auth.py bootstrap/plugins/review_agent_tools/postgres/github_app.py tests/test_github_app_auth.py tests/test_postgres_github_app.py tests/test_dockerfile_tools.py"
       - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH python -m pip check"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"

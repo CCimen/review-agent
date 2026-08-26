@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from collections.abc import Sequence
 from typing import NewType
 
 import psycopg
@@ -88,6 +89,20 @@ class InstallationDefinition:
     contents_permission: PermissionLevel
     issues_permission: PermissionLevel
     pull_requests_permission: PermissionLevel
+
+
+@dataclass(frozen=True, slots=True)
+class InstallationRepositoryDefinition:
+    provider_repository_id: int
+    full_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class InstallationReconciliationResult:
+    installation: GitHubAppInstallation
+    repositories_seen: int
+    repositories_removed: int
+    repositories_enabled: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -659,8 +674,13 @@ def grant_repository_access(
     installation = _lock_installation(
         connection, installation_id, exclusive=False
     )
-    if installation.status is not InstallationStatus.ACTIVE:
-        raise GitHubAppStateError("installation is not active")
+    if installation.status is InstallationStatus.DELETED:
+        raise GitHubAppStateError("installation is deleted")
+    access_state = (
+        RepositoryAccess.INSTALLATION_SUSPENDED
+        if installation.status is InstallationStatus.SUSPENDED
+        else RepositoryAccess.AVAILABLE
+    )
     updated_by = _text(actor, "actor", 120)
     update_reason = _text(reason, "reason", 500)
     repository = registry.ensure_repository(
@@ -680,33 +700,37 @@ def grant_repository_access(
             profile_key, enabled_at, disabled_at, updated_by, update_reason,
             updated_at
         ) VALUES (
-            %s, %s, 'available', false, 'manual', NULL, NULL, NULL,
+            %s, %s, %s, false, 'manual', NULL, NULL,
+            CASE WHEN %s = 'available' THEN NULL ELSE CURRENT_TIMESTAMP END,
             %s, %s, CURRENT_TIMESTAMP
         )
         ON CONFLICT (repository_id) DO UPDATE SET
             installation_id = EXCLUDED.installation_id,
-            access_state = 'available',
+            access_state = EXCLUDED.access_state,
             enabled = CASE
                 WHEN review_agent.github_app_repository_access.installation_id
                      = EXCLUDED.installation_id
                  AND review_agent.github_app_repository_access.access_state
-                     = 'available'
+                     = EXCLUDED.access_state
+                 AND EXCLUDED.access_state = 'available'
                 THEN review_agent.github_app_repository_access.enabled
                 ELSE false
             END,
             enabled_at = CASE
-                WHEN review_agent.github_app_repository_access.installation_id
+                 WHEN review_agent.github_app_repository_access.installation_id
                      = EXCLUDED.installation_id
                  AND review_agent.github_app_repository_access.access_state
-                     = 'available'
+                     = EXCLUDED.access_state
+                 AND EXCLUDED.access_state = 'available'
                 THEN review_agent.github_app_repository_access.enabled_at
                 ELSE NULL
             END,
             disabled_at = CASE
-                WHEN review_agent.github_app_repository_access.installation_id
+                 WHEN review_agent.github_app_repository_access.installation_id
                      = EXCLUDED.installation_id
                  AND review_agent.github_app_repository_access.access_state
-                     = 'available'
+                     = EXCLUDED.access_state
+                 AND EXCLUDED.access_state = 'available'
                 THEN review_agent.github_app_repository_access.disabled_at
                 ELSE CURRENT_TIMESTAMP
             END,
@@ -724,7 +748,14 @@ def grant_repository_access(
               <= EXCLUDED.installation_id
         RETURNING repository_id
         """,
-        (repository.id, installation.id, updated_by, update_reason),
+        (
+            repository.id,
+            installation.id,
+            access_state.value,
+            access_state.value,
+            updated_by,
+            update_reason,
+        ),
     ).fetchone()
     state = get_repository_access(connection, repository.id)
     if changed is not None:
@@ -891,6 +922,138 @@ def remove_repository_access_for_installation(
         repository_id=RepositoryId(row[0]),
         actor=actor,
         reason=reason,
+    )
+
+
+def _remove_missing_repository_access(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    installation_id: GitHubAppInstallationId,
+    current_provider_repository_ids: Sequence[int],
+    actor: str,
+    reason: str,
+) -> int:
+    """Fence absent access in one set operation owned by this installation."""
+    updated_by = _text(actor, "actor", 120)
+    update_reason = _text(reason, "reason", 500)
+    current_ids = [
+        _positive(value, "provider_repository_id")
+        for value in current_provider_repository_ids
+    ]
+    result = connection.execute(
+        """
+        WITH updated AS (
+            UPDATE review_agent.github_app_repository_access AS access
+            SET access_state = 'removed',
+                enabled = false,
+                disabled_at = CURRENT_TIMESTAMP,
+                updated_by = %s,
+                update_reason = %s,
+                updated_at = CURRENT_TIMESTAMP
+            FROM review_agent.repositories AS repository
+            WHERE access.repository_id = repository.id
+              AND access.installation_id = %s
+              AND access.access_state IN ('available', 'installation_suspended')
+              AND NOT (repository.provider_repository_id = ANY(%s))
+            RETURNING access.repository_id, access.installation_id,
+                      access.access_state, access.enabled, access.trigger_mode,
+                      access.profile_key, access.updated_by, access.update_reason
+        )
+        INSERT INTO review_agent.github_app_repository_access_events (
+            repository_id, installation_id, event_kind, access_state, enabled,
+            trigger_mode, profile_key, actor, reason, recorded_at
+        )
+        SELECT repository_id, installation_id, 'removed', access_state, enabled,
+               trigger_mode, profile_key, updated_by, update_reason,
+               CURRENT_TIMESTAMP
+        FROM updated
+        """,
+        (updated_by, update_reason, installation_id, current_ids),
+    )
+    return result.rowcount
+
+
+def reconcile_selected_installation(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    definition: InstallationDefinition,
+    status: InstallationStatus,
+    repositories: Sequence[InstallationRepositoryDefinition],
+    actor: str,
+    reason: str,
+) -> InstallationReconciliationResult:
+    """Atomically reconcile one complete selected-installation inventory."""
+    _require_transaction(connection)
+    if definition.repository_selection is not RepositorySelection.SELECTED:
+        raise GitHubAppStateError(
+            "only selected-repository installations can be reconciled"
+        )
+    if status is InstallationStatus.DELETED:
+        raise GitHubAppStateError("a deleted provider installation cannot be synced")
+    updated_by = _text(actor, "actor", 120)
+    update_reason = _text(reason, "reason", 500)
+    normalized_repositories: list[InstallationRepositoryDefinition] = []
+    provider_ids: set[int] = set()
+    for repository in repositories:
+        normalized = registry.resolve_repository(
+            registry.RepositoryDefinition(
+                provider="github",
+                provider_repository_id=repository.provider_repository_id,
+                full_name=repository.full_name,
+            )
+        )
+        if normalized.provider_repository_id in provider_ids:
+            raise GitHubAppStateError(
+                "installation inventory contains a duplicate repository"
+            )
+        provider_ids.add(normalized.provider_repository_id)
+        normalized_repositories.append(
+            InstallationRepositoryDefinition(
+                provider_repository_id=normalized.provider_repository_id,
+                full_name=normalized.full_name,
+            )
+        )
+
+    installation = sync_installation(connection, definition)
+    if installation.status is not status:
+        installation = set_installation_status(
+            connection,
+            installation_id=installation.id,
+            status=status,
+            actor=updated_by,
+            reason=update_reason,
+        )
+
+    enabled_count = 0
+    for repository in normalized_repositories:
+        access = grant_repository_access(
+            connection,
+            installation_id=installation.id,
+            provider_repository_id=repository.provider_repository_id,
+            full_name=repository.full_name,
+            actor=updated_by,
+            reason=update_reason,
+        )
+        if access.installation_id != installation.id:
+            raise GitHubAppStateError(
+                "repository inventory conflicts with another installation: "
+                f"{repository.provider_repository_id}"
+            )
+        if access.enabled:
+            enabled_count += 1
+
+    removed_count = _remove_missing_repository_access(
+        connection,
+        installation_id=installation.id,
+        current_provider_repository_ids=tuple(provider_ids),
+        actor=updated_by,
+        reason=update_reason,
+    )
+    return InstallationReconciliationResult(
+        installation=installation,
+        repositories_seen=len(normalized_repositories),
+        repositories_removed=removed_count,
+        repositories_enabled=enabled_count,
     )
 
 

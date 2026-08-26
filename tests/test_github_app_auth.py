@@ -85,13 +85,27 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
 
     @staticmethod
     def response(
-        token: str = "installation-token", *, expires_at: datetime | None = None
+        token: str = "installation-token",
+        *,
+        expires_at: datetime | None = None,
+        permissions: dict[str, str] | None = None,
     ) -> _Response:
+        granted_permissions = (
+            permissions
+            if permissions is not None
+            else {
+                "contents": "read",
+                "issues": "read",
+                "metadata": "read",
+                "pull_requests": "read",
+            }
+        )
         return _Response(
             json.dumps(
                 {
                     "token": token,
                     "expires_at": (expires_at or NOW + timedelta(hours=1)).isoformat(),
+                    "permissions": granted_permissions,
                 }
             ).encode()
         )
@@ -298,12 +312,41 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
 
         self.assertNotIn("secret", str(raised.exception))
 
+    def test_provider_cannot_return_permissions_broader_than_requested(self) -> None:
+        with (
+            patch.object(
+                github_app,
+                "authorize_review_read",
+                return_value=self.authorization,
+            ),
+            patch.object(
+                self.service._opener,
+                "open",
+                return_value=self.response(
+                    permissions={
+                        "administration": "write",
+                        "contents": "read",
+                        "issues": "read",
+                        "metadata": "read",
+                        "pull_requests": "read",
+                    }
+                ),
+            ),
+            self.assertRaises(app_auth.GitHubAppTokenPermanent),
+        ):
+            self.service.token_for(9001, now=NOW)
+
     def test_configuration_and_provider_rejection_are_permanent(self) -> None:
         with self.assertRaisesRegex(ValueError, "app_id"):
             app_auth.ReviewReadTokenService(
                 app_id=0,
                 private_key_pem=self.private_key,
                 postgres=cast(PostgreSQLRuntime, _Runtime()),
+            )
+        with self.assertRaises(app_auth.GitHubAppConfigurationError):
+            app_auth.GitHubAppAuthenticator(
+                app_id=1234,
+                private_key_pem="not a PEM key",
             )
         with self.assertRaisesRegex(ValueError, "HTTPS"):
             app_auth.ReviewReadTokenService(

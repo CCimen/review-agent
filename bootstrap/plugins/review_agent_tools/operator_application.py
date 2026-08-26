@@ -18,6 +18,7 @@ from .domain.finding import (
 )
 from .domain.review import JsonObject, ReviewRunId, ReviewStatus
 from . import failure_codes, review_run_application
+from .github import app_auth, app_inventory
 from .postgres import coaching as postgres_coaching
 from .postgres import decisions as postgres_decisions
 from .postgres import findings as postgres_findings
@@ -82,6 +83,35 @@ ACTIVE_JOB_STATUSES = (
     postgres_jobs.ReviewJobStatus.QUEUED,
     postgres_jobs.ReviewJobStatus.LEASED,
 )
+
+
+def sync_github_app_installation(
+    runtime: PostgreSQLRuntime,
+    authenticator: app_auth.GitHubAppAuthenticator,
+    *,
+    provider_installation_id: int,
+    actor: str,
+    reason: str,
+    now: datetime | None = None,
+) -> postgres_github_app.InstallationReconciliationResult:
+    """Fetch a complete provider snapshot, then reconcile it in one transaction."""
+    installation_id = _positive(
+        provider_installation_id, field="provider_installation_id"
+    )
+    inventory = app_inventory.read_installation_inventory(
+        authenticator,
+        provider_installation_id=installation_id,
+        now=now,
+    )
+    with runtime.transaction() as connection:
+        return postgres_github_app.reconcile_selected_installation(
+            connection,
+            definition=inventory.definition,
+            status=inventory.status,
+            repositories=inventory.repositories,
+            actor=actor,
+            reason=reason,
+        )
 
 
 def enable_github_app_repository(

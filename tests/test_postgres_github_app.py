@@ -79,6 +79,184 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
         self.assertEqual(events[0].event_kind, github_app.AccessEvent.GRANTED)
         self.assertFalse(events[0].enabled)
 
+    def test_complete_inventory_reconciliation_is_atomic_safe_and_idempotent(
+        self,
+    ) -> None:
+        installation = self.installation()
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                retained = github_app.grant_repository_access(
+                    connection,
+                    installation_id=installation.id,
+                    provider_repository_id=9001,
+                    full_name="CCimen/review-agent",
+                    actor="github-app:installation_repositories",
+                    reason="repository selected",
+                )
+                github_app.enable_repository(
+                    connection,
+                    repository_id=retained.repository_id,
+                    profile_key="sundsvall-standard",
+                    trigger_mode=github_app.TriggerMode.MANUAL,
+                    actor="operator:ccimen",
+                    reason="approve pilot",
+                )
+                missing = github_app.grant_repository_access(
+                    connection,
+                    installation_id=installation.id,
+                    provider_repository_id=9002,
+                    full_name="CCimen/removed-repository",
+                    actor="github-app:installation_repositories",
+                    reason="repository selected",
+                )
+
+        definition = github_app.InstallationDefinition(
+            provider_installation_id=7001,
+            account_id=8001,
+            account_login="CCimen",
+            account_type=github_app.AccountType.USER,
+            repository_selection=github_app.RepositorySelection.SELECTED,
+            contents_permission=github_app.PermissionLevel.READ,
+            issues_permission=github_app.PermissionLevel.WRITE,
+            pull_requests_permission=github_app.PermissionLevel.WRITE,
+        )
+        repositories = (
+            github_app.InstallationRepositoryDefinition(
+                provider_repository_id=9001,
+                full_name="CCimen/review-agent-renamed",
+            ),
+            github_app.InstallationRepositoryDefinition(
+                provider_repository_id=9003,
+                full_name="CCimen/new-repository",
+            ),
+        )
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                result = github_app.reconcile_selected_installation(
+                    connection,
+                    definition=definition,
+                    status=github_app.InstallationStatus.ACTIVE,
+                    repositories=repositories,
+                    actor="operator:ccimen",
+                    reason="repair selected installation inventory",
+                )
+                retained_after = github_app.get_repository_access_by_provider_id(
+                    connection, 9001
+                )
+                removed_after = github_app.get_repository_access(
+                    connection, missing.repository_id
+                )
+                new_after = github_app.get_repository_access_by_provider_id(
+                    connection, 9003
+                )
+                first_event_counts = {
+                    repository_id: len(
+                        github_app.list_repository_access_events(
+                            connection, repository_id
+                        )
+                    )
+                    for repository_id in (
+                        retained_after.repository_id,
+                        removed_after.repository_id,
+                        new_after.repository_id,
+                    )
+                }
+                repeated = github_app.reconcile_selected_installation(
+                    connection,
+                    definition=definition,
+                    status=github_app.InstallationStatus.ACTIVE,
+                    repositories=repositories,
+                    actor="operator:ccimen",
+                    reason="repair selected installation inventory",
+                )
+                repeated_event_counts = {
+                    repository_id: len(
+                        github_app.list_repository_access_events(
+                            connection, repository_id
+                        )
+                    )
+                    for repository_id in first_event_counts
+                }
+
+        self.assertEqual(result.repositories_seen, 2)
+        self.assertEqual(result.repositories_removed, 1)
+        self.assertEqual(result.repositories_enabled, 1)
+        self.assertEqual(repeated.repositories_removed, 0)
+        self.assertEqual(retained_after.full_name, "CCimen/review-agent-renamed")
+        self.assertTrue(retained_after.enabled)
+        self.assertEqual(
+            removed_after.access_state, github_app.RepositoryAccess.REMOVED
+        )
+        self.assertFalse(new_after.enabled)
+        self.assertEqual(first_event_counts, repeated_event_counts)
+
+    def test_inventory_reconciliation_rejects_another_installation_owner(
+        self,
+    ) -> None:
+        original = self.installation()
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                replacement = github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7002,
+                        account_id=8001,
+                        account_login="CCimen",
+                        account_type=github_app.AccountType.USER,
+                        repository_selection=github_app.RepositorySelection.SELECTED,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.WRITE,
+                        pull_requests_permission=github_app.PermissionLevel.WRITE,
+                    ),
+                )
+                replacement_access = github_app.grant_repository_access(
+                    connection,
+                    installation_id=replacement.id,
+                    provider_repository_id=9001,
+                    full_name="CCimen/review-agent",
+                    actor="github-app:installation_repositories",
+                    reason="replacement installation",
+                )
+
+        with psycopg.connect(DSN) as connection:
+            with self.assertRaisesRegex(
+                github_app.GitHubAppStateError, "another installation"
+            ):
+                with connection.transaction():
+                    github_app.reconcile_selected_installation(
+                        connection,
+                        definition=github_app.InstallationDefinition(
+                            provider_installation_id=7001,
+                            account_id=8001,
+                            account_login="CCimen",
+                            account_type=github_app.AccountType.USER,
+                            repository_selection=(
+                                github_app.RepositorySelection.SELECTED
+                            ),
+                            contents_permission=github_app.PermissionLevel.READ,
+                            issues_permission=github_app.PermissionLevel.WRITE,
+                            pull_requests_permission=github_app.PermissionLevel.WRITE,
+                        ),
+                        status=github_app.InstallationStatus.ACTIVE,
+                        repositories=(
+                            github_app.InstallationRepositoryDefinition(
+                                provider_repository_id=9001,
+                                full_name="CCimen/review-agent",
+                            ),
+                        ),
+                        actor="operator:ccimen",
+                        reason="repair inventory",
+                    )
+
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                stored = github_app.get_repository_access(
+                    connection, replacement_access.repository_id
+                )
+
+        self.assertNotEqual(original.id, replacement.id)
+        self.assertEqual(stored.installation_id, replacement.id)
+
     def test_review_read_authorization_requires_current_enabled_access(self) -> None:
         installation = self.installation()
         with psycopg.connect(DSN) as connection:

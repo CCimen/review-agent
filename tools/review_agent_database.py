@@ -28,9 +28,11 @@ _load_package()
 import psycopg  # noqa: E402
 
 from review_agent_tools import operator_application  # noqa: E402
-from review_agent_tools.postgres import jobs  # noqa: E402
+from review_agent_tools.github import app_auth, app_inventory  # noqa: E402
+from review_agent_tools.postgres import github_app, jobs, registry  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
+    PostgreSQLRuntimeError,
     PostgreSQLRuntimeRole,
 )
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
@@ -49,10 +51,12 @@ def main(argv: list[str] | None = None) -> int:
             "cancel-job",
             "enable-github-app-repository",
             "disable-github-app-repository",
+            "sync-github-app-installation",
         ),
     )
     parser.add_argument("--job-id", type=int)
     parser.add_argument("--provider-repository-id", type=int)
+    parser.add_argument("--provider-installation-id", type=int)
     parser.add_argument("--profile")
     parser.add_argument("--actor")
     parser.add_argument("--reason")
@@ -63,6 +67,16 @@ def main(argv: list[str] | None = None) -> int:
         choices=tuple(status.value for status in jobs.ReviewJobStatus),
     )
     args = parser.parse_args(argv)
+    if args.command == "sync-github-app-installation":
+        for option, value in (
+            ("--provider-installation-id", args.provider_installation_id),
+            ("--actor", args.actor),
+            ("--reason", args.reason),
+        ):
+            if value is None:
+                parser.error(f"{option} is required for {args.command}")
+        if args.provider_installation_id < 1:
+            parser.error("--provider-installation-id must be positive")
     database_url = ReviewAgentSettings.from_environment().postgres_database_url
     if args.command == "migrate":
         with psycopg.connect(database_url) as connection:
@@ -77,7 +91,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     runtime = PostgreSQLRuntime(database_url, role=PostgreSQLRuntimeRole.OPERATOR)
-    runtime.open()
+    try:
+        runtime.open()
+    except PostgreSQLRuntimeError:
+        if args.command != "sync-github-app-installation":
+            raise
+        print(
+            "GitHub App installation sync is retryable: database unavailable",
+            file=sys.stderr,
+        )
+        return os.EX_TEMPFAIL
     try:
         if args.command == "ready":
             readiness = runtime.readiness()
@@ -150,6 +173,71 @@ def main(argv: list[str] | None = None) -> int:
                         "enabled": access.enabled,
                         "profile": access.profile_key,
                         "provider_repository_id": access.provider_repository_id,
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if args.command == "sync-github-app-installation":
+            raw_app_id = os.environ.get("REVIEW_AGENT_GITHUB_APP_ID", "").strip()
+            raw_key_path = os.environ.get(
+                "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE", ""
+            ).strip()
+            try:
+                app_id = int(raw_app_id)
+                if app_id < 1:
+                    raise ValueError
+            except ValueError:
+                parser.error("REVIEW_AGENT_GITHUB_APP_ID must be a positive integer")
+            if not raw_key_path:
+                parser.error(
+                    "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE is required"
+                )
+            try:
+                authenticator = app_auth.GitHubAppAuthenticator(
+                    app_id=app_id,
+                    private_key_pem=app_auth.load_private_key_file(raw_key_path),
+                )
+                result = operator_application.sync_github_app_installation(
+                    runtime,
+                    authenticator,
+                    provider_installation_id=args.provider_installation_id,
+                    actor=args.actor,
+                    reason=args.reason,
+                )
+            except (
+                app_auth.GitHubAppTokenRetryable,
+                app_inventory.GitHubAppInventoryRetryable,
+            ) as exc:
+                print(f"GitHub App installation sync is retryable: {exc}", file=sys.stderr)
+                return os.EX_TEMPFAIL
+            except (
+                app_auth.GitHubAppConfigurationError,
+                app_auth.GitHubAppTokenPermanent,
+                app_inventory.GitHubAppInventoryPermanent,
+                github_app.GitHubAppStateError,
+                operator_application.OperatorInputError,
+                registry.RegistryError,
+            ) as exc:
+                print(f"GitHub App installation sync failed: {exc}", file=sys.stderr)
+                return 1
+            except (PostgreSQLRuntimeError, psycopg.Error):
+                print(
+                    "GitHub App installation sync is retryable: database unavailable",
+                    file=sys.stderr,
+                )
+                return os.EX_TEMPFAIL
+            print(
+                json.dumps(
+                    {
+                        "installation_status": result.installation.status.value,
+                        "provider_installation_id": (
+                            result.installation.provider_installation_id
+                        ),
+                        "repositories_enabled": result.repositories_enabled,
+                        "repositories_removed": result.repositories_removed,
+                        "repositories_seen": result.repositories_seen,
                     },
                     separators=(",", ":"),
                     sort_keys=True,

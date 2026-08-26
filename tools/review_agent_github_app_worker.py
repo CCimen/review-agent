@@ -8,12 +8,8 @@ from datetime import timedelta
 import os
 from pathlib import Path
 import signal
-import stat
 import sys
 import threading
-
-
-_MAX_PRIVATE_KEY_BYTES = 64 * 1024
 
 
 def _load_package() -> None:
@@ -30,7 +26,11 @@ def _load_package() -> None:
 
 _load_package()
 
-from review_agent_tools.github.app_auth import ReviewReadTokenService  # noqa: E402
+from review_agent_tools.github.app_auth import (  # noqa: E402
+    GitHubAppConfigurationError,
+    ReviewReadTokenService,
+    load_private_key_file,
+)
 from review_agent_tools.github.app_processor import (  # noqa: E402
     GitHubAppProcessor,
     ProcessorConfig,
@@ -85,39 +85,10 @@ def _private_key() -> str:
         raise GitHubAppWorkerConfigurationError(
             "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE is required"
         )
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(raw_path, flags)
-    except OSError as exc:
-        raise GitHubAppWorkerConfigurationError(
-            "GitHub App private key file could not be opened"
-        ) from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise GitHubAppWorkerConfigurationError(
-                "GitHub App private key must be a regular file"
-            )
-        if metadata.st_size > _MAX_PRIVATE_KEY_BYTES:
-            raise GitHubAppWorkerConfigurationError(
-                "GitHub App private key file exceeds the size limit"
-            )
-        with os.fdopen(descriptor, "rb", closefd=True) as handle:
-            descriptor = -1
-            raw = handle.read(_MAX_PRIVATE_KEY_BYTES + 1)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-    if len(raw) > _MAX_PRIVATE_KEY_BYTES:
-        raise GitHubAppWorkerConfigurationError(
-            "GitHub App private key file exceeds the size limit"
-        )
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise GitHubAppWorkerConfigurationError(
-            "GitHub App private key file must be UTF-8 PEM"
-        ) from exc
+        return load_private_key_file(raw_path)
+    except GitHubAppConfigurationError as exc:
+        raise GitHubAppWorkerConfigurationError(str(exc)) from exc
 
 
 def main(argv: list[str] | None = None) -> int:

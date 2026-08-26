@@ -21,13 +21,11 @@ code decides what snapshot is valid and how stored results reach GitHub.
 
 ## Request and authorize
 
-A trusted developer posts `/review` on a pull request. By default, the
-repository-owned GitHub Actions workflow checks the username allowlist and
-trusted GitHub association before sending a minimal HMAC-signed webhook. The
-optional [GitHub App admission pilot](./GITHUB_APP_PILOT.md) receives the signed
-comment event directly and checks the requester's current repository permission.
-Both paths enforce repository authorization before admitting the same durable
-run and job. Source reads and publication use the current scoped service tokens.
+A trusted developer posts `/review` on a pull request. The GitHub App receives
+the signed event, verifies the requester's current repository permission, and
+checks that an operator enabled the repository before admitting durable work.
+Source reads and publication use short-lived, repository-scoped installation
+tokens behind the private gateway.
 
 ## Pin the subject
 
@@ -59,7 +57,7 @@ apply independently.
 
 The model has no arbitrary GitHub mutation tool. It freezes the exact publication
 parts in PostgreSQL. A separate publisher claims that durable intent, writes only
-those parts with the dedicated token, and records each GitHub ID independently.
+those parts through the lease-bound App gateway, and records each GitHub ID independently.
 If the process stops after GitHub accepts a write, marker recovery finds the same
 object instead of creating a duplicate.
 

@@ -26,7 +26,7 @@ def _load_package() -> None:
 
 _load_package()
 
-from review_agent_tools.github.publication import GitHubIssueCommentGateway  # noqa: E402
+from review_agent_tools.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
@@ -79,9 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         PublicationWorker(
             runtime,
-            GitHubIssueCommentGateway(
-                configured.github_publish_token,
-            ),
+            ReviewGitHubGatewayClient(configured.github_gateway_url),
             policy,
             lease_owner=default_publisher_name(),
             stop_event=stop,

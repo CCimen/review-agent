@@ -33,10 +33,6 @@ class ReviewAgentSettings:
         return cls(os.environ)
 
     @property
-    def github_publish_token(self) -> str:
-        return self.environment.get("REVIEW_AGENT_PUBLISH_GH_TOKEN", "").strip()
-
-    @property
     def github_gateway_url(self) -> str:
         value = self.environment.get("REVIEW_AGENT_GITHUB_GATEWAY_URL", "").strip()
         if not value:

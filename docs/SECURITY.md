@@ -50,7 +50,7 @@ Review output reaches GitHub only through a two-stage deterministic path.
 `review_agent_deliver` verifies the PR base/head snapshot, freezes the exact
 comment parts and validated atomic suggestions in PostgreSQL, and queues that
 immutable publication intent. A separate recoverable publisher writes only those
-stored parts with its dedicated token, records each GitHub ID, and completes the
+stored parts through the lease-bound App gateway, records each GitHub ID, and completes the
 run. Suggestions are grouped in one non-blocking GitHub `COMMENT` review; the
 model never receives a GitHub mutation tool or write token.
 
@@ -94,30 +94,17 @@ Claude output is advisory. It must not suppress findings, rewrite prompts,
 change feedback commands, publish comments, or gate pull requests without a
 separate human-reviewed implementation and replay evidence.
 
-## GitHub token boundaries
+## GitHub credential boundaries
 
-Use separate repository-scoped tokens. [Operations](OPERATIONS.md) owns the
-exact permission matrix.
+The GitHub App key exists only in the private gateway. It mints short-lived
+installation tokens reduced to one repository and either read or publication
+permissions. Callers supply a durable lease identity, never a repository, URL,
+HTTP method, or credential. The gateway derives authority from PostgreSQL and
+checks the lease before and after provider I/O.
 
-None of these tokens need repository administration, workflow write, package
-write, secrets access, branch deletion, or contents write.
-
-The publisher token needs Pull requests read/write for both the PR summary and
-native review suggestions. It does not need Issues write or Contents write and
-cannot commit those patches through the review flow. A developer chooses whether
-to apply an individual suggestion or a selected batch in GitHub, and that human
-action creates the commit.
-
-If GitHub returns `Resource not accessible by personal access token`, inspect the
-endpoint-specific failure in `review-agent-memory publications --json`. Most
-runtime 403s are missing org approval or missing Issues/Pull requests permission
-on a fine-grained token.
-
-The [GitHub App admission pilot](./GITHUB_APP_PILOT.md) requests read-only
-Metadata, Contents, Issues, and Pull requests access for one selected repository.
-It validates current installation and requester access before admission. The
-pilot does not give an installation token to Hermes or the publisher and does
-not remove the three current scoped service tokens.
+The App cannot merge, change workflows, administer repositories, read secrets,
+delete branches, or write repository contents. Native suggestions remain
+advisory; a developer chooses whether GitHub should apply one.
 
 ## Dependency vulnerability scanning
 

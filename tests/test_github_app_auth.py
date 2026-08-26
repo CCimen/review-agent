@@ -65,21 +65,22 @@ def _private_key() -> tuple[str, str]:
     return private, public
 
 
-class ReviewReadTokenServiceTests(unittest.TestCase):
+class GitHubAppTokenServiceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.private_key, cls.public_key = _private_key()
 
     def setUp(self) -> None:
-        self.authorization = github_app.ReviewReadAuthorization(
+        self.authorization = github_app.GitHubAppAuthorization(
             repository_id=RepositoryId(41),
             provider_repository_id=9001,
             provider_installation_id=7001,
         )
-        self.service = app_auth.ReviewReadTokenService(
+        self.service = app_auth.GitHubAppTokenService(
             app_id=1234,
             private_key_pem=self.private_key,
             postgres=cast(PostgreSQLRuntime, _Runtime()),
+            profile="sundsvall-standard",
             api_url="https://github.test",
         )
 
@@ -161,11 +162,69 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
         self.assertLessEqual(claims["exp"] - claims["iat"], 600)
         self.assertEqual(captured_timeouts, [15])
 
+    def test_publication_token_has_separate_write_scope_and_cache(self) -> None:
+        requests: list[urllib.request.Request] = []
+
+        def open_request(
+            request: urllib.request.Request, *, timeout: float
+        ) -> _Response:
+            del timeout
+            requests.append(request)
+            permissions = (
+                {
+                    "issues": "write",
+                    "metadata": "read",
+                    "pull_requests": "write",
+                }
+                if len(requests) == 1
+                else {
+                    "contents": "read",
+                    "issues": "read",
+                    "metadata": "read",
+                    "pull_requests": "read",
+                }
+            )
+            return self.response(
+                token=f"token-{len(requests)}",
+                permissions=permissions,
+            )
+
+        with (
+            patch.object(
+                github_app,
+                "authorize_review_publication",
+                return_value=self.authorization,
+            ) as authorize_publication,
+            patch.object(
+                github_app,
+                "authorize_review_read",
+                return_value=self.authorization,
+            ) as authorize_read,
+            patch.object(self.service._opener, "open", side_effect=open_request),
+        ):
+            publication = self.service.token_for(
+                9001, purpose="publication", now=NOW
+            )
+            cached_publication = self.service.token_for(
+                9001, purpose="publication", now=NOW + timedelta(minutes=1)
+            )
+            read = self.service.token_for(9001, now=NOW)
+
+        self.assertEqual(publication.value, "token-1")
+        self.assertEqual(cached_publication.value, "token-1")
+        self.assertEqual(read.value, "token-2")
+        self.assertEqual(
+            json.loads(requests[0].data)["permissions"],
+            {"issues": "write", "pull_requests": "write"},
+        )
+        self.assertEqual(authorize_publication.call_count, 2)
+        authorize_read.assert_called_once()
+
     def test_cached_token_is_reauthorized_before_return(self) -> None:
         authorize = Mock(
             side_effect=(
                 self.authorization,
-                github_app.GitHubAppReviewReadUnauthorized("repository disabled"),
+                github_app.GitHubAppRepositoryUnauthorized("repository disabled"),
             )
         )
         with (
@@ -175,7 +234,7 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
             ) as exchange,
         ):
             first = self.service.token_for(9001, now=NOW)
-            with self.assertRaises(github_app.GitHubAppReviewReadUnauthorized):
+            with self.assertRaises(github_app.GitHubAppRepositoryUnauthorized):
                 self.service.token_for(9001, now=NOW + timedelta(minutes=1))
 
         self.assertEqual(first.value, "installation-token")
@@ -203,7 +262,7 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
         ):
             barrier = threading.Barrier(3)
 
-            def load() -> app_auth.ReviewReadToken:
+            def load() -> app_auth.InstallationToken:
                 barrier.wait()
                 return self.service.token_for(9001, now=NOW)
 
@@ -217,7 +276,7 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
         self.assertEqual(authorize.call_count, 2)
 
     def test_changed_installation_scope_cannot_reuse_cached_token(self) -> None:
-        moved = github_app.ReviewReadAuthorization(
+        moved = github_app.GitHubAppAuthorization(
             repository_id=RepositoryId(41),
             provider_repository_id=9001,
             provider_installation_id=7002,
@@ -307,7 +366,9 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
             self.service.token_for(9001, now=NOW)
 
     def test_oversized_provider_response_is_rejected(self) -> None:
-        response = _Response(b"x" * (app_auth._MAX_TOKEN_RESPONSE_BYTES + 1))
+        response = _Response(
+            b"x" * (app_auth._MAX_INSTALLATION_TOKEN_RESPONSE_BYTES + 1)
+        )
         with (
             patch.object(
                 github_app,
@@ -336,6 +397,28 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
 
         self.assertNotIn("secret", str(raised.exception))
 
+    def test_bot_login_uses_app_identity_once_without_installation_token(self) -> None:
+        requests: list[urllib.request.Request] = []
+
+        def open_request(
+            request: urllib.request.Request, *, timeout: float
+        ) -> _Response:
+            self.assertEqual(timeout, 15)
+            requests.append(request)
+            return _Response(b'{"slug":"review-agent"}')
+
+        with patch.object(
+            self.service._opener, "open", side_effect=open_request
+        ):
+            first = self.service.app_bot_login()
+            second = self.service.app_bot_login()
+
+        self.assertEqual(first, "review-agent[bot]")
+        self.assertEqual(second, first)
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].full_url, "https://github.test/app")
+        self.assertIsNone(requests[0].data)
+
     def test_provider_cannot_return_permissions_broader_than_requested(self) -> None:
         with (
             patch.object(
@@ -362,10 +445,11 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
 
     def test_configuration_and_provider_rejection_are_permanent(self) -> None:
         with self.assertRaisesRegex(ValueError, "app_id"):
-            app_auth.ReviewReadTokenService(
+            app_auth.GitHubAppTokenService(
                 app_id=0,
                 private_key_pem=self.private_key,
                 postgres=cast(PostgreSQLRuntime, _Runtime()),
+                profile="sundsvall-standard",
             )
         with self.assertRaises(app_auth.GitHubAppConfigurationError):
             app_auth.GitHubAppAuthenticator(
@@ -373,10 +457,11 @@ class ReviewReadTokenServiceTests(unittest.TestCase):
                 private_key_pem="not a PEM key",
             )
         with self.assertRaisesRegex(ValueError, "HTTPS"):
-            app_auth.ReviewReadTokenService(
+            app_auth.GitHubAppTokenService(
                 app_id=1234,
                 private_key_pem=self.private_key,
                 postgres=cast(PostgreSQLRuntime, _Runtime()),
+                profile="sundsvall-standard",
                 api_url="http://github.test",
             )
         error = urllib.error.HTTPError(

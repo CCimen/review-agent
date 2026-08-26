@@ -9,6 +9,7 @@ import os
 import socket
 import threading
 import uuid
+from typing import Protocol
 
 import psycopg
 
@@ -33,6 +34,28 @@ _TRANSIENT_DATABASE_ERRORS = (
 
 class PublisherConfigurationError(ValueError):
     """The publisher cannot start from its supplied configuration."""
+
+
+class PublicationGatewayFactory(Protocol):
+    def for_publication(
+        self,
+        *,
+        publication_id: int,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> GitHubPublicationGateway: ...
+
+    def for_failure_status(
+        self,
+        *,
+        run_id: int,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> GitHubPublicationGateway: ...
+
+    def for_posted_publication(
+        self, *, publication_id: int
+    ) -> GitHubPublicationGateway: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +95,7 @@ class PublicationWorker:
     def __init__(
         self,
         runtime: PostgreSQLRuntime,
-        github: GitHubPublicationGateway,
+        github: PublicationGatewayFactory,
         policy: PublisherPolicy,
         *,
         lease_owner: str,
@@ -174,8 +197,13 @@ class PublicationWorker:
         )
         heartbeat.start()
         try:
+            github = self._github.for_failure_status(
+                run_id=int(target.run_id),
+                lease_owner=self._lease_owner,
+                lease_generation=target.delivery_lease_generation,
+            )
             publish_postgres_run_failure_status(
-                self._runtime, run_id=int(target.run_id), github=self._github,
+                self._runtime, run_id=int(target.run_id), github=github,
                 lease_owner=self._lease_owner,
                 lease_generation=target.delivery_lease_generation,
                 retry_delay=self._policy.retry_delay, lease_lost=lost,
@@ -215,15 +243,24 @@ class PublicationWorker:
         )
         heartbeat.start()
         try:
+            github = self._github.for_publication(
+                publication_id=int(publication.id),
+                lease_owner=self._lease_owner,
+                lease_generation=publication.delivery_lease_generation,
+            )
+            posted_github = self._github.for_posted_publication(
+                publication_id=int(publication.id)
+            )
             publish_postgres_publication(
                 self._runtime,
                 publication_id=int(publication.id),
-                github=self._github,
+                github=github,
                 max_comment_bytes=self._policy.max_comment_bytes,
                 lease_owner=self._lease_owner,
                 lease_generation=publication.delivery_lease_generation,
                 retry_delay=self._policy.retry_delay,
                 lease_lost=lease_lost,
+                posted_github=posted_github,
             )
         except publications.PublicationLeaseLost:
             logger.info("Publication %s lost its lease", int(publication.id))

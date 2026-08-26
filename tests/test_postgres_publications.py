@@ -10,7 +10,7 @@ from contextlib import ExitStack
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import psycopg
 
@@ -43,7 +43,13 @@ from review_agent_tools.github.publication import (  # noqa: E402
     PullRequestReviewComment,
     PullRequestState,
 )
+from review_agent_tools.github.gateway import GitHubGatewayRejected  # noqa: E402
+from review_agent_tools.github.publication_gateway import (  # noqa: E402
+    PublicationGatewayRequest,
+    ReviewPublicationGateway,
+)
 from review_agent_tools.postgres import publications  # noqa: E402
+from review_agent_tools.postgres import github_app  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres import review_runs  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
@@ -78,10 +84,42 @@ class FakePostgresPublicationGitHub:
         self.issue_comments_newest_first = False
         self.create_calls = 0
         self.fail_on_create_call: int | None = None
+        self.create_error: GitHubPublicationError | None = None
         self.fail_on_review_create = False
         self.list_issue_comments_calls = 0
         self.fail_on_list_call: int | None = None
         self.before_target_read: Callable[[], None] | None = None
+        self.publication_leases: list[tuple[int, str, int]] = []
+        self.posted_publications: list[int] = []
+        self.failure_status_leases: list[tuple[int, str, int]] = []
+
+    def for_publication(
+        self,
+        *,
+        publication_id: int,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> FakePostgresPublicationGitHub:
+        self.publication_leases.append(
+            (publication_id, lease_owner, lease_generation)
+        )
+        return self
+
+    def for_failure_status(
+        self,
+        *,
+        run_id: int,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> FakePostgresPublicationGitHub:
+        self.failure_status_leases.append((run_id, lease_owner, lease_generation))
+        return self
+
+    def for_posted_publication(
+        self, *, publication_id: int
+    ) -> FakePostgresPublicationGitHub:
+        self.posted_publications.append(publication_id)
+        return self
 
     def _outside_transaction(self) -> None:
         if self.fail_on_call:
@@ -130,6 +168,8 @@ class FakePostgresPublicationGitHub:
     ) -> IssueComment:
         self._outside_transaction()
         self.create_calls += 1
+        if self.create_error is not None:
+            raise self.create_error
         if self.fail_on_create_call == self.create_calls:
             raise GitHubPublicationError("github_unreachable")
         comment = IssueComment(
@@ -789,6 +829,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 max_comment_bytes=60_000,
                 lease_owner="publisher-one",
                 lease_generation=first.publication.delivery_lease_generation,
+                posted_github=github,
             )
 
         self.assertEqual(github.create_calls, 0)
@@ -840,6 +881,134 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertTrue(lease_lost.is_set())
         self.assertEqual(heartbeat.call_count, 2)
 
+    def test_posted_finalization_has_narrow_authority_after_lease_release(
+        self,
+    ) -> None:
+        first_run, first_batch = self.start_recorded_run(
+            request_key="github:issue-comment:posted-finalization-first"
+        )
+        with self.runtime.transaction() as connection:
+            first = publications.prepare_publication(
+                connection, run_id=first_run, plan=self.plan(first_batch)
+            )
+        direct_github = FakePostgresPublicationGitHub(self.runtime)
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(first.id),
+            github=direct_github,
+            max_comment_bytes=60_000,
+        )
+
+        second_run, second_batch = self.start_recorded_run(
+            request_key="github:issue-comment:posted-finalization-second"
+        )
+        with self.runtime.transaction() as connection:
+            second = publications.prepare_publication(
+                connection,
+                run_id=second_run,
+                plan=self.plan(second_batch, key_character="e"),
+            )
+            claim = publications.claim_publication(
+                connection,
+                second.id,
+                lease_owner="publisher-one",
+                lease_duration=timedelta(seconds=30),
+            )
+        with patch.object(
+            review_publication_application,
+            "_render_postgres_supersession",
+            return_value=None,
+        ):
+            review_publication_application.publish_postgres_publication(
+                self.runtime,
+                publication_id=int(second.id),
+                github=direct_github,
+                max_comment_bytes=60_000,
+                lease_owner="publisher-one",
+                lease_generation=claim.publication.delivery_lease_generation,
+                posted_github=direct_github,
+            )
+
+        tokens = Mock()
+        tokens.token_for.return_value = Mock(value="installation-token")
+        provider = Mock()
+        provider.list_issue_comments.return_value = []
+        provider.update_issue_comment.return_value = IssueComment(
+            direct_github.comments[0].comment_id,
+            "superseded",
+            "review-agent[bot]",
+        )
+        gateway = ReviewPublicationGateway(
+            postgres=self.runtime,
+            tokens=tokens,
+            profile="sundsvall-standard",
+            github_factory=Mock(return_value=provider),
+        )
+        active = PublicationGatewayRequest.from_mapping(
+            {
+                "scope_kind": "publication",
+                "scope_id": int(second.id),
+                "lease_owner": "publisher-one",
+                "lease_generation": claim.publication.delivery_lease_generation,
+                "operation": "current_user",
+            }
+        )
+        posted = PublicationGatewayRequest.from_mapping(
+            {
+                "scope_kind": "posted_publication",
+                "scope_id": int(second.id),
+                "operation": "list_issue_comments",
+                "max_pages": 1,
+                "newest_first": False,
+            }
+        )
+        arbitrary_update = PublicationGatewayRequest.from_mapping(
+            {
+                "scope_kind": "posted_publication",
+                "scope_id": int(second.id),
+                "operation": "update_issue_comment",
+                "comment_id": 999_999,
+                "body": "not authorized",
+            }
+        )
+        authorized_update = PublicationGatewayRequest.from_mapping(
+            {
+                "scope_kind": "posted_publication",
+                "scope_id": int(second.id),
+                "operation": "update_issue_comment",
+                "comment_id": direct_github.comments[0].comment_id,
+                "body": "superseded",
+            }
+        )
+
+        with patch.object(
+            github_app, "authorize_review_publication", return_value=Mock()
+        ):
+            with self.assertRaises(GitHubGatewayRejected) as rejected:
+                gateway.execute(active)
+            self.assertEqual(gateway.execute(posted), [])
+            with self.assertRaises(GitHubGatewayRejected) as arbitrary:
+                gateway.execute(arbitrary_update)
+            result = gateway.execute(authorized_update)
+
+            with self.runtime.transaction() as connection:
+                publications.record_supersession_result(
+                    connection,
+                    publication_id=first.id,
+                    failure_code=None,
+                )
+            with self.assertRaises(GitHubGatewayRejected) as completed:
+                gateway.execute(posted)
+
+        self.assertEqual(rejected.exception.reason, "publication_lease_lost")
+        self.assertEqual(
+            arbitrary.exception.reason, "publication_comment_not_authorized"
+        )
+        self.assertEqual(
+            completed.exception.reason, "publication_finalization_complete"
+        )
+        self.assertEqual(result, provider.update_issue_comment.return_value)
+
     def test_unavailable_database_before_create_blocks_the_provider_write(self) -> None:
         run_id, batch = self.start_recorded_run(
             request_key="github:issue-comment:database-fails-before-write"
@@ -872,6 +1041,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                     max_comment_bytes=60_000,
                     lease_owner="publisher-one",
                     lease_generation=claim.publication.delivery_lease_generation,
+                    posted_github=github,
                 )
 
         self.assertEqual(github.create_calls, 0)
@@ -1236,6 +1406,42 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         )
         self.assertEqual(len(github.comments), 2)
 
+    def test_permanent_gateway_rejection_does_not_consume_retry_budget(self) -> None:
+        run_id, batch = self.start_recorded_run(
+            request_key="github:issue-comment:permanent-rejection"
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch)
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.create_error = GitHubPublicationError(
+            "repository_not_authorized", retryable=False
+        )
+
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=int(prepared.id),
+            github=github,
+            max_comment_bytes=60_000,
+        )
+
+        with self.runtime.transaction() as connection:
+            stored = connection.execute(
+                """
+                SELECT status, failure_code, delivery_attempt_count
+                FROM review_agent.publications
+                WHERE id = %s
+                """,
+                (prepared.id,),
+            ).fetchone()
+            run = review_runs.get_run(connection, run_id)
+        self.assertIsNotNone(stored)
+        assert stored is not None
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(stored, ("failed", "repository_not_authorized", 1))
+        self.assertEqual(run.failure_code, "repository_not_authorized")
+
     def test_second_posted_review_supersedes_the_first_in_one_transaction(self) -> None:
         first_run, first_batch = self.start_recorded_run(
             request_key="github:issue-comment:supersession-1"
@@ -1416,7 +1622,8 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 run_id=second_run,
                 plan=self.plan(second_batch, key_character="6"),
             )
-        github.fail_on_list_call = github.list_issue_comments_calls + 2
+        # Recovery and failure-status cleanup precede posted supersession.
+        github.fail_on_list_call = github.list_issue_comments_calls + 3
 
         result = review_publication_application.publish_postgres_publication(
             self.runtime,
@@ -1726,6 +1933,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             failure = review_runs.failure_status_target(connection, failed_run)
         self.assertEqual(publication.status.value, "posted")
         self.assertEqual(failure.delivery_status, "posted")
+        self.assertEqual(github.posted_publications, [int(prepared.id)])
 
     def test_newer_success_suppresses_older_pending_failure_status(self) -> None:
         failed_run, _ = self.start_recorded_run(request_key="older-pending-failure")

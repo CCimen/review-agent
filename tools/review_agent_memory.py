@@ -34,13 +34,9 @@ _plugin_parent()
 
 from review_agent_tools import operator_application  # noqa: E402
 from review_agent_tools.domain.coaching import CoachCandidateInput  # noqa: E402
-from review_agent_tools.github.publication import GitHubIssueCommentGateway  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
-)
-from review_agent_tools.review_publication_application import (  # noqa: E402
-    publish_postgres_run_failure_status,
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
 
@@ -135,7 +131,6 @@ def _parser() -> argparse.ArgumentParser:
     runs.add_argument("--days", type=int, default=30)
     runs.add_argument("--stale-after-minutes", type=int, default=30)
     runs.add_argument("--mark-stalled", action="store_true")
-    runs.add_argument("--publish-failure-status", action="store_true")
     publications = commands.add_parser("publications", help="List publications.")
     publications.add_argument("--repo")
     publications.add_argument("--pr", type=int)
@@ -270,28 +265,6 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             expiring_within_days=args.expiring_within_days,
         )
     elif args.command == "runs":
-        if args.publish_failure_status:
-            queue = operator_application.prepare_failure_status_queue(
-                runtime, repository=args.repo, pr_number=args.pr,
-                older_than_minutes=args.stale_after_minutes, limit=args.limit,
-            )
-            configured = ReviewAgentSettings.from_environment()
-            github = GitHubIssueCommentGateway(
-                configured.github_publish_token,
-            )
-            failures: list[dict[str, object]] = []
-            posted = 0
-            for target in queue.targets:
-                try:
-                    publish_postgres_run_failure_status(
-                        runtime, run_id=int(target.run_id), github=github
-                    )
-                    posted += 1
-                except Exception as exc:
-                    failures.append({"run_id": int(target.run_id), "error": str(exc)})
-            print(_json({"marked_failed": queue.marked.failed_count,
-                         "status_posted": posted, "status_failed": failures}, pretty=True))
-            return 1 if failures else 0
         if args.mark_stalled:
             result = operator_application.mark_stalled_runs(
                 runtime, repository=args.repo, pr_number=args.pr,

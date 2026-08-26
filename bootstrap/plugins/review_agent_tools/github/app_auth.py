@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from http.client import HTTPMessage
 from collections.abc import Mapping, Sequence
-from typing import IO, Final, cast
+from typing import IO, Final, Literal, cast
 from urllib.parse import urlsplit
 from weakref import WeakValueDictionary
 
@@ -30,13 +30,20 @@ _TOKEN_REFRESH_MARGIN: Final = timedelta(minutes=5)
 _JWT_LIFETIME: Final = timedelta(minutes=9)
 _JWT_CLOCK_SKEW: Final = timedelta(seconds=60)
 _REQUEST_TIMEOUT_SECONDS: Final = 15
-_MAX_TOKEN_RESPONSE_BYTES: Final = 65_536
-_DEFAULT_PROVIDER_RESPONSE_BYTES: Final = 4 * 1024 * 1024
+_MAX_INSTALLATION_TOKEN_RESPONSE_BYTES: Final = 65_536
+_DEFAULT_GITHUB_API_RESPONSE_BYTES: Final = 4 * 1024 * 1024
 _MAX_PRIVATE_KEY_BYTES: Final = 64 * 1024
-_READ_PERMISSIONS: Final = {
-    "contents": "read",
-    "issues": "read",
-    "pull_requests": "read",
+GitHubAppTokenPurpose = Literal["review_read", "publication"]
+_PURPOSE_PERMISSIONS: Final[dict[GitHubAppTokenPurpose, dict[str, str]]] = {
+    "review_read": {
+        "contents": "read",
+        "issues": "read",
+        "pull_requests": "read",
+    },
+    "publication": {
+        "issues": "write",
+        "pull_requests": "write",
+    },
 }
 
 
@@ -62,12 +69,9 @@ class InstallationToken:
     expires_at: datetime
 
 
-ReviewReadToken = InstallationToken
-
-
 @dataclass(frozen=True, slots=True)
 class _CachedToken:
-    token: ReviewReadToken
+    token: InstallationToken
     provider_installation_id: int
 
 
@@ -160,7 +164,7 @@ class GitHubAppAuthenticator:
         app_id: int,
         private_key_pem: str,
         api_url: str = "https://api.github.com",
-        response_byte_limit: int = _DEFAULT_PROVIDER_RESPONSE_BYTES,
+        response_byte_limit: int = _DEFAULT_GITHUB_API_RESPONSE_BYTES,
     ) -> None:
         if isinstance(app_id, bool) or app_id < 1:
             raise ValueError("app_id must be positive")
@@ -224,7 +228,7 @@ class GitHubAppAuthenticator:
             credential=self._app_jwt(moment),
             method="POST",
             payload=payload,
-            response_byte_limit=_MAX_TOKEN_RESPONSE_BYTES,
+            response_byte_limit=_MAX_INSTALLATION_TOKEN_RESPONSE_BYTES,
         )
         if not isinstance(result, Mapping):
             raise GitHubAppTokenPermanent(
@@ -358,8 +362,8 @@ class GitHubAppAuthenticator:
             raise GitHubAppTokenPermanent("GitHub App response was invalid") from exc
 
 
-class ReviewReadTokenService:
-    """Mint and briefly cache minimum-permission tokens for one repository."""
+class GitHubAppTokenService:
+    """Mint and briefly cache one of the two code-owned repository token scopes."""
 
     def __init__(
         self,
@@ -367,6 +371,7 @@ class ReviewReadTokenService:
         app_id: int,
         private_key_pem: str,
         postgres: PostgreSQLRuntime,
+        profile: str,
         api_url: str = "https://api.github.com",
     ) -> None:
         self._authenticator = GitHubAppAuthenticator(
@@ -375,27 +380,56 @@ class ReviewReadTokenService:
             api_url=api_url,
         )
         self._postgres = postgres
-        self._cache: dict[int, _CachedToken] = {}
-        self._locks: WeakValueDictionary[int, threading.Lock] = WeakValueDictionary()
+        self._profile = profile.strip()
+        if not self._profile:
+            raise GitHubAppConfigurationError("profile is required")
+        self._cache: dict[tuple[int, GitHubAppTokenPurpose], _CachedToken] = {}
+        self._bot_login: str | None = None
+        self._bot_login_lock = threading.Lock()
+        self._locks: WeakValueDictionary[
+            tuple[int, GitHubAppTokenPurpose], threading.Lock
+        ] = WeakValueDictionary()
         self._locks_guard = threading.Lock()
         # Retain this internal seam for existing focused HTTP tests.
         self._opener = self._authenticator.opener
 
+    def app_bot_login(self) -> str:
+        """Return the stable bot login derived with App JWT authentication."""
+        with self._bot_login_lock:
+            if self._bot_login is not None:
+                return self._bot_login
+            result = self._authenticator.app_json("/app")
+            if not isinstance(result, Mapping):
+                raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
+            metadata = cast(Mapping[str, object], result)
+            slug = metadata.get("slug")
+            if not isinstance(slug, str) or not slug or slug != slug.strip():
+                raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
+            self._bot_login = f"{slug}[bot]"
+            return self._bot_login
+
     def token_for(
-        self, provider_repository_id: int, *, now: datetime | None = None
-    ) -> ReviewReadToken:
+        self,
+        provider_repository_id: int,
+        *,
+        purpose: GitHubAppTokenPurpose = "review_read",
+        now: datetime | None = None,
+    ) -> InstallationToken:
         """Return a token only after reauthorizing current PostgreSQL state."""
+        if purpose not in _PURPOSE_PERMISSIONS:
+            raise ValueError("unsupported GitHub App token purpose")
         moment = now or datetime.now(timezone.utc)
         if moment.tzinfo is None:
             raise ValueError("now must be timezone-aware")
-        lock = self._scope_lock(provider_repository_id)
+        cache_key = (provider_repository_id, purpose)
+        lock = self._scope_lock(cache_key)
         with lock:
             try:
-                authorization = self._authorize(provider_repository_id)
-            except github_app.GitHubAppReviewReadUnauthorized:
-                self._cache.pop(provider_repository_id, None)
+                authorization = self._authorize(provider_repository_id, purpose)
+            except github_app.GitHubAppRepositoryUnauthorized:
+                self._cache.pop(cache_key, None)
                 raise
-            cached = self._cache.get(provider_repository_id)
+            cached = self._cache.get(cache_key)
             if (
                 cached is not None
                 and cached.provider_installation_id
@@ -403,38 +437,59 @@ class ReviewReadTokenService:
                 and cached.token.expires_at - moment > _TOKEN_REFRESH_MARGIN
             ):
                 return cached.token
-            token = self._exchange(authorization, moment)
-            self._cache[provider_repository_id] = _CachedToken(
+            token = self._exchange(authorization, purpose, moment)
+            self._cache[cache_key] = _CachedToken(
                 token=token,
                 provider_installation_id=authorization.provider_installation_id,
             )
             return token
 
-    def invalidate(self, provider_repository_id: int) -> None:
+    def invalidate(
+        self,
+        provider_repository_id: int,
+        *,
+        purpose: GitHubAppTokenPurpose = "review_read",
+    ) -> None:
         """Forget one cached repository token before a single credential retry."""
         if type(provider_repository_id) is not int or provider_repository_id < 1:
             raise ValueError("provider_repository_id must be positive")
-        with self._scope_lock(provider_repository_id):
-            self._cache.pop(provider_repository_id, None)
+        cache_key = (provider_repository_id, purpose)
+        with self._scope_lock(cache_key):
+            self._cache.pop(cache_key, None)
 
-    def _scope_lock(self, provider_repository_id: int) -> threading.Lock:
+    def _scope_lock(
+        self, cache_key: tuple[int, GitHubAppTokenPurpose]
+    ) -> threading.Lock:
         with self._locks_guard:
-            return self._locks.setdefault(provider_repository_id, threading.Lock())
+            return self._locks.setdefault(cache_key, threading.Lock())
 
     def _authorize(
-        self, provider_repository_id: int
-    ) -> github_app.ReviewReadAuthorization:
+        self,
+        provider_repository_id: int,
+        purpose: GitHubAppTokenPurpose,
+    ) -> github_app.GitHubAppAuthorization:
         with self._postgres.transaction() as connection:
-            return github_app.authorize_review_read(connection, provider_repository_id)
+            if purpose == "publication":
+                return github_app.authorize_review_publication(
+                    connection,
+                    provider_repository_id,
+                    profile_key=self._profile,
+                )
+            return github_app.authorize_review_read(
+                connection,
+                provider_repository_id,
+                profile_key=self._profile,
+            )
 
     def _exchange(
         self,
-        authorization: github_app.ReviewReadAuthorization,
+        authorization: github_app.GitHubAppAuthorization,
+        purpose: GitHubAppTokenPurpose,
         now: datetime,
-    ) -> ReviewReadToken:
+    ) -> InstallationToken:
         return self._authenticator.installation_token(
             authorization.provider_installation_id,
             repository_ids=(authorization.provider_repository_id,),
-            permissions=_READ_PERMISSIONS,
+            permissions=_PURPOSE_PERMISSIONS[purpose],
             now=now,
         )

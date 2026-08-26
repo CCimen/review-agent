@@ -9,7 +9,7 @@ import tempfile
 import threading
 from typing import cast
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import urllib.error
 import urllib.request
 
@@ -30,6 +30,16 @@ from review_agent_tools.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
 from review_agent_tools.github.source import ReviewPullSource  # noqa: E402
+from review_agent_tools.github.publication_gateway import (  # noqa: E402
+    ReviewPublicationGateway,
+)
+from review_agent_tools.github.publication import (  # noqa: E402
+    InlineReviewComment,
+    IssueComment,
+    PullRequestReview,
+    PullRequestReviewComment,
+    PullRequestState,
+)
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 
 
@@ -92,9 +102,14 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
     def setUp(self) -> None:
         self.module = _entrypoint_module()
         self.gateway = _Gateway()
+        self.publication_gateway = Mock()
+        self.publication_gateway.execute.return_value = "review-agent[bot]"
         self.server = self.module.GatewayServer(
             ("127.0.0.1", 0),
             gateway=cast(ReviewGitHubGateway, self.gateway),
+            publication_gateway=cast(
+                ReviewPublicationGateway, self.publication_gateway
+            ),
             runtime=cast(PostgreSQLRuntime, _Runtime()),
             max_concurrent_requests=2,
         )
@@ -185,6 +200,146 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 400)
         raised.exception.close()
         self.assertEqual(len(self.gateway.source_calls), 1)
+
+    def test_publication_route_uses_only_durable_lease_identity(self) -> None:
+        client = ReviewGitHubGatewayClient(self.base_url)
+
+        login = client.for_publication(
+            publication_id=71,
+            lease_owner="publisher-1",
+            lease_generation=3,
+        ).current_user_login()
+
+        self.assertEqual(login, "review-agent[bot]")
+        request = self.publication_gateway.execute.call_args.args[0]
+        self.assertEqual(request.scope_kind, "publication")
+        self.assertEqual(request.scope_id, 71)
+        self.assertEqual(request.lease_owner, "publisher-1")
+        self.assertEqual(request.lease_generation, 3)
+        self.assertEqual(request.operation, "current_user")
+
+    def test_posted_publication_route_has_narrow_durable_identity(self) -> None:
+        client = ReviewGitHubGatewayClient(self.base_url)
+        self.publication_gateway.execute.return_value = []
+
+        comments = client.for_posted_publication(
+            publication_id=71
+        ).list_issue_comments(
+            "CCimen/review-agent", 42, max_pages=1, newest_first=False
+        )
+
+        self.assertEqual(comments, [])
+        request = self.publication_gateway.execute.call_args.args[0]
+        self.assertEqual(request.scope_kind, "posted_publication")
+        self.assertEqual(request.scope_id, 71)
+        self.assertIsNone(request.lease_owner)
+        self.assertIsNone(request.lease_generation)
+        self.assertEqual(request.operation, "list_issue_comments")
+
+    def test_publication_operations_round_trip_through_http_codec(self) -> None:
+        client = ReviewGitHubGatewayClient(self.base_url)
+        gateway = client.for_publication(
+            publication_id=71,
+            lease_owner="publisher-1",
+            lease_generation=3,
+        )
+        comment = IssueComment(81, "body", "review-agent[bot]")
+        review = PullRequestReview(
+            91, "review", "review-agent[bot]", "a" * 40, "COMMENTED"
+        )
+        review_comment = PullRequestReviewComment(
+            101,
+            91,
+            "finding",
+            "review-agent[bot]",
+            "src/app.py",
+            "a" * 40,
+            12,
+            "RIGHT",
+            None,
+            None,
+        )
+        cases = (
+            (
+                PullRequestState("open", False, "b" * 40, "a" * 40),
+                lambda: gateway.get_pull_request("CCimen/review-agent", 42),
+            ),
+            (
+                [comment],
+                lambda: gateway.list_issue_comments(
+                    "CCimen/review-agent", 42, max_pages=2, newest_first=True
+                ),
+            ),
+            (
+                comment,
+                lambda: gateway.update_issue_comment(
+                    "CCimen/review-agent", 81, "body"
+                ),
+            ),
+            (
+                comment,
+                lambda: gateway.create_issue_comment(
+                    "CCimen/review-agent", 42, "body"
+                ),
+            ),
+            (
+                None,
+                lambda: gateway.delete_issue_comment("CCimen/review-agent", 81),
+            ),
+            (
+                review,
+                lambda: gateway.create_pull_request_review(
+                    "CCimen/review-agent",
+                    42,
+                    commit_id="a" * 40,
+                    body="review",
+                    comments=(
+                        InlineReviewComment(
+                            path="src/app.py",
+                            body="finding",
+                            line=12,
+                            side="RIGHT",
+                        ),
+                    ),
+                ),
+            ),
+            (
+                [review_comment],
+                lambda: gateway.list_pull_request_review_comments(
+                    "CCimen/review-agent", 42, max_pages=2
+                ),
+            ),
+        )
+
+        for provider_result, call in cases:
+            with self.subTest(result_type=type(provider_result).__name__):
+                self.publication_gateway.execute.return_value = provider_result
+                result = call()
+                self.assertEqual(result, provider_result)
+
+    def test_publication_route_rejects_caller_selected_repository(self) -> None:
+        request = urllib.request.Request(
+            f"{self.base_url}/v1/review-publications/execute",
+            data=json.dumps(
+                {
+                    "scope_kind": "publication",
+                    "scope_id": 71,
+                    "lease_owner": "publisher-1",
+                    "lease_generation": 3,
+                    "operation": "current_user",
+                    "repository": "other/repository",
+                }
+            ).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request)
+
+        self.assertEqual(raised.exception.code, 400)
+        raised.exception.close()
+        self.publication_gateway.execute.assert_not_called()
 
     def test_retryable_gateway_failure_remains_typed_at_client(self) -> None:
         self.gateway.failure = GitHubGatewayRetryable("github_read_unavailable")

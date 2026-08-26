@@ -401,7 +401,7 @@ class GitHubAppProcessor:
                     status=webhook_deliveries.TerminalStatus.ACCEPTED,
                     actor=actor,
                 )
-        except github_app.GitHubAppReviewReadUnauthorized as exc:
+        except github_app.GitHubAppRepositoryUnauthorized as exc:
             raise _Reject("repository_not_authorized") from exc
         except (jobs.ReviewQueueFull, jobs.ReviewJobBusy) as exc:
             raise _Retry("review_queue_unavailable") from exc

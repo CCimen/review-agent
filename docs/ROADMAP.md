@@ -15,10 +15,9 @@ last_verified: 2026-08-26
 
 ## Core platform
 
-- **Trusted admission:** GitHub Actions checks the requester and signs a small
-  request. An opt-in GitHub App pilot can instead validate direct comment events
-  and selected-repository access. Both paths admit the same durable work and pin
-  the current base and head commits.
+- **Trusted admission:** the GitHub App validates direct comment events,
+  requester permission, and selected-repository access before durable work is
+  admitted and the current base and head commits are pinned.
 - **Evidence-backed review:** Hermes receives bounded read tools, records
   coverage, challenges candidate findings, and keeps incomplete review depth
   visible.
@@ -55,8 +54,7 @@ own profile and session files outside application state.
 
 ## Optional extensions
 
-- Complete an owner-controlled live GitHub App pilot, then decide whether to
-  replace source-read, publication, and feedback tokens.
+- Move the optional feedback sidecar behind the same App boundary.
 - Trusted base-branch repository policy and `AGENTS.md` context.
 - Operator-facing repository management and policy controls.
 - Notification or collaboration channels beyond GitHub.

@@ -12,8 +12,8 @@ import TabItem from '@theme/TabItem';
 
 # Deploy Review Agent
 
-> **TL;DR**: Choose a released image or build locally, provide PostgreSQL and
-> three scoped GitHub tokens, then expose only the admission endpoint. Tune
+> **TL;DR**: Choose a released image or build locally, provide PostgreSQL and a
+> repository-scoped GitHub App, then expose only the admission endpoint. Tune
 > bounded worker concurrency before adding replicas. Queue limits protect shared
 > compute and do not limit PR size.
 
@@ -26,39 +26,23 @@ publishers independently. Expose admission on port `8644`; expose feedback on
 `8645` only when enabled. Keep Hermes `8642` and PostgreSQL off the shared proxy
 network.
 
-The diagram shows the default GitHub Actions path. An opt-in
-[GitHub App admission pilot](./GITHUB_APP_PILOT.md) can receive the same command
-directly for one selected repository. It does not replace the three scoped
-service tokens.
+The GitHub App receives review commands directly. The private gateway uses its
+key for bounded source and publication operations; Hermes and the publisher do
+not receive the key or installation tokens.
 
 ## Create the credentials
 
-### GitHub tokens
+### GitHub App
 
-Create three fine-grained personal access tokens for source reads, publication,
-and feedback. The optional GitHub App pilot changes admission only, so it keeps
-these tokens.
+Create a GitHub App with webhook events and permissions from [GitHub App
+setup](./GITHUB_APP_PILOT.md). Install it with **Only select repositories**.
+Store the App ID, webhook secret, and private-key file in the deployment secret
+manager. The App needs Contents read, Issues write, Pull requests write, and
+Metadata read; it does not need Actions, Administration, Secrets, or Contents
+write.
 
-For each token:
-
-1. Open **GitHub > Settings > Developer settings > Personal access tokens >
-   Fine-grained tokens** and select **Generate new token**.
-2. Select the organization as **Resource owner**, set an expiration, and choose
-   **Only select repositories**.
-3. Select the repositories that Review Agent may access.
-4. Grant the permissions from the table, generate the token, and store it in the
-   deployment secret manager.
-5. If GitHub marks the token `pending`, ask an organization owner to approve it.
-
-| Deployment value | Repository permissions |
-| --- | --- |
-| `GITHUB_READ_TOKEN` | Contents read, Pull requests read, Metadata read |
-| `REVIEW_AGENT_PUBLISH_GH_TOKEN` | Pull requests read/write, Metadata read |
-| `REVIEW_AGENT_FEEDBACK_GH_TOKEN` | Issues read/write, Pull requests read, Metadata read |
-
-GitHub documents the [token creation flow](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
-and lists [permissions for each REST endpoint](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens).
-The publisher does not need Contents write, Actions, Administration, or Secrets.
+The optional feedback sidecar currently keeps its separate fine-grained token.
+It is not available to Hermes, workers, or the publication path.
 
 ### Service secrets
 
@@ -105,8 +89,8 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 <TabItem value="compose" label="Compose / Dokploy" default>
 
 1. Copy `.env.example` to the platform secret store and replace each
-   `replace-with...` placeholder: the three GitHub tokens, the three service
-   secrets, the PostgreSQL password and URL, and the repository allowlist.
+   `replace-with...` placeholder: the GitHub App values, feedback credentials
+   when enabled, service secrets, and PostgreSQL password and URL.
    Every other value is a documented tuning default you can keep.
 2. Create the external ingress network. Dokploy already provides
    `dokploy-network`; a plain Docker host can create its configured name:
@@ -175,67 +159,9 @@ the host.
 </TabItem>
 <TabItem value="openshift" label="OpenShift">
 
-The OpenShift template uses an external PostgreSQL service and an immutable
-image built from this repository. Push the image to a registry that the project
-can pull, then create the project and role-specific secrets:
-
-```bash
-oc new-project review-agent
-
-oc create secret generic review-agent-database \
-  --from-literal=REVIEW_AGENT_DATABASE_URL="$REVIEW_AGENT_DATABASE_URL"
-oc create secret generic review-agent-admission \
-  --from-literal=REVIEW_AGENT_WEBHOOK_SECRET="$REVIEW_AGENT_WEBHOOK_SECRET" \
-  --from-literal=GITHUB_READ_TOKEN="$GITHUB_READ_TOKEN"
-oc create secret generic review-agent-hermes \
-  --from-literal=GITHUB_READ_TOKEN="$GITHUB_READ_TOKEN" \
-  --from-literal=API_SERVER_KEY="$API_SERVER_KEY"
-oc create secret generic review-agent-worker \
-  --from-literal=API_SERVER_KEY="$API_SERVER_KEY"
-oc create secret generic review-agent-publisher \
-  --from-literal=GITHUB_READ_TOKEN="$GITHUB_READ_TOKEN" \
-  --from-literal=REVIEW_AGENT_PUBLISH_GH_TOKEN="$REVIEW_AGENT_PUBLISH_GH_TOKEN"
-oc create secret generic review-agent-feedback \
-  --from-literal=REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET="$REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET" \
-  --from-literal=REVIEW_AGENT_FEEDBACK_GH_TOKEN="$REVIEW_AGENT_FEEDBACK_GH_TOKEN" \
-  --from-literal=REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS="$REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS"
-```
-
-Process the template with the immutable image tag or digest:
-
-```bash
-oc process -f examples/openshift/review-agent-template.yaml \
-  -p IMAGE="$REVIEW_AGENT_IMAGE" \
-  -p PROFILE=sundsvall-standard \
-  -p ALLOWED_REPOSITORIES='org/repository' | oc apply -f -
-
-oc wait --for=condition=complete job/review-agent-profile-install --timeout=5m
-oc wait --for=condition=complete job/review-agent-db-migrate --timeout=5m
-```
-
-Start Hermes first, complete the device login, then start admission and workers:
-
-```bash
-oc scale deployment/hermes-review --replicas=1
-oc wait --for=condition=available deployment/hermes-review --timeout=5m
-oc rsh deployment/hermes-review hermes auth add openai-codex
-oc rollout restart deployment/hermes-review
-oc rollout status deployment/hermes-review --timeout=5m
-
-oc scale deployment/review-agent-admission --replicas=1
-oc scale deployment/review-agent-worker --replicas=1
-oc scale deployment/review-agent-publisher --replicas=1
-oc get route review-agent
-```
-
-Enable feedback after setting `REVIEW_AGENT_FEEDBACK_ENABLED=true` in the ConfigMap:
-
-```bash
-oc patch configmap review-agent-config --type merge \
-  -p '{"data":{"REVIEW_AGENT_FEEDBACK_ENABLED":"true"}}'
-oc scale deployment/review-agent-feedback --replicas=1
-oc get route review-agent-feedback
-```
+The checked-in OpenShift template is not yet App-only. Do not deploy that
+template with legacy GitHub credentials. Use the Compose stack while the
+OpenShift topology is brought to the same private-gateway contract.
 
 The template omits `runAsUser`, drops Linux capabilities, and uses the direct
 Hermes command instead of the image's root-oriented init process. OpenShift can
@@ -249,35 +175,12 @@ and the [restricted-v2 SCC](https://docs.redhat.com/en/documentation/openshift_c
 </TabItem>
 </Tabs>
 
-## Configure GitHub Actions
+## Configure GitHub
 
-Copy `examples/github/ai-review-request.yml` to
-`.github/workflows/ai-review-request.yml` on the repository's default branch.
-The workflow grants its short-lived `GITHUB_TOKEN` `issues: write` and
-`pull-requests: write` so it can add the receipt reaction. It does not receive
-the deployment PATs.
-
-Open **Repository Settings > Secrets and variables > Actions**. Create four
-repository secrets:
-
-| Secret | Value |
-| --- | --- |
-| `HERMES_REVIEW_URL` | `https://review.example.org/webhooks/review-agent` |
-| `HERMES_WEBHOOK_SECRET` | Same value as `REVIEW_AGENT_WEBHOOK_SECRET` |
-| `HERMES_REVIEW_FEEDBACK_URL` | `https://review-feedback.example.org/webhooks/review-agent-feedback` |
-| `HERMES_REVIEW_FEEDBACK_SECRET` | Same value as `REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET` |
-
-On the **Variables** tab, create `AI_REVIEW_ALLOWED_USERS` with a comma-separated
-list of trusted GitHub usernames. Empty means deny all. GitHub documents the UI
-for [repository secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#creating-secrets-for-a-repository)
-and [repository variables](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-variables#creating-configuration-variables-for-a-repository).
-
-Protect the workflow with CODEOWNERS or a ruleset. A maintainer who passes both
-the username allowlist and GitHub's `OWNER`, `MEMBER`, or `COLLABORATOR`
-association check can now comment `/review`.
-
-For an owner-controlled test of direct admission on one repository, keep
-this workflow active and follow the [GitHub App pilot](./GITHUB_APP_PILOT.md).
+Register the App, install it with **Only select repositories**, reconcile the
+installation, and explicitly enable each repository. The [GitHub App setup
+guide](./GITHUB_APP_PILOT.md) has the exact permissions and commands. No
+repository workflow or Actions secrets are required.
 
 ## Scale and operate the queue
 

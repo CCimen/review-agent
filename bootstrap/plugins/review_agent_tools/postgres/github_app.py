@@ -31,8 +31,8 @@ class GitHubAppRepositoryNotFound(GitHubAppStateError):
     """The requested GitHub App repository access record does not exist."""
 
 
-class GitHubAppReviewReadUnauthorized(GitHubAppStateError):
-    """The repository is not currently authorized for App-backed review reads."""
+class GitHubAppRepositoryUnauthorized(GitHubAppStateError):
+    """The repository is not currently authorized for this App operation."""
 
 
 class AccountType(StrEnum):
@@ -167,8 +167,8 @@ class RepositoryAccessEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class ReviewReadAuthorization:
-    """Current provider IDs authorized for one repository's review reads."""
+class GitHubAppAuthorization:
+    """Current provider IDs authorized for one repository-scoped App operation."""
 
     repository_id: RepositoryId
     provider_repository_id: int
@@ -527,7 +527,7 @@ def authorize_review_read(
     provider_repository_id: int,
     *,
     profile_key: str | None = None,
-) -> ReviewReadAuthorization:
+) -> GitHubAppAuthorization:
     """Authorize one stable GitHub repository ID against current installation state."""
     _require_transaction(connection)
     required_profile = _profile(profile_key) if profile_key is not None else None
@@ -557,14 +557,59 @@ def authorize_review_read(
         ),
     ).fetchone()
     if row is None:
-        raise GitHubAppReviewReadUnauthorized(
+        raise GitHubAppRepositoryUnauthorized(
             "repository is not authorized for GitHub App review reads"
         )
     authorized_repository_id, authorized_provider_id, provider_installation_id = row
-    return ReviewReadAuthorization(
+    return GitHubAppAuthorization(
         repository_id=RepositoryId(authorized_repository_id),
         provider_repository_id=authorized_provider_id,
         provider_installation_id=provider_installation_id,
+    )
+
+
+def authorize_review_publication(
+    connection: psycopg.Connection[TupleRow],
+    provider_repository_id: int,
+    *,
+    profile_key: str | None = None,
+) -> GitHubAppAuthorization:
+    """Authorize deterministic review writes for one currently enabled repository."""
+    _require_transaction(connection)
+    required_profile = _profile(profile_key) if profile_key is not None else None
+    row = connection.execute(
+        """
+        SELECT access.repository_id, repository.provider_repository_id,
+               installation.provider_installation_id
+        FROM review_agent.github_app_repository_access AS access
+        JOIN review_agent.repositories AS repository
+          ON repository.id = access.repository_id
+        JOIN review_agent.github_app_installations AS installation
+          ON installation.id = access.installation_id
+        WHERE repository.provider = 'github'
+          AND repository.provider_repository_id = %s
+          AND access.access_state = 'available'
+          AND access.enabled
+          AND (%s::text IS NULL OR access.profile_key = %s)
+          AND installation.status = 'active'
+          AND installation.issues_permission = 'write'
+          AND installation.pull_requests_permission = 'write'
+        """,
+        (
+            _positive(provider_repository_id, "provider_repository_id"),
+            required_profile,
+            required_profile,
+        ),
+    ).fetchone()
+    if row is None:
+        raise GitHubAppRepositoryUnauthorized(
+            "repository is not authorized for GitHub App review publication"
+        )
+    repository_id, provider_id, installation_id = row
+    return GitHubAppAuthorization(
+        repository_id=RepositoryId(repository_id),
+        provider_repository_id=provider_id,
+        provider_installation_id=installation_id,
     )
 
 
@@ -607,7 +652,7 @@ def authorize_review_admission(
         ),
     ).fetchone()
     if row is None:
-        raise GitHubAppReviewReadUnauthorized(
+        raise GitHubAppRepositoryUnauthorized(
             "repository is not authorized for GitHub App review admission"
         )
     repository_id, repository_provider_id, installation_provider_id, name, profile = row

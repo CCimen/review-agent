@@ -53,16 +53,14 @@ class ReviewAgentSettingsTests(unittest.TestCase):
                         {"REVIEW_AGENT_DATABASE_URL": incomplete_url}
                     ).postgres_database_url
 
-    def test_gateway_and_transitional_publish_values_are_normalized(self) -> None:
+    def test_gateway_value_is_normalized(self) -> None:
         settings = ReviewAgentSettings(
             {
                 "REVIEW_AGENT_GITHUB_GATEWAY_URL": " http://gateway:8646 ",
-                "REVIEW_AGENT_PUBLISH_GH_TOKEN": " publish-token ",
             }
         )
 
         self.assertEqual(settings.github_gateway_url, "http://gateway:8646")
-        self.assertEqual(settings.github_publish_token, "publish-token")
         with self.assertRaisesRegex(
             SettingsError, "REVIEW_AGENT_GITHUB_GATEWAY_URL is required"
         ):

@@ -672,14 +672,17 @@ def complete_failure_status(
 def retry_failure_status(
     connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId,
     lease_owner: str, lease_generation: int, failure_code: str,
-    retry_delay: timedelta,
+    retry_delay: timedelta, retryable: bool = True,
 ) -> None:
     _require_transaction(connection)
     normalized_failure_code = failure_code.strip()
     if not normalized_failure_code:
         raise ReviewRunError("failure_code must not be blank")
     target = failure_status_target(connection, run_id)
-    exhausted = target.delivery_attempt_count >= target.delivery_max_attempts
+    exhausted = (
+        not retryable
+        or target.delivery_attempt_count >= target.delivery_max_attempts
+    )
     changed = connection.execute(
         """UPDATE review_agent.review_runs SET
         failure_status_delivery_status = %s,

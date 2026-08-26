@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from .domain.review import ReviewRunId
@@ -16,12 +16,14 @@ if TYPE_CHECKING:
 from . import failure_codes, review_run_application
 from .domain.publication import PublicationPartType
 from .github.publication import (
+    GitHubPublicationAuthorityLost,
     GitHubPublicationError,
     GitHubPublicationGateway,
     InlineReviewComment,
     IssueComment,
     PullRequestReviewComment,
     PullRequestState,
+    PUBLICATION_REQUEST_MAX_PAGES,
 )
 from .publication_partition import (
     HistoricalPublication,
@@ -30,7 +32,34 @@ from .publication_partition import (
 )
 from .review_identity import REVIEW_COMMENT_TITLE
 
-_COMMENT_RECOVERY_SCAN_PAGES = 10
+_COMMENT_RECOVERY_SCAN_PAGES = PUBLICATION_REQUEST_MAX_PAGES
+
+
+class SupersessionGateway(Protocol):
+    """The only provider operations allowed after a publication is posted."""
+
+    def list_issue_comments(
+        self,
+        repository: str,
+        issue_number: int,
+        *,
+        max_pages: int,
+        newest_first: bool,
+    ) -> list[IssueComment]: ...
+
+    def update_issue_comment(
+        self, repository: str, comment_id: int, body: str
+    ) -> IssueComment: ...
+
+
+def _retryable_publication_error(error: GitHubPublicationError) -> bool:
+    if error.retryable is not None:
+        return error.retryable
+    return (
+        error.status is None
+        or error.status in {408, 425, 429}
+        or error.status >= 500
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +192,7 @@ def _postgres_target_failure(
 def _render_postgres_supersession(
     runtime: "PostgreSQLRuntime",
     *,
-    github: GitHubPublicationGateway,
+    github: SupersessionGateway,
     superseding_publication_id: int,
     max_comment_bytes: int,
 ) -> PostgresSupersessionResult | None:
@@ -327,12 +356,18 @@ def publish_postgres_run_failure_status(
             if existing is not None
             else github.create_issue_comment(target.repository, target.pr_number, body)
         )
+    except GitHubPublicationAuthorityLost as exc:
+        raise postgres_review_runs.FailureStatusLeaseLost(
+            "failure-status gateway authority was lost"
+        ) from exc
     except GitHubPublicationError as exc:
         with runtime.transaction() as connection:
             postgres_review_runs.retry_failure_status(
                 connection, run_id=resolved_id, lease_owner=owner,
                 lease_generation=generation,
-                failure_code=f"github_{exc.status or 'error'}", retry_delay=retry_delay,
+                failure_code=exc.code,
+                retry_delay=retry_delay,
+                retryable=_retryable_publication_error(exc),
             )
         raise
     with runtime.transaction() as connection:
@@ -344,10 +379,6 @@ def publish_postgres_run_failure_status(
         raise postgres_review_runs.ReviewRunError(
             "failure-status comment has no recorded timestamp"
         )
-    _cleanup_postgres_failure_status(
-        runtime, github=github, repository=recorded.repository,
-        pr_number=recorded.pr_number, exclude_run_id=resolved_id,
-    )
     return PostgresFailureStatusResult(
         run_id=run_id,
         comment_id=comment.comment_id,
@@ -431,6 +462,7 @@ def publish_postgres_publication(
     lease_generation: int | None = None,
     retry_delay: timedelta = timedelta(seconds=30),
     lease_lost: threading.Event | None = None,
+    posted_github: SupersessionGateway | None = None,
 ) -> PostgresPublicationResult:
     """Deliver one prepared PostgreSQL plan without holding a database checkout.
 
@@ -449,6 +481,11 @@ def publish_postgres_publication(
     )
     from .postgres import publications as postgres_publications
     from .postgres import review_runs as postgres_review_runs
+
+    if lease_owner is not None and posted_github is None:
+        raise postgres_publications.PublicationStoreError(
+            "leased publication requires a posted-publication finalizer"
+        )
 
     resolved_id = PublicationId(publication_id)
     with runtime.transaction() as connection:
@@ -476,10 +513,11 @@ def publish_postgres_publication(
                 "lease_owner and lease_generation must be supplied together"
             )
     publication = claim.publication
+    finalizer = posted_github or github
     if publication.status is PublicationStatus.POSTED:
         supersession = _render_postgres_supersession(
             runtime,
-            github=github,
+            github=finalizer,
             superseding_publication_id=publication_id,
             max_comment_bytes=max_comment_bytes,
         )
@@ -763,6 +801,10 @@ def publish_postgres_publication(
                     )
                     external_id = review.review_id
             acknowledge(part.part_type, part.part_number, external_id)
+    except GitHubPublicationAuthorityLost as exc:
+        raise postgres_publications.PublicationLeaseLost(
+            "publication gateway authority was lost"
+        ) from exc
     except GitHubPublicationError as exc:
         with runtime.transaction() as connection:
             postgres_review_runs.lock_run(connection, publication.review_run_id)
@@ -771,11 +813,7 @@ def publish_postgres_publication(
                 publication_id=resolved_id,
                 posting_started_at=posting_started_at,
                 failure_code=exc.code,
-                retryable=(
-                    exc.status is None
-                    or exc.status in {408, 425, 429}
-                    or exc.status >= 500
-                ),
+                retryable=_retryable_publication_error(exc),
                 retry_delay=retry_delay,
                 lease_owner=resolved_lease_owner,
                 lease_generation=resolved_lease_generation,
@@ -798,6 +836,12 @@ def publish_postgres_publication(
             recovered_parts=recovered,
         )
 
+    _cleanup_postgres_failure_status(
+        runtime,
+        github=github,
+        repository=publication.repository,
+        pr_number=publication.pr_number,
+    )
     with runtime.transaction() as connection:
         postgres_review_runs.lock_run(connection, publication.review_run_id)
         posted = postgres_publications.complete_publication(
@@ -814,15 +858,9 @@ def publish_postgres_publication(
         )
     supersession = _render_postgres_supersession(
         runtime,
-        github=github,
+        github=finalizer,
         superseding_publication_id=publication_id,
         max_comment_bytes=max_comment_bytes,
-    )
-    _cleanup_postgres_failure_status(
-        runtime,
-        github=github,
-        repository=publication.repository,
-        pr_number=publication.pr_number,
     )
     return PostgresPublicationResult(
         publication_id=publication_id,

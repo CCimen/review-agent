@@ -67,7 +67,7 @@ class GitHubReadClient:
 
     def __init__(
         self,
-        read_token: str,
+        token: str,
         *,
         request_timeout_seconds: float = _DEFAULT_REQUEST_TIMEOUT_SECONDS,
         max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
@@ -76,7 +76,7 @@ class GitHubReadClient:
             raise ValueError("request_timeout_seconds must be positive")
         if type(max_attempts) is not int or max_attempts < 1:
             raise ValueError("max_attempts must be a positive integer")
-        self._read_token = read_token
+        self._token = token
         self._request_timeout_seconds = request_timeout_seconds
         self._max_attempts = max_attempts
 
@@ -94,8 +94,8 @@ class GitHubReadClient:
             "User-Agent": "Hermes-PR-Review/2.0",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        if self._read_token:
-            headers["Authorization"] = f"Bearer {self._read_token}"
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
         request = urllib.request.Request(
             f"{_API_ROOT}{endpoint}", headers=headers, method="GET"
         )
@@ -124,7 +124,7 @@ class GitHubReadClient:
                     continue
                 if exc.code == 401:
                     raise GitHubReadError(
-                        "unauthorized", "GitHub rejected the read token"
+                        "unauthorized", "GitHub rejected the installation token"
                     ) from exc
                 if rate_limited:
                     raise GitHubReadError(

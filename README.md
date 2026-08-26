@@ -19,18 +19,17 @@ merge authority.
 
 1. **Deploy the service** with Compose, Dokploy, Coolify, Portainer, or
    OpenShift: [deployment guide](docs/DEPLOYMENT.md).
-2. **Onboard a repository**: allowlist it, install the trusted workflow, and
-   set its secrets: [getting started](docs/GETTING_STARTED.md).
+2. **Onboard a repository**: install the GitHub App on selected repositories,
+   then explicitly enable each one: [getting started](docs/GETTING_STARTED.md).
 3. **Request a review** with a new top-level PR comment:
 
    ```text
    /review
    ```
 
-The protected GitHub Actions path is the production default. Owners can test
-direct admission on one selected repository with the
-[GitHub App pilot](docs/GITHUB_APP_PILOT.md); source reads, publication, and
-feedback continue to use the current scoped tokens during that pilot.
+The GitHub App receives review commands and gives the private gateway short-lived,
+repository-scoped credentials for source reads and deterministic publication.
+The model and publisher never receive the App private key.
 
 After fixing findings, push a commit and comment `/review` again; the new
 snapshot starts a fresh round. Structured feedback from allowlisted developers
@@ -54,7 +53,7 @@ search and task-based navigation. Key pages:
 | --- | --- |
 | Run your first review | [Getting started](docs/GETTING_STARTED.md) |
 | Deploy the service | [Deployment](docs/DEPLOYMENT.md) |
-| Test direct GitHub App admission | [GitHub App pilot](docs/GITHUB_APP_PILOT.md) |
+| Install and enable the GitHub App | [GitHub App setup](docs/GITHUB_APP_PILOT.md) |
 | Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |

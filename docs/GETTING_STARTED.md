@@ -9,8 +9,8 @@ last_verified: 2026-08-26
 
 # Getting started
 
-> **Current** — This procedure uses the current shared deployment, repository
-> allowlist, fine-grained tokens, and protected GitHub Actions workflow.
+> **Current** — One GitHub App installation owns admission, source access, and
+> deterministic publication for explicitly enabled repositories.
 
 Review Agent is deployed once per environment and serves an explicit
 repository allowlist. Adding a repository changes configuration around that
@@ -19,53 +19,25 @@ The environment stores application state in one private PostgreSQL database.
 
 ## Before you begin
 
-You need access to the Docker Compose or Dokploy deployment, permission to
-create repository-scoped GitHub tokens, and permission to add an Actions
-workflow, four Actions secrets, and one Actions variable to the repository.
+You need access to the deployment and permission to create and install a GitHub
+App on the repositories you want to review.
 
-The [deployment guide](./DEPLOYMENT.md) covers token creation, GitHub settings,
+The [deployment guide](./DEPLOYMENT.md) covers App creation, GitHub settings,
 Compose platforms, and OpenShift. This page keeps repository onboarding short.
 
-The protected Actions workflow is the production default. To test direct App
-admission for one selected repository without replacing the current read and
-write tokens, use the [GitHub App pilot](./GITHUB_APP_PILOT.md).
+## 1. Install and enable the repository
 
-## 1. Allow the repository
+Install the GitHub App with **Only select repositories**, choose the repository,
+then reconcile and enable it with the commands in [GitHub App
+setup](./GITHUB_APP_PILOT.md). Installation makes the repository available;
+the separate enable step is the operator approval boundary. A blank enabled set
+denies all review requests.
 
-Add the exact, case-insensitive `owner/repository` name to the comma-separated
-`REVIEW_AGENT_ALLOWED_REPOSITORIES` deployment setting. A blank allowlist denies
-all repositories.
+If feedback is enabled, its current sidecar uses
+`REVIEW_AGENT_FEEDBACK_GH_TOKEN` until the feedback cutover is complete. It is
+not used for admission, source reads, or publication.
 
-Make sure the three current GitHub tokens can access the repository:
-
-- `GITHUB_READ_TOKEN` for PR metadata, diffs, and file reads;
-- `REVIEW_AGENT_PUBLISH_GH_TOKEN` for review comments and suggestions;
-- `REVIEW_AGENT_FEEDBACK_GH_TOKEN` for the optional feedback path.
-
-Keep each token repository-scoped and preserve the role-specific permissions in
-the [deployment permission table](./DEPLOYMENT.md#github-tokens).
-
-## 2. Install the trusted workflow
-
-Copy
-[`examples/github/ai-review-request.yml`](https://github.com/CCimen/review-agent/blob/main/examples/github/ai-review-request.yml)
-to `.github/workflows/ai-review-request.yml` on the repository's default branch.
-Protect this workflow with CODEOWNERS or a repository ruleset.
-
-Configure these repository Actions secrets:
-
-```text
-HERMES_REVIEW_URL
-HERMES_WEBHOOK_SECRET
-HERMES_REVIEW_FEEDBACK_URL
-HERMES_REVIEW_FEEDBACK_SECRET
-```
-
-Set the `AI_REVIEW_ALLOWED_USERS` Actions variable to a comma-separated list of
-trusted GitHub usernames. Empty means deny all. The workflow also requires the
-requester to be an `OWNER`, `MEMBER`, or `COLLABORATOR`.
-
-## 3. Run the first review
+## 2. Run the first review
 
 Open or reuse a pull request and add a new top-level comment:
 
@@ -73,14 +45,13 @@ Open or reuse a pull request and add a new top-level comment:
 /review
 ```
 
-The workflow must already exist on the default branch. It sends a signed,
-minimal request to the reviewer. The published comment records the exact
+The App sends the signed GitHub event to the reviewer. The published comment records the exact
 base/head snapshot and the review's coverage and findings.
 
 After fixing findings, push a commit and post `/review` again. A changed head SHA
 creates a new review round while the prior round remains historical context.
 
-## 4. Verify the result
+## 3. Verify the result
 
 - Confirm the summary identifies the expected base and head SHAs.
 - Open each cited file link and assess the finding in context.
@@ -95,17 +66,9 @@ rather than retrying blindly.
 
 ## Onboard many repositories
 
-One deployment serves an entire organization. For each additional repository,
-repeat steps 1 and 2:
-
-- Append its `owner/repository` name to the comma-separated allowlist, for
-  example
-  `REVIEW_AGENT_ALLOWED_REPOSITORIES=your-org/service-api,your-org/web-app,your-org/infra`.
-- Add the repository to the repository selection of the three fine-grained
-  tokens, or issue new tokens that cover it.
-- Copy the same trusted workflow and the four Actions secrets into the
-  repository. The secret values stay identical across repositories;
-  `AI_REVIEW_ALLOWED_USERS` can differ per repository.
+One deployment serves an entire organization. Select additional repositories in
+the App installation, reconcile the inventory, and enable each repository
+explicitly. No repository workflow or duplicated Actions secrets are required.
 
 Every onboarded repository shares one queue, one PostgreSQL database, and one
 reviewer profile. PostgreSQL serializes reviews within a repository, so

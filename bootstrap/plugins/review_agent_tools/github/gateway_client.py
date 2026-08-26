@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import cast
+from collections.abc import Sequence
+from typing import Literal, cast
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,6 +25,19 @@ from .source import (
     ReviewPullSource,
     ReviewSourceBytes,
 )
+from .publication import (
+    GitHubPublicationAuthorityLost,
+    GitHubPublicationError,
+    InlineReviewComment,
+    IssueComment,
+    PullRequestReview,
+    PullRequestReviewComment,
+    PullRequestState,
+    PROVIDER_RESPONSE_MAX_BYTES,
+    PUBLICATION_DEFAULT_MAX_PAGES,
+    PUBLICATION_REQUEST_MAX_PAGES,
+)
+from .publication_gateway import EXECUTE_REVIEW_PUBLICATION_PATH
 
 
 _MAX_RESPONSE_BYTES = 65_536
@@ -32,8 +46,12 @@ _MAX_CHANGED_FILES_RESPONSE_BYTES = (
 ) * 4 + 65_536
 _MAX_DIFF_RESPONSE_BYTES = ((1_000_000 + 2) // 3) * 4 + 65_536
 _MAX_FILE_RESPONSE_BYTES = capacity.DEFAULT_RESULT_MAX_CHARS * 12 + 65_536
+_MAX_PUBLICATION_RESPONSE_BYTES = (
+    PUBLICATION_REQUEST_MAX_PAGES * PROVIDER_RESPONSE_MAX_BYTES + 65_536
+)
 _REQUEST_TIMEOUT_SECONDS = 90.0
 _FAILURE_REASON_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_PROVIDER_STATUS_RE = re.compile(r"^github_(?:http_)?(?P<status>[1-5][0-9]{2})(?:_|$)")
 
 
 def _base_url(value: str) -> str:
@@ -83,6 +101,55 @@ class ReviewGitHubGatewayClient:
             },
         )
         return AuthorizedReviewSnapshot.from_mapping(decoded)
+
+    def for_publication(
+        self,
+        *,
+        publication_id: int,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> "AuthorizedPublicationGateway":
+        return AuthorizedPublicationGateway(
+            self,
+            scope_kind="publication",
+            scope_id=publication_id,
+            lease_owner=lease_owner,
+            lease_generation=lease_generation,
+        )
+
+    def for_failure_status(
+        self,
+        *,
+        run_id: int,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> "AuthorizedPublicationGateway":
+        return AuthorizedPublicationGateway(
+            self,
+            scope_kind="failure_status",
+            scope_id=run_id,
+            lease_owner=lease_owner,
+            lease_generation=lease_generation,
+        )
+
+    def for_posted_publication(
+        self, *, publication_id: int
+    ) -> "AuthorizedPublicationGateway":
+        return AuthorizedPublicationGateway(
+            self,
+            scope_kind="posted_publication",
+            scope_id=publication_id,
+        )
+
+    def execute_publication_operation(
+        self, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Execute one operation whose repository authority comes from its lease."""
+        return self._post(
+            EXECUTE_REVIEW_PUBLICATION_PATH,
+            payload,
+            max_response_bytes=_MAX_PUBLICATION_RESPONSE_BYTES,
+        )
 
     def get_review_pull(
         self,
@@ -230,6 +297,311 @@ class ReviewGitHubGatewayClient:
         if not isinstance(decoded, dict):
             raise GitHubGatewayProtocolError("gateway response must be an object")
         return cast(dict[str, object], decoded)
+
+
+class AuthorizedPublicationGateway:
+    """Adapt publication operations to one gateway-owned durable authority."""
+
+    def __init__(
+        self,
+        client: ReviewGitHubGatewayClient,
+        *,
+        scope_kind: Literal[
+            "publication", "posted_publication", "failure_status"
+        ],
+        scope_id: int,
+        lease_owner: str | None = None,
+        lease_generation: int | None = None,
+    ) -> None:
+        self._client = client
+        self._identity: dict[str, object] = {
+            "scope_kind": scope_kind,
+            "scope_id": scope_id,
+        }
+        if scope_kind == "posted_publication":
+            if lease_owner is not None or lease_generation is not None:
+                raise ValueError("posted publication authority has no lease")
+        elif lease_owner is None or lease_generation is None:
+            raise ValueError("active publication authority requires a lease")
+        else:
+            self._identity["lease_owner"] = lease_owner
+            self._identity["lease_generation"] = lease_generation
+        self._repository: str | None = None
+        self._pr_number: int | None = None
+
+    def _execute(
+        self, operation: str, values: dict[str, object] | None = None
+    ) -> dict[str, object]:
+        try:
+            return self._client.execute_publication_operation(
+                {
+                    **self._identity,
+                    "operation": operation,
+                    **(values or {}),
+                },
+            )
+        except GitHubGatewayRejected as exc:
+            if exc.reason == "publication_lease_lost":
+                raise GitHubPublicationAuthorityLost(exc.reason) from exc
+            matched = _PROVIDER_STATUS_RE.match(exc.reason)
+            status = int(matched.group("status")) if matched is not None else None
+            raise GitHubPublicationError(
+                exc.reason,
+                status=status,
+                operation=_provider_operation_name(operation),
+                retryable=False,
+            ) from exc
+        except GitHubGatewayRetryable as exc:
+            matched = _PROVIDER_STATUS_RE.match(exc.reason)
+            status = int(matched.group("status")) if matched is not None else None
+            raise GitHubPublicationError(
+                exc.reason,
+                status=status,
+                operation=_provider_operation_name(operation),
+                retryable=True,
+            ) from exc
+        except GitHubGatewayProtocolError as exc:
+            raise GitHubPublicationError(
+                "github_gateway_invalid_response",
+                operation=_provider_operation_name(operation),
+            ) from exc
+
+    def current_user_login(self) -> str:
+        value = self._execute("current_user")
+        if set(value) != {"kind", "login"} or value.get("kind") != "current_user":
+            raise GitHubPublicationError("github_gateway_invalid_response")
+        login = value.get("login")
+        if not isinstance(login, str) or not login:
+            raise GitHubPublicationError("github_gateway_invalid_response")
+        return login
+
+    def get_pull_request(self, repository: str, pr_number: int) -> PullRequestState:
+        self._check_subject(repository, pr_number)
+        value = self._execute("get_pull")
+        if set(value) != {"kind", "state", "draft", "base_sha", "head_sha"}:
+            raise GitHubPublicationError("github_gateway_invalid_response")
+        if value.get("kind") != "pull" or not isinstance(value.get("draft"), bool):
+            raise GitHubPublicationError("github_gateway_invalid_response")
+        fields = [value.get(name) for name in ("state", "base_sha", "head_sha")]
+        if not all(isinstance(item, str) for item in fields):
+            raise GitHubPublicationError("github_gateway_invalid_response")
+        return PullRequestState(
+            state=cast(str, fields[0]),
+            draft=cast(bool, value["draft"]),
+            base_sha=cast(str, fields[1]),
+            head_sha=cast(str, fields[2]),
+        )
+
+    def list_issue_comments(
+        self,
+        repository: str,
+        issue_number: int,
+        *,
+        max_pages: int = PUBLICATION_DEFAULT_MAX_PAGES,
+        newest_first: bool = False,
+    ) -> list[IssueComment]:
+        self._check_subject(repository, issue_number)
+        return [
+            _issue_comment(item)
+            for item in _list_items(
+                self._execute(
+                    "list_issue_comments",
+                    {"max_pages": max_pages, "newest_first": newest_first},
+                )
+            )
+        ]
+
+    def update_issue_comment(
+        self, repository: str, comment_id: int, body: str
+    ) -> IssueComment:
+        self._check_subject(repository)
+        return _issue_comment(
+            self._execute(
+                "update_issue_comment", {"comment_id": comment_id, "body": body}
+            ),
+            envelope=True,
+        )
+
+    def create_issue_comment(
+        self, repository: str, issue_number: int, body: str
+    ) -> IssueComment:
+        self._check_subject(repository, issue_number)
+        return _issue_comment(
+            self._execute("create_issue_comment", {"body": body}), envelope=True
+        )
+
+    def delete_issue_comment(self, repository: str, comment_id: int) -> None:
+        self._check_subject(repository)
+        value = self._execute("delete_issue_comment", {"comment_id": comment_id})
+        if value != {"kind": "deleted"}:
+            raise GitHubPublicationError("github_gateway_invalid_response")
+
+    def create_pull_request_review(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        commit_id: str,
+        body: str,
+        comments: Sequence[InlineReviewComment],
+    ) -> PullRequestReview:
+        self._check_subject(repository, pr_number)
+        value = self._execute(
+            "create_pull_request_review",
+            {
+                "commit_id": commit_id,
+                "body": body,
+                "comments": [_inline_comment_mapping(item) for item in comments],
+            },
+        )
+        expected = {"kind", "review_id", "body", "author_login", "commit_id", "state"}
+        if set(value) != expected or value.get("kind") != "pull_request_review":
+            raise GitHubPublicationError("github_gateway_invalid_response")
+        return PullRequestReview(
+            review_id=_response_positive(value.get("review_id")),
+            body=_response_text(value.get("body")),
+            author_login=_response_text(value.get("author_login")),
+            commit_id=_response_text(value.get("commit_id")),
+            state=_response_text(value.get("state")),
+        )
+
+    def list_pull_request_review_comments(
+        self,
+        repository: str,
+        pr_number: int,
+        *,
+        max_pages: int = PUBLICATION_DEFAULT_MAX_PAGES,
+    ) -> list[PullRequestReviewComment]:
+        self._check_subject(repository, pr_number)
+        result: list[PullRequestReviewComment] = []
+        for item in _list_items(
+            self._execute(
+                "list_pull_request_review_comments", {"max_pages": max_pages}
+            )
+        ):
+            expected = {
+                "comment_id", "review_id", "body", "author_login", "path",
+                "commit_id", "line", "side", "start_line", "start_side",
+            }
+            if set(item) != expected:
+                raise GitHubPublicationError("github_gateway_invalid_response")
+            side = item.get("side")
+            start_side = item.get("start_side")
+            if side not in {None, "LEFT", "RIGHT"} or start_side not in {
+                None, "LEFT", "RIGHT"
+            }:
+                raise GitHubPublicationError("github_gateway_invalid_response")
+            result.append(
+                PullRequestReviewComment(
+                    comment_id=_response_positive(item.get("comment_id")),
+                    review_id=_response_positive(item.get("review_id")),
+                    body=_response_text(item.get("body")),
+                    author_login=_response_text(item.get("author_login")),
+                    path=_response_text(item.get("path")),
+                    commit_id=_response_text(item.get("commit_id")),
+                    line=_response_optional_positive(item.get("line")),
+                    side=cast(Literal["LEFT", "RIGHT"] | None, side),
+                    start_line=_response_optional_positive(item.get("start_line")),
+                    start_side=cast(Literal["LEFT", "RIGHT"] | None, start_side),
+                )
+            )
+        return result
+
+    def _check_subject(
+        self, repository: str, pr_number: int | None = None
+    ) -> None:
+        normalized = repository.strip()
+        if not normalized:
+            raise GitHubPublicationError(
+                "publication_subject_mismatch", retryable=False
+            )
+        if self._repository is None:
+            self._repository = normalized
+        elif self._repository.casefold() != normalized.casefold():
+            raise GitHubPublicationError(
+                "publication_subject_mismatch", retryable=False
+            )
+        if pr_number is None:
+            return
+        if isinstance(pr_number, bool) or pr_number < 1:
+            raise GitHubPublicationError(
+                "publication_subject_mismatch", retryable=False
+            )
+        if self._pr_number is None:
+            self._pr_number = pr_number
+        elif self._pr_number != pr_number:
+            raise GitHubPublicationError(
+                "publication_subject_mismatch", retryable=False
+            )
+
+
+def _provider_operation_name(operation: str) -> str:
+    return {
+        "current_user": "get_authenticated_user",
+        "get_pull": "get_pull_request",
+        "list_issue_comments": "list_issue_comments",
+        "update_issue_comment": "update_issue_comment",
+        "create_issue_comment": "create_issue_comment",
+        "delete_issue_comment": "delete_issue_comment",
+        "create_pull_request_review": "create_pull_request_review",
+        "list_pull_request_review_comments": "list_pull_request_review_comments",
+    }.get(operation, operation)
+
+
+def _list_items(value: dict[str, object]) -> list[dict[str, object]]:
+    if set(value) != {"kind", "items"} or value.get("kind") != "list":
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    items = value.get("items")
+    if not isinstance(items, list):
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    raw_items = cast(list[object], items)
+    if not all(isinstance(item, dict) for item in raw_items):
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    return cast(list[dict[str, object]], raw_items)
+
+
+def _issue_comment(
+    value: dict[str, object], *, envelope: bool = False
+) -> IssueComment:
+    expected = {"comment_id", "body", "author_login"}
+    if envelope:
+        expected.add("kind")
+        if value.get("kind") != "issue_comment":
+            raise GitHubPublicationError("github_gateway_invalid_response")
+    if set(value) != expected:
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    return IssueComment(
+        comment_id=_response_positive(value.get("comment_id")),
+        body=_response_text(value.get("body"), allow_empty=True),
+        author_login=_response_text(value.get("author_login"), allow_empty=True),
+    )
+
+
+def _inline_comment_mapping(comment: InlineReviewComment) -> dict[str, object]:
+    return {
+        "path": comment.path,
+        "body": comment.body,
+        "line": comment.line,
+        "side": comment.side,
+        "start_line": comment.start_line,
+        "start_side": comment.start_side,
+    }
+
+
+def _response_positive(value: object) -> int:
+    if type(value) is not int or value < 1:
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    return value
+
+
+def _response_optional_positive(value: object) -> int | None:
+    return None if value is None else _response_positive(value)
+
+
+def _response_text(value: object, *, allow_empty: bool = False) -> str:
+    if not isinstance(value, str) or (not allow_empty and not value):
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    return value
 
 
 def _error_reason(raw: bytes) -> str:

@@ -72,9 +72,8 @@ workflow that merely started.
 
 ## How do I serve many repositories or a whole organization?
 
-Deploy once per environment and onboard each repository against that shared
-platform: add it to `REVIEW_AGENT_ALLOWED_REPOSITORIES`, grant the three
-GitHub tokens access to it, and copy the trusted workflow into the repository.
+Deploy once per environment, select repositories in the GitHub App installation,
+reconcile its inventory, and explicitly enable each repository.
 [Getting started](./GETTING_STARTED.md#onboard-many-repositories) walks
 through it. One deployment queues reviews across all onboarded repositories;
 [scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when wait time

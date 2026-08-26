@@ -17,7 +17,7 @@ def words(text: str) -> str:
 
 
 class DocsContractTests(unittest.TestCase):
-    def test_github_app_pilot_is_public_and_keeps_credential_boundary_explicit(self):
+    def test_github_app_setup_is_public_and_keeps_credential_boundary_explicit(self):
         guide = read("docs/GITHUB_APP_PILOT.md")
         sidebar = read("website/sidebars.ts")
         public_documents = read("website/public-documents.json")
@@ -29,9 +29,11 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("enable-github-app-repository", guide)
         self.assertIn("disable-github-app-repository", guide)
         self.assertIn("fork_source_not_supported", guide)
-        self.assertIn("Source reads, publication, and feedback still use", guide)
-        self.assertIn("GITHUB_READ_TOKEN", guide)
-        self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", guide)
+        self.assertIn("short-lived installation", guide)
+        self.assertIn("Contents | Read", guide)
+        self.assertIn("Pull requests | Write", guide)
+        self.assertNotIn("GITHUB_READ_TOKEN", guide)
+        self.assertNotIn("PUBLISH_GH_TOKEN", guide)
         self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", guide)
 
     def test_direct_app_runtime_is_default_and_key_isolated(self):
@@ -75,8 +77,9 @@ class DocsContractTests(unittest.TestCase):
     def test_failure_status_recovery_is_documented(self):
         operations = read("docs/OPERATIONS.md")
 
-        self.assertIn("runs --publish-failure-status", operations)
-        self.assertIn("exits with status 1", operations)
+        self.assertIn("ordinary publisher", operations)
+        self.assertIn("runs --mark-stalled", operations)
+        self.assertNotIn("--publish-failure-status", operations)
 
     def test_profile_is_repository_neutral_and_preserves_review_invariants(self):
         soul = read("bootstrap/profiles/sundsvall-standard/SOUL.md")
@@ -439,6 +442,9 @@ class DocsContractTests(unittest.TestCase):
         reviewer_section = compose.split("  hermes-review:", 1)[1].split(
             "\n  hermes-review-feedback:", 1
         )[0]
+        publisher_section = compose.split("\n  review-publisher:\n", 1)[1].split(
+            "\n  hermes-review-feedback:", 1
+        )[0]
         feedback_section = compose.split("  hermes-review-feedback:", 1)[1].split(
             "\nnetworks:", 1
         )[0]
@@ -448,7 +454,11 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET", reviewer_section)
         self.assertIn("REVIEW_AGENT_GITHUB_GATEWAY_URL", reviewer_section)
         self.assertNotIn("GITHUB_READ_TOKEN", reviewer_section)
-        self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", reviewer_section)
+        self.assertNotIn("PUBLISH_GH_TOKEN", reviewer_section)
+        self.assertIn("REVIEW_AGENT_GITHUB_GATEWAY_URL", publisher_section)
+        self.assertNotIn("PUBLISH_GH_TOKEN", publisher_section)
+        self.assertIn("review-github-control", publisher_section)
+        self.assertNotIn("review-egress", publisher_section)
         self.assertIn("REVIEW_AGENT_DATABASE_URL", reviewer_section)
         self.assertIn("review-egress", hermes_section)
         self.assertNotIn("review-ingress", hermes_section)
@@ -541,7 +551,8 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("platforms:\n  webhook:", config)
         self.assertIn("api_server:\n    - review_agent", config)
         self.assertNotIn("deliver: github_comment", config)
-        self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", operations)
+        self.assertIn("short-lived installation", operations)
+        self.assertNotIn("PUBLISH_GH_TOKEN", operations)
         self.assertIn("separate publisher", readme)
         self.assertIn("deterministic", operations)
         self.assertIn("comment parts", words(readme))
@@ -613,13 +624,16 @@ class DocsContractTests(unittest.TestCase):
         compose = read("compose.yaml")
         env_example = read(".env.example")
 
-        self.assertIn("Contents read, Pull requests read, Metadata read", operations)
         self.assertIn(
-            "Metadata read, Pull requests read/write",
+            "Contents read, Issues read, Pull requests read, Metadata read",
             operations,
         )
-        self.assertIn("does not need Contents write", operations)
-        self.assertIn("exact permission matrix", security)
+        self.assertIn(
+            "Issues write, Pull requests write, Metadata read",
+            operations,
+        )
+        self.assertIn("cannot merge", security)
+        self.assertIn("short-lived", security)
         self.assertNotIn("Contents read, Pull requests read, Metadata read", security)
         self.assertNotIn("| `GITHUB_READ_TOKEN` | no |", security)
 

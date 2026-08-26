@@ -269,7 +269,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     actor="github-app:installation_repositories",
                     reason="repository selected",
                 )
-                with self.assertRaises(github_app.GitHubAppReviewReadUnauthorized):
+                with self.assertRaises(github_app.GitHubAppRepositoryUnauthorized):
                     github_app.authorize_review_read(connection, 9001)
                 github_app.enable_repository(
                     connection,
@@ -279,7 +279,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     actor="operator:ccimen",
                     reason="approve pilot",
                 )
-                with self.assertRaises(github_app.GitHubAppReviewReadUnauthorized):
+                with self.assertRaises(github_app.GitHubAppRepositoryUnauthorized):
                     github_app.authorize_review_read(
                         connection,
                         9001,
@@ -296,11 +296,55 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     actor="operator:ccimen",
                     reason="pause reviews",
                 )
-                with self.assertRaises(github_app.GitHubAppReviewReadUnauthorized):
+                with self.assertRaises(github_app.GitHubAppRepositoryUnauthorized):
                     github_app.authorize_review_read(connection, 9001)
 
         self.assertEqual(authorization.repository_id, access.repository_id)
         self.assertEqual(authorization.provider_repository_id, 9001)
+        self.assertEqual(authorization.provider_installation_id, 7001)
+
+    def test_review_publication_requires_current_write_permissions(self) -> None:
+        installation = self.installation()
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                access = github_app.grant_repository_access(
+                    connection,
+                    installation_id=installation.id,
+                    provider_repository_id=9001,
+                    full_name="CCimen/review-agent",
+                    actor="github-app:installation_repositories",
+                    reason="repository selected",
+                )
+                github_app.enable_repository(
+                    connection,
+                    repository_id=access.repository_id,
+                    profile_key="sundsvall-standard",
+                    trigger_mode=github_app.TriggerMode.MANUAL,
+                    actor="operator:ccimen",
+                    reason="approve pilot",
+                )
+                authorization = github_app.authorize_review_publication(
+                    connection, 9001, profile_key="sundsvall-standard"
+                )
+                github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7001,
+                        account_id=8001,
+                        account_login="CCimen",
+                        account_type=github_app.AccountType.USER,
+                        repository_selection=github_app.RepositorySelection.SELECTED,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.READ,
+                        pull_requests_permission=github_app.PermissionLevel.READ,
+                    ),
+                )
+                with self.assertRaises(
+                    github_app.GitHubAppRepositoryUnauthorized
+                ):
+                    github_app.authorize_review_publication(connection, 9001)
+
+        self.assertEqual(authorization.repository_id, access.repository_id)
         self.assertEqual(authorization.provider_installation_id, 7001)
 
     def test_final_review_authorization_locks_exact_installation_and_profile(self) -> None:
@@ -330,7 +374,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     profile_key="sundsvall-standard",
                 )
                 with self.assertRaises(
-                    github_app.GitHubAppReviewReadUnauthorized
+                    github_app.GitHubAppRepositoryUnauthorized
                 ):
                     github_app.authorize_review_admission(
                         connection,

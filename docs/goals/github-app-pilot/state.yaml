@@ -30,12 +30,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 6
+  completed_write_tasks_in_thread: 7
   handoff_note: notes/handoff.md
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T036
+active_task: T029
 
 tasks:
   - id: T001
@@ -1343,7 +1343,7 @@ tasks:
   - id: T036
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Move every model-facing GitHub source read behind the closed App gateway, derive the exact subject from the durable run and live worker lease, and delete the direct read PAT, source allowlist, manual-review start, and obsolete PAT admission route."
     canonical_owner:
@@ -1362,6 +1362,7 @@ tasks:
       - "bootstrap/plugins/review_agent_tools/tools.py"
       - "bootstrap/plugins/review_agent_tools/schemas.py"
       - "bootstrap/plugins/review_agent_tools/settings.py"
+      - "bootstrap/plugins/review_agent_tools/tools.py"
       - "bootstrap/plugins/review_agent_tools/admission.py"
       - "bootstrap/plugins/review_agent_tools/plugin.yaml"
       - "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
@@ -1417,17 +1418,235 @@ tasks:
       - "No unrelated tools.py split or style refactor."
       - "No Sundsvallskommun mutation."
     rollback: "Revert the T036 commit before deployment. The App delivery ledger, review runs, jobs, and repository lifecycle remain intact; no schema rollback is needed."
-    receipt: null
+    receipt:
+      result: done
+      commit: "c81129a4a41658387df9e86cf0f871ae5e3a516b"
+      summary: "Moved pull overview, changed-file enumeration, diff, and exact-revision file pages behind the closed GitHub App gateway. Every model tool now supplies only a durable run ID under its live worker lease. The gateway derives and rechecks repository authority before and after provider I/O; the read PAT, source allowlist, manual run creation, PAT admission route, and fork-era source residue were deleted. Per-request source and concurrency bounds protect the shared gateway without imposing a total PR-depth quota."
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "docker compose --env-file .env.example config --quiet"
+      evidence:
+        - "474 bundled tests passed; 172 PostgreSQL-only tests intentionally skipped"
+        - "174 real-PostgreSQL schema and recovery tests passed; migration 7 ready"
+        - "Ruff passed on every changed Python file"
+        - "Pyright passed with 0 errors"
+        - "Claude Opus high commit gate green with score 8 in the resumed review-agent-app-source session"
+      changed_files:
+        - ".env.example"
+        - "bootstrap/plugins/review_agent_tools/admission.py"
+        - "bootstrap/plugins/review_agent_tools/changed_files.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+        - "bootstrap/plugins/review_agent_tools/github/source.py"
+        - "bootstrap/plugins/review_agent_tools/plugin.yaml"
+        - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+        - "bootstrap/plugins/review_agent_tools/review_finding_application.py"
+        - "bootstrap/plugins/review_agent_tools/schemas.py"
+        - "bootstrap/plugins/review_agent_tools/settings.py"
+        - "bootstrap/plugins/review_agent_tools/suggestion_validation.py"
+        - "bootstrap/plugins/review_agent_tools/tools.py"
+        - "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+        - "compose.yaml"
+        - "docs/OPERATIONS.md"
+        - "docs/goals/github-app-pilot/state.yaml"
+        - "tests/test_admission.py"
+        - "tests/test_changed_files_pager.py"
+        - "tests/test_docs_contract.py"
+        - "tests/test_feedback_workflow.py"
+        - "tests/test_github_gateway.py"
+        - "tests/test_github_gateway_entrypoint.py"
+        - "tests/test_postgres_github_app.py"
+        - "tests/test_postgres_suggestions_decisions.py"
+        - "tests/test_pr_file_large.py"
+        - "tests/test_settings.py"
+        - "tests/test_tool_contract.py"
+        - "tools/review_agent_admission.py"
+        - "tools/review_agent_github_gateway.py"
+        - "tools/review_agent_memory.py"
+        - "tools/review_agent_publisher.py"
+      deferred:
+        - "Publication remains PAT-backed until T037."
+        - "Feedback remains on its transitional sidecar until T029."
   - id: T028
     type: pm
     assignee: PM
-    status: queued
+    status: done
     objective: "Cut deterministic publication to the gateway and delete publication PAT and read-token fallback in one bounded Worker slice."
-    receipt: null
+    receipt:
+      result: done
+      decision: "Preserve the existing durable publication queue and deterministic recovery application, but replace its direct PAT-backed GitHub adapter with a publication-lease-bound client to the existing App gateway. The wire protocol exposes only the fixed read/write operations already required by publication, derives repository and PR scope from PostgreSQL, rechecks the publication or failure-status lease and current App access around provider I/O, and never returns a token. Generalize the current repository token owner to two fixed purposes—review reads and publication—without a caller-selected permission map. Delete the publish PAT from settings, Compose, maintenance commands, and the publisher container."
+      next_allowed_task: T037
+      canonical_owner:
+        publication_lifecycle: "bootstrap/plugins/review_agent_tools/review_publication_application.py"
+        publication_queue: "bootstrap/plugins/review_agent_tools/postgres/publications.py"
+        app_authority_and_io: "bootstrap/plugins/review_agent_tools/github/gateway.py"
+        fixed_client_protocol: "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+        token_scope: "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+      non_goals:
+        - "No feedback cutover, command redesign, schema migration, new queue, or provider plugin system."
+        - "No change to rendered review copy, publication partitioning, retry semantics, or marker-based ambiguous-write recovery."
+        - "No deployment, live GitHub mutation, public docs rewrite, or Sundsvallskommun access."
+      spawned_tasks:
+        - T037
+  - id: T037
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Move deterministic review publication and failure-status comments behind the existing GitHub App gateway, bind every provider operation to the current durable delivery lease, and delete the publication PAT without changing publication semantics."
+    canonical_owner:
+      publication_lifecycle: "bootstrap/plugins/review_agent_tools/review_publication_application.py"
+      publication_queue: "bootstrap/plugins/review_agent_tools/postgres/publications.py"
+      gateway: "bootstrap/plugins/review_agent_tools/github/gateway.py"
+      protocol: "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      app_tokens: "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+    allowed_files:
+      - ".env.example"
+      - "README.md"
+      - "compose.yaml"
+      - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+      - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      - "bootstrap/plugins/review_agent_tools/github/publication.py"
+      - "bootstrap/plugins/review_agent_tools/github/publication_gateway.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/publications.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+      - "bootstrap/plugins/review_agent_tools/publisher.py"
+      - "bootstrap/plugins/review_agent_tools/review_publication_application.py"
+      - "bootstrap/plugins/review_agent_tools/plugin.yaml"
+      - "bootstrap/plugins/review_agent_tools/settings.py"
+      - "bootstrap/plugins/review_agent_tools/source_control.py"
+      - "bootstrap/plugins/review_agent_tools/tools.py"
+      - "docs/DEPLOYMENT.md"
+      - "docs/FAQ.md"
+      - "docs/GETTING_STARTED.md"
+      - "docs/GITHUB_APP_PILOT.md"
+      - "docs/HOW_REVIEWS_WORK.md"
+      - "docs/OPERATIONS.md"
+      - "docs/ROADMAP.md"
+      - "docs/SECURITY.md"
+      - "docs/goals/github-app-pilot/state.yaml"
+      - "tools/review_agent_feedback_bridge.py"
+      - "tools/review_agent_github_gateway.py"
+      - "tools/review_agent_publisher.py"
+      - "tools/review_agent_memory.py"
+      - "tests/test_github_app_auth.py"
+      - "tests/test_github_gateway.py"
+      - "tests/test_github_gateway_entrypoint.py"
+      - "tests/test_postgres_github_app.py"
+      - "tests/test_postgres_publications.py"
+      - "tests/test_postgres_review_lifecycle.py"
+      - "tests/test_publication.py"
+      - "tests/test_publisher.py"
+      - "tests/test_settings.py"
+      - "tests/test_tool_contract.py"
+      - "tests/test_docs_contract.py"
+      - "tests/test_github_app_processor.py"
+      - "website/docusaurus.config.ts"
+    acceptance:
+      - "The existing publication and failure-status queues, leases, part acknowledgements, retry states, marker recovery, and deterministic rendered payloads remain the sole lifecycle owners."
+      - "The publisher container receives no GitHub PAT, App key, JWT, installation token, repository allowlist, or caller-selectable provider endpoint."
+      - "A lease-bound internal client sends only publication ID or run ID, exact lease owner/generation, one fixed operation, and that operation's bounded payload; repository, PR number, installation, and credential are not wire authority."
+      - "The gateway derives the stable provider repository ID and exact PR subject from PostgreSQL, requires the live publication or failure-status lease plus current App write permissions before provider I/O, and rechecks authority afterwards."
+      - "Bot identity comes from the JWT-authenticated App slug, never the installation-token /user endpoint."
+      - "Idempotent supersession after delivery uses a narrow posted-publication authority that permits only identity, list, update, and delete operations; new writes remain lease-bound."
+      - "Token exchange supports only two code-owned scopes: review read and publication write. A caller cannot provide permissions, installation, repository, method, endpoint, or token."
+      - "Current pull-state checks, issue-comment list/create/update/delete, pull-review create, and pull-review-comment list behavior remain contract compatible with the existing publication application."
+      - "An ambiguous write followed by lease loss remains recoverable through the existing publication marker and acknowledgement logic; the gateway never guesses delivery success."
+      - "REVIEW_AGENT_PUBLISH_GH_TOKEN and its read-token fallback disappear from settings, Compose, publisher/maintenance processes, tests, and non-historical runtime documentation."
+      - "The gateway remains the only App private-key mount and publisher egress to GitHub is removed."
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_github_gateway tests.test_github_gateway_entrypoint tests.test_publication tests.test_publisher tests.test_settings"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check <changed Python files>"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "docker compose --env-file .env.example config --quiet"
+      - "rg -n 'REVIEW_AGENT_PUBLISH_GH_TOKEN|github_publish_token|read_token' --glob '!docs/goals/**' . returns no live publication credential path"
+      - "Claude Opus high pre-commit gate green with score at least 8 in one resumable session"
+    stop_if:
+      - "Publication requires caller-selected repository, PR, installation, permissions, endpoint, method, or credential authority."
+      - "The App key, JWT, installation token, or PAT can enter the publisher, Hermes, PostgreSQL, logs, exceptions, tool output, or an HTTP response."
+      - "The current publication/failure-status lease and App write authorization cannot be proved before and after provider I/O."
+      - "The implementation needs a new queue, migration, generic provider abstraction, plugin system, broker, or change to visible publication behavior."
+      - "Verification fails twice for the same unexplained reason."
+    non_goals:
+      - "No feedback App cutover, command-mode extensibility work, OpenShift rewrite, onboarding, deployment, release, or live GitHub mutation."
+      - "No publication renderer, partitioning, finding policy, or verification-coach redesign."
+      - "No Sundsvallskommun mutation."
+    rollback: "Revert the T037 commit before deployment. Existing queued publications, part markers, and failure-status jobs remain recoverable; no schema rollback is required."
+    receipt:
+      result: done
+      commit: "the commit containing this receipt"
+      summary: "Moved deterministic review publication, supersession, and failure-status delivery behind the private GitHub App gateway without replacing the durable PostgreSQL queue. The publisher now sends only stored scope and lease identity, never a PAT or App credential. App-JWT metadata owns bot identity; installation tokens have separate read and write scopes. Normal writes require a live lease, while post-completion supersession is limited to the exact pending database target and its stored bot comment IDs. Provider deadlines, retry classification, response bounds, caller-subject checks, and all eight wire operations are explicit and tested."
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check <all changed Python files>"
+        - "python3 scripts/check_docs.py"
+        - "npm --prefix website run typecheck && npm --prefix website run build"
+        - "docker compose --env-file .env.example config --quiet"
+      evidence:
+        - "491 bundled tests passed; 175 container-only tests intentionally skipped"
+        - "177 real-PostgreSQL schema and recovery tests passed; migration 7 and backup/restore checks ready"
+        - "Focused App identity and publication gateway suite passed 42 tests"
+        - "Pyright passed with 0 errors and Ruff passed on every changed Python file"
+        - "No live publication PAT, read-token fallback, or installation-token /user identity path remains"
+        - "Claude Opus high resumed commit gate green with score 8 in review-agent-app-publication iteration 3"
+      deferred:
+        - "Feedback App cutover remains T029."
+        - "Legacy topology and OpenShift cleanup remain T030."
+        - "No live GitHub or Dokploy mutation was made in this slice."
+      changed_files:
+        - ".env.example"
+        - "README.md"
+        - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+        - "bootstrap/plugins/review_agent_tools/github/publication.py"
+        - "bootstrap/plugins/review_agent_tools/github/publication_gateway.py"
+        - "bootstrap/plugins/review_agent_tools/plugin.yaml"
+        - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+        - "bootstrap/plugins/review_agent_tools/publisher.py"
+        - "bootstrap/plugins/review_agent_tools/review_publication_application.py"
+        - "bootstrap/plugins/review_agent_tools/settings.py"
+        - "bootstrap/plugins/review_agent_tools/source_control.py"
+        - "bootstrap/plugins/review_agent_tools/tools.py"
+        - "compose.yaml"
+        - "docs/DEPLOYMENT.md"
+        - "docs/FAQ.md"
+        - "docs/GETTING_STARTED.md"
+        - "docs/GITHUB_APP_PILOT.md"
+        - "docs/HOW_REVIEWS_WORK.md"
+        - "docs/OPERATIONS.md"
+        - "docs/ROADMAP.md"
+        - "docs/SECURITY.md"
+        - "docs/goals/github-app-pilot/state.yaml"
+        - "tests/test_docs_contract.py"
+        - "tests/test_github_app_auth.py"
+        - "tests/test_github_app_processor.py"
+        - "tests/test_github_gateway.py"
+        - "tests/test_github_gateway_entrypoint.py"
+        - "tests/test_postgres_github_app.py"
+        - "tests/test_postgres_publications.py"
+        - "tests/test_settings.py"
+        - "tools/review_agent_feedback_bridge.py"
+        - "tools/review_agent_github_gateway.py"
+        - "tools/review_agent_memory.py"
+        - "tools/review_agent_publisher.py"
+        - "website/docusaurus.config.ts"
   - id: T029
     type: pm
     assignee: PM
-    status: queued
+    status: active
     objective: "Process App feedback through the durable feedback application and gateway, then delete the feedback sidecar, HMAC route, PAT, and actor allowlist."
     receipt: null
   - id: T030
@@ -1499,15 +1718,14 @@ tasks:
       next_task: T009
 
 checks:
-  dirty_fingerprint: "local worktree contains preserved user-owned documentation changes; exact commits must be staged from the remote base"
+  dirty_fingerprint: "T037 App-backed publication candidate is locally verified and ready for its containing commit"
   last_verification:
     result: pass
-    task: T022
+    task: T037
     commands:
-      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_activation tests.test_docs_contract — 35 passed"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python scripts/check_docs.py — passed"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check tools/review_agent_github_app_worker.py tests/test_github_app_activation.py — passed"
-      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
-      - "npm --prefix website run build"
-      - "Claude Opus high session review-agent-github-app-docs iteration 3: green, score 8"
-      - "Remote Python bundle 32953533774 and GitHub Pages 32953533810 passed"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh — 491 passed, 175 skipped"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh — 177 passed; migration 7; restore ready"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright — 0 errors"
+      - "Ruff on all changed Python files, git diff check, and Compose config — passed"
+      - "Docs contract, site typecheck, and production build — passed"
+      - "Claude Opus high review-agent-app-publication iteration 3 — green, score 8"

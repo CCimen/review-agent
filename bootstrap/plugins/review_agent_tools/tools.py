@@ -34,7 +34,6 @@ from .postgres.runtime import (
 )
 from .postgres.coverage import FileIndexSummary, RunFile, RunFilePage
 from .domain.review import ReviewRunId
-from .github.publication import GitHubIssueCommentGateway
 from .github.gateway import (
     GitHubGatewayError,
     GitHubGatewayRejected,
@@ -207,13 +206,6 @@ def _source_error(exc: GitHubGatewayError) -> ToolInputError:
     return ToolInputError("GitHub source read could not be completed")
 
 
-def _github_publication_gateway() -> GitHubIssueCommentGateway:
-    configured = settings.ReviewAgentSettings.from_environment()
-    return GitHubIssueCommentGateway(
-        configured.github_publish_token,
-    )
-
-
 def _installed_review_contract() -> review_contract.ReviewContract:
     try:
         installed = review_contract.load_installed_contract()
@@ -378,15 +370,10 @@ def _load_pull_snapshot(
 def _application_snapshot_call(
     operation: Callable[[], ApplicationResult],
 ) -> ApplicationResult:
-    """Keep terminal status publication and tool errors in the adapter."""
+    """Translate terminal snapshots and application errors for model tools."""
     try:
         return operation()
-    except ReviewRunTerminal as terminal:
-        if terminal.newly_terminalized:
-            _publish_failure_status_safe(
-                run_id=terminal.run_id,
-                failure_code=failure_codes.SNAPSHOT_SUPERSEDED,
-            )
+    except ReviewRunTerminal:
         raise
     except review_run_application.ReviewRunError as exc:
         raise ToolInputError(str(exc)) from exc
@@ -1432,28 +1419,6 @@ def _mark_run_failed(
         pass
 
 
-def _publish_failure_status_safe(*, run_id: int, failure_code: str) -> None:
-    """Best-effort, in-band status post after a terminal review outcome.
-
-    Never masks the primary error; the out-of-band reaper is the durable catch-all for
-    runs that abort before reaching this path (e.g. loop-guard or turn-cap aborts)."""
-    if not settings.ReviewAgentSettings.from_environment().github_publish_token:
-        return
-    try:
-        del failure_code
-        review_publication_application.publish_postgres_run_failure_status(
-            _postgres_runtime(),
-            run_id=run_id,
-            github=_github_publication_gateway(),
-        )
-    except Exception as exc:
-        logger.warning(
-            "Run %s failure-status publication was deferred: %s",
-            run_id,
-            exc,
-        )
-
-
 @_worker_lease_fence()
 def review_deliver(args: dict[str, Any], **context: Any) -> str:
     repository = ""
@@ -1566,20 +1531,12 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                 run_id=run_id,
                 failure_code=failure_codes.REVIEW_DELIVER_ERROR,
             )
-            _publish_failure_status_safe(
-                run_id=run_id,
-                failure_code=failure_codes.REVIEW_DELIVER_ERROR,
-            )
         return _error(str(exc))
     except Exception:
         if repository and number and run_id:
             _mark_run_failed(
                 repository=repository,
                 pr_number=number,
-                run_id=run_id,
-                failure_code=failure_codes.UNEXPECTED_REVIEW_DELIVER_FAILURE,
-            )
-            _publish_failure_status_safe(
                 run_id=run_id,
                 failure_code=failure_codes.UNEXPECTED_REVIEW_DELIVER_FAILURE,
             )

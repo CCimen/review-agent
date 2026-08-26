@@ -23,8 +23,8 @@ from review_agent_tools import (  # noqa: E402
 )
 from review_agent_tools.github import app_processor  # noqa: E402
 from review_agent_tools.github.app_auth import (  # noqa: E402
-    ReviewReadToken,
-    ReviewReadTokenService,
+    InstallationToken,
+    GitHubAppTokenService,
 )
 from review_agent_tools.github.gateway import (  # noqa: E402
     GitHubGatewayProtocolError,
@@ -57,9 +57,9 @@ class _Tokens:
         self.repository_ids: list[int] = []
         self.invalidated_repository_ids: list[int] = []
 
-    def token_for(self, provider_repository_id: int) -> ReviewReadToken:
+    def token_for(self, provider_repository_id: int) -> InstallationToken:
         self.repository_ids.append(provider_repository_id)
-        return ReviewReadToken(
+        return InstallationToken(
             "installation-token",
             datetime.now(timezone.utc) + timedelta(hours=1),
         )
@@ -160,7 +160,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         client = github or _GitHub()
         gateway_service = ReviewGitHubGateway(
             postgres=self.runtime,
-            tokens=cast(ReviewReadTokenService, self.tokens),
+            tokens=cast(GitHubAppTokenService, self.tokens),
             profile="sundsvall-standard",
             github_factory=lambda _: client,
         )
@@ -432,7 +432,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(result.delivery_id if result else None, delivery_id)
         with self.runtime.transaction() as connection:
             installation = github_app.get_installation_by_provider_id(connection, 7001)
-            with self.assertRaises(github_app.GitHubAppReviewReadUnauthorized):
+            with self.assertRaises(github_app.GitHubAppRepositoryUnauthorized):
                 github_app.authorize_review_read(connection, 9001)
         self.assertEqual(installation.status, github_app.InstallationStatus.SUSPENDED)
 

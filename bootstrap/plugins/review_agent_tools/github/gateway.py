@@ -20,7 +20,7 @@ from ..source_control import (
 from .app_auth import (
     GitHubAppTokenPermanent,
     GitHubAppTokenRetryable,
-    ReviewReadTokenService,
+    GitHubAppTokenService,
 )
 from .source import (
     GitHubSourceError,
@@ -312,7 +312,7 @@ class ReviewGitHubGateway:
         self,
         *,
         postgres: PostgreSQLRuntime,
-        tokens: ReviewReadTokenService,
+        tokens: GitHubAppTokenService,
         profile: str,
         github_factory: Callable[[str], GitHubReadClient] | None = None,
     ) -> None:
@@ -434,7 +434,7 @@ class ReviewGitHubGateway:
             review_runs.ReviewRunError,
         ) as exc:
             raise GitHubGatewayRejected("review_job_lease_lost") from exc
-        except github_app.GitHubAppReviewReadUnauthorized as exc:
+        except github_app.GitHubAppRepositoryUnauthorized as exc:
             raise GitHubGatewayRejected("repository_not_authorized") from exc
 
     def _provider_source(
@@ -451,7 +451,7 @@ class ReviewGitHubGateway:
                 raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
-            except github_app.GitHubAppReviewReadUnauthorized as exc:
+            except github_app.GitHubAppRepositoryUnauthorized as exc:
                 raise GitHubGatewayRejected("repository_not_authorized") from exc
             except GitHubReadError as exc:
                 if exc.kind == "unauthorized" and attempt == 0:
@@ -495,7 +495,7 @@ class ReviewGitHubGateway:
             webhook_deliveries.DeliveryNotFound,
         ) as exc:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
-        except github_app.GitHubAppReviewReadUnauthorized as exc:
+        except github_app.GitHubAppRepositoryUnauthorized as exc:
             raise GitHubGatewayRejected("repository_not_authorized") from exc
         return command
 
@@ -563,10 +563,10 @@ class ReviewGitHubGateway:
             raise GitHubGatewayRejected("fork_source_not_supported")
 
 
-def _gateway_github_client(read_token: str) -> GitHubReadClient:
+def _gateway_github_client(token: str) -> GitHubReadClient:
     """Bound one gateway operation well inside its durable delivery lease."""
     return GitHubReadClient(
-        read_token,
+        token,
         request_timeout_seconds=10.0,
         max_attempts=1,
     )

@@ -14,23 +14,19 @@ last_verified: 2026-08-26
 This document owns runtime limits, persistent state, recovery, and operator
 commands.
 
-## GitHub Tokens
+## GitHub credentials
 
-Use separate fine-grained tokens for read, publication, and feedback. The
-[deployment guide](./DEPLOYMENT.md#create-the-credentials) shows the GitHub UI
-steps and organization approval path.
+The private GitHub gateway holds the App key and mints short-lived installation
+tokens for one repository and one purpose at a time.
 
-| Token env var | Required permissions | Purpose |
+| Credential | Required permissions | Purpose |
 | --- | --- | --- |
-| `GITHUB_READ_TOKEN` | Contents read, Pull requests read, Metadata read | PR metadata, diff, and file reads. |
-| `REVIEW_AGENT_PUBLISH_GH_TOKEN` | Metadata read, Pull requests read/write | Create, update, and delete PR summary comments and publish native suggested changes. |
+| GitHub App read token | Contents read, Issues read, Pull requests read, Metadata read | Exact PR source reads. |
+| GitHub App publication token | Issues write, Pull requests write, Metadata read | Deterministic comments, reviews, and native suggestions. |
 | `REVIEW_AGENT_FEEDBACK_GH_TOKEN` | Issues read/write, Metadata read, Pull requests read | Add feedback reactions and read PR/comment state. |
 
-The publisher tries `GITHUB_READ_TOKEN` for read paths first and uses
-`REVIEW_AGENT_PUBLISH_GH_TOKEN` for comment and review writes. The publisher token
-does not need Contents write or Issues write: GitHub accepts Pull requests write
-for comments on pull requests, and only the developer's GitHub action creates a
-commit from a proposed patch. Endpoint-specific failures such as
+The feedback token is temporary and belongs only to the optional feedback
+sidecar. Admission, source reads, and publication use the App. Endpoint-specific failures such as
 `github_403_get_pull_request`, `github_403_list_issue_comments`,
 `github_403_create_issue_comment`, or
 `github_403_create_pull_request_review` identify the
@@ -200,43 +196,19 @@ curl -fsS http://127.0.0.1:8645/ready
 review-agent-feedback-bridge verify-config
 ```
 
-## GitHub Trigger
+## GitHub trigger
 
-The [deployment guide](./DEPLOYMENT.md#configure-github-actions) owns workflow
-installation, secret creation, and the username allowlist. The secret mapping is:
-
-```text
-HERMES_REVIEW_URL=https://review.example.org/webhooks/review-agent
-HERMES_WEBHOOK_SECRET=<same value as REVIEW_AGENT_WEBHOOK_SECRET>
-HERMES_REVIEW_FEEDBACK_URL=https://review-feedback.example.org/webhooks/review-agent-feedback
-HERMES_REVIEW_FEEDBACK_SECRET=<same value as REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET>
-```
-
-The workflow grants `issues: write` and `pull-requests: write` to its built-in
-token for the non-blocking eyes reaction on an accepted PR comment. GitHub's
-Actions integration returned `403 Resource not accessible by integration` for
-this PR-comment reaction when only `issues: write` was granted, even though the
-REST path is under issue comments. Keep both permissions unless a production
-workflow run proves the pull-request permission is no longer required.
-Webhook secrets are scoped to the dispatch step and are not inherited by the
-reaction step. The workflow does not check out PR code. It sends only repository
-name, PR number, requester, and request id to admission. The workflow must exist on
-the repository's default branch before an `issue_comment` event can start it.
+The App receives `issue_comment` events at `/webhooks/github-app`. Admission
+persists the signed delivery before any provider read. The App worker then
+checks the sender's current permission and the repository's enabled state before
+creating a run.
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` in Dokploy if the rendered review comment
 should show the copyable feedback commands documented below.
 
-### Optional GitHub App admission
-
-The opt-in App worker can receive and authorize `/review` directly for selected
-repositories. The protected Actions route remains the production default, and
-source reads, publication, and feedback keep their existing tokens. Registration,
-reconciliation, explicit enablement, proof, and rollback live in one place: the
-[GitHub App pilot guide](./GITHUB_APP_PILOT.md).
-
-After a repository selection changes, run the guide's reconciliation command
-before enabling anything. Reconciliation never enables a new or restored
-repository automatically.
+Registration, reconciliation, explicit enablement, and verification live in the
+[GitHub App setup guide](./GITHUB_APP_PILOT.md). Reconciliation never enables a
+new or restored repository automatically.
 
 ## Run A Review
 
@@ -337,14 +309,14 @@ crash, retries transient GitHub failures, and stops after the stored attempt
 limit. A later review for the same pull request suppresses obsolete status work.
 Manual recovery reopens an exhausted status with a fresh stored attempt budget.
 
-For bounded manual recovery, mark stale runs and deliver their queued statuses:
+For bounded manual recovery, mark stale runs. The ordinary publisher then claims
+and delivers their queued statuses:
 
 ```bash
-review-agent-memory runs --publish-failure-status --stale-after-minutes 10 --repo <org>/<repo> --pr <number>
+review-agent-memory runs --mark-stalled --stale-after-minutes 10 --repo <org>/<repo> --pr <number>
 ```
 
-This command exits with status 1 if any GitHub status comment fails to publish.
-Its JSON output identifies each failed delivery. `runs --failed` exposes the
+`runs --failed` exposes the
 status delivery state, attempt count, maximum attempts, and last delivery failure.
 
 Common states:

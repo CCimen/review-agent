@@ -33,9 +33,9 @@ continuity:
   completed_write_tasks_in_thread: 4
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "ad399fe5a2836426835ea56b58170a2e9bd46021"
+  last_verified_revision: "ddb3facdfd13ea2e4991f77b20d1dce2ccabe26d"
 
-active_task: T018
+active_task: T019
 
 tasks:
   - id: T001
@@ -731,7 +731,7 @@ tasks:
   - id: T018
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Reconcile the supplied GitHub App follow-up review with current main and close only the verified installation-bootstrap contract gaps: fail closed on conflicting repository identities, expose the native-App request bound to operators, and add the missing behavior proof without redesigning the already-working processor."
     inputs:
@@ -787,6 +787,56 @@ tasks:
       - "No live pilot, organization mutation, PAT/Actions deletion, source-read/publication/feedback cutover, or release."
       - "No payload-size metrics subsystem; defer telemetry to the existing observability owner."
     rollback: "Revert the bounded normalization/configuration commit. The existing selected-repository processor remains available, the default PAT/Actions route remains live, and no database state or migration changes are involved."
+    receipt:
+      result: done
+      commit: "ddb3facdfd13ea2e4991f77b20d1dce2ccabe26d"
+      summary: "Verified that current main already preserved initial installation repositories, repository selection, and an independent App request bound, then closed only the real gaps: contradictory stable repository identities now fail before persistence, empty and large selected installations are proved, the App limit is exposed as a 2 MiB service ceiling, server settings validate before PostgreSQL opens, and normalized-envelope overflow is a typed logged 413."
+      evidence:
+        - "450 bundled tests passed; 168 intentionally skipped"
+        - "172 PostgreSQL schema, recovery, backup, and restore tests passed"
+        - "30 focused real-PostgreSQL processor, lifecycle, and delivery tests passed, including typed normalized-payload overflow"
+        - "Supported installation.created payload with 1,300 repositories exceeded 64 KiB and normalized for durable registration"
+        - "Ruff passed"
+        - "Pyright strict passed with 0 errors"
+        - "Default and github-app-pilot Compose configurations passed"
+        - "Claude Opus high session review-agent-github-app-bootstrap-contract: iteration 1 changes_required score 7; iteration 2 green score 8"
+      dispositions:
+        accepted:
+          - "Bound operator configuration to the tested 2 MiB buffered-service ceiling rather than GitHub's unrelated 25 MiB provider cap."
+          - "Add typed storage-overflow propagation, an observable 413, and full server preflight before database startup."
+          - "Exercise a supported large installation event and clarify the selected-repository fixture."
+        deferred:
+          - "Do not add a duplicate repository-count ceiling; byte owners already bound memory and persistence."
+          - "Repository-name rule consolidation belongs to a later normalization-owner cleanup and does not block the selected-repository pilot."
+          - "Payload-size metrics and peak-RSS load measurement belong to the observability/performance owner, not this correction."
+          - "The small transport-local integer parser remains until a public shared settings primitive is justified; do not import another module's private helper."
+      spawned_tasks:
+        - T019
+  - id: T019
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Audit the committed direct-App admission activation and follow-up installation correction as one locally complete milestone, then freeze the next smallest dependency before any owner-controlled live pilot."
+    inputs:
+      - "T017 and T018 receipts"
+      - "review-agent-github-app-follow-up-review.zip"
+      - "Current remote main at ddb3facdfd13ea2e4991f77b20d1dce2ccabe26d"
+      - "Existing operator CLI, installation lifecycle, token, worker, and deployment owners"
+    constraints:
+      - "Read-only; do not implement or mutate GitHub, deployments, credentials, or organizations."
+      - "Treat the ZIP as review evidence rather than repository authority and verify every recommendation against current main."
+      - "Do not repeat the green Claude gate or start another reviewer."
+      - "Distinguish a direct-App admission pilot from an App-only end-to-end review; source reads, publication, and feedback remain PAT-backed."
+      - "Prefer one manual reconciliation repair operation over a scheduler or generic lifecycle framework."
+      - "No public cutover docs, PAT deletion, scorecard, llms files, setup skill, admin UI, release, or Sundsvallskommun change before their dependencies."
+    expected_output:
+      - "complete or not_complete decision for local direct-App admission activation"
+      - "Verified remaining blocker list"
+      - "Exact next Worker objective, canonical owner, allowed files, acceptance, verification, stop conditions, rollback, and non-goals"
+      - "Decision whether manual installation reconciliation must precede the CCimen/review-agent live admission pilot"
+      - "Owner-controlled pilot prerequisites and an accurate success claim"
+    receipt: null
   - id: T999
     type: judge
     assignee: Judge

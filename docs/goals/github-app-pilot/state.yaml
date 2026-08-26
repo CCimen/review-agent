@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "470df8f12821cdf532addd866ce0f527955dd673"
 
-active_task: T012
+active_task: T013
 
 tasks:
   - id: T001
@@ -411,7 +411,7 @@ tasks:
   - id: T012
     type: scout
     assignee: Scout
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Map the smallest complete direct GitHub App event-processing slice after durable webhook intake and repository-scoped review-read token minting."
     inputs:
@@ -431,6 +431,38 @@ tasks:
       - "Event-category state transitions and idempotency boundaries"
       - "Exact fork-read and repository-lifecycle behavior"
       - "Smallest complete T006 allowed_files, tests, stop conditions, and rollback"
+    receipt:
+      result: done
+      summary: "Mapped one dormant direct-App processor over the existing fenced webhook ledger, T005 token owner, and atomic run/job admission path. Lifecycle events stay transactional; review commands perform bounded GitHub reads outside PostgreSQL and finish with one reauthorization, admission, and delivery-completion transaction."
+      evidence:
+        - "Existing webhook delivery claim, generation fence, retry, recovery, and terminal transitions"
+        - "Existing stable repository, installation-access, review contract, and run/job owners"
+        - "Official installation-created repository, calculated collaborator permission, pull-request snapshot, and pull-ref contracts"
+      decisions_needed:
+        - "Whether T006 terminal-rejects cross-repository forks until a base pull-ref read path is proved"
+        - "Whether direct-App feedback is terminal-ignored until the T007 cutover"
+      spawned_tasks:
+        - T013
+  - id: T013
+    type: judge
+    assignee: Judge
+    status: active
+    reasoning_hint: high
+    objective: "Freeze the smallest complete T006 processor contract, including honest fork and pre-cutover feedback behavior."
+    inputs:
+      - "T003-T005 receipts"
+      - "T012 receipt and source evidence"
+      - "docs/goals/github-app-pilot/goal.md"
+    constraints:
+      - "Read-only."
+      - "Do not create a second queue, admission path, generic event framework, or credential owner."
+      - "Do not claim unsupported fork reads or leave claimed delivery categories hanging."
+      - "Do not require live credentials, deployment wiring, publication, PAT deletion, onboarding, or Sundsvallskommun access."
+    expected_output:
+      - "Fork and feedback decisions"
+      - "Exact T006 objective and canonical owner"
+      - "allowed_files"
+      - "acceptance, verify, stop_if, rollback, and explicit non-goals"
     receipt: null
   - id: T999
     type: judge

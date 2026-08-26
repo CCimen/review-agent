@@ -30,6 +30,10 @@ class GitHubAppRepositoryNotFound(GitHubAppStateError):
     """The requested GitHub App repository access record does not exist."""
 
 
+class GitHubAppReviewReadUnauthorized(GitHubAppStateError):
+    """The repository is not currently authorized for App-backed review reads."""
+
+
 class AccountType(StrEnum):
     USER = "user"
     ORGANIZATION = "organization"
@@ -145,6 +149,15 @@ class RepositoryAccessEvent:
     actor: str
     reason: str
     recorded_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewReadAuthorization:
+    """Current provider IDs authorized for one repository's review reads."""
+
+    repository_id: RepositoryId
+    provider_repository_id: int
+    provider_installation_id: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -433,6 +446,43 @@ def get_repository_access(
             "GitHub App repository access was not found"
         )
     return _access(row)
+
+
+def authorize_review_read(
+    connection: psycopg.Connection[TupleRow], provider_repository_id: int
+) -> ReviewReadAuthorization:
+    """Authorize one stable GitHub repository ID against current installation state."""
+    _require_transaction(connection)
+    row = connection.execute(
+        """
+        SELECT access.repository_id, repository.provider_repository_id,
+               installation.provider_installation_id
+        FROM review_agent.github_app_repository_access AS access
+        JOIN review_agent.repositories AS repository
+          ON repository.id = access.repository_id
+        JOIN review_agent.github_app_installations AS installation
+          ON installation.id = access.installation_id
+        WHERE repository.provider = 'github'
+          AND repository.provider_repository_id = %s
+          AND access.access_state = 'available'
+          AND access.enabled
+          AND installation.status = 'active'
+          AND installation.contents_permission IN ('read', 'write')
+          AND installation.issues_permission IN ('read', 'write')
+          AND installation.pull_requests_permission IN ('read', 'write')
+        """,
+        (_positive(provider_repository_id, "provider_repository_id"),),
+    ).fetchone()
+    if row is None:
+        raise GitHubAppReviewReadUnauthorized(
+            "repository is not authorized for GitHub App review reads"
+        )
+    authorized_repository_id, authorized_provider_id, provider_installation_id = row
+    return ReviewReadAuthorization(
+        repository_id=RepositoryId(authorized_repository_id),
+        provider_repository_id=authorized_provider_id,
+        provider_installation_id=provider_installation_id,
+    )
 
 
 def _lock_repository_access(

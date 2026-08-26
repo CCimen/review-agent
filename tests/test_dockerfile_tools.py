@@ -107,6 +107,8 @@ class DockerfileToolsTests(unittest.TestCase):
                 "psycopg[binary]==3.3.4",
                 "psycopg-pool==3.3.1",
                 "PyYAML==6.0.3",
+                "PyJWT==2.13.0",
+                "cryptography==50.0.0",
             ],
         )
         self.assertIn(

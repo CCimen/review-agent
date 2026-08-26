@@ -16,9 +16,7 @@ from review_agent_tools import github_webhook  # noqa: E402
 class GitHubWebhookTests(unittest.TestCase):
     def test_signature_covers_the_untouched_body(self) -> None:
         body = b'{"action":"created"}'
-        signature = "sha256=" + hmac.new(
-            b"secret", body, hashlib.sha256
-        ).hexdigest()
+        signature = "sha256=" + hmac.new(b"secret", body, hashlib.sha256).hexdigest()
 
         self.assertTrue(github_webhook.verify_signature(body, signature, "secret"))
         self.assertFalse(
@@ -41,6 +39,7 @@ class GitHubWebhookTests(unittest.TestCase):
                         "administration": "read",
                     },
                 },
+                "repositories": [{"id": 42, "full_name": "CCimen/review-agent"}],
                 "sender": {"id": 9001, "login": "ignored-source-field"},
             },
         )
@@ -48,7 +47,10 @@ class GitHubWebhookTests(unittest.TestCase):
             "installation_repositories",
             {
                 "action": "added",
-                "installation": {"id": 7001},
+                "installation": {
+                    "id": 7001,
+                },
+                "repository_selection": "selected",
                 "repositories_added": [
                     {"id": 42, "full_name": "CCimen/review-agent", "private": True}
                 ],
@@ -69,17 +71,37 @@ class GitHubWebhookTests(unittest.TestCase):
                 "kind": "installation",
                 "pull_requests_permission": "write",
                 "repository_selection": "selected",
+                "repositories": [{"full_name": "CCimen/review-agent", "id": 42}],
             },
         )
         self.assertEqual(
             repositories.normalized,
             {
                 "kind": "installation_repositories",
-                "repositories": [
-                    {"full_name": "CCimen/review-agent", "id": 42}
-                ],
+                "repository_selection": "selected",
+                "repositories": [{"full_name": "CCimen/review-agent", "id": 42}],
             },
         )
+
+    def test_installation_created_accepts_an_omitted_repository_list(self) -> None:
+        normalized = github_webhook.normalize_event(
+            "installation",
+            {
+                "action": "created",
+                "installation": {
+                    "id": 7001,
+                    "account": {"id": 8001, "login": "CCimen", "type": "User"},
+                    "repository_selection": "all",
+                    "permissions": {
+                        "contents": "read",
+                        "issues": "write",
+                        "pull_requests": "write",
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(normalized.normalized["repositories"], [])
 
     def test_issue_comment_normalizes_review_and_typed_feedback(self) -> None:
         review = github_webhook.normalize_event(
@@ -103,9 +125,7 @@ class GitHubWebhookTests(unittest.TestCase):
                 "reason": "Existing validation covers it.",
             },
         )
-        self.assertNotIn(
-            "/review false-positive", str(feedback.normalized)
-        )
+        self.assertNotIn("/review false-positive", str(feedback.normalized))
 
     def test_non_pr_edited_bot_and_unknown_commands_are_bounded_ignores(self) -> None:
         cases = (
@@ -117,9 +137,7 @@ class GitHubWebhookTests(unittest.TestCase):
 
         for payload, reason in cases:
             with self.subTest(reason=reason):
-                normalized = github_webhook.normalize_event(
-                    "issue_comment", payload
-                )
+                normalized = github_webhook.normalize_event("issue_comment", payload)
                 self.assertEqual(normalized.command_kind, "ignored")
                 self.assertEqual(normalized.normalized["reason"], reason)
                 self.assertNotIn("body", normalized.normalized)
@@ -130,9 +148,7 @@ class GitHubWebhookTests(unittest.TestCase):
         assert isinstance(repository, dict)
         repository["id"] = 0
 
-        with self.assertRaisesRegex(
-            github_webhook.GitHubWebhookError, "repository.id"
-        ):
+        with self.assertRaisesRegex(github_webhook.GitHubWebhookError, "repository.id"):
             github_webhook.normalize_event("issue_comment", malformed)
         with self.assertRaisesRegex(
             github_webhook.GitHubWebhookError, "unsupported GitHub event"
@@ -152,7 +168,10 @@ class GitHubWebhookTests(unittest.TestCase):
             issue["pull_request"] = {"url": "https://api.github.test/pulls/42"}
         return {
             "action": action,
-            "installation": {"id": 7001},
+            "installation": {
+                "id": 7001,
+                "repository_selection": "selected",
+            },
             "repository": {"id": 9001, "full_name": "CCimen/review-agent"},
             "issue": issue,
             "comment": {

@@ -97,6 +97,16 @@ def _repository(value: object) -> tuple[int, str]:
     return identifier, full_name
 
 
+def _repositories(value: object, field: str) -> list[JsonValue]:
+    if not isinstance(value, list):
+        raise GitHubWebhookError(f"{field} must be an array")
+    repositories: list[JsonValue] = []
+    for item in cast(list[object], value):
+        repository_id, full_name = _repository(item)
+        repositories.append({"full_name": full_name, "id": repository_id})
+    return repositories
+
+
 def _installation_id(root: Mapping[str, object]) -> int:
     installation = _object(root.get("installation"), "installation")
     return _positive(installation.get("id"), "installation.id")
@@ -124,9 +134,7 @@ def _normalize_installation(root: Mapping[str, object]) -> NormalizedWebhook:
     installation = _object(root.get("installation"), "installation")
     identifier = _positive(installation.get("id"), "installation.id")
     account = _object(installation.get("account"), "installation.account")
-    account_type = _text(
-        account.get("type"), "installation.account.type", 40
-    ).lower()
+    account_type = _text(account.get("type"), "installation.account.type", 40).lower()
     if account_type not in {"user", "organization"}:
         raise GitHubWebhookError("installation.account.type is unsupported")
     selection = _text(
@@ -141,9 +149,7 @@ def _normalize_installation(root: Mapping[str, object]) -> NormalizedWebhook:
     )
     normalized: dict[str, JsonValue] = {
         "account_id": _positive(account.get("id"), "installation.account.id"),
-        "account_login": _text(
-            account.get("login"), "installation.account.login", 100
-        ),
+        "account_login": _text(account.get("login"), "installation.account.login", 100),
         "account_type": account_type,
         "contents_permission": _permission(permissions, "contents"),
         "issues_permission": _permission(permissions, "issues"),
@@ -151,6 +157,13 @@ def _normalize_installation(root: Mapping[str, object]) -> NormalizedWebhook:
         "pull_requests_permission": _permission(permissions, "pull_requests"),
         "repository_selection": selection,
     }
+    if action == "created":
+        raw_repositories = root.get("repositories")
+        normalized["repositories"] = (
+            []
+            if raw_repositories is None
+            else _repositories(raw_repositories, "repositories")
+        )
     return NormalizedWebhook(
         schema_version=1,
         event="installation",
@@ -169,13 +182,14 @@ def _normalize_repositories(root: Mapping[str, object]) -> NormalizedWebhook:
         raise GitHubWebhookError("unsupported installation_repositories action")
     identifier = _installation_id(root)
     field = "repositories_added" if action == "added" else "repositories_removed"
-    raw_repositories = root.get(field)
-    if not isinstance(raw_repositories, list):
-        raise GitHubWebhookError(f"{field} must be an array")
-    repositories: list[JsonValue] = []
-    for item in cast(list[object], raw_repositories):
-        repository_id, full_name = _repository(item)
-        repositories.append({"full_name": full_name, "id": repository_id})
+    selection = _text(
+        root.get("repository_selection"),
+        "repository_selection",
+        20,
+    ).lower()
+    if selection not in {"selected", "all"}:
+        raise GitHubWebhookError("repository_selection is unsupported")
+    repositories = _repositories(root.get(field), field)
     return NormalizedWebhook(
         schema_version=1,
         event="installation_repositories",
@@ -186,6 +200,7 @@ def _normalize_repositories(root: Mapping[str, object]) -> NormalizedWebhook:
         command_kind=None,
         normalized={
             "kind": "installation_repositories",
+            "repository_selection": selection,
             "repositories": repositories,
         },
     )

@@ -161,6 +161,17 @@ class ReviewReadAuthorization:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewAdmissionAuthorization:
+    """Locked repository state authorized for final review admission."""
+
+    repository_id: RepositoryId
+    provider_repository_id: int
+    provider_installation_id: int
+    full_name: str
+    profile_key: str
+
+
+@dataclass(frozen=True, slots=True)
 class _InstallationRow:
     id: GitHubAppInstallationId
     provider_installation_id: int
@@ -403,6 +414,30 @@ def get_installation(
     return _installation(row)
 
 
+def get_installation_by_provider_id(
+    connection: psycopg.Connection[TupleRow],
+    provider_installation_id: int,
+    *,
+    for_update: bool = False,
+) -> GitHubAppInstallation:
+    """Resolve one installation by its stable GitHub identity."""
+    _require_transaction(connection)
+    lock = "FOR UPDATE" if for_update else ""
+    with connection.cursor(row_factory=class_row(_InstallationRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            SELECT {_INSTALLATION_COLUMNS}
+            FROM review_agent.github_app_installations
+            WHERE provider_installation_id = %s
+            {lock}
+            """,
+            (_positive(provider_installation_id, "provider_installation_id"),),
+        ).fetchone()
+    if row is None:
+        raise GitHubAppInstallationNotFound("GitHub App installation was not found")
+    return _installation(row)
+
+
 def _lock_installation(
     connection: psycopg.Connection[TupleRow],
     installation_id: GitHubAppInstallationId,
@@ -482,6 +517,58 @@ def authorize_review_read(
         repository_id=RepositoryId(authorized_repository_id),
         provider_repository_id=authorized_provider_id,
         provider_installation_id=provider_installation_id,
+    )
+
+
+def authorize_review_admission(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    provider_repository_id: int,
+    provider_installation_id: int,
+    profile_key: str,
+) -> ReviewAdmissionAuthorization:
+    """Lock and reauthorize one exact App review immediately before admission."""
+    _require_transaction(connection)
+    row = connection.execute(
+        """
+        SELECT access.repository_id, repository.provider_repository_id,
+               installation.provider_installation_id, repository.full_name,
+               access.profile_key
+        FROM review_agent.github_app_repository_access AS access
+        JOIN review_agent.repositories AS repository
+          ON repository.id = access.repository_id
+        JOIN review_agent.github_app_installations AS installation
+          ON installation.id = access.installation_id
+        WHERE repository.provider = 'github'
+          AND repository.provider_repository_id = %s
+          AND installation.provider_installation_id = %s
+          AND access.access_state = 'available'
+          AND access.enabled
+          AND access.profile_key = %s
+          AND installation.status = 'active'
+          AND installation.repository_selection = 'selected'
+          AND installation.contents_permission IN ('read', 'write')
+          AND installation.issues_permission IN ('read', 'write')
+          AND installation.pull_requests_permission IN ('read', 'write')
+        FOR UPDATE OF access, installation, repository
+        """,
+        (
+            _positive(provider_repository_id, "provider_repository_id"),
+            _positive(provider_installation_id, "provider_installation_id"),
+            _profile(profile_key),
+        ),
+    ).fetchone()
+    if row is None:
+        raise GitHubAppReviewReadUnauthorized(
+            "repository is not authorized for GitHub App review admission"
+        )
+    repository_id, repository_provider_id, installation_provider_id, name, profile = row
+    return ReviewAdmissionAuthorization(
+        repository_id=RepositoryId(repository_id),
+        provider_repository_id=repository_provider_id,
+        provider_installation_id=installation_provider_id,
+        full_name=name,
+        profile_key=profile,
     )
 
 
@@ -609,6 +696,8 @@ def grant_repository_access(
             EXCLUDED.installation_id,
             EXCLUDED.access_state
         )
+          AND review_agent.github_app_repository_access.installation_id
+              <= EXCLUDED.installation_id
         RETURNING repository_id
         """,
         (repository.id, installation.id, updated_by, update_reason),
@@ -738,6 +827,47 @@ def remove_repository_access(
     if changed is not None:
         _record_event(connection, state, AccessEvent.REMOVED)
     return state
+
+
+def remove_repository_access_for_installation(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    provider_repository_id: int,
+    expected_provider_installation_id: int,
+    actor: str,
+    reason: str,
+) -> RepositoryAccessState | None:
+    """Remove access only if the named installation still owns the repository."""
+    _require_transaction(connection)
+    row = connection.execute(
+        """
+        SELECT access.repository_id
+        FROM review_agent.github_app_repository_access AS access
+        JOIN review_agent.repositories AS repository
+          ON repository.id = access.repository_id
+        JOIN review_agent.github_app_installations AS installation
+          ON installation.id = access.installation_id
+        WHERE repository.provider = 'github'
+          AND repository.provider_repository_id = %s
+          AND installation.provider_installation_id = %s
+        FOR UPDATE OF access
+        """,
+        (
+            _positive(provider_repository_id, "provider_repository_id"),
+            _positive(
+                expected_provider_installation_id,
+                "expected_provider_installation_id",
+            ),
+        ),
+    ).fetchone()
+    if row is None:
+        return None
+    return remove_repository_access(
+        connection,
+        repository_id=RepositoryId(row[0]),
+        actor=actor,
+        reason=reason,
+    )
 
 
 def set_installation_status(

@@ -355,23 +355,41 @@ def admit_postgres_review(
 ) -> AdmittedReview:
     """Persist the exact run and its queue record in one transaction."""
     with runtime.transaction() as connection:
-        pull_request_id, subject_id = _ensure_review_scope(connection, request)
-        run = start_run_in_transaction(
+        return admit_postgres_review_in_transaction(
             connection,
-            pull_request_id=pull_request_id,
-            review_subject_id=subject_id,
-            request_key=request.request_key,
-            trigger_comment_id=request.trigger_comment_id,
-            trigger_user=request.trigger_user,
-        )
-        job = postgres_jobs.enqueue_run(
-            connection,
-            review_run_id=run.run.id,
+            request,
             priority=priority,
             max_attempts=max_attempts,
             active_job_limit=active_job_limit,
         )
-        return AdmittedReview(run=run, job=job)
+
+
+def admit_postgres_review_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    request: PostgresRunRequest,
+    *,
+    priority: int,
+    max_attempts: int,
+    active_job_limit: int,
+) -> AdmittedReview:
+    """Admit one review through an existing caller-owned transaction."""
+    pull_request_id, subject_id = _ensure_review_scope(connection, request)
+    run = start_run_in_transaction(
+        connection,
+        pull_request_id=pull_request_id,
+        review_subject_id=subject_id,
+        request_key=request.request_key,
+        trigger_comment_id=request.trigger_comment_id,
+        trigger_user=request.trigger_user,
+    )
+    job = postgres_jobs.enqueue_run(
+        connection,
+        review_run_id=run.run.id,
+        priority=priority,
+        max_attempts=max_attempts,
+        active_job_limit=active_job_limit,
+    )
+    return AdmittedReview(run=run, job=job)
 
 
 def _ensure_review_scope(

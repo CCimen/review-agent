@@ -117,6 +117,103 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
         self.assertEqual(authorization.provider_repository_id, 9001)
         self.assertEqual(authorization.provider_installation_id, 7001)
 
+    def test_final_review_authorization_locks_exact_installation_and_profile(self) -> None:
+        installation = self.installation()
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                access = github_app.grant_repository_access(
+                    connection,
+                    installation_id=installation.id,
+                    provider_repository_id=9001,
+                    full_name="CCimen/review-agent",
+                    actor="github-app:installation_repositories",
+                    reason="repository selected",
+                )
+                github_app.enable_repository(
+                    connection,
+                    repository_id=access.repository_id,
+                    profile_key="sundsvall-standard",
+                    trigger_mode=github_app.TriggerMode.MANUAL,
+                    actor="operator:ccimen",
+                    reason="approve pilot",
+                )
+                authorized = github_app.authorize_review_admission(
+                    connection,
+                    provider_repository_id=9001,
+                    provider_installation_id=7001,
+                    profile_key="sundsvall-standard",
+                )
+                with self.assertRaises(
+                    github_app.GitHubAppReviewReadUnauthorized
+                ):
+                    github_app.authorize_review_admission(
+                        connection,
+                        provider_repository_id=9001,
+                        provider_installation_id=7001,
+                        profile_key="other-profile",
+                    )
+
+        self.assertEqual(authorized.repository_id, access.repository_id)
+        self.assertEqual(authorized.full_name, "CCimen/review-agent")
+
+    def test_stale_repository_removal_cannot_fence_new_installation(self) -> None:
+        original = self.installation()
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                first = github_app.grant_repository_access(
+                    connection,
+                    installation_id=original.id,
+                    provider_repository_id=9001,
+                    full_name="CCimen/review-agent",
+                    actor="github-app:installation_repositories",
+                    reason="first installation",
+                )
+                replacement = github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7002,
+                        account_id=8001,
+                        account_login="CCimen",
+                        account_type=github_app.AccountType.USER,
+                        repository_selection=github_app.RepositorySelection.SELECTED,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.WRITE,
+                        pull_requests_permission=github_app.PermissionLevel.WRITE,
+                    ),
+                )
+                current = github_app.grant_repository_access(
+                    connection,
+                    installation_id=replacement.id,
+                    provider_repository_id=9001,
+                    full_name="CCimen/review-agent",
+                    actor="github-app:installation_repositories",
+                    reason="replacement installation",
+                )
+                stale = github_app.remove_repository_access_for_installation(
+                    connection,
+                    provider_repository_id=9001,
+                    expected_provider_installation_id=7001,
+                    actor="github-app:installation_repositories",
+                    reason="late removal",
+                )
+                stored = github_app.get_repository_access(
+                    connection, current.repository_id
+                )
+                stale_add = github_app.grant_repository_access(
+                    connection,
+                    installation_id=original.id,
+                    provider_repository_id=9001,
+                    full_name="CCimen/review-agent",
+                    actor="github-app:installation_repositories",
+                    reason="late addition",
+                )
+
+        self.assertEqual(first.repository_id, current.repository_id)
+        self.assertIsNone(stale)
+        self.assertEqual(stored.installation_id, replacement.id)
+        self.assertEqual(stored.access_state, github_app.RepositoryAccess.AVAILABLE)
+        self.assertEqual(stale_add.installation_id, replacement.id)
+
     def test_suspension_fences_an_enabled_repository_until_reenabled(self) -> None:
         installation = self.installation()
         with psycopg.connect(DSN) as connection:

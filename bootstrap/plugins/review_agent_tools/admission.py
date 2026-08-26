@@ -8,7 +8,6 @@ import hashlib
 import json
 import os
 from typing import cast
-import urllib.parse
 
 from .github_webhook import (
     CommandKind,
@@ -16,6 +15,7 @@ from .github_webhook import (
     UnsupportedGitHubEvent,
     normalize_event,
 )
+from .github import app_processor
 from . import review_contract
 from .domain.review import JsonObject
 from .postgres import jobs, review_runs, webhook_deliveries
@@ -25,13 +25,17 @@ from .review_run_application import (
     admit_postgres_review,
 )
 from .settings import PostgresDatabaseUrl, ReviewAgentSettings, SettingsError
-from .source_control import GitHubReadClient, GitHubReadError
+from .source_control import GitHubReadClient
 
 
 DEFAULT_PATH = "/webhooks/review-agent"
 GITHUB_APP_PATH = "/webhooks/github-app"
 DEFAULT_PORT = 8644
 TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+# Temporary compatibility exports for callers of the original admission seam.
+PullSnapshot = app_processor.PullSnapshot
+read_pull_snapshot = app_processor.read_pull_snapshot
 
 
 class AdmissionError(ValueError):
@@ -68,16 +72,6 @@ class AdmissionRequest:
     requester: str
     association: str
     comment_id: int
-
-
-@dataclass(frozen=True, slots=True)
-class PullSnapshot:
-    repository_id: int
-    repository: str
-    number: int
-    state: str
-    base_sha: str
-    head_sha: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,26 +135,6 @@ def _object(value: object, field: str) -> Mapping[str, object]:
     return cast(Mapping[str, object], value)
 
 
-def _github_object(value: object, field: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
-    return cast(Mapping[str, object], value)
-
-
-def _github_repository_name(value: object) -> str:
-    if not isinstance(value, str):
-        raise GitHubReadError(
-            "invalid_json", "GitHub returned an invalid repository name"
-        )
-    name = value.strip()
-    parts = name.split("/")
-    if len(parts) != 2 or not all(parts):
-        raise GitHubReadError(
-            "invalid_json", "GitHub returned an invalid repository name"
-        )
-    return name
-
-
 def load_config(environment: Mapping[str, str] | None = None) -> AdmissionConfig:
     values = environment if environment is not None else os.environ
     settings = ReviewAgentSettings(values)
@@ -219,39 +193,6 @@ def parse_request(payload: object) -> AdmissionRequest:
         requester=login,
         association=association,
         comment_id=_positive_int(request.get("comment_id"), "request.comment_id"),
-    )
-
-
-def _github_text(value: object, field: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
-    return value.strip()
-
-
-def _github_int(value: object, field: str) -> int:
-    if type(value) is not int or value < 1:
-        raise GitHubReadError("invalid_json", f"GitHub returned invalid {field}")
-    return value
-
-
-def read_pull_snapshot(
-    github: GitHubReadClient, repository: str, pr_number: int
-) -> PullSnapshot:
-    quoted = urllib.parse.quote(repository, safe="/")
-    root = _github_object(
-        github.request_json(f"/repos/{quoted}/pulls/{pr_number}"),
-        "GitHub pull request",
-    )
-    base = _github_object(root.get("base"), "pull request base")
-    head = _github_object(root.get("head"), "pull request head")
-    base_repository = _github_object(base.get("repo"), "base repository")
-    return PullSnapshot(
-        repository_id=_github_int(base_repository.get("id"), "repository id"),
-        repository=_github_repository_name(base_repository.get("full_name")),
-        number=_github_int(root.get("number"), "pull request number"),
-        state=_github_text(root.get("state"), "pull request state"),
-        base_sha=_github_text(base.get("sha"), "base sha"),
-        head_sha=_github_text(head.get("sha"), "head sha"),
     )
 
 

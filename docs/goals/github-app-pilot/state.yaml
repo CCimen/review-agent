@@ -30,12 +30,12 @@ continuity:
   current_thread_id: null
   previous_thread_id: null
   rotation_count: 0
-  completed_write_tasks_in_thread: 3
+  completed_write_tasks_in_thread: 4
   handoff_note: notes/handoff.md
   last_handoff_at: null
-  last_verified_revision: "470df8f12821cdf532addd866ce0f527955dd673"
+  last_verified_revision: "3b83ba7c96191198caafdb86ab0e8394c199cb0f"
 
-active_task: T006
+active_task: T014
 
 tasks:
   - id: T001
@@ -308,7 +308,7 @@ tasks:
   - id: T006
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add one dormant direct GitHub App processor that consumes every durable delivery category through the existing fenced ledger, synchronizes selected-repository lifecycle state, authorizes same-repository review requests with the T005 token, and atomically reauthorizes, admits into the existing run/job transaction, and completes the delivery lease."
     canonical_owner:
@@ -361,7 +361,39 @@ tasks:
       - "No Hermes cutover, publication, feedback application, PAT deletion, cross-repository fork support, or all-repositories reconciliation."
       - "No automatic pull-request trigger, administration UI, organization onboarding, or Sundsvallskommun change."
     rollback: "Revert the T006 code commit. The dormant processor adds no migration or deployment surface; durable deliveries remain recoverable and the PAT/Actions route stays live."
-    receipt: null
+    receipt:
+      result: done
+      commit: "3b83ba7c96191198caafdb86ab0e8394c199cb0f"
+      summary: "Added one dormant selected-repository GitHub App processor over the existing durable delivery ledger and run/job admission transaction. GitHub reads occur outside database transactions; the final transaction locks and reauthorizes the exact installation, repository, enabled profile, queue capacity, admitted run/job, and delivery completion. Stable provider IDs preserve reviews across repository renames, and stale lifecycle events cannot fence access owned by a newer installation."
+      evidence:
+        - "431 bundle tests passed; 161 intentionally skipped"
+        - "170 PostgreSQL schema and recovery tests passed"
+        - "9 focused real-PostgreSQL processor tests passed"
+        - "22 webhook and admission boundary tests passed"
+        - "Ruff passed"
+        - "Pyright strict passed with 0 errors"
+        - "Claude Opus high commit gate green with score 8"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_processor tests.test_github_webhook tests.test_admission tests.test_postgres_github_app"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap/plugins/review_agent_tools/github/app_processor.py bootstrap/plugins/review_agent_tools/github_webhook.py bootstrap/plugins/review_agent_tools/admission.py bootstrap/plugins/review_agent_tools/review_run_application.py bootstrap/plugins/review_agent_tools/postgres/github_app.py tests/test_github_app_processor.py tests/test_github_webhook.py tests/test_admission.py tests/test_postgres_github_app.py"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      changed_files:
+        - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+        - "bootstrap/plugins/review_agent_tools/github_webhook.py"
+        - "bootstrap/plugins/review_agent_tools/admission.py"
+        - "bootstrap/plugins/review_agent_tools/review_run_application.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+        - "tests/test_github_app_processor.py"
+        - "tests/test_github_webhook.py"
+        - "tests/test_postgres_github_app.py"
+      deferred:
+        - "Classify provider authorization denials and registry name conflicts with explicit terminal operator outcomes before live traffic."
+        - "Collapse duplicate normalized-event category and ignored-reason ownership in a later normalization cleanup slice."
+        - "Verify the collaborator-permission endpoint with a real selected-repository App installation during pilot activation."
+      spawned_tasks:
+        - T014
   - id: T007
     type: worker
     assignee: Worker
@@ -519,6 +551,29 @@ tasks:
       blocked_tasks:
         - T007
         - T008
+  - id: T014
+    type: scout
+    assignee: Scout
+    status: active
+    reasoning_hint: high
+    objective: "Map the smallest complete dormant-to-pilot activation slice after T006, separating local worker/runtime wiring from live GitHub App registration and verification, and re-slice the overbroad T007 cutover without deleting the working PAT route prematurely."
+    inputs:
+      - "T003-T006 receipts"
+      - "Current worker, CLI, compose, settings, deployment, and GitHub publication owners"
+      - "Official GitHub App permission, webhook, and installation contracts"
+      - "Deferred T006 operator-failure findings"
+    constraints:
+      - "Read-only."
+      - "Reuse the existing durable delivery ledger, token service, and worker patterns; do not add Celery, Redis, a second queue, or a generic credential service."
+      - "Keep the PAT/Actions route live until a real selected-repository App pilot succeeds."
+      - "Do not create or install a live GitHub App, touch Sundsvallskommun, publish docs, cut over publication/feedback, or make a release."
+      - "Separate locally testable runtime wiring from external pilot actions requiring repository-owner credentials."
+    expected_output:
+      - "Canonical runtime/CLI/deployment owners"
+      - "Smallest locally complete activation Worker slice"
+      - "Explicit live-pilot manual gate and decisive permission checks"
+      - "Re-sliced follow-up tasks for publication, feedback, PAT deletion, onboarding, and docs"
+    receipt: null
   - id: T999
     type: judge
     assignee: Judge

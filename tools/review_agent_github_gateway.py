@@ -38,10 +38,12 @@ from review_agent_tools.github.app_auth import (  # noqa: E402
 )
 from review_agent_tools.github.gateway import (  # noqa: E402
     AUTHORIZE_REVIEW_DELIVERY_PATH,
+    READ_REVIEW_SOURCE_PATH,
     DeliveryLeaseIdentity,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
+    ReviewSourceRequest,
     ReviewGitHubGateway,
 )
 from review_agent_tools.postgres.runtime import (  # noqa: E402
@@ -54,7 +56,7 @@ from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
 
 logger = logging.getLogger(__name__)
 _MAX_REQUEST_BYTES = 4_096
-_MAX_CONCURRENT_REQUESTS = 8
+_DEFAULT_MAX_CONCURRENT_REQUESTS = 16
 _REQUEST_TIMEOUT_SECONDS = 40
 
 
@@ -62,8 +64,9 @@ class GitHubGatewayConfigurationError(ValueError):
     """The private gateway cannot start from its supplied configuration."""
 
 
-def _positive_integer(name: str) -> int:
-    raw = os.environ.get(name, "").strip()
+def _positive_integer(name: str, default: int | None = None) -> int:
+    raw_default = "" if default is None else str(default)
+    raw = os.environ.get(name, raw_default).strip()
     try:
         value = int(raw)
     except ValueError as exc:
@@ -107,14 +110,20 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         server = self._server()
-        if self.path != AUTHORIZE_REVIEW_DELIVERY_PATH:
+        if self.path not in {
+            AUTHORIZE_REVIEW_DELIVERY_PATH,
+            READ_REVIEW_SOURCE_PATH,
+        }:
             self._write(404, {"reason": "not_found"})
             return
         if not server.acquire_request_slot():
             self._write(503, {"reason": "github_gateway_busy"})
             return
         try:
-            self._authorize(server)
+            if self.path == AUTHORIZE_REVIEW_DELIVERY_PATH:
+                self._authorize(server)
+            else:
+                self._read_source(server)
         finally:
             server.release_request_slot()
 
@@ -162,6 +171,46 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             return
         self._write(200, authorized.to_mapping())
 
+    def _read_source(self, server: "GatewayServer") -> None:
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            self._write(411, {"reason": "missing_length"})
+            return
+        if length < 1:
+            self._write(411, {"reason": "missing_length"})
+            return
+        if length > _MAX_REQUEST_BYTES:
+            self._write(413, {"reason": "payload_too_large"})
+            return
+        try:
+            decoded = json.loads(self.rfile.read(length))
+            if not isinstance(decoded, dict):
+                raise GitHubGatewayProtocolError("gateway request must be an object")
+            request = ReviewSourceRequest.from_mapping(
+                cast(Mapping[str, object], decoded)
+            )
+            result = server.gateway.read_review_source(request)
+        except (json.JSONDecodeError, UnicodeDecodeError, GitHubGatewayProtocolError):
+            self._write(400, {"reason": "invalid_gateway_request"})
+            return
+        except GitHubGatewayRejected as exc:
+            self._write(409, {"reason": exc.reason})
+            return
+        except GitHubGatewayRetryable as exc:
+            self._write(503, {"reason": exc.reason})
+            return
+        except (PostgreSQLRuntimeError, psycopg.Error):
+            self._write(503, {"reason": "github_gateway_database_unavailable"})
+            return
+        except Exception as exc:
+            logger.error(
+                "GitHub gateway source operation failed: %s", type(exc).__name__
+            )
+            self._write(500, {"reason": "github_gateway_internal_error"})
+            return
+        self._write(200, result.to_mapping())
+
     def _server(self) -> "GatewayServer":
         return cast(GatewayServer, self.server)
 
@@ -186,11 +235,12 @@ class GatewayServer(ThreadingHTTPServer):
         *,
         gateway: ReviewGitHubGateway,
         runtime: PostgreSQLRuntime,
+        max_concurrent_requests: int,
     ) -> None:
         super().__init__(address, GatewayRequestHandler)
         self.gateway = gateway
         self.runtime = runtime
-        self._request_slots = threading.BoundedSemaphore(_MAX_CONCURRENT_REQUESTS)
+        self._request_slots = threading.BoundedSemaphore(max_concurrent_requests)
 
     def acquire_request_slot(self) -> bool:
         return self._request_slots.acquire(blocking=False)
@@ -220,6 +270,10 @@ def serve(host: str, port: int) -> None:
             profile=settings.profile,
         ),
         runtime=runtime,
+        max_concurrent_requests=_positive_integer(
+            "REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS",
+            _DEFAULT_MAX_CONCURRENT_REQUESTS,
+        ),
     )
 
     def request_stop(_signal: int, _frame: object) -> None:

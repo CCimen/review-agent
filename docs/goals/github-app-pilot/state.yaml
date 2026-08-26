@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T026
+active_task: T036
 
 tasks:
   - id: T001
@@ -205,6 +205,7 @@ tasks:
       - "tools/review_agent_admission.py"
       - "compose.yaml"
       - ".env.example"
+      - "docs/OPERATIONS.md"
       - "tests/test_github_webhook.py"
       - "tests/test_postgres_webhook_deliveries.py"
       - "tests/test_admission.py"
@@ -212,6 +213,9 @@ tasks:
       - "tests/test_postgres_runtime.py"
       - "tests/test_postgres_schema.py"
       - "tests/test_docs_contract.py"
+      - "tests/test_changed_files_pager.py"
+      - "tests/test_pr_file_large.py"
+      - "tests/test_feedback_workflow.py"
       - "scripts/check_postgres_schema.sh"
     verify:
       - "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests.test_github_webhook tests.test_admission"
@@ -1198,7 +1202,7 @@ tasks:
   - id: T026
     type: worker
     assignee: Worker
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add one internal Review-Agent-specific GitHub gateway and move the existing direct-App admission reads behind it, so the gateway becomes the sole runtime private-key and installation-token owner for the pilot profile while the event worker sends only durable delivery lease identity."
     canonical_owner:
@@ -1213,9 +1217,12 @@ tasks:
       - "bootstrap/plugins/review_agent_tools/github/app_worker.py"
       - "bootstrap/plugins/review_agent_tools/github/gateway.py"
       - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      - "bootstrap/plugins/review_agent_tools/changed_files.py"
       - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
       - "bootstrap/plugins/review_agent_tools/source_control.py"
       - "bootstrap/plugins/review_agent_tools/admission.py"
+      - "bootstrap/plugins/review_agent_tools/review_finding_application.py"
+      - "bootstrap/plugins/review_agent_tools/suggestion_validation.py"
       - "tools/review_agent_github_app_worker.py"
       - "tools/review_agent_github_gateway.py"
       - "Dockerfile"
@@ -1263,12 +1270,153 @@ tasks:
       - "No generic permission registry, token endpoint, provider interface, or database migration."
       - "No Sundsvallskommun mutation or live credential use."
     rollback: "Stop the optional pilot profile, revert the T026 commit, and restart the prior profile. No schema or durable contract changes are required; abandoned deliveries remain recoverable through the existing lease-expiry path."
-    receipt: null
+    receipt:
+      result: done
+      commit: "cfda736b83e9ef66b1f4858febd7ef74b8c96b6b"
+      summary: "Added one closed internal GitHub gateway that is the only runtime owner of the App private key, JWT, repository-scoped installation tokens, and GitHub egress. The event worker now sends only its exact durable delivery lease; the gateway derives and rechecks App authority, collaborator identity, and the live same-repository pull snapshot before the existing atomic admission transaction. Dedicated control and App-egress networks isolate the gateway from ingress, Hermes, and the general egress network."
+      changed_files:
+        - "Dockerfile"
+        - "bootstrap/plugins/review_agent_tools/admission.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py"
+        - "bootstrap/plugins/review_agent_tools/source_control.py"
+        - "compose.yaml"
+        - "docs/GITHUB_APP_PILOT.md"
+        - "tests/test_dockerfile_tools.py"
+        - "tests/test_docs_contract.py"
+        - "tests/test_github_app_activation.py"
+        - "tests/test_github_app_auth.py"
+        - "tests/test_github_app_processor.py"
+        - "tests/test_github_gateway.py"
+        - "tests/test_github_gateway_entrypoint.py"
+        - "tests/test_postgres_webhook_deliveries.py"
+        - "tests/test_source_control.py"
+        - "tools/review_agent_github_app_worker.py"
+        - "tools/review_agent_github_gateway.py"
+      changed_owners:
+        - "bootstrap/plugins/review_agent_tools/github/gateway.py — fixed App-backed admission operation"
+        - "bootstrap/plugins/review_agent_tools/github/gateway_client.py — typed closed HTTP client"
+        - "bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py — exact live delivery lease read"
+        - "bootstrap/plugins/review_agent_tools/source_control.py — canonical live pull snapshot parser"
+        - "compose.yaml — sole key mount and isolated gateway networks"
+      commands:
+        - "Ruff on all changed Python files — passed"
+        - "Pyright 1.1.408 under Python 3.14 dependencies — 0 errors"
+        - "Focused gateway/source/auth/activation/admission/docs suite — 90 passed"
+        - "Real PostgreSQL gateway processor and delivery suite — 20 passed"
+        - "PostgreSQL schema and recovery contract — 174 passed; backup/restore ready"
+        - "Full bundle — 472 passed, 172 PostgreSQL-only skips"
+        - "Documentation checker and Goal Maker state checker — passed"
+        - "Default and github-app-pilot Compose rendering — passed"
+      peer_gate: "Claude Opus high session review-agent-app-gateway: iteration 1 changes_required at score 6; verified blockers fixed; iteration 2 green at score 8."
+      corrections:
+        - "Treat non-409 HTTP statuses and malformed gateway responses as retryable protocol failures instead of terminal user rejections."
+        - "Validate remote reason codes against the PostgreSQL failure-code shape."
+        - "Bound gateway-owned GitHub reads inside the client timeout and delivery lease."
+        - "Move operator reconciliation commands to the gateway credential owner and give it a dedicated egress network."
+      next_allowed_task: T027
   - id: T027
     type: pm
     assignee: PM
-    status: queued
+    status: done
     objective: "Cut model-facing exact source reads to the gateway and delete the read PAT and environment repository allowlist in one bounded Worker slice."
+    receipt:
+      result: done
+      decision: "Extend the closed gateway with exact run-scoped pull, changed-file, diff, and source-page operations. Hermes supplies only the durable run ID plus its trusted job lease session; the gateway derives the stable repository, PR number, and immutable base/head revisions. Delete direct GitHub reads, manual review starts, the read PAT, and the legacy PAT admission seam in the same slice rather than preserving it with another credential. Keep the existing publication PAT until T028 and the feedback-sidecar allowlist until T029, but neither may authorize model reads."
+      next_allowed_task: T036
+      canonical_owner:
+        source_operations: "bootstrap/plugins/review_agent_tools/github/source.py"
+        gateway_authorization: "bootstrap/plugins/review_agent_tools/github/gateway.py"
+        internal_protocol: "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+        durable_subject: "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+        model_adapter: "bootstrap/plugins/review_agent_tools/tools.py"
+      non_goals:
+        - "No publication or feedback App cutover."
+        - "No fork support, generic provider interface, token endpoint, new model tool, or database migration."
+        - "No deployment, public onboarding rewrite, OpenShift cutover, or live GitHub mutation."
+      rollback: "Revert the source-cutover commit before deployment. No schema or persisted-data rollback is required."
+      spawned_tasks:
+        - T036
+  - id: T036
+    type: worker
+    assignee: Worker
+    status: active
+    reasoning_hint: high
+    objective: "Move every model-facing GitHub source read behind the closed App gateway, derive the exact subject from the durable run and live worker lease, and delete the direct read PAT, source allowlist, manual-review start, and obsolete PAT admission route."
+    canonical_owner:
+      source_operations: "bootstrap/plugins/review_agent_tools/github/source.py"
+      gateway_authorization: "bootstrap/plugins/review_agent_tools/github/gateway.py"
+      internal_protocol: "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      durable_subject: "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+      model_adapter: "bootstrap/plugins/review_agent_tools/tools.py"
+    allowed_files:
+      - "bootstrap/plugins/review_agent_tools/github/source.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+      - "bootstrap/plugins/review_agent_tools/tools.py"
+      - "bootstrap/plugins/review_agent_tools/schemas.py"
+      - "bootstrap/plugins/review_agent_tools/settings.py"
+      - "bootstrap/plugins/review_agent_tools/admission.py"
+      - "bootstrap/plugins/review_agent_tools/plugin.yaml"
+      - "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+      - "tools/review_agent_github_gateway.py"
+      - "tools/review_agent_admission.py"
+      - "tools/review_agent_publisher.py"
+      - "tools/review_agent_memory.py"
+      - "compose.yaml"
+      - ".env.example"
+      - "tests/test_github_gateway.py"
+      - "tests/test_github_gateway_entrypoint.py"
+      - "tests/test_changed_files_pager.py"
+      - "tests/test_tool_contract.py"
+      - "tests/test_settings.py"
+      - "tests/test_admission.py"
+      - "tests/test_docs_contract.py"
+      - "tests/test_postgres_review_runs.py"
+      - "tests/test_postgres_github_app.py"
+      - "tests/test_postgres_suggestions_decisions.py"
+      - "tests/test_feedback_workflow.py"
+      - "tests/test_pr_file_large.py"
+    acceptance:
+      - "Every model-facing tool requires the trusted worker job lease and one durable run ID; repository, pull number, and subject SHAs are not model authority."
+      - "The gateway loads stable repository identity and exact base/head revisions from PostgreSQL, checks the live job lease and current App access before GitHub I/O, and rechecks both afterwards."
+      - "The gateway exposes only fixed pull-overview, changed-file-page, diff, and exact-subject file-page operations; it accepts no arbitrary endpoint and returns no credential."
+      - "Changed-file enumeration and diff continuation remain offset-safe and honest under provider and response budgets."
+      - "Source file reads return only the requested bounded line page; Hermes no longer caches or receives an entire large file."
+      - "Repository removal or a stale worker lease blocks new source reads, including after provider I/O."
+      - "Manual run creation and the PAT-backed admission route are deleted; App delivery admission remains unchanged."
+      - "The gateway and App event worker run in the default Compose topology because model source reads now depend on them."
+      - "GITHUB_READ_TOKEN and the source-read repository allowlist disappear from settings, Hermes, admission, plugin requirements, example environment, publisher fallback, and maintenance tooling."
+      - "The publication PAT and current publisher behavior remain available for T028; the feedback-specific legacy allowlist remains isolated until T029."
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_gateway tests.test_github_gateway_entrypoint tests.test_tool_contract tests.test_settings tests.test_admission"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_postgres_review_runs tests.test_postgres_suggestions_decisions"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check <changed Python files>"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "docker compose --env-file .env.example --profile github-app-pilot config --quiet"
+      - "rg -n 'GITHUB_READ_TOKEN|github_read_token' --glob '!docs/goals/**' . returns no matches"
+      - "Claude Opus high pre-commit gate green with score at least 8 in one resumable session"
+    stop_if:
+      - "A source operation needs a caller-supplied repository, pull number, revision, installation, provider URL, HTTP method, or token."
+      - "A key, JWT, installation token, or PAT can enter Hermes, PostgreSQL, logs, exceptions, tool output, or an HTTP response."
+      - "The current worker lease and App authorization cannot be proved both before and after provider I/O."
+      - "The change requires fork support, a generic broker/provider abstraction, another queue, migration, or deployment mutation."
+      - "Publication behavior must materially change before T028."
+      - "Verification fails twice for the same unexplained reason."
+    non_goals:
+      - "No App-backed publication or feedback."
+      - "No OpenShift topology, onboarding, doctor, release, or live pilot work."
+      - "No unrelated tools.py split or style refactor."
+      - "No Sundsvallskommun mutation."
+    rollback: "Revert the T036 commit before deployment. The App delivery ledger, review runs, jobs, and repository lifecycle remain intact; no schema rollback is needed."
     receipt: null
   - id: T028
     type: pm

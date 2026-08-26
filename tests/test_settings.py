@@ -53,28 +53,20 @@ class ReviewAgentSettingsTests(unittest.TestCase):
                         {"REVIEW_AGENT_DATABASE_URL": incomplete_url}
                     ).postgres_database_url
 
-    def test_repository_and_token_values_are_normalized(self) -> None:
+    def test_gateway_and_transitional_publish_values_are_normalized(self) -> None:
         settings = ReviewAgentSettings(
             {
-                "REVIEW_AGENT_ALLOWED_REPOSITORIES": (
-                    " Sundsvallskommun/API,example-org/example-repository, "
-                ),
-                "GITHUB_READ_TOKEN": " read-token ",
+                "REVIEW_AGENT_GITHUB_GATEWAY_URL": " http://gateway:8646 ",
                 "REVIEW_AGENT_PUBLISH_GH_TOKEN": " publish-token ",
             }
         )
 
-        self.assertEqual(
-            settings.allowed_repositories,
-            frozenset(
-                {
-                    "sundsvallskommun/api",
-                    "example-org/example-repository",
-                }
-            ),
-        )
-        self.assertEqual(settings.github_read_token, "read-token")
+        self.assertEqual(settings.github_gateway_url, "http://gateway:8646")
         self.assertEqual(settings.github_publish_token, "publish-token")
+        with self.assertRaisesRegex(
+            SettingsError, "REVIEW_AGENT_GITHUB_GATEWAY_URL is required"
+        ):
+            ReviewAgentSettings({}).github_gateway_url
 
     def test_publish_byte_limit_preserves_default_clamp_and_error(self) -> None:
         self.assertEqual(ReviewAgentSettings({}).publish_max_bytes, 60_000)
@@ -92,11 +84,9 @@ class ReviewAgentSettingsTests(unittest.TestCase):
         )
         invalid = ReviewAgentSettings(
             {
-                "GITHUB_READ_TOKEN": "read-token",
                 "REVIEW_AGENT_PUBLISH_MAX_BYTES": "many",
             }
         )
-        self.assertEqual(invalid.github_read_token, "read-token")
         with self.assertRaisesRegex(
             SettingsError,
             "REVIEW_AGENT_PUBLISH_MAX_BYTES must be an integer",

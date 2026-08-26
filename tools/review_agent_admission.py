@@ -32,14 +32,12 @@ _load_package()
 
 from review_agent_tools import admission  # noqa: E402
 from review_agent_tools.github_webhook import verify_signature  # noqa: E402
-from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
     PostgreSQLRuntimeError,
 )
 from review_agent_tools.settings import SettingsError  # noqa: E402
-from review_agent_tools.source_control import GitHubReadClient, GitHubReadError  # noqa: E402
 
 
 GITHUB_APP_MAX_BODY_BYTES = 2_097_152
@@ -70,7 +68,6 @@ def _bounded_positive_integer(
 @dataclass(frozen=True, slots=True)
 class AdmissionServerConfig:
     application: admission.AdmissionConfig
-    max_body_bytes: int
     github_app_max_body_bytes: int
     max_concurrent_requests: int
     request_timeout_seconds: int
@@ -83,9 +80,6 @@ def load_server_config(
     values = os.environ if environment is None else environment
     return AdmissionServerConfig(
         application=admission.load_config(values),
-        max_body_bytes=_positive_integer(
-            values, "REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES", 65_536
-        ),
         github_app_max_body_bytes=_bounded_positive_integer(
             values,
             "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES",
@@ -135,13 +129,7 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
             server.release_request_slot()
 
     def _admit(self, server: "AdmissionServer") -> None:
-        if self.path not in {admission.DEFAULT_PATH, admission.GITHUB_APP_PATH}:
-            self._write(404, admission.response_body("not_found"))
-            return
-        if (
-            self.path == admission.GITHUB_APP_PATH
-            and not server.config.github_app_secret
-        ):
+        if self.path != admission.GITHUB_APP_PATH:
             self._write(404, admission.response_body("not_found"))
             return
         try:
@@ -152,59 +140,11 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
         if length < 0:
             self._write(411, admission.response_body("missing_length"))
             return
-        body_limit = (
-            server.github_app_max_body_bytes
-            if self.path == admission.GITHUB_APP_PATH
-            else server.max_body_bytes
-        )
-        if length > body_limit:
+        if length > server.github_app_max_body_bytes:
             self._write(413, admission.response_body("payload_too_large"))
             return
         body = self.rfile.read(length)
-        if self.path == admission.GITHUB_APP_PATH:
-            self._receive_github_app(server, body)
-            return
-        if not verify_signature(
-            body,
-            self.headers.get("X-Hub-Signature-256", ""),
-            server.config.secret,
-        ):
-            self._write(401, admission.response_body("bad_signature"))
-            return
-        if self.headers.get("X-GitHub-Event", "") != "issue_comment":
-            self._write(400, admission.response_body("unsupported_event"))
-            return
-        try:
-            response = admission.admit_review(
-                payload=admission.decode_request(body),
-                delivery_id=self.headers.get("X-GitHub-Delivery", ""),
-                config=server.config,
-                github=server.github,
-                runtime=server.runtime,
-            )
-            self._write(200, response.to_json())
-        except admission.UnauthorizedAdmission as exc:
-            self._write(403, admission.response_body("unauthorized", str(exc)))
-        except jobs.ReviewQueueFull:
-            self._write(429, admission.response_body("queue_full"), retry_after="30")
-        except GitHubReadError as exc:
-            status = 404 if exc.kind == "not_found" else 502
-            self._write(status, admission.response_body("github_error", str(exc)))
-        except (admission.AdmissionError, SettingsError) as exc:
-            self._write(400, admission.response_body("bad_request", str(exc)))
-        except jobs.ReviewJobBusy as exc:
-            print(f"review admission database contention: {exc}", file=sys.stderr)
-            self._write(
-                503,
-                admission.response_body("database_busy"),
-                retry_after="5",
-            )
-        except (PostgreSQLRuntimeError, psycopg.Error) as exc:
-            print(f"review admission database failure: {exc}", file=sys.stderr)
-            self._write(503, admission.response_body("database_unavailable"))
-        except Exception as exc:
-            print(f"review admission internal failure: {exc}", file=sys.stderr)
-            self._write(500, admission.response_body("internal_error"))
+        self._receive_github_app(server, body)
 
     def _receive_github_app(
         self, server: "AdmissionServer", body: bytes
@@ -265,18 +205,14 @@ class AdmissionServer(ThreadingHTTPServer):
         address: tuple[str, int],
         *,
         config: admission.AdmissionConfig,
-        github: GitHubReadClient,
         runtime: PostgreSQLRuntime,
-        max_body_bytes: int,
         github_app_max_body_bytes: int,
         max_concurrent_requests: int,
         request_timeout_seconds: int,
     ) -> None:
         super().__init__(address, AdmissionRequestHandler)
         self.config = config
-        self.github = github
         self.runtime = runtime
-        self.max_body_bytes = max_body_bytes
         self.github_app_max_body_bytes = github_app_max_body_bytes
         self.request_timeout_seconds = request_timeout_seconds
         self._request_slots = threading.BoundedSemaphore(max_concurrent_requests)
@@ -298,9 +234,7 @@ def serve(host: str, port: int) -> None:
     server = AdmissionServer(
         (host, port),
         config=config,
-        github=GitHubReadClient(config.token),
         runtime=runtime,
-        max_body_bytes=server_config.max_body_bytes,
         github_app_max_body_bytes=server_config.github_app_max_body_bytes,
         max_concurrent_requests=server_config.max_concurrent_requests,
         request_timeout_seconds=server_config.request_timeout_seconds,

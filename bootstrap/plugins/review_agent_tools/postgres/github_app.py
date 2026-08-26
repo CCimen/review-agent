@@ -523,10 +523,14 @@ def get_repository_access_by_provider_id(
 
 
 def authorize_review_read(
-    connection: psycopg.Connection[TupleRow], provider_repository_id: int
+    connection: psycopg.Connection[TupleRow],
+    provider_repository_id: int,
+    *,
+    profile_key: str | None = None,
 ) -> ReviewReadAuthorization:
     """Authorize one stable GitHub repository ID against current installation state."""
     _require_transaction(connection)
+    required_profile = _profile(profile_key) if profile_key is not None else None
     row = connection.execute(
         """
         SELECT access.repository_id, repository.provider_repository_id,
@@ -540,12 +544,17 @@ def authorize_review_read(
           AND repository.provider_repository_id = %s
           AND access.access_state = 'available'
           AND access.enabled
+          AND (%s::text IS NULL OR access.profile_key = %s)
           AND installation.status = 'active'
           AND installation.contents_permission IN ('read', 'write')
           AND installation.issues_permission IN ('read', 'write')
           AND installation.pull_requests_permission IN ('read', 'write')
         """,
-        (_positive(provider_repository_id, "provider_repository_id"),),
+        (
+            _positive(provider_repository_id, "provider_repository_id"),
+            required_profile,
+            required_profile,
+        ),
     ).fetchone()
     if row is None:
         raise GitHubAppReviewReadUnauthorized(

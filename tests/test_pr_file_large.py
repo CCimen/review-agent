@@ -4,92 +4,133 @@ import base64
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import tools  # noqa: E402
+from review_agent_tools.github import source  # noqa: E402
+from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
 
 
-class FileAtRevisionLargeFileTests(unittest.TestCase):
-    """File reads use base64 for small files and raw Contents API media up to its limit."""
+class ReviewSourceFilePageTests(unittest.TestCase):
+    @staticmethod
+    def _scope() -> ReviewRunScope:
+        return ReviewRunScope(
+            run=Mock(),
+            provider_repository_id=9001,
+            repository="example-org/example-repository",
+            pr_number=42,
+            base_sha="a" * 40,
+            head_sha="b" * 40,
+            resolved_config=Mock(),
+        )
 
-    def setUp(self):
-        tools._file_at_revision.cache_clear()
+    @staticmethod
+    def _contents(**over: object) -> dict[str, object]:
+        value: dict[str, object] = {
+            "type": "file",
+            "encoding": "base64",
+            "content": "",
+            "size": 0,
+            "sha": "a" * 40,
+        }
+        value.update(over)
+        return value
 
-    def _contents(self, **over):
-        base = {"type": "file", "encoding": "base64", "content": "", "size": 0, "sha": "a" * 40}
-        base.update(over)
-        return base
+    def test_small_file_returns_only_the_requested_numbered_page(self) -> None:
+        github = Mock()
+        raw = b"first\nsecond\nthird\n"
+        github.request_json.return_value = self._contents(
+            content=base64.b64encode(raw).decode("ascii"),
+            size=len(raw),
+        )
 
-    def test_small_file_uses_contents_base64(self):
-        raw = b"def handler():\n    return 1\n"
-        contents = self._contents(encoding="base64", content=base64.b64encode(raw).decode(), size=len(raw))
-        with patch.object(tools, "_request_json", side_effect=[contents]), \
-             patch.object(tools, "_request") as raw_get:
-            result = tools._file_at_revision("example-org/example-repository", "backend/a.py", "a" * 40)
-        self.assertEqual(result, raw)
-        raw_get.assert_not_called()  # no second raw fetch for a small (<=1 MB) file
+        page = source.read_review_file_page(
+            github,
+            self._scope(),
+            path="backend/a.py",
+            side="head",
+            start_line=2,
+            max_lines=1,
+            max_chars=1_000,
+        )
 
-    def test_large_file_reads_contents_raw(self):
-        raw = b"line one\nline two\nline three\n"
-        contents = self._contents(
+        self.assertEqual(page.state, "ok")
+        self.assertEqual(page.content, "2: second")
+        self.assertEqual((page.complete_lines, page.total_lines), (1, 3))
+        github.request.assert_not_called()
+
+    def test_raw_file_within_the_gateway_memory_budget_is_pageable(self) -> None:
+        github = Mock()
+        github.request_json.return_value = self._contents(
             encoding="none",
-            content="",
-            size=50_000_000,
+            size=1_500_000,
             sha="b" * 40,
         )
-        with patch.object(tools, "_request_json", side_effect=[contents]), \
-             patch.object(tools, "_request", return_value=(raw, False, {})) as raw_get:
-            result = tools._file_at_revision("example-org/example-repository", "frontend/schema.d.ts", "a" * 40)
-            repeated = tools._file_at_revision("example-org/example-repository", "frontend/schema.d.ts", "a" * 40)
-        self.assertEqual(result, raw)
-        self.assertEqual(repeated, raw)
-        self.assertEqual(raw_get.call_count, 1)
-        self.assertIn("/contents/frontend/schema.d.ts?ref=", raw_get.call_args.args[0])
-        self.assertEqual(raw_get.call_args.kwargs.get("accept"), "application/vnd.github.raw+json")
+        github.request.return_value = (b"line one\nline two\n", False, {})
+
+        page = source.read_review_file_page(
+            github,
+            self._scope(),
+            path="frontend/schema.d.ts",
+            side="head",
+            start_line=1,
+            max_lines=200,
+            max_chars=1_000,
+        )
+
+        self.assertEqual(page.state, "ok")
+        self.assertEqual(page.content, "1: line one\n2: line two")
+        self.assertIn("/contents/frontend/schema.d.ts?ref=", github.request.call_args.args[0])
         self.assertEqual(
-            raw_get.call_args.kwargs.get("max_bytes"),
-            tools.GITHUB_CONTENTS_FILE_MAX_BYTES,
+            github.request.call_args.kwargs["accept"],
+            "application/vnd.github.raw+json",
         )
 
-    def test_file_over_cap_punts_to_diff_without_blob_fetch(self):
-        contents = self._contents(
-            encoding="none",
-            content="",
-            size=tools.GITHUB_CONTENTS_FILE_MAX_BYTES + 1,
-            sha="b" * 40,
-        )
-        with patch.object(tools, "_request_json", side_effect=[contents]), \
-             patch.object(tools, "_request") as raw_get:
-            with self.assertRaises(tools.ToolInputError) as ctx:
-                tools._file_at_revision("example-org/example-repository", "data/huge.json", "a" * 40)
-        self.assertIn("review_agent_pr_diff", str(ctx.exception))
-        raw_get.assert_not_called()  # provider limit checked before a raw fetch
+    def test_provider_size_and_truncation_return_a_terminal_state(self) -> None:
+        for metadata, response in (
+            (self._contents(encoding="none", size=2_000_001), None),
+            (self._contents(encoding="none", size=2_000_000), (b"x", True, {})),
+        ):
+            with self.subTest(metadata=metadata):
+                github = Mock()
+                github.request_json.return_value = metadata
+                if response is not None:
+                    github.request.return_value = response
+                page = source.read_review_file_page(
+                    github,
+                    self._scope(),
+                    path="data/huge.json",
+                    side="head",
+                    start_line=7,
+                    max_lines=200,
+                    max_chars=1_000,
+                )
+                self.assertEqual(page.state, "too_large")
+                self.assertEqual(page.start_line, 7)
 
-    def test_truncated_raw_response_punts_to_diff(self):
-        # size metadata is within the cap, but the raw response truncates -> treat as too large.
-        contents = self._contents(
-            encoding="none",
-            content="",
-            size=tools.GITHUB_CONTENTS_FILE_MAX_BYTES - 10,
-            sha="b" * 40,
-        )
-        with patch.object(tools, "_request_json", side_effect=[contents]), \
-             patch.object(tools, "_request", return_value=(b"x" * 4096, True, {})):
-            with self.assertRaises(tools.ToolInputError) as ctx:
-                tools._file_at_revision("example-org/example-repository", "frontend/big.d.ts", "a" * 40)
-        self.assertIn("review_agent_pr_diff", str(ctx.exception))
+    def test_non_regular_file_is_terminal_without_a_raw_fetch(self) -> None:
+        github = Mock()
+        github.request_json.return_value = {
+            "type": "dir",
+            "encoding": "none",
+            "content": "",
+            "size": 0,
+        }
 
-    def test_non_regular_file_is_rejected(self):
-        contents = {"type": "dir", "encoding": "none", "content": "", "size": 0}
-        with patch.object(tools, "_request_json", side_effect=[contents]), \
-             patch.object(tools, "_request") as raw_get:
-            with self.assertRaises(tools.ToolInputError) as ctx:
-                tools._file_at_revision("example-org/example-repository", "backend", "a" * 40)
-        self.assertIn("not a regular file", str(ctx.exception))
-        raw_get.assert_not_called()
+        page = source.read_review_file_page(
+            github,
+            self._scope(),
+            path="backend",
+            side="head",
+            start_line=1,
+            max_lines=200,
+            max_chars=1_000,
+        )
+
+        self.assertEqual(page.state, "not_regular")
+        github.request.assert_not_called()
 
 
 if __name__ == "__main__":

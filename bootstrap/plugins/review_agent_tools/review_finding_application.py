@@ -42,7 +42,7 @@ from .postgres.runtime import (
 
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
-HeadFileLoader = Callable[[str], str | None]
+HeadFileLoader = Callable[[str, int, int], str | None]
 RecordedFinding = dict[str, object]
 PostgresFindingBatch: TypeAlias = postgres_findings.FindingBatch
 DecisionAudit: TypeAlias = postgres_decisions.DecisionAudit

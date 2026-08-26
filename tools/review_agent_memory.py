@@ -278,7 +278,6 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             configured = ReviewAgentSettings.from_environment()
             github = GitHubIssueCommentGateway(
                 configured.github_publish_token,
-                read_token=configured.github_read_token,
             )
             failures: list[dict[str, object]] = []
             posted = 0

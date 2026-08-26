@@ -48,21 +48,15 @@ class TimeoutOpener:
 
 
 class FeedbackWorkflowTests(unittest.TestCase):
-    def test_review_admission_uses_the_generic_public_path(self) -> None:
+    def test_review_admission_uses_the_github_app_webhook_path(self) -> None:
         config = (ROOT / "bootstrap/config.yaml").read_text(encoding="utf-8")
         admission = (
             ROOT / "bootstrap/plugins/review_agent_tools/admission.py"
         ).read_text(encoding="utf-8")
-        operations = (ROOT / "docs/OPERATIONS.md").read_text(encoding="utf-8")
-        smoke_script = (ROOT / "scripts/smoke_webhook.py").read_text(encoding="utf-8")
 
         self.assertNotIn("routes:", config)
-        self.assertIn('DEFAULT_PATH = "/webhooks/review-agent"', admission)
-        self.assertIn(
-            "HERMES_REVIEW_URL=https://review.example.org/webhooks/review-agent",
-            operations,
-        )
-        self.assertIn("/webhooks/review-agent", smoke_script)
+        self.assertIn('GITHUB_APP_PATH = "/webhooks/github-app"', admission)
+        self.assertNotIn('DEFAULT_PATH = "/webhooks/review-agent"', admission)
 
     def test_checked_in_dispatch_script_is_valid_python(self) -> None:
         workflow = workflow_source()

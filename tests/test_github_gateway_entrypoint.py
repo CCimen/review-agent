@@ -22,12 +22,14 @@ from review_agent_tools.github.gateway import (  # noqa: E402
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
+    ReviewSourceRequest,
     ReviewGitHubGateway,
 )
 from review_agent_tools.github import gateway_client  # noqa: E402
 from review_agent_tools.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
+from review_agent_tools.github.source import ReviewPullSource  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 
 
@@ -51,6 +53,7 @@ class _Runtime:
 class _Gateway:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.source_calls: list[dict[str, object]] = []
         self.failure: Exception | None = None
 
     def authorize_review_delivery(self, **values: object) -> AuthorizedReviewSnapshot:
@@ -68,6 +71,22 @@ class _Gateway:
             head_sha="a" * 40,
         )
 
+    def read_review_source(self, request: ReviewSourceRequest) -> ReviewPullSource:
+        self.source_calls.append(
+            {
+                "run_id": request.run_id,
+                "job_id": request.job_id,
+                "lease_generation": request.lease_generation,
+            }
+        )
+        if self.failure is not None:
+            raise self.failure
+        return ReviewPullSource(
+            repository="CCimen/review-agent",
+            pr_number=42,
+            payload={"state": "open"},
+        )
+
 
 class GitHubGatewayEntrypointTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -77,6 +96,7 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
             ("127.0.0.1", 0),
             gateway=cast(ReviewGitHubGateway, self.gateway),
             runtime=cast(PostgreSQLRuntime, _Runtime()),
+            max_concurrent_requests=2,
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -130,6 +150,41 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 400)
         self.assertEqual(self.gateway.calls, [])
         raised.exception.close()
+
+    def test_source_route_accepts_only_run_and_worker_lease_identity(self) -> None:
+        client = ReviewGitHubGatewayClient(self.base_url)
+
+        result = client.get_review_pull(
+            run_id=51,
+            job_id=61,
+            lease_generation=7,
+        )
+
+        self.assertEqual(result.repository, "CCimen/review-agent")
+        self.assertEqual(
+            self.gateway.source_calls,
+            [{"run_id": 51, "job_id": 61, "lease_generation": 7}],
+        )
+
+        request = urllib.request.Request(
+            f"{self.base_url}/v1/review-sources/read",
+            data=json.dumps(
+                {
+                    "operation": "pull",
+                    "run_id": 51,
+                    "job_id": 61,
+                    "lease_generation": 7,
+                    "repository": "other/repository",
+                }
+            ).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request)
+        self.assertEqual(raised.exception.code, 400)
+        raised.exception.close()
+        self.assertEqual(len(self.gateway.source_calls), 1)
 
     def test_retryable_gateway_failure_remains_typed_at_client(self) -> None:
         self.gateway.failure = GitHubGatewayRetryable("github_read_unavailable")

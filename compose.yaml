@@ -83,13 +83,14 @@ services:
         condition: service_completed_successfully
       review-db-migrate:
         condition: service_completed_successfully
+      review-github-gateway:
+        condition: service_healthy
     environment:
       TZ: "${TZ:-Europe/Stockholm}"
       WEBHOOK_ENABLED: "false"
-      GITHUB_READ_TOKEN: "${GITHUB_READ_TOKEN:?set GITHUB_READ_TOKEN}"
+      REVIEW_AGENT_GITHUB_GATEWAY_URL: "http://review-github-gateway:8646"
       REVIEW_AGENT_PUBLISH_MAX_BYTES: "${REVIEW_AGENT_PUBLISH_MAX_BYTES:-60000}"
       REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS: "${REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS:-3}"
-      REVIEW_AGENT_ALLOWED_REPOSITORIES: "${REVIEW_AGENT_ALLOWED_REPOSITORIES:?set REVIEW_AGENT_ALLOWED_REPOSITORIES}"
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
       REVIEW_AGENT_FEEDBACK_ENABLED: "${REVIEW_AGENT_FEEDBACK_ENABLED:-false}"
@@ -106,6 +107,7 @@ services:
       - review-egress
       - review-database
       - review-runtime
+      - review-github-control
     labels:
       - "traefik.enable=false"
     security_opt:
@@ -149,17 +151,9 @@ services:
         condition: service_completed_successfully
     environment:
       TZ: "${TZ:-Europe/Stockholm}"
-      REVIEW_AGENT_WEBHOOK_SECRET: "${REVIEW_AGENT_WEBHOOK_SECRET:?set REVIEW_AGENT_WEBHOOK_SECRET}"
-      REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET: "${REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET:-}"
-      GITHUB_READ_TOKEN: "${GITHUB_READ_TOKEN:?set GITHUB_READ_TOKEN}"
-      REVIEW_AGENT_ALLOWED_REPOSITORIES: "${REVIEW_AGENT_ALLOWED_REPOSITORIES:?set REVIEW_AGENT_ALLOWED_REPOSITORIES}"
+      REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET: "${REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET:?set REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET}"
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
-      REVIEW_AGENT_POLICY_REVISION: "${REVIEW_AGENT_POLICY_REVISION:-policy-v1}"
-      REVIEW_AGENT_ACTIVE_JOB_LIMIT: "${REVIEW_AGENT_ACTIVE_JOB_LIMIT:-100}"
-      REVIEW_AGENT_JOB_MAX_ATTEMPTS: "${REVIEW_AGENT_JOB_MAX_ATTEMPTS:-3}"
-      REVIEW_AGENT_JOB_PRIORITY: "${REVIEW_AGENT_JOB_PRIORITY:-0}"
-      REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES: "${REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES:-65536}"
       REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES: "${REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES:-2097152}"
       REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS: "${REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS:-8}"
       REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS: "${REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS:-30}"
@@ -253,7 +247,6 @@ services:
         max-file: "5"
 
   review-github-gateway:
-    profiles: ["github-app-pilot"]
     image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
@@ -268,8 +261,10 @@ services:
         condition: service_completed_successfully
     environment:
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
-      REVIEW_AGENT_GITHUB_APP_ID: "${REVIEW_AGENT_GITHUB_APP_ID:-}"
+      REVIEW_AGENT_GITHUB_APP_ID: "${REVIEW_AGENT_GITHUB_APP_ID:?set REVIEW_AGENT_GITHUB_APP_ID}"
       REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github-app-private-key.pem
+      # Eight worst-case changed-file responses stay within the 256 MiB service budget.
+      REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS: "${REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS:-8}"
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
@@ -308,7 +303,6 @@ services:
         max-file: "5"
 
   review-github-app-worker:
-    profiles: ["github-app-pilot"]
     image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
     build:
       context: .
@@ -373,7 +367,6 @@ services:
         condition: service_completed_successfully
     environment:
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
-      GITHUB_READ_TOKEN: "${GITHUB_READ_TOKEN:?set GITHUB_READ_TOKEN}"
       REVIEW_AGENT_PUBLISH_GH_TOKEN: "${REVIEW_AGENT_PUBLISH_GH_TOKEN:?set REVIEW_AGENT_PUBLISH_GH_TOKEN}"
       REVIEW_AGENT_PUBLISH_MAX_BYTES: "${REVIEW_AGENT_PUBLISH_MAX_BYTES:-60000}"
       REVIEW_AGENT_PUBLICATION_LEASE_SECONDS: "${REVIEW_AGENT_PUBLICATION_LEASE_SECONDS:-120}"

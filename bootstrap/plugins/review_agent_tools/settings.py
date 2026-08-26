@@ -33,19 +33,15 @@ class ReviewAgentSettings:
         return cls(os.environ)
 
     @property
-    def allowed_repositories(self) -> frozenset[str]:
-        raw = self.environment.get("REVIEW_AGENT_ALLOWED_REPOSITORIES", "")
-        return frozenset(
-            item.strip().lower() for item in raw.split(",") if item.strip()
-        )
-
-    @property
-    def github_read_token(self) -> str:
-        return self.environment.get("GITHUB_READ_TOKEN", "").strip()
-
-    @property
     def github_publish_token(self) -> str:
         return self.environment.get("REVIEW_AGENT_PUBLISH_GH_TOKEN", "").strip()
+
+    @property
+    def github_gateway_url(self) -> str:
+        value = self.environment.get("REVIEW_AGENT_GITHUB_GATEWAY_URL", "").strip()
+        if not value:
+            raise SettingsError("REVIEW_AGENT_GITHUB_GATEWAY_URL is required")
+        return value
 
     @property
     def postgres_database_url(self) -> PostgresDatabaseUrl:

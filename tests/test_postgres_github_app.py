@@ -279,8 +279,16 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     actor="operator:ccimen",
                     reason="approve pilot",
                 )
+                with self.assertRaises(github_app.GitHubAppReviewReadUnauthorized):
+                    github_app.authorize_review_read(
+                        connection,
+                        9001,
+                        profile_key="other-profile",
+                    )
                 authorization = github_app.authorize_review_read(
-                    connection, 9001
+                    connection,
+                    9001,
+                    profile_key="sundsvall-standard",
                 )
                 github_app.disable_repository(
                     connection,

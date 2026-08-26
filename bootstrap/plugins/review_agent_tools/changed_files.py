@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import urllib.parse
 from typing import Any, Literal, Protocol, TypedDict, cast
 
 JsonObject = dict[str, Any]
@@ -36,7 +35,7 @@ class RequestFn(Protocol):
     """The bounded GitHub GET used for enumeration: returns (body, truncated, headers)."""
 
     def __call__(
-        self, endpoint: str, *, max_bytes: int
+        self, per_page: int, page: int
     ) -> tuple[bytes, bool, dict[str, str]]: ...
 
 
@@ -105,17 +104,10 @@ def _to_changed_file(item: JsonObject) -> ChangedFile:
     )
 
 
-def _files_endpoint(owner_repo: str, number: int, per_page: int, page: int) -> str:
-    return f"/repos/{owner_repo}/pulls/{number}/files?per_page={per_page}&page={page}"
-
-
 def _full_pass(
     request: RequestFn,
-    owner_repo: str,
-    number: int,
     per_page: int,
     max_files: int,
-    max_bytes: int,
 ) -> list[JsonObject] | None:
     """Enumerate every page at a constant ``per_page``.
 
@@ -125,9 +117,7 @@ def _full_pass(
     items: list[JsonObject] = []
     page = 1
     while len(items) < max_files:
-        raw, truncated, _ = request(
-            _files_endpoint(owner_repo, number, per_page, page), max_bytes=max_bytes
-        )
+        raw, truncated, _ = request(per_page, page)
         if truncated:
             return None
         page_items = _parse_items(raw)
@@ -140,18 +130,13 @@ def _full_pass(
 
 def _terminal_pass(
     request: RequestFn,
-    owner_repo: str,
-    number: int,
     max_files: int,
-    max_bytes: int,
 ) -> list[JsonObject]:
     """Single-file pass: register what fits, skip (but count) overflowed files."""
     items: list[JsonObject] = []
     page = 1
     while page <= max_files and len(items) < max_files:
-        raw, truncated, _ = request(
-            _files_endpoint(owner_repo, number, 1, page), max_bytes=max_bytes
-        )
+        raw, truncated, _ = request(1, page)
         if truncated:
             page += 1
             continue
@@ -179,18 +164,14 @@ def _index(raw_items: list[JsonObject], reported: int, max_files: int, *, termin
 
 def enumerate_changed_files(
     request: RequestFn,
-    repository: str,
-    number: int,
     *,
     reported: int,
     max_files: int = GITHUB_PR_FILES_LIMIT,
     per_page_sequence: tuple[int, ...] = DEFAULT_PER_PAGE_SEQUENCE,
-    max_bytes: int = ENUMERATION_MAX_BYTES,
 ) -> ChangedFileIndex:
-    owner_repo = urllib.parse.quote(repository, safe="/")
     for per_page in per_page_sequence:
-        raw_items = _full_pass(request, owner_repo, number, per_page, max_files, max_bytes)
+        raw_items = _full_pass(request, per_page, max_files)
         if raw_items is not None:
             return _index(raw_items, reported, max_files, terminal=False)
-    raw_items = _terminal_pass(request, owner_repo, number, max_files, max_bytes)
+    raw_items = _terminal_pass(request, max_files)
     return _index(raw_items, reported, max_files, terminal=True)

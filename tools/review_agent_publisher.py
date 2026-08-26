@@ -81,7 +81,6 @@ def main(argv: list[str] | None = None) -> int:
             runtime,
             GitHubIssueCommentGateway(
                 configured.github_publish_token,
-                read_token=configured.github_read_token,
             ),
             policy,
             lease_owner=default_publisher_name(),

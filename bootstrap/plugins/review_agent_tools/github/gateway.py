@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Callable, Mapping
-from typing import cast
+from typing import Literal, TypeVar, cast
 import urllib.parse
 
-from ..postgres import github_app, webhook_deliveries
+from .. import capacity, changed_files, memory_validation, schemas
+from ..domain.review import ReviewRunId
+from ..postgres import github_app, jobs, review_runs, webhook_deliveries
 from ..postgres.runtime import PostgreSQLRuntime
 from ..source_control import (
     GitHubReadClient,
@@ -20,9 +22,20 @@ from .app_auth import (
     GitHubAppTokenRetryable,
     ReviewReadTokenService,
 )
+from .source import (
+    GitHubSourceError,
+    ReviewFilePage,
+    ReviewPullSource,
+    ReviewSourceBytes,
+    read_changed_files_page,
+    read_review_diff,
+    read_review_file_page,
+    read_review_pull,
+)
 
 
 AUTHORIZE_REVIEW_DELIVERY_PATH = "/v1/review-deliveries/authorize"
+READ_REVIEW_SOURCE_PATH = "/v1/review-sources/read"
 
 
 class GitHubGatewayError(RuntimeError):
@@ -86,6 +99,107 @@ class DeliveryLeaseIdentity:
                 value.get("lease_generation"), "lease_generation"
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewSourceRequest:
+    """Closed source operation plus durable run and worker lease identity."""
+
+    operation: Literal["pull", "changed_files", "diff", "file"]
+    run_id: int
+    job_id: int
+    lease_generation: int
+    per_page: int | None = None
+    page: int | None = None
+    path: str | None = None
+    side: Literal["head", "base"] | None = None
+    start_line: int | None = None
+    max_lines: int | None = None
+    max_chars: int | None = None
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "ReviewSourceRequest":
+        operation = value.get("operation")
+        if not isinstance(operation, str):
+            raise GitHubGatewayProtocolError("source operation must be text")
+        common = {"operation", "run_id", "job_id", "lease_generation"}
+        expected = {
+            "pull": common,
+            "changed_files": common | {"per_page", "page"},
+            "diff": common,
+            "file": common
+            | {"path", "side", "start_line", "max_lines", "max_chars"},
+        }.get(operation)
+        if expected is None or set(value) != expected:
+            raise GitHubGatewayProtocolError(
+                "gateway request fields do not match a source operation"
+            )
+        request = cls(
+            operation=cast(
+                Literal["pull", "changed_files", "diff", "file"], operation
+            ),
+            run_id=_positive(value.get("run_id"), "run_id"),
+            job_id=_positive(value.get("job_id"), "job_id"),
+            lease_generation=_positive(
+                value.get("lease_generation"), "lease_generation"
+            ),
+        )
+        if operation == "changed_files":
+            per_page = _positive(value.get("per_page"), "per_page")
+            allowed_page_sizes = frozenset(
+                (*changed_files.DEFAULT_PER_PAGE_SEQUENCE, 1)
+            )
+            if per_page not in allowed_page_sizes:
+                raise GitHubGatewayProtocolError("per_page is not supported")
+            page = _positive(value.get("page"), "page")
+            if page > changed_files.GITHUB_PR_FILES_LIMIT:
+                raise GitHubGatewayProtocolError("page exceeds the provider limit")
+            return cls(
+                operation="changed_files",
+                run_id=request.run_id,
+                job_id=request.job_id,
+                lease_generation=request.lease_generation,
+                per_page=per_page,
+                page=page,
+            )
+        if operation == "file":
+            raw_path = value.get("path")
+            if not isinstance(raw_path, str):
+                raise GitHubGatewayProtocolError("path must be text")
+            try:
+                path = memory_validation.normalize_path(raw_path)
+            except memory_validation.ReviewMemoryError as exc:
+                raise GitHubGatewayProtocolError(str(exc)) from exc
+            side = value.get("side")
+            if side not in {"head", "base"}:
+                raise GitHubGatewayProtocolError("side must be head or base")
+            start_line = _positive(value.get("start_line"), "start_line")
+            max_lines = _positive(value.get("max_lines"), "max_lines")
+            if max_lines > schemas.SOURCE_PAGE_MAX_LINES:
+                raise GitHubGatewayProtocolError("max_lines exceeds the source page limit")
+            max_chars = _positive(value.get("max_chars"), "max_chars")
+            if not (
+                capacity.MIN_TEXT_PAGE_CHARS
+                <= max_chars
+                <= capacity.DEFAULT_RESULT_MAX_CHARS
+            ):
+                raise GitHubGatewayProtocolError("max_chars is outside the source page limit")
+            return cls(
+                operation="file",
+                run_id=request.run_id,
+                job_id=request.job_id,
+                lease_generation=request.lease_generation,
+                path=path,
+                side=cast(Literal["head", "base"], side),
+                start_line=start_line,
+                max_lines=max_lines,
+                max_chars=max_chars,
+            )
+        return request
+
+
+SourceResult = ReviewPullSource | ReviewSourceBytes | ReviewFilePage
+ProviderResult = TypeVar("ProviderResult")
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,6 +351,123 @@ class ReviewGitHubGateway:
             head_sha=snapshot.head_sha,
         )
 
+    def read_review_source(self, request: ReviewSourceRequest) -> SourceResult:
+        scope = self._require_source_authority(
+            run_id=request.run_id,
+            job_id=request.job_id,
+            lease_generation=request.lease_generation,
+        )
+        if request.operation == "pull":
+            def operation(github: GitHubReadClient) -> SourceResult:
+                return read_review_pull(github, scope)
+        elif request.operation == "changed_files":
+            assert request.per_page is not None and request.page is not None
+            per_page = request.per_page
+            page = request.page
+
+            def operation(github: GitHubReadClient) -> SourceResult:
+                return read_changed_files_page(
+                    github, scope, per_page=per_page, page=page
+                )
+        elif request.operation == "diff":
+            def operation(github: GitHubReadClient) -> SourceResult:
+                return read_review_diff(github, scope)
+        else:
+            assert (
+                request.path is not None
+                and request.side is not None
+                and request.start_line is not None
+                and request.max_lines is not None
+                and request.max_chars is not None
+            )
+            path = request.path
+            side = request.side
+            start_line = request.start_line
+            max_lines = request.max_lines
+            max_chars = request.max_chars
+
+            def operation(github: GitHubReadClient) -> SourceResult:
+                return read_review_file_page(
+                    github,
+                    scope,
+                    path=path,
+                    side=side,
+                    start_line=start_line,
+                    max_lines=max_lines,
+                    max_chars=max_chars,
+                )
+        result = self._provider_source(scope.provider_repository_id, operation)
+        self._require_source_authority(
+            run_id=request.run_id,
+            job_id=request.job_id,
+            lease_generation=request.lease_generation,
+        )
+        return result
+
+    def _require_source_authority(
+        self,
+        *,
+        run_id: int,
+        job_id: int,
+        lease_generation: int,
+    ) -> review_runs.ReviewRunScope:
+        try:
+            with self._postgres.transaction() as connection:
+                resolved_run_id = ReviewRunId(_positive(run_id, "run_id"))
+                jobs.require_live_lease(
+                    connection,
+                    job_id=_positive(job_id, "job_id"),
+                    review_run_id=resolved_run_id,
+                    lease_generation=_positive(
+                        lease_generation, "lease_generation"
+                    ),
+                )
+                scope = review_runs.get_run_scope(connection, resolved_run_id)
+                github_app.authorize_review_read(
+                    connection,
+                    scope.provider_repository_id,
+                    profile_key=self._profile,
+                )
+                return scope
+        except (
+            jobs.ReviewJobError,
+            review_runs.ReviewRunError,
+        ) as exc:
+            raise GitHubGatewayRejected("review_job_lease_lost") from exc
+        except github_app.GitHubAppReviewReadUnauthorized as exc:
+            raise GitHubGatewayRejected("repository_not_authorized") from exc
+
+    def _provider_source(
+        self,
+        provider_repository_id: int,
+        operation: Callable[[GitHubReadClient], ProviderResult],
+    ) -> ProviderResult:
+        attempt = 0
+        while True:
+            try:
+                token = self._tokens.token_for(provider_repository_id)
+                return operation(self._github_factory(token.value))
+            except GitHubAppTokenRetryable as exc:
+                raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+            except GitHubAppTokenPermanent as exc:
+                raise GitHubGatewayRejected("provider_authorization_denied") from exc
+            except github_app.GitHubAppReviewReadUnauthorized as exc:
+                raise GitHubGatewayRejected("repository_not_authorized") from exc
+            except GitHubReadError as exc:
+                if exc.kind == "unauthorized" and attempt == 0:
+                    self._tokens.invalidate(provider_repository_id)
+                    attempt += 1
+                    continue
+                if exc.kind in {"unreachable", "http_error", "rate_limited"}:
+                    raise GitHubGatewayRetryable("github_read_unavailable") from exc
+                if exc.kind in {"unauthorized", "forbidden"}:
+                    raise GitHubGatewayRejected(
+                        "provider_authorization_denied"
+                    ) from exc
+                raise GitHubGatewayRejected("github_read_invalid") from exc
+            except GitHubSourceError as exc:
+                raise GitHubGatewayRejected("github_read_invalid") from exc
+
     def _require_authority(
         self,
         *,
@@ -269,33 +500,11 @@ class ReviewGitHubGateway:
         return command
 
     def _provider_snapshot(self, command: _ReviewCommand) -> PullSnapshot:
-        attempt = 0
-        while True:
-            try:
-                token = self._tokens.token_for(command.provider_repository_id)
-                github = self._github_factory(token.value)
-                self._authorize_sender(github, command)
-                return read_pull_snapshot(
-                    github, command.repository, command.pr_number
-                )
-            except GitHubAppTokenRetryable as exc:
-                raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
-            except GitHubAppTokenPermanent as exc:
-                raise GitHubGatewayRejected("provider_authorization_denied") from exc
-            except github_app.GitHubAppReviewReadUnauthorized as exc:
-                raise GitHubGatewayRejected("repository_not_authorized") from exc
-            except GitHubReadError as exc:
-                if exc.kind == "unauthorized" and attempt == 0:
-                    self._tokens.invalidate(command.provider_repository_id)
-                    attempt += 1
-                    continue
-                if exc.kind in {"unreachable", "http_error", "rate_limited"}:
-                    raise GitHubGatewayRetryable("github_read_unavailable") from exc
-                if exc.kind in {"unauthorized", "forbidden"}:
-                    raise GitHubGatewayRejected(
-                        "provider_authorization_denied"
-                    ) from exc
-                raise GitHubGatewayRejected("github_read_invalid") from exc
+        def operation(github: GitHubReadClient) -> PullSnapshot:
+            self._authorize_sender(github, command)
+            return read_pull_snapshot(github, command.repository, command.pr_number)
+
+        return self._provider_source(command.provider_repository_id, operation)
 
     @staticmethod
     def _authorize_sender(

@@ -171,11 +171,11 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
     def test_suggestion_validation_holds_no_connection_and_accepts_deletion(self) -> None:
         run_id = self.start()
 
-        def load_head(path: str) -> str:
+        def load_head(path: str, _start_line: int, _end_line: int) -> str:
             self.assertEqual(path, "src/flags.py")
             metrics = self.runtime.pool_metrics()
             self.assertEqual(metrics.available, metrics.size)
-            return "before\nsafe = False\nafter\n"
+            return "safe = False"
 
         result = review_finding_application.record_postgres_findings_with_suggestions(
             self.runtime,
@@ -210,7 +210,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
                     findings=(self.finding(),),
                     changed_files=(self.changed_file(),),
                     suggestions=(self.suggestion(),),
-                    head_file_loader=lambda _path: "before\nsafe = False\nafter\n",
+                    head_file_loader=lambda _path, _start, _end: "safe = False",
                 )
             )
 
@@ -235,7 +235,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             findings=(self.finding(),),
             changed_files=(self.changed_file(),),
             suggestions=(self.suggestion(),),
-            head_file_loader=lambda _path: "before\nsafe = False\nafter\n",
+            head_file_loader=lambda _path, _start, _end: "safe = False",
         )
         with self.runtime.transaction() as connection:
             original = connection.execute(
@@ -304,7 +304,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             findings=(self.finding(),),
             changed_files=(self.changed_file(),),
             suggestions=(self.suggestion(),),
-            head_file_loader=lambda _path: "before\nsafe = False\nafter\n",
+            head_file_loader=lambda _path, _start, _end: "safe = False",
         )
         self.assertEqual(first.suggestion_statuses, ("recorded",))
 
@@ -340,7 +340,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
     def test_loader_failure_degrades_without_losing_the_finding_result(self) -> None:
         run_id = self.start()
 
-        def fail_loader(_path: str) -> str:
+        def fail_loader(_path: str, _start_line: int, _end_line: int) -> str:
             raise RuntimeError("provider read failed")
 
         result = review_finding_application.record_postgres_findings_with_suggestions(
@@ -384,7 +384,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             findings=findings,
             changed_files=(self.changed_file(),),
             suggestions=(self.suggestion(), self.suggestion(), self.suggestion()),
-            head_file_loader=lambda _path: "before\nsafe = False\nafter\n",
+            head_file_loader=lambda _path, _start, _end: "safe = False",
         )
 
         self.assertEqual(result.suggestions_recorded, 1)
@@ -451,7 +451,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
                 findings=(self.finding(),),
                 changed_files=(self.changed_file(),),
                 suggestions=(self.suggestion(),),
-                head_file_loader=lambda _path: "before\nsafe = False\nafter\n",
+                head_file_loader=lambda _path, _start, _end: "safe = False",
             )
         )
         self.assertEqual(

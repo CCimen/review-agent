@@ -73,6 +73,7 @@ class ReviewRun:
 @dataclass(frozen=True, slots=True)
 class ReviewRunScope:
     run: ReviewRun
+    provider_repository_id: int
     repository: str
     pr_number: int
     base_sha: str
@@ -95,6 +96,7 @@ class _ReviewRunScopeRow:
     started_at: datetime
     last_heartbeat_at: datetime
     completed_at: datetime | None
+    provider_repository_id: int
     repository: str
     pr_number: int
     base_sha: str
@@ -318,6 +320,7 @@ def get_run_scope(
                    run.request_key, run.trigger_comment_id, run.trigger_user,
                    run.status, run.phase, run.findings_count, run.failure_code,
                    run.started_at, run.last_heartbeat_at, run.completed_at,
+                   repository.provider_repository_id,
                    repository.full_name AS repository,
                    pull_request.number AS pr_number,
                    subject.base_sha, subject.head_sha,
@@ -354,6 +357,7 @@ def get_run_scope(
                 completed_at=row.completed_at,
             )
         ),
+        provider_repository_id=row.provider_repository_id,
         repository=row.repository,
         pr_number=row.pr_number,
         base_sha=row.base_sha,
@@ -389,6 +393,7 @@ def validate_snapshot(
     if scope.base_sha != base_sha or scope.head_sha != head_sha:
         return ReviewRunScope(
             run=mark_superseded(connection, run_id),
+            provider_repository_id=scope.provider_repository_id,
             repository=scope.repository,
             pr_number=scope.pr_number,
             base_sha=scope.base_sha,
@@ -398,6 +403,7 @@ def validate_snapshot(
     updated = advance_phase(connection, run_id, phase)
     return ReviewRunScope(
         run=updated,
+        provider_repository_id=scope.provider_repository_id,
         repository=scope.repository,
         pr_number=scope.pr_number,
         base_sha=scope.base_sha,

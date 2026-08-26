@@ -34,21 +34,21 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", guide)
         self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", guide)
 
-    def test_direct_app_admission_runtime_is_opt_in_and_key_isolated(self):
+    def test_direct_app_runtime_is_default_and_key_isolated(self):
         compose = read("compose.yaml")
         environment = read(".env.example")
 
-        self.assertIn('profiles: ["github-app-pilot"]', compose)
-        self.assertIn("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET:-", compose)
+        self.assertNotIn('profiles: ["github-app-pilot"]', compose)
+        self.assertIn("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET:?", compose)
         self.assertIn("target: github-app-private-key.pem", compose)
         self.assertIn("source: github_app_private_key", compose)
         self.assertIn("review-github-gateway:", compose)
         self.assertIn("REVIEW_AGENT_GITHUB_GATEWAY_URL", compose)
         self.assertEqual(compose.count("source: github_app_private_key"), 1)
-        worker = compose.split("  review-github-app-worker:", 1)[1].split(
+        worker = compose.split("\n  review-github-app-worker:\n", 1)[1].split(
             "\n  review-publisher:", 1
         )[0]
-        gateway = compose.split("  review-github-gateway:", 1)[1].split(
+        gateway = compose.split("\n  review-github-gateway:\n", 1)[1].split(
             "\n  review-github-app-worker:", 1
         )[0]
         self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE", worker)
@@ -446,7 +446,8 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("env_file:", reviewer_section)
         self.assertNotIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", reviewer_section)
         self.assertNotIn("REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET", reviewer_section)
-        self.assertIn("GITHUB_READ_TOKEN", reviewer_section)
+        self.assertIn("REVIEW_AGENT_GITHUB_GATEWAY_URL", reviewer_section)
+        self.assertNotIn("GITHUB_READ_TOKEN", reviewer_section)
         self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", reviewer_section)
         self.assertIn("REVIEW_AGENT_DATABASE_URL", reviewer_section)
         self.assertIn("review-egress", hermes_section)
@@ -679,7 +680,8 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn(
             "no repository-size or model-era source-reading quota", operations
         )
-        self.assertIn("GitHub's 100 MB endpoint boundary", operations)
+        self.assertIn("2 MB per-request memory guard", operations)
+        self.assertNotIn("GitHub's 100 MB endpoint boundary", operations)
         self.assertIn("keep coverage incomplete", operations)
         self.assertIn(
             "Coverage is complete only when every changed file was at least diff-reviewed",

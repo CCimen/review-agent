@@ -225,6 +225,7 @@ def validate_suggestion(
     finding_line: int,
     patch: str | None,
     head_text: str,
+    head_text_start_line: int = 1,
 ) -> SuggestionValidation:
     """Validate an optional model patch against trusted head bytes and diff lines."""
     if not isinstance(raw, Mapping):
@@ -257,9 +258,11 @@ def validate_suggestion(
         return SuggestionValidation(None, "suggestion_contains_placeholder")
 
     trusted_lines = head_text.replace("\r\n", "\n").replace("\r", "\n").splitlines()
-    if end_line > len(trusted_lines):
+    start_index = start_line - head_text_start_line
+    end_index = end_line - head_text_start_line + 1
+    if start_index < 0 or end_index > len(trusted_lines):
         return SuggestionValidation(None, "suggestion_range_outside_head_file")
-    trusted_text = "\n".join(trusted_lines[start_line - 1 : end_line])
+    trusted_text = "\n".join(trusted_lines[start_index:end_index])
     if expected != trusted_text:
         return SuggestionValidation(None, "suggestion_expected_text_mismatch")
     if replacement == trusted_text:
@@ -293,12 +296,12 @@ def ranges_overlap(
 def select_suggestions(
     candidates: Sequence[SuggestionCandidate],
     *,
-    head_file_loader: Callable[[str], str | None] | None,
+    head_file_loader: Callable[[str, int, int], str | None] | None,
 ) -> SuggestionSelection:
     """Select a bounded, non-overlapping patch set without database access."""
     selected: dict[int, ValidatedSuggestion] = {}
     statuses: dict[int, SuggestionStatus] = {}
-    head_files: dict[str, str | None] = {}
+    head_ranges: dict[tuple[str, int, int], str | None] = {}
     for candidate in sorted(candidates, key=lambda item: item.priority):
         if candidate.suppressed:
             statuses[candidate.index] = "suggestion_finding_suppressed"
@@ -331,16 +334,45 @@ def select_suggestions(
                     "suggestion_head_repository_unavailable"
                 )
                 continue
-            if candidate.path not in head_files:
-                if len(head_files) >= MAX_ATOMIC_SUGGESTIONS_PER_REVIEW:
+            raw = candidate.raw
+            raw_mapping: Mapping[str, object] = (
+                cast(Mapping[str, object], raw)
+                if isinstance(raw, Mapping)
+                else cast(Mapping[str, object], {})
+            )
+            start_line = _positive_int(raw_mapping.get("start_line"))
+            end_line = _positive_int(raw_mapping.get("end_line"))
+            if start_line is None or end_line is None:
+                validation = validate_suggestion(
+                    candidate.raw,
+                    repository=candidate.repository,
+                    pr_number=candidate.pr_number,
+                    head_sha=candidate.head_sha,
+                    fingerprint=candidate.fingerprint,
+                    path=candidate.path,
+                    finding_line=candidate.finding_line,
+                    patch=candidate.patch,
+                    head_text="",
+                )
+                statuses[candidate.index] = (
+                    validation.rejection_reason
+                    if validation.rejection_reason
+                    else "suggestion_validation_failed"
+                )
+                continue
+            range_key = (candidate.path, start_line, end_line)
+            if range_key not in head_ranges:
+                if len(head_ranges) >= MAX_ATOMIC_SUGGESTIONS_PER_REVIEW:
                     statuses[candidate.index] = "suggestion_review_limit"
                     continue
                 try:
-                    head_files[candidate.path] = head_file_loader(candidate.path)
+                    head_ranges[range_key] = head_file_loader(
+                        candidate.path, start_line, end_line
+                    )
                 except Exception:
                     # Provider reads are best-effort and must not lose the finding batch.
-                    head_files[candidate.path] = None
-            head_text = head_files[candidate.path]
+                    head_ranges[range_key] = None
+            head_text = head_ranges[range_key]
             if head_text is None:
                 statuses[candidate.index] = "suggestion_head_file_unavailable"
                 continue
@@ -355,6 +387,7 @@ def select_suggestions(
                     finding_line=candidate.finding_line,
                     patch=candidate.patch,
                     head_text=head_text,
+                    head_text_start_line=start_line,
                 )
             except ValueError:
                 statuses[candidate.index] = "suggestion_validation_failed"

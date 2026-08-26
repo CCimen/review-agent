@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
 status: current
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 import Tabs from '@theme/Tabs';
@@ -26,13 +26,18 @@ publishers independently. Expose admission on port `8644`; expose feedback on
 `8645` only when enabled. Keep Hermes `8642` and PostgreSQL off the shared proxy
 network.
 
+The diagram shows the default GitHub Actions path. An opt-in
+[GitHub App admission pilot](./GITHUB_APP_PILOT.md) can receive the same command
+directly for one selected repository. It does not replace the three scoped
+service tokens.
+
 ## Create the credentials
 
 ### GitHub tokens
 
-Create three fine-grained personal access tokens. GitHub Apps are a better fit
-when many organizations install the service, but repository-scoped tokens keep a
-single-organization deployment small.
+Create three fine-grained personal access tokens for source reads, publication,
+and feedback. The optional GitHub App pilot changes admission only, so it keeps
+these tokens.
 
 For each token:
 
@@ -270,6 +275,9 @@ and [repository variables](https://docs.github.com/en/actions/how-tos/write-work
 Protect the workflow with CODEOWNERS or a ruleset. A maintainer who passes both
 the username allowlist and GitHub's `OWNER`, `MEMBER`, or `COLLABORATOR`
 association check can now comment `/review`.
+
+For an owner-controlled test of direct admission on one repository, keep
+this workflow active and follow the [GitHub App pilot](./GITHUB_APP_PILOT.md).
 
 ## Scale and operate the queue
 

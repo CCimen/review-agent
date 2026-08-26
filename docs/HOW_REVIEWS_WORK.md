@@ -4,7 +4,7 @@ slug: /how-reviews-work
 title: How reviews work
 description: The trusted path from a review request to deterministic GitHub publication.
 status: current
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # How reviews work
@@ -21,10 +21,13 @@ code decides what snapshot is valid and how stored results reach GitHub.
 
 ## Request and authorize
 
-A trusted developer posts `/review` on a pull request. The repository-owned
-GitHub Actions workflow checks the username allowlist and trusted GitHub
-association before sending a minimal HMAC-signed webhook. The runtime then
-checks its own exact repository allowlist.
+A trusted developer posts `/review` on a pull request. By default, the
+repository-owned GitHub Actions workflow checks the username allowlist and
+trusted GitHub association before sending a minimal HMAC-signed webhook. The
+optional [GitHub App admission pilot](./GITHUB_APP_PILOT.md) receives the signed
+comment event directly and checks the requester's current repository permission.
+Both paths enforce repository authorization before admitting the same durable
+run and job. Source reads and publication use the current scoped service tokens.
 
 ## Pin the subject
 

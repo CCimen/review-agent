@@ -27,6 +27,11 @@ merge authority.
    /review
    ```
 
+The protected GitHub Actions path is the production default. Owners can test
+direct admission on one selected repository with the
+[GitHub App pilot](docs/GITHUB_APP_PILOT.md); source reads, publication, and
+feedback continue to use the current scoped tokens during that pilot.
+
 After fixing findings, push a commit and comment `/review` again; the new
 snapshot starts a fresh round. Structured feedback from allowlisted developers
 goes in a new top-level comment:
@@ -49,6 +54,7 @@ search and task-based navigation. Key pages:
 | --- | --- |
 | Run your first review | [Getting started](docs/GETTING_STARTED.md) |
 | Deploy the service | [Deployment](docs/DEPLOYMENT.md) |
+| Test direct GitHub App admission | [GitHub App pilot](docs/GITHUB_APP_PILOT.md) |
 | Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |

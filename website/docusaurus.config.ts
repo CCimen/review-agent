@@ -167,6 +167,7 @@ const config: Config = {
           title: 'Set up',
           items: [
             {label: 'Deploy', to: '/docs/deployment'},
+            {label: 'GitHub App pilot', to: '/docs/github-app-pilot'},
             {label: 'Configure behavior', to: '/docs/behavior-ownership'},
           ],
         },

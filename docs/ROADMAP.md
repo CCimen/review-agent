@@ -4,7 +4,7 @@ slug: /roadmap
 title: Capabilities and boundaries
 description: The working Review Agent core and the integrations kept outside it.
 status: current
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Capabilities and boundaries
@@ -15,9 +15,10 @@ last_verified: 2026-08-25
 
 ## Core platform
 
-- **Trusted admission:** GitHub Actions checks the requester, signs a small
-  request, and the service pins the current base and head commits before work
-  enters the queue.
+- **Trusted admission:** GitHub Actions checks the requester and signs a small
+  request. An opt-in GitHub App pilot can instead validate direct comment events
+  and selected-repository access. Both paths admit the same durable work and pin
+  the current base and head commits.
 - **Evidence-backed review:** Hermes receives bounded read tools, records
   coverage, challenges candidate findings, and keeps incomplete review depth
   visible.
@@ -54,7 +55,8 @@ own profile and session files outside application state.
 
 ## Optional extensions
 
-- GitHub App installation tokens and repository lifecycle automation.
+- Complete an owner-controlled live GitHub App pilot, then decide whether to
+  replace source-read, publication, and feedback tokens.
 - Trusted base-branch repository policy and `AGENTS.md` context.
 - Operator-facing repository management and policy controls.
 - Notification or collaboration channels beyond GitHub.

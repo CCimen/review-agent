@@ -17,6 +17,23 @@ def words(text: str) -> str:
 
 
 class DocsContractTests(unittest.TestCase):
+    def test_github_app_pilot_is_public_and_keeps_credential_boundary_explicit(self):
+        guide = read("docs/GITHUB_APP_PILOT.md")
+        sidebar = read("website/sidebars.ts")
+        public_documents = read("website/public-documents.json")
+
+        self.assertIn("'docs/GITHUB_APP_PILOT'", sidebar)
+        self.assertIn('"docs/GITHUB_APP_PILOT.md"', public_documents)
+        self.assertIn("Only select repositories", guide)
+        self.assertIn("sync-github-app-installation", guide)
+        self.assertIn("enable-github-app-repository", guide)
+        self.assertIn("disable-github-app-repository", guide)
+        self.assertIn("fork_source_not_supported", guide)
+        self.assertIn("Source reads, publication, and feedback still use", guide)
+        self.assertIn("GITHUB_READ_TOKEN", guide)
+        self.assertIn("REVIEW_AGENT_PUBLISH_GH_TOKEN", guide)
+        self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", guide)
+
     def test_direct_app_admission_runtime_is_opt_in_and_key_isolated(self):
         compose = read("compose.yaml")
         environment = read(".env.example")

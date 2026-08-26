@@ -17,7 +17,11 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Set up',
       collapsed: false,
-      items: ['docs/DEPLOYMENT', 'docs/BEHAVIOR_OWNERSHIP'],
+      items: [
+        'docs/DEPLOYMENT',
+        'docs/GITHUB_APP_PILOT',
+        'docs/BEHAVIOR_OWNERSHIP',
+      ],
     },
     {
       type: 'category',

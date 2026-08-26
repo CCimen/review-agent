@@ -4,7 +4,7 @@ slug: /getting-started
 title: Getting started
 description: Deploy the shared reviewer, add a repository, and run the first review.
 status: current
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Getting started
@@ -25,6 +25,10 @@ workflow, four Actions secrets, and one Actions variable to the repository.
 
 The [deployment guide](./DEPLOYMENT.md) covers token creation, GitHub settings,
 Compose platforms, and OpenShift. This page keeps repository onboarding short.
+
+The protected Actions workflow is the production default. To test direct App
+admission for one selected repository without replacing the current read and
+write tokens, use the [GitHub App pilot](./GITHUB_APP_PILOT.md).
 
 ## 1. Allow the repository
 

@@ -3,7 +3,7 @@ sidebar_label: Operations
 slug: /operations
 title: Operations
 status: current
-last_verified: 2026-08-24
+last_verified: 2026-08-26
 ---
 
 # Operations
@@ -225,6 +225,18 @@ the repository's default branch before an `issue_comment` event can start it.
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` in Dokploy if the rendered review comment
 should show the copyable feedback commands documented below.
+
+### Optional GitHub App admission
+
+The opt-in App worker can receive and authorize `/review` directly for selected
+repositories. The protected Actions route remains the production default, and
+source reads, publication, and feedback keep their existing tokens. Registration,
+reconciliation, explicit enablement, proof, and rollback live in one place: the
+[GitHub App pilot guide](./GITHUB_APP_PILOT.md).
+
+After a repository selection changes, run the guide's reconciliation command
+before enabling anything. Reconciliation never enables a new or restored
+repository automatically.
 
 ## Run A Review
 

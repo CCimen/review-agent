@@ -4,7 +4,7 @@ slug: /security
 title: Security model
 description: Trust boundaries, tool surface, prompt-injection posture, token scopes, and data handling.
 status: current
-last_verified: 2026-08-25
+last_verified: 2026-08-26
 ---
 
 # Security model
@@ -23,6 +23,9 @@ model is trusted.
   `COLLABORATOR`.
 - `AI_REVIEW_ALLOWED_USERS` must include the requester. Empty means deny all.
 - GitHub Actions sends a minimal HMAC-signed request to the admission service.
+- The optional GitHub App route verifies its own HMAC secret and stores only a
+  bounded normalized delivery. Its private key is mounted read-only into the
+  isolated App worker, not Hermes, PostgreSQL, admission, or logs.
 - Admission verifies the signature, allowlist, request identity, and current
   GitHub PR snapshot before it commits the run and queue job together.
 - A worker leases the job and calls the private, authenticated Hermes API.
@@ -109,6 +112,12 @@ If GitHub returns `Resource not accessible by personal access token`, inspect th
 endpoint-specific failure in `review-agent-memory publications --json`. Most
 runtime 403s are missing org approval or missing Issues/Pull requests permission
 on a fine-grained token.
+
+The [GitHub App admission pilot](./GITHUB_APP_PILOT.md) requests read-only
+Metadata, Contents, Issues, and Pull requests access for one selected repository.
+It validates current installation and requester access before admission. The
+pilot does not give an installation token to Hermes or the publisher and does
+not remove the three current scoped service tokens.
 
 ## Dependency vulnerability scanning
 

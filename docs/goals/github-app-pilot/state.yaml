@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "ddb3facdfd13ea2e4991f77b20d1dce2ccabe26d"
 
-active_task: T019
+active_task: T020
 
 tasks:
   - id: T001
@@ -815,7 +815,7 @@ tasks:
   - id: T019
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the committed direct-App admission activation and follow-up installation correction as one locally complete milestone, then freeze the next smallest dependency before any owner-controlled live pilot."
     inputs:
@@ -836,7 +836,83 @@ tasks:
       - "Exact next Worker objective, canonical owner, allowed files, acceptance, verification, stop conditions, rollback, and non-goals"
       - "Decision whether manual installation reconciliation must precede the CCimen/review-agent live admission pilot"
       - "Owner-controlled pilot prerequisites and an accurate success claim"
-    receipt: null
+    receipt:
+      result: done
+      decision: "The committed local direct-App admission milestone is complete. Add one manual selected-installation reconciliation repair operation before the owner-controlled CCimen/review-agent live admission pilot because GitHub does not automatically redeliver failed webhooks."
+      summary: "Verified one working local intake, token, processor, worker, enable/disable, and deployment path. The missing pre-pilot recovery control is not another queue or scheduler: it is one operator command that reads the current selected installation and repository inventory from GitHub, then reconciles the existing PostgreSQL lifecycle owner atomically without enabling new repositories."
+      evidence:
+        - "T017 commit ad399fe5a2836426835ea56b58170a2e9bd46021"
+        - "T018 commit ddb3facdfd13ea2e4991f77b20d1dce2ccabe26d"
+        - "Latest remote CI green at 36d5952f92c71decd8773843727579596e865bc5"
+        - "GitHub's official installation API returns repository_selection and permissions to an App JWT."
+        - "GitHub's official installation-repositories endpoint paginates at up to 100 repositories and needs an installation token with no repository permission requirement."
+        - "GitHub documents that failed webhook deliveries are not automatically redelivered."
+      next_allowed_task: T020
+      live_pilot_decision: "blocked until T020 is committed and locally audited; the later owner gate may prove direct-App admission only, not App-only source reads, publication, or feedback."
+      interrupted_audit: "The delegated Judge was stopped after it did not converge within the bounded read-only window; the PM completed the same source-backed audit and did not start another review loop."
+      spawned_tasks:
+        - T020
+  - id: T020
+    type: worker
+    assignee: Worker
+    status: active
+    reasoning_hint: high
+    objective: "Add one manual selected-installation reconciliation command that reads current installation metadata and all accessible repositories through the existing GitHub App credential owner, then atomically repairs the existing PostgreSQL installation/access state without automatically enabling any repository."
+    canonical_owner:
+      app_credentials: "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+      provider_inventory: "bootstrap/plugins/review_agent_tools/github/app_inventory.py"
+      durable_reconciliation: "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      operator_use_case: "bootstrap/plugins/review_agent_tools/operator_application.py"
+      operator_cli: "tools/review_agent_database.py"
+      private_key_file_loading: "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+    allowed_files:
+      - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+      - "bootstrap/plugins/review_agent_tools/github/app_inventory.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "bootstrap/plugins/review_agent_tools/operator_application.py"
+      - "tools/review_agent_database.py"
+      - "tools/review_agent_github_app_worker.py"
+      - "tests/test_github_app_auth.py"
+      - "tests/test_github_app_inventory.py"
+      - "tests/test_github_app_activation.py"
+      - "tests/test_postgres_github_app.py"
+      - "tests/test_postgres_reporting_cli.py"
+    acceptance:
+      - "Reuse one GitHub-App-specific authenticator for App JWT signing, installation-token exchange, same-origin redirect policy, bounded responses, and sanitized retryable/permanent failures; do not create a provider abstraction or credential broker."
+      - "Move the bounded regular-file private-key loader from the worker entrypoint into the App credential owner and reuse it from both worker and operator commands; PEM never enters arguments, logs, PostgreSQL, responses, or Hermes."
+      - "The provider inventory reads exact installation metadata with an App JWT and every accessible repository with an in-memory installation token, paginating at 100 until the provider total is complete."
+      - "The reconciliation inventory validates stable installation/account/repository IDs, current names, selected repository mode, declared contents/issues/pull-request permissions, suspension state, pagination counts, and bounded JSON responses."
+      - "Only repository_selection=selected is accepted for this pilot. All-repositories mode remains an explicit unsupported operator result until its activation policy is designed."
+      - "GitHub network I/O completes before one PostgreSQL transaction. That transaction synchronizes installation metadata, grants every current repository, and marks access missing from the complete provider inventory removed for the same installation."
+      - "New or restored repositories remain enabled=false. Existing enabled state is preserved only for a repository still available through the same installation. No sync result can enable a repository."
+      - "Every actual state transition retains the supplied bounded actor/reason in existing append-only audit owners; an exact repeated sync creates no duplicate access audit."
+      - "The CLI command is sync-github-app-installation with required provider installation ID, actor, and reason, and returns bounded JSON counts without credentials."
+      - "The command runs from the opt-in App worker container, which already owns the key mount and database/egress access; Compose topology and the default PAT/Actions route remain unchanged."
+      - "Provider 404/permission denial is a sanitized permanent failure; rate limits, 5xx, network failures, and timeouts are retryable. No failed provider fetch mutates PostgreSQL."
+      - "The stable candidate receives one Claude Opus high commit gate, green with score at least 8."
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_github_app_auth tests.test_github_app_inventory tests.test_github_app_activation"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH REVIEW_AGENT_POSTGRES_DSN=<ephemeral-dsn> PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_postgres_github_app tests.test_postgres_reporting_cli"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check <changed Python files>"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "docker compose --env-file .env.example config --quiet"
+      - "docker compose --env-file .env.example --profile github-app-pilot config --quiet"
+      - "Claude Opus high pre-commit gate: green with score at least 8 in one resumable session"
+    stop_if:
+      - "The GitHub API cannot provide a complete selected-repository inventory with bounded pagination and installation-token authentication."
+      - "Provider I/O would need to occur inside the PostgreSQL transaction or a partial inventory could remove access."
+      - "A sync could automatically enable a repository, resurrect access owned by a newer installation, or lose actor/reason audit."
+      - "The private key or installation token would enter Hermes, PostgreSQL, logs, arguments, responses, or another container."
+      - "Implementation requires a migration, scheduler, webhook redelivery subsystem, second queue, generic provider framework, or files outside allowed_files."
+      - "Tests require live credentials, App registration, deployment, or Sundsvallskommun access."
+      - "Verification or the Claude gate fails twice for the same unexplained reason."
+    non_goals:
+      - "No daily scheduler, automatic provider polling, generic webhook redelivery, App registration, live pilot, organization mutation, or Sundsvallskommun access."
+      - "No all-repositories activation, fork support, source-read/publication/feedback cutover, PAT/Actions deletion, or App-only claim."
+      - "No scorecard, doctor command, llms files, setup skill, public App deployment docs, admin UI, release, or ruleset change."
+    rollback: "Revert the reconciliation commit. Event-driven lifecycle processing, existing PostgreSQL history, the opt-in direct-App worker, and the default PAT/Actions route remain unchanged; the removed manual repair command creates no new schema or background process."
   - id: T999
     type: judge
     assignee: Judge

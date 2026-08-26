@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import timedelta
 import importlib.util
+import logging
 import os
 from pathlib import Path
 import sys
@@ -111,6 +112,25 @@ class GitHubAppWorkerTests(unittest.TestCase):
 
 
 class GitHubAppWorkerEntrypointTests(unittest.TestCase):
+    def test_main_enables_operator_visible_info_logs(self) -> None:
+        module = _entrypoint_module()
+        with (
+            patch.object(module.logging, "basicConfig") as basic_config,
+            patch.object(
+                module.ReviewAgentSettings,
+                "from_environment",
+                side_effect=RuntimeError("stop after logging setup"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "stop after logging setup"),
+        ):
+            module.main(["--once"])
+
+        basic_config.assert_called_once_with(
+            level=logging.INFO,
+            stream=sys.stdout,
+            format="%(levelname)s %(name)s %(message)s",
+        )
+
     def test_private_key_loader_accepts_only_bounded_regular_utf8_file(self) -> None:
         module = _entrypoint_module()
         with tempfile.TemporaryDirectory() as temp:

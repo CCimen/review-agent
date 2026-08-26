@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import timedelta
+import logging
 import os
 from pathlib import Path
 import signal
@@ -97,6 +98,11 @@ def main(argv: list[str] | None = None) -> int:
         "--once", action="store_true", help="claim at most one delivery"
     )
     args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stdout,
+        format="%(levelname)s %(name)s %(message)s",
+    )
     stop = threading.Event()
 
     def request_stop(_signal: int, _frame: object) -> None:

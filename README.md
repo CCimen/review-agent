@@ -32,8 +32,8 @@ repository-scoped credentials for source reads and deterministic publication.
 The model and publisher never receive the App private key.
 
 After fixing findings, push a commit and comment `/review` again; the new
-snapshot starts a fresh round. Structured feedback from allowlisted developers
-goes in a new top-level comment:
+snapshot starts a fresh round. Collaborators with current write or admin
+permission post structured feedback in a new top-level comment:
 
 ```text
 /review false-positive F2 because <what code, guard, or invariant disproves it>

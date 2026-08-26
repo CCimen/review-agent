@@ -66,9 +66,8 @@ docker compose up -d --no-build
 docker compose ps
 ```
 
-Use `--build` for a reviewed local-source deployment. If feedback is enabled,
-its current sidecar still needs `REVIEW_AGENT_FEEDBACK_GH_TOKEN`; admission,
-source reads, and publication do not.
+Use `--build` for a reviewed local-source deployment. The App key stays in the
+private gateway. Workers receive no GitHub credential.
 
 ## 3. Install, reconcile, and enable
 

@@ -15,7 +15,6 @@ COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
 COPY --chown=root:root tools/review_agent_*.py /usr/local/bin/
 RUN cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory \
     && cp /usr/local/bin/review_agent_database.py /usr/local/bin/review-agent-database \
-    && cp /usr/local/bin/review_agent_feedback_bridge.py /usr/local/bin/review-agent-feedback-bridge \
     && cp /usr/local/bin/review_agent_admission.py /usr/local/bin/review-agent-admission \
     && cp /usr/local/bin/review_agent_worker.py /usr/local/bin/review-agent-worker \
     && cp /usr/local/bin/review_agent_publisher.py /usr/local/bin/review-agent-publisher \
@@ -26,7 +25,6 @@ RUN cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory 
     /opt/review-agent-bootstrap/install.py \
     /usr/local/bin/review-agent-memory \
     /usr/local/bin/review-agent-database \
-    /usr/local/bin/review-agent-feedback-bridge \
     /usr/local/bin/review-agent-admission \
     /usr/local/bin/review-agent-hermes-contract \
     /usr/local/bin/review-agent-worker \

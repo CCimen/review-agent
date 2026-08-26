@@ -33,10 +33,6 @@ setup](./GITHUB_APP_PILOT.md). Installation makes the repository available;
 the separate enable step is the operator approval boundary. A blank enabled set
 denies all review requests.
 
-If feedback is enabled, its current sidecar uses
-`REVIEW_AGENT_FEEDBACK_GH_TOKEN` until the feedback cutover is complete. It is
-not used for admission, source reads, or publication.
-
 ## 2. Run the first review
 
 Open or reuse a pull request and add a new top-level comment:

@@ -11,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
 sys.path.insert(0, str(PLUGIN))
 
-from feedback_authorization import feedback_allowlist_version  # noqa: E402
 
 
 MIGRATION = PLUGIN / "postgres_migrations" / "001_initial.sql"
@@ -623,20 +622,20 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 )
             )
 
-        allowlist_version = feedback_allowlist_version(frozenset({"42", "84"}))
+        authorization_version = "sha256:" + ("a" * 64)
         audit = """
             INSERT INTO review_agent.decision_audit (
-                finding_decision_id, actor_user_id, allowlist_version,
+                finding_decision_id, actor_user_id, authorization_version,
                 source_comment_id, created_at
             ) VALUES (%d, '42', '%s', %d, CURRENT_TIMESTAMP);
         """
-        psql(audit % (decision_ids[0], allowlist_version, 7001))
+        psql(audit % (decision_ids[0], authorization_version, 7001))
         self.assert_rejected(
-            audit % (decision_ids[0], allowlist_version, 7002),
+            audit % (decision_ids[0], authorization_version, 7002),
             "decision_audit_decision_uk",
         )
         self.assert_rejected(
-            audit % (decision_ids[1], allowlist_version, 7001),
+            audit % (decision_ids[1], authorization_version, 7001),
             "decision_audit_source_comment_uk",
         )
 

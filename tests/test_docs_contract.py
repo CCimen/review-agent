@@ -34,7 +34,8 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Pull requests | Write", guide)
         self.assertNotIn("GITHUB_READ_TOKEN", guide)
         self.assertNotIn("PUBLISH_GH_TOKEN", guide)
-        self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", guide)
+        self.assertNotIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", guide)
+        self.assertNotIn("feedback sidecar", guide.lower())
 
     def test_direct_app_runtime_is_default_and_key_isolated(self):
         compose = read("compose.yaml")
@@ -419,13 +420,13 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("learning-report", operations)
         self.assertIn("does not read `review-learning/`", operations)
         self.assertIn("verification-export", operations)
-        self.assertIn("allowlisted developers", words(readme))
-        self.assertIn("feedback bridge", security)
+        self.assertIn("current write or admin permission", words(readme))
+        self.assertIn("private gateway", security)
         self.assertIn("deterministic", security)
         self.assertIn("coach-run", operations)
         self.assertIn("/skills diff", operations)
 
-    def test_feedback_sidecar_uses_least_privilege_deployment(self):
+    def test_app_runtime_uses_least_privilege_deployment(self):
         compose = read("compose.yaml")
         profile_section = compose.split("  review-profile-install:", 1)[1].split(
             "\n  review-db-migrate:", 1
@@ -440,12 +441,9 @@ class DocsContractTests(unittest.TestCase):
             "\n  review-worker:", 1
         )[0]
         reviewer_section = compose.split("  hermes-review:", 1)[1].split(
-            "\n  hermes-review-feedback:", 1
+            "\n  review-admission:", 1
         )[0]
         publisher_section = compose.split("\n  review-publisher:\n", 1)[1].split(
-            "\n  hermes-review-feedback:", 1
-        )[0]
-        feedback_section = compose.split("  hermes-review-feedback:", 1)[1].split(
             "\nnetworks:", 1
         )[0]
 
@@ -466,17 +464,11 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("\n      GH_TOKEN:", reviewer_section)
         self.assertIn("PYTHONDONTWRITEBYTECODE", reviewer_section)
         self.assertNotIn("hermes_review_data:/opt/data", admission_section)
-        self.assertNotIn("hermes_review_data:/opt/data", feedback_section)
-        self.assertNotIn("env_file:", feedback_section)
-        self.assertIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", feedback_section)
-        self.assertIn("REVIEW_AGENT_DATABASE_URL", feedback_section)
-        self.assertNotIn("\n      GH_TOKEN:", feedback_section)
-        self.assertIn("read_only: true", feedback_section)
-        self.assertIn("cap_drop:", feedback_section)
-        self.assertIn("no-new-privileges:true", feedback_section)
-        self.assertIn("PYTHONDONTWRITEBYTECODE", feedback_section)
-        self.assertIn("http://127.0.0.1:8645/ready", feedback_section)
-        self.assertNotIn("--hold-on-config-error", feedback_section)
+        self.assertNotIn("hermes-review-feedback", compose)
+        self.assertNotIn("review-agent-feedback-bridge", compose)
+        self.assertNotIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", compose)
+        self.assertNotIn("REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET", compose)
+        self.assertNotIn("REVIEW_AGENT_FEEDBACK_ALLOWED_ACTOR_IDS", compose)
         self.assertIn("condition: service_completed_successfully", compose)
         self.assertIn(
             'entrypoint: ["/opt/review-agent-bootstrap/install.sh"]', profile_section
@@ -567,7 +559,6 @@ class DocsContractTests(unittest.TestCase):
         )
         readme = read("README.md")
         security = read("docs/SECURITY.md")
-        workflow = read("examples/github/ai-review-request.yml")
         skill_words = re.sub(r"\s+", " ", skill)
 
         self.assertIn("## Untrusted content boundaries", canonical)
@@ -595,7 +586,6 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("dependency-scanning scope", readme)
         self.assertNotIn("Snyk", readme)
         self.assertNotIn("Trivy", readme)
-        self.assertIn("startsWith(github.event.comment.body, '@review')", workflow)
 
     def test_private_claude_verification_is_shadow_and_non_gating(self):
         readme = read("README.md")
@@ -638,7 +628,8 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("| `GITHUB_READ_TOKEN` | no |", security)
 
         self.assertIn(
-            "Only allowlisted human feedback or an operator command", security
+            "Only a GitHub collaborator with current write or admin permission",
+            security,
         )
         self.assertIn("Security owns the suppression trust rules", words(operations))
         self.assertNotIn(

@@ -15,9 +15,7 @@ size varies by platform and compression.
 The single dependency layer added 62 MB. The base already contained `curl` and
 CA certificates. The Review Agent layer installed them again and added the
 34,650 KiB GitHub CLI package, although the runtime disables terminal access and
-all GitHub reads and writes use the typed plugin clients. The standalone
-`scripts/review_status.py` operator helper uses `gh`, but it is not copied into
-the image.
+all GitHub reads and writes use typed clients.
 
 ## Accepted change
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 try:
     from .feedback_contract import contains_placeholder
@@ -53,6 +54,7 @@ __all__ = (
     "ReviewFeedbackCategory",
     "ReviewQualityFeedbackCommand",
     "parse_review_feedback_command",
+    "restore_review_feedback_command",
 )
 
 _TRIGGER_RE = re.compile(r"^\s*[@/]review\b", re.IGNORECASE | re.MULTILINE)
@@ -157,3 +159,58 @@ def parse_review_feedback_command(body: str) -> FeedbackCommand | None:
         )
 
     raise ReviewMemoryError("unsupported review feedback command")
+
+
+def restore_review_feedback_command(value: object) -> FeedbackCommand:
+    """Restore one previously normalized command without accepting new syntax."""
+    if not isinstance(value, Mapping):
+        raise ReviewMemoryError("normalized feedback command must be an object")
+    item = cast(Mapping[str, object], value)
+    reason = item.get("reason")
+    if not isinstance(reason, str):
+        raise ReviewMemoryError("normalized feedback reason must be text")
+    if "decision" in item:
+        expected = {"decision", "local_reference", "reason"}
+        if "adr_id" in item:
+            expected.add("adr_id")
+        if set(item) != expected:
+            raise ReviewMemoryError("normalized finding feedback fields are invalid")
+        decision = item.get("decision")
+        if decision not in {"false_positive", "intentional_by_design"}:
+            raise ReviewMemoryError("normalized feedback decision is invalid")
+        raw_reference = item.get("local_reference")
+        if not isinstance(raw_reference, str):
+            raise ReviewMemoryError("normalized feedback reference must be text")
+        raw_adr = item.get("adr_id", "")
+        if not isinstance(raw_adr, str):
+            raise ReviewMemoryError("normalized feedback ADR id must be text")
+        adr_id = _adr_id(raw_adr) if raw_adr else ""
+        if (decision == "intentional_by_design") != bool(adr_id):
+            raise ReviewMemoryError("normalized intentional feedback requires an ADR id")
+        return FindingFeedbackCommand(
+            kind="finding",
+            decision=cast(DecisionFeedbackValue, decision),
+            local_reference=_local_reference(raw_reference),
+            reason=_reason(reason),
+            adr_id=adr_id,
+        )
+    expected = {"category", "reason"}
+    if "local_reference" in item:
+        expected.add("local_reference")
+    if set(item) != expected:
+        raise ReviewMemoryError("normalized review feedback fields are invalid")
+    category = item.get("category")
+    if category not in {"missed_issue", "scope_confusion"}:
+        raise ReviewMemoryError("normalized review feedback category is invalid")
+    raw_reference = item.get("local_reference", "")
+    if not isinstance(raw_reference, str):
+        raise ReviewMemoryError("normalized feedback reference must be text")
+    local_reference = _local_reference(raw_reference) if raw_reference else ""
+    if (category == "scope_confusion") != bool(local_reference):
+        raise ReviewMemoryError("normalized scope feedback requires a finding reference")
+    return ReviewQualityFeedbackCommand(
+        kind="review_quality",
+        category=cast(ReviewFeedbackCategory, category),
+        reason=_reason(reason),
+        local_reference=local_reference,
+    )

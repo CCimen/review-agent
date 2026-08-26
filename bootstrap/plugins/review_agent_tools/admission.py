@@ -129,6 +129,7 @@ def receive_github_app_delivery(
     elif normalized.command_kind in {
         CommandKind.FINDING_FEEDBACK,
         CommandKind.QUALITY_FEEDBACK,
+        CommandKind.INVALID,
     }:
         category = webhook_deliveries.CommandCategory.FEEDBACK
     else:

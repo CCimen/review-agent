@@ -37,7 +37,6 @@ for relative in [
     "compose.yaml",
     "bootstrap/config.yaml",
     "bootstrap/plugins/review_agent_tools/plugin.yaml",
-    "examples/github/ai-review-request.yml",
 ]:
     path = root / relative
     if yaml is not None:

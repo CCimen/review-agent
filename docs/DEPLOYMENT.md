@@ -22,9 +22,8 @@ import TabItem from '@theme/TabItem';
 ![Review Agent runtime: GitHub Actions enters through admission, review workers use Hermes, a separate publisher writes to GitHub, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.png)
 
 One box represents one worker type, not one replica. Scale review workers and
-publishers independently. Expose admission on port `8644`; expose feedback on
-`8645` only when enabled. Keep Hermes `8642` and PostgreSQL off the shared proxy
-network.
+publishers independently. Expose admission on port `8644`. Keep the GitHub
+gateway, Hermes `8642`, and PostgreSQL off the shared proxy network.
 
 The GitHub App receives review commands directly. The private gateway uses its
 key for bounded source and publication operations; Hermes and the publisher do
@@ -41,21 +40,16 @@ manager. The App needs Contents read, Issues write, Pull requests write, and
 Metadata read; it does not need Actions, Administration, Secrets, or Contents
 write.
 
-The optional feedback sidecar currently keeps its separate fine-grained token.
-It is not available to Hermes, workers, or the publication path.
-
 ### Service secrets
 
-Generate different random values for admission, feedback, and the private Hermes
-API:
+Generate different random values for the App webhook and the private Hermes API:
 
 ```bash
-openssl rand -hex 32  # REVIEW_AGENT_WEBHOOK_SECRET
-openssl rand -hex 32  # REVIEW_AGENT_FEEDBACK_WEBHOOK_SECRET
+openssl rand -hex 32  # REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET
 openssl rand -hex 32  # API_SERVER_KEY
 ```
 
-Use a fourth random value for the PostgreSQL password. Do not reuse a webhook
+Use another random value for the PostgreSQL password. Do not reuse a webhook
 secret as a GitHub token or database password.
 
 ## Choose an image
@@ -89,8 +83,8 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 <TabItem value="compose" label="Compose / Dokploy" default>
 
 1. Copy `.env.example` to the platform secret store and replace each
-   `replace-with...` placeholder: the GitHub App values, feedback credentials
-   when enabled, service secrets, and PostgreSQL password and URL.
+   `replace-with...` placeholder: the GitHub App values, service secrets, and
+   PostgreSQL password and URL.
    Every other value is a documented tuning default you can keep.
 2. Create the external ingress network. Dokploy already provides
    `dokploy-network`; a plain Docker host can create its configured name:
@@ -124,13 +118,12 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    docker compose ps
    ```
 
-4. Route the review hostname to `review-admission:8644`. Route the optional
-   feedback hostname to `hermes-review-feedback:8645`.
+4. Route the review hostname to `review-admission:8644`.
 
    :::warning[Keep private services off the proxy]
    Do not route `hermes-review`, `review-worker`, `review-publisher`, or
-   `review-postgres`. Only admission and the optional feedback endpoint belong
-   on the ingress network.
+   `review-github-gateway`, or `review-postgres`. Only admission belongs on the
+   ingress network.
    :::
 5. Connect the Codex account and restart Hermes:
 
@@ -140,9 +133,9 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    curl -fsS https://review.example.org/ready
    ```
 
-Dokploy reads `compose.yaml` as a Compose application. Add the two HTTPS domains
-to the services above and keep the generated Traefik settings. The checked-in
-health checks cover admission, feedback, Hermes, and PostgreSQL.
+Dokploy reads `compose.yaml` as a Compose application. Add one HTTPS domain to
+admission and keep the generated Traefik settings. The checked-in health checks
+cover admission, the private gateway, Hermes, and PostgreSQL.
 
 </TabItem>
 <TabItem value="coolify-portainer" label="Coolify / Portainer">
@@ -150,7 +143,7 @@ health checks cover admission, feedback, Hermes, and PostgreSQL.
 Import `compose.yaml` as a Compose stack and enter the values from `.env.example`
 in the platform secret UI. Set `REVIEW_AGENT_INGRESS_NETWORK` to the external
 proxy network used by the platform. Point the public proxy at
-`review-admission:8644` and, when enabled, `hermes-review-feedback:8645`.
+`review-admission:8644`.
 
 Both platforms run the same containers and health checks. Platform-specific
 work stays at the proxy boundary; do not publish Hermes or PostgreSQL ports to

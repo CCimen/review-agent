@@ -5,14 +5,25 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import cast
+from typing import Literal, cast
 
 import psycopg
 from psycopg.rows import TupleRow
 
 from .. import review_contract
+from .. import review_feedback_application
+from ..domain.feedback import FeedbackStatus
 from ..domain.review import JsonObject, JsonValue
-from ..postgres import github_app, jobs, registry, webhook_deliveries
+from ..feedback_commands import restore_review_feedback_command
+from ..memory_validation import ReviewMemoryError
+from ..postgres import (
+    decisions as postgres_decisions,
+    feedback as postgres_feedback,
+    github_app,
+    jobs,
+    registry,
+    webhook_deliveries,
+)
 from ..postgres.runtime import PostgreSQLRuntime
 from ..review_run_application import (
     PostgresRunRequest,
@@ -176,6 +187,8 @@ class GitHubAppProcessor:
         try:
             if delivery.command_category is webhook_deliveries.CommandCategory.REVIEW:
                 return self._process_review(delivery, lease_owner, actor)
+            if delivery.command_category is webhook_deliveries.CommandCategory.FEEDBACK:
+                return self._process_feedback(delivery, lease_owner, actor)
             return self._process_without_github(delivery, lease_owner, actor)
         except _Retry as exc:
             return self._retry(delivery, lease_owner, actor, exc.reason)
@@ -220,14 +233,6 @@ class GitHubAppProcessor:
                 actor,
                 webhook_deliveries.TerminalStatus.IGNORED,
                 reason,
-            )
-        if delivery.command_category is webhook_deliveries.CommandCategory.FEEDBACK:
-            return self._finish(
-                delivery,
-                lease_owner,
-                actor,
-                webhook_deliveries.TerminalStatus.IGNORED,
-                "feedback_not_cut_over",
             )
         with self._postgres.transaction() as connection:
             if (
@@ -412,6 +417,117 @@ class GitHubAppProcessor:
             run_id=int(admitted.run.run.id),
             job_id=admitted.job.job.id,
         )
+
+    def _process_feedback(
+        self,
+        delivery: webhook_deliveries.WebhookDelivery,
+        lease_owner: str,
+        actor: str,
+    ) -> ProcessingResult:
+        try:
+            authorized = self._gateway.authorize_feedback_delivery(
+                delivery_id=delivery.id,
+                lease_owner=lease_owner,
+                lease_generation=delivery.lease_generation,
+            )
+        except GitHubGatewayRetryable as exc:
+            raise _Retry(exc.reason) from exc
+        except GitHubGatewayRejected as exc:
+            if exc.reason == "delivery_lease_lost":
+                return ProcessingResult(delivery.id, delivery.status, exc.reason)
+            raise _Reject(exc.reason) from exc
+        except GitHubGatewayProtocolError as exc:
+            raise _Retry("github_gateway_invalid_response") from exc
+
+        payload = _payload(delivery)
+        invalid_command = payload.get("reason") == "invalid_command"
+        has_command = "command" in payload
+        if invalid_command == has_command:
+            raise _Reject("invalid_normalized_payload")
+        if invalid_command:
+            acknowledgement_status = "invalid"
+            result_status: FeedbackStatus | None = None
+        else:
+            try:
+                command = restore_review_feedback_command(payload.get("command"))
+                result = review_feedback_application.record_postgres_feedback(
+                    self._postgres,
+                    event_id=f"github:issue-comment:{authorized.comment_id}",
+                    repository=authorized.repository,
+                    pr_number=authorized.pr_number,
+                    command=command,
+                    actor_user_id=authorized.sender_id,
+                    actor_login=authorized.sender_login,
+                    author_association=authorized.author_association,
+                    authorization_version=authorized.authorization_version,
+                    source_comment_id=authorized.comment_id,
+                    source_comment_url=(
+                        f"https://github.com/{authorized.repository}/pull/"
+                        f"{authorized.pr_number}#issuecomment-{authorized.comment_id}"
+                    ),
+                )
+            except (ReviewMemoryError, review_feedback_application.ReviewFeedbackError) as exc:
+                raise _Reject("invalid_normalized_payload") from exc
+            except (
+                postgres_decisions.DecisionStoreError,
+                postgres_feedback.FeedbackStoreError,
+                psycopg.Error,
+            ) as exc:
+                raise _Retry("feedback_database_unavailable") from exc
+            result_status = result.status
+            if result_status not in {
+                FeedbackStatus.RECORDED,
+                FeedbackStatus.NO_MAPPING,
+                FeedbackStatus.NOT_CURRENT,
+                FeedbackStatus.UNSUPPORTED,
+            }:
+                raise _Reject("invalid_feedback_outcome")
+            acknowledgement_status = cast(
+                Literal[
+                    "recorded",
+                    "no_mapping",
+                    "not_current",
+                    "unsupported",
+                ],
+                result_status.value,
+            )
+
+        try:
+            self._gateway.acknowledge_feedback(
+                delivery_id=delivery.id,
+                lease_owner=lease_owner,
+                lease_generation=delivery.lease_generation,
+                status=acknowledgement_status,
+            )
+        except GitHubGatewayRetryable as exc:
+            raise _Retry(exc.reason) from exc
+        except GitHubGatewayRejected as exc:
+            if exc.reason == "delivery_lease_lost":
+                return ProcessingResult(delivery.id, delivery.status, exc.reason)
+            if result_status is not None:
+                raise _Retry("feedback_acknowledgement_rejected") from exc
+            raise _Reject(exc.reason) from exc
+        except GitHubGatewayProtocolError as exc:
+            raise _Retry("github_gateway_invalid_response") from exc
+
+        if result_status is None:
+            return self._finish(
+                delivery,
+                lease_owner,
+                actor,
+                webhook_deliveries.TerminalStatus.REJECTED,
+                "invalid_command",
+            )
+        with self._postgres.transaction() as connection:
+            finished = webhook_deliveries.finish_delivery(
+                connection,
+                delivery_id=delivery.id,
+                lease_owner=lease_owner,
+                lease_generation=delivery.lease_generation,
+                status=webhook_deliveries.TerminalStatus.ACCEPTED,
+                actor=actor,
+            )
+        return ProcessingResult(finished.id, finished.status, None)
 
     def _finish(
         self,

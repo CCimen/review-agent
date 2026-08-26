@@ -467,8 +467,8 @@ def _validated_decision_audit(audit: DecisionAudit) -> DecisionAudit:
         raise ReviewFindingError("decision audit actor_login is invalid")
     if author_association and len(author_association) > 80:
         raise ReviewFindingError("decision audit author_association is invalid")
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", audit.allowlist_version):
-        raise ReviewFindingError("decision audit allowlist_version is invalid")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", audit.authorization_version):
+        raise ReviewFindingError("decision audit authorization_version is invalid")
     if isinstance(audit.source_comment_id, bool) or audit.source_comment_id < 1:
         raise ReviewFindingError("decision audit source_comment_id is invalid")
     source_url = audit.source_comment_url.strip() if audit.source_comment_url else None
@@ -478,7 +478,7 @@ def _validated_decision_audit(audit: DecisionAudit) -> DecisionAudit:
         actor_user_id=actor_user_id,
         actor_login=actor_login,
         author_association=author_association,
-        allowlist_version=audit.allowlist_version,
+        authorization_version=audit.authorization_version,
         source_comment_id=audit.source_comment_id,
         source_comment_url=source_url,
     )

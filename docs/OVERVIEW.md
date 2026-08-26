@@ -50,8 +50,8 @@ exact comment shape a pull request receives.
   a copyable coding-agent brief instead.
 - Stores runs, findings, coverage, publication state, and human feedback in
   PostgreSQL.
-- Accepts structured `/review ...` feedback commands from allowlisted
-  developers.
+- Accepts structured `/review ...` feedback commands from collaborators with
+  current write or admin permission.
 - Freezes exact comment parts in PostgreSQL, then lets a separate recoverable
   publisher write them to GitHub. Large reviews split into deterministic parts;
   interrupted delivery resumes from durable state.
@@ -89,7 +89,7 @@ gate pull requests.
 
 | Area | Owner | Notes |
 | --- | --- | --- |
-| Review admission | `review_agent_tools.admission`, `compose.yaml`, `examples/github/ai-review-request.yml` | Authenticates requests and commits the exact run plus durable job before Hermes runs. |
+| Review admission | `review_agent_tools.github_webhook`, `review_agent_tools.admission`, `compose.yaml` | Authenticates App events and commits the normalized command before any GitHub read. |
 | GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
 | Review state | PostgreSQL database | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
 | Publication | `review_agent_deliver`, publisher worker | Verifies the snapshot, freezes exact parts, and delivers them through a recoverable lease. |

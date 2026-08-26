@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Callable, Mapping
+import hashlib
+import re
 from typing import Literal, TypeVar, cast
 import urllib.parse
 
@@ -16,6 +18,13 @@ from ..source_control import (
     GitHubReadError,
     PullSnapshot,
     read_pull_snapshot,
+)
+from ..feedback_contract import usage_lines
+from ..review_identity import (
+    FEEDBACK_COMMAND_NOT_RECOGNIZED,
+    FEEDBACK_NO_CURRENT_REVIEW,
+    FEEDBACK_NOT_CURRENT_REVIEW,
+    FEEDBACK_UNSUPPORTED_COMMAND,
 )
 from .app_auth import (
     GitHubAppTokenPermanent,
@@ -32,10 +41,19 @@ from .source import (
     read_review_file_page,
     read_review_pull,
 )
+from .publication import GitHubIssueCommentGateway, GitHubPublicationError
 
 
 AUTHORIZE_REVIEW_DELIVERY_PATH = "/v1/review-deliveries/authorize"
+AUTHORIZE_FEEDBACK_DELIVERY_PATH = "/v1/review-feedback/authorize"
+ACKNOWLEDGE_FEEDBACK_PATH = "/v1/review-feedback/acknowledge"
 READ_REVIEW_SOURCE_PATH = "/v1/review-sources/read"
+_FEEDBACK_AUTHORIZATION_VERSION = "sha256:" + hashlib.sha256(
+    b"github-app-feedback:v1:write-or-admin:exact-user:open-same-repository-pr"
+).hexdigest()
+FeedbackAcknowledgementStatus = Literal[
+    "recorded", "invalid", "no_mapping", "not_current", "unsupported"
+]
 
 
 class GitHubGatewayError(RuntimeError):
@@ -98,6 +116,43 @@ class DeliveryLeaseIdentity:
             lease_generation=_positive(
                 value.get("lease_generation"), "lease_generation"
             ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackAcknowledgementRequest:
+    """One code-owned feedback outcome under a live delivery lease."""
+
+    delivery_id: int
+    lease_owner: str
+    lease_generation: int
+    status: FeedbackAcknowledgementStatus
+
+    @classmethod
+    def from_mapping(
+        cls, value: Mapping[str, object]
+    ) -> "FeedbackAcknowledgementRequest":
+        expected = {"delivery_id", "lease_owner", "lease_generation", "status"}
+        if set(value) != expected:
+            raise GitHubGatewayProtocolError(
+                "gateway request fields do not match the feedback contract"
+            )
+        status = value.get("status")
+        if status not in {
+            "recorded",
+            "invalid",
+            "no_mapping",
+            "not_current",
+            "unsupported",
+        }:
+            raise GitHubGatewayProtocolError("feedback status is invalid")
+        return cls(
+            delivery_id=_positive(value.get("delivery_id"), "delivery_id"),
+            lease_owner=_text(value.get("lease_owner"), "lease_owner", 120),
+            lease_generation=_positive(
+                value.get("lease_generation"), "lease_generation"
+            ),
+            status=cast(FeedbackAcknowledgementStatus, status),
         )
 
 
@@ -202,6 +257,22 @@ SourceResult = ReviewPullSource | ReviewSourceBytes | ReviewFilePage
 ProviderResult = TypeVar("ProviderResult")
 
 
+def _feedback_status_message(status: FeedbackAcknowledgementStatus) -> str:
+    if status == "no_mapping":
+        return FEEDBACK_NO_CURRENT_REVIEW
+    if status == "not_current":
+        return FEEDBACK_NOT_CURRENT_REVIEW
+    if status == "unsupported":
+        return FEEDBACK_UNSUPPORTED_COMMAND
+    if status == "invalid":
+        return "\n".join((FEEDBACK_COMMAND_NOT_RECOGNIZED, "", *usage_lines()))
+    raise GitHubGatewayProtocolError("recorded feedback has no status message")
+
+
+def _feedback_acknowledgement_marker(comment_id: int) -> str:
+    return f"<!-- review-agent:feedback-ack source-comment={comment_id} -->"
+
+
 @dataclass(frozen=True, slots=True)
 class AuthorizedReviewSnapshot:
     """Bounded provider facts verified for one live durable delivery lease."""
@@ -262,7 +333,9 @@ class AuthorizedReviewSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class _ReviewCommand:
+class AuthorizedFeedback:
+    """Current provider authorization facts for one normalized feedback command."""
+
     provider_installation_id: int
     provider_repository_id: int
     repository: str
@@ -270,16 +343,85 @@ class _ReviewCommand:
     comment_id: int
     sender_id: int
     sender_login: str
+    author_association: str
+    authorization_version: str
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "AuthorizedFeedback":
+        expected = {
+            "provider_installation_id",
+            "provider_repository_id",
+            "repository",
+            "pr_number",
+            "comment_id",
+            "sender_id",
+            "sender_login",
+            "author_association",
+            "authorization_version",
+        }
+        if set(value) != expected:
+            raise GitHubGatewayProtocolError(
+                "gateway response fields do not match the feedback contract"
+            )
+        authorization_version = _text(
+            value.get("authorization_version"), "authorization_version", 80
+        )
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", authorization_version) is None:
+            raise GitHubGatewayProtocolError("authorization_version is invalid")
+        return cls(
+            provider_installation_id=_positive(
+                value.get("provider_installation_id"), "provider_installation_id"
+            ),
+            provider_repository_id=_positive(
+                value.get("provider_repository_id"), "provider_repository_id"
+            ),
+            repository=_text(value.get("repository"), "repository", 260),
+            pr_number=_positive(value.get("pr_number"), "pr_number"),
+            comment_id=_positive(value.get("comment_id"), "comment_id"),
+            sender_id=_positive(value.get("sender_id"), "sender_id"),
+            sender_login=_text(value.get("sender_login"), "sender_login", 120),
+            author_association=_text(
+                value.get("author_association"), "author_association", 80
+            ),
+            authorization_version=authorization_version,
+        )
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "provider_installation_id": self.provider_installation_id,
+            "provider_repository_id": self.provider_repository_id,
+            "repository": self.repository,
+            "pr_number": self.pr_number,
+            "comment_id": self.comment_id,
+            "sender_id": self.sender_id,
+            "sender_login": self.sender_login,
+            "author_association": self.author_association,
+            "authorization_version": self.authorization_version,
+        }
 
 
-def _review_command(
+@dataclass(frozen=True, slots=True)
+class _IssueCommentCommand:
+    provider_installation_id: int
+    provider_repository_id: int
+    repository: str
+    pr_number: int
+    comment_id: int
+    sender_id: int
+    sender_login: str
+    author_association: str
+
+
+def _issue_comment_command(
     delivery: webhook_deliveries.WebhookDelivery,
-) -> _ReviewCommand:
+    *,
+    expected_category: webhook_deliveries.CommandCategory,
+) -> _IssueCommentCommand:
     payload = delivery.normalized_payload
     if delivery.normalized_schema_version != 1:
         raise GitHubGatewayRejected("unsupported_normalized_schema")
     if (
-        delivery.command_category is not webhook_deliveries.CommandCategory.REVIEW
+        delivery.command_category is not expected_category
         or not isinstance(payload, Mapping)
         or payload.get("kind") != "issue_comment"
     ):
@@ -290,7 +432,7 @@ def _review_command(
     if installation_id is None or repository_id is None or repository is None:
         raise GitHubGatewayRejected("invalid_normalized_payload")
     try:
-        return _ReviewCommand(
+        return _IssueCommentCommand(
             provider_installation_id=_positive(
                 installation_id, "provider_installation_id"
             ),
@@ -300,6 +442,9 @@ def _review_command(
             comment_id=_positive(payload.get("comment_id"), "comment_id"),
             sender_id=_positive(payload.get("sender_id"), "sender_id"),
             sender_login=_text(payload.get("sender_login"), "sender_login", 120),
+            author_association=_text(
+                payload.get("author_association"), "author_association", 80
+            ),
         )
     except GitHubGatewayProtocolError as exc:
         raise GitHubGatewayRejected("invalid_normalized_payload") from exc
@@ -315,11 +460,13 @@ class ReviewGitHubGateway:
         tokens: GitHubAppTokenService,
         profile: str,
         github_factory: Callable[[str], GitHubReadClient] | None = None,
+        feedback_factory: Callable[[str], GitHubIssueCommentGateway] | None = None,
     ) -> None:
         self._postgres = postgres
         self._tokens = tokens
         self._profile = _text(profile, "profile", 80)
         self._github_factory = github_factory or _gateway_github_client
+        self._feedback_factory = feedback_factory or _gateway_feedback_client
 
     def authorize_review_delivery(
         self,
@@ -350,6 +497,88 @@ class ReviewGitHubGateway:
             base_sha=snapshot.base_sha,
             head_sha=snapshot.head_sha,
         )
+
+    def authorize_feedback_delivery(
+        self,
+        *,
+        delivery_id: int,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> AuthorizedFeedback:
+        command = self._require_authority(
+            delivery_id=delivery_id,
+            lease_owner=lease_owner,
+            lease_generation=lease_generation,
+            command_category=webhook_deliveries.CommandCategory.FEEDBACK,
+        )
+        snapshot = self._provider_snapshot(command)
+        self._validate_snapshot(command, snapshot)
+        self._require_authority(
+            delivery_id=delivery_id,
+            lease_owner=lease_owner,
+            lease_generation=lease_generation,
+            command_category=webhook_deliveries.CommandCategory.FEEDBACK,
+        )
+        return AuthorizedFeedback(
+            provider_installation_id=command.provider_installation_id,
+            provider_repository_id=command.provider_repository_id,
+            repository=snapshot.repository,
+            pr_number=snapshot.number,
+            comment_id=command.comment_id,
+            sender_id=command.sender_id,
+            sender_login=command.sender_login,
+            author_association=command.author_association,
+            authorization_version=_FEEDBACK_AUTHORIZATION_VERSION,
+        )
+
+    def acknowledge_feedback(
+        self,
+        *,
+        delivery_id: int,
+        lease_owner: str,
+        lease_generation: int,
+        status: FeedbackAcknowledgementStatus,
+    ) -> bool:
+        command = self._require_authority(
+            delivery_id=delivery_id,
+            lease_owner=lease_owner,
+            lease_generation=lease_generation,
+            command_category=webhook_deliveries.CommandCategory.FEEDBACK,
+        )
+
+        def operation(token: str) -> bool:
+            github = self._feedback_factory(token)
+            reaction = "+1" if status == "recorded" else "confused"
+            marker = _feedback_acknowledgement_marker(command.comment_id)
+            comment_exists = False
+            if status != "recorded":
+                login = self._tokens.app_bot_login().casefold()
+                comment_exists = any(
+                    item.author_login.casefold() == login and marker in item.body
+                    for item in github.list_issue_comments(
+                        command.repository,
+                        command.pr_number,
+                        newest_first=True,
+                    )
+                )
+            self._require_authority(
+                delivery_id=delivery_id,
+                lease_owner=lease_owner,
+                lease_generation=lease_generation,
+                command_category=webhook_deliveries.CommandCategory.FEEDBACK,
+            )
+            if status != "recorded" and not comment_exists:
+                github.create_issue_comment(
+                    command.repository,
+                    command.pr_number,
+                    f"{_feedback_status_message(status)}\n\n{marker}",
+                )
+            github.create_issue_comment_reaction(
+                command.repository, command.comment_id, reaction
+            )
+            return True
+
+        return self._provider_feedback(command.provider_repository_id, operation)
 
     def read_review_source(self, request: ReviewSourceRequest) -> SourceResult:
         scope = self._require_source_authority(
@@ -474,7 +703,10 @@ class ReviewGitHubGateway:
         delivery_id: int,
         lease_owner: str,
         lease_generation: int,
-    ) -> _ReviewCommand:
+        command_category: webhook_deliveries.CommandCategory = (
+            webhook_deliveries.CommandCategory.REVIEW
+        ),
+    ) -> _IssueCommentCommand:
         try:
             with self._postgres.transaction() as connection:
                 delivery = webhook_deliveries.require_live_delivery(
@@ -483,7 +715,10 @@ class ReviewGitHubGateway:
                     lease_owner=lease_owner,
                     lease_generation=lease_generation,
                 )
-                command = _review_command(delivery)
+                command = _issue_comment_command(
+                    delivery,
+                    expected_category=command_category,
+                )
                 github_app.authorize_review_admission(
                     connection,
                     provider_repository_id=command.provider_repository_id,
@@ -499,7 +734,49 @@ class ReviewGitHubGateway:
             raise GitHubGatewayRejected("repository_not_authorized") from exc
         return command
 
-    def _provider_snapshot(self, command: _ReviewCommand) -> PullSnapshot:
+    def _provider_feedback(
+        self,
+        provider_repository_id: int,
+        operation: Callable[[str], ProviderResult],
+    ) -> ProviderResult:
+        attempt = 0
+        while True:
+            try:
+                token = self._tokens.token_for(
+                    provider_repository_id, purpose="publication"
+                )
+                return operation(token.value)
+            except GitHubAppTokenRetryable as exc:
+                raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+            except GitHubAppTokenPermanent as exc:
+                raise GitHubGatewayRejected("provider_authorization_denied") from exc
+            except github_app.GitHubAppRepositoryUnauthorized as exc:
+                raise GitHubGatewayRejected("repository_not_authorized") from exc
+            except GitHubPublicationError as exc:
+                if exc.status == 401 and attempt == 0:
+                    self._tokens.invalidate(
+                        provider_repository_id, purpose="publication"
+                    )
+                    attempt += 1
+                    continue
+                reason = (
+                    exc.code
+                    if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", exc.code)
+                    else "github_feedback_failed"
+                )
+                if exc.status is not None and (
+                    exc.status == 429 or exc.status >= 500
+                ):
+                    raise GitHubGatewayRetryable(reason) from exc
+                if exc.code in {
+                    "github_unreachable",
+                    "github_response_too_large",
+                    "github_invalid_json",
+                }:
+                    raise GitHubGatewayRetryable(reason) from exc
+                raise GitHubGatewayRejected(reason) from exc
+
+    def _provider_snapshot(self, command: _IssueCommentCommand) -> PullSnapshot:
         def operation(github: GitHubReadClient) -> PullSnapshot:
             self._authorize_sender(github, command)
             return read_pull_snapshot(github, command.repository, command.pr_number)
@@ -508,7 +785,7 @@ class ReviewGitHubGateway:
 
     @staticmethod
     def _authorize_sender(
-        github: GitHubReadClient, command: _ReviewCommand
+        github: GitHubReadClient, command: _IssueCommentCommand
     ) -> None:
         repository = urllib.parse.quote(command.repository, safe="/")
         login = urllib.parse.quote(command.sender_login, safe="")
@@ -545,7 +822,7 @@ class ReviewGitHubGateway:
 
     @staticmethod
     def _validate_snapshot(
-        command: _ReviewCommand, snapshot: PullSnapshot
+        command: _IssueCommentCommand, snapshot: PullSnapshot
     ) -> None:
         if (
             snapshot.repository_id != command.provider_repository_id
@@ -566,6 +843,15 @@ class ReviewGitHubGateway:
 def _gateway_github_client(token: str) -> GitHubReadClient:
     """Bound one gateway operation well inside its durable delivery lease."""
     return GitHubReadClient(
+        token,
+        request_timeout_seconds=10.0,
+        max_attempts=1,
+    )
+
+
+def _gateway_feedback_client(token: str) -> GitHubIssueCommentGateway:
+    """Bound one acknowledgement well inside its durable delivery lease."""
+    return GitHubIssueCommentGateway(
         token,
         request_timeout_seconds=10.0,
         max_attempts=1,

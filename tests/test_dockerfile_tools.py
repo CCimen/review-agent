@@ -63,7 +63,6 @@ class DockerfileToolsTests(unittest.TestCase):
     def tearDown(self) -> None:
         for name in (
             "memory_validation",
-            "feedback_authorization",
             "feedback_commands",
             "feedback_contract",
             "review_agent_memory",
@@ -85,15 +84,11 @@ class DockerfileToolsTests(unittest.TestCase):
 
         self.assertEqual([], missing)
 
-    def test_memory_cli_keeps_stable_operator_command_name(self) -> None:
+    def test_container_keeps_stable_operator_command_names(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn(
             "cp /usr/local/bin/review_agent_memory.py /usr/local/bin/review-agent-memory",
-            dockerfile,
-        )
-        self.assertIn(
-            "cp /usr/local/bin/review_agent_feedback_bridge.py /usr/local/bin/review-agent-feedback-bridge",
             dockerfile,
         )
         self.assertIn(
@@ -196,10 +191,6 @@ class DockerfileToolsTests(unittest.TestCase):
                 install_dir / "review_agent_memory.py",
                 install_dir / "review-agent-memory",
             )
-            shutil.copy2(
-                install_dir / "review_agent_feedback_bridge.py",
-                install_dir / "review-agent-feedback-bridge",
-            )
 
             completed = subprocess.run(
                 [sys.executable, str(install_dir / "review-agent-memory"), "--help"],
@@ -211,23 +202,7 @@ class DockerfileToolsTests(unittest.TestCase):
                     "PYTHONPATH": str(ROOT / "bootstrap" / "plugins"),
                 },
             )
-            bridge_completed = subprocess.run(
-                [
-                    sys.executable,
-                    str(install_dir / "review-agent-feedback-bridge"),
-                    "--help",
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                env={
-                    "HERMES_HOME": str(ROOT / "bootstrap"),
-                    "PYTHONPATH": str(ROOT / "bootstrap" / "plugins"),
-                },
-            )
-
         self.assertEqual(0, completed.returncode, completed.stderr)
-        self.assertEqual(0, bridge_completed.returncode, bridge_completed.stderr)
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,9 +37,12 @@ from review_agent_tools.github.app_auth import (  # noqa: E402
     load_private_key_file,
 )
 from review_agent_tools.github.gateway import (  # noqa: E402
+    ACKNOWLEDGE_FEEDBACK_PATH,
+    AUTHORIZE_FEEDBACK_DELIVERY_PATH,
     AUTHORIZE_REVIEW_DELIVERY_PATH,
     READ_REVIEW_SOURCE_PATH,
     DeliveryLeaseIdentity,
+    FeedbackAcknowledgementRequest,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
@@ -118,6 +121,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         server = self._server()
         if self.path not in {
+            ACKNOWLEDGE_FEEDBACK_PATH,
+            AUTHORIZE_FEEDBACK_DELIVERY_PATH,
             AUTHORIZE_REVIEW_DELIVERY_PATH,
             READ_REVIEW_SOURCE_PATH,
             EXECUTE_REVIEW_PUBLICATION_PATH,
@@ -128,8 +133,13 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(503, {"reason": "github_gateway_busy"})
             return
         try:
-            if self.path == AUTHORIZE_REVIEW_DELIVERY_PATH:
-                self._authorize(server)
+            if self.path in {
+                AUTHORIZE_REVIEW_DELIVERY_PATH,
+                AUTHORIZE_FEEDBACK_DELIVERY_PATH,
+            }:
+                self._authorize(server, feedback=self.path == AUTHORIZE_FEEDBACK_DELIVERY_PATH)
+            elif self.path == ACKNOWLEDGE_FEEDBACK_PATH:
+                self._acknowledge_feedback(server)
             elif self.path == READ_REVIEW_SOURCE_PATH:
                 self._read_source(server)
             else:
@@ -137,7 +147,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         finally:
             server.release_request_slot()
 
-    def _authorize(self, server: "GatewayServer") -> None:
+    def _authorize(self, server: "GatewayServer", *, feedback: bool) -> None:
         try:
             length = int(self.headers.get("Content-Length", ""))
         except ValueError:
@@ -156,7 +166,12 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             identity = DeliveryLeaseIdentity.from_mapping(
                 cast(Mapping[str, object], decoded)
             )
-            authorized = server.gateway.authorize_review_delivery(
+            operation = (
+                server.gateway.authorize_feedback_delivery
+                if feedback
+                else server.gateway.authorize_review_delivery
+            )
+            authorized = operation(
                 delivery_id=identity.delivery_id,
                 lease_owner=identity.lease_owner,
                 lease_generation=identity.lease_generation,
@@ -180,6 +195,52 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(500, {"reason": "github_gateway_internal_error"})
             return
         self._write(200, authorized.to_mapping())
+
+    def _acknowledge_feedback(self, server: "GatewayServer") -> None:
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            self._write(411, {"reason": "missing_length"})
+            return
+        if length < 1:
+            self._write(411, {"reason": "missing_length"})
+            return
+        if length > _MAX_REQUEST_BYTES:
+            self._write(413, {"reason": "payload_too_large"})
+            return
+        try:
+            decoded = json.loads(self.rfile.read(length))
+            if not isinstance(decoded, dict):
+                raise GitHubGatewayProtocolError("gateway request must be an object")
+            request = FeedbackAcknowledgementRequest.from_mapping(
+                cast(Mapping[str, object], decoded)
+            )
+            acknowledged = server.gateway.acknowledge_feedback(
+                delivery_id=request.delivery_id,
+                lease_owner=request.lease_owner,
+                lease_generation=request.lease_generation,
+                status=request.status,
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError, GitHubGatewayProtocolError):
+            self._write(400, {"reason": "invalid_gateway_request"})
+            return
+        except GitHubGatewayRejected as exc:
+            self._write(409, {"reason": exc.reason})
+            return
+        except GitHubGatewayRetryable as exc:
+            self._write(503, {"reason": exc.reason})
+            return
+        except (PostgreSQLRuntimeError, psycopg.Error):
+            self._write(503, {"reason": "github_gateway_database_unavailable"})
+            return
+        except Exception as exc:
+            logger.error(
+                "GitHub gateway feedback acknowledgement failed: %s",
+                type(exc).__name__,
+            )
+            self._write(500, {"reason": "github_gateway_internal_error"})
+            return
+        self._write(200, {"acknowledged": acknowledged})
 
     def _read_source(self, server: "GatewayServer") -> None:
         try:

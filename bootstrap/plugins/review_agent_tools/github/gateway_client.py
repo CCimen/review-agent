@@ -12,9 +12,13 @@ import urllib.request
 
 from .. import capacity, changed_files
 from .gateway import (
+    ACKNOWLEDGE_FEEDBACK_PATH,
+    AUTHORIZE_FEEDBACK_DELIVERY_PATH,
     AUTHORIZE_REVIEW_DELIVERY_PATH,
     READ_REVIEW_SOURCE_PATH,
+    AuthorizedFeedback,
     AuthorizedReviewSnapshot,
+    FeedbackAcknowledgementStatus,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
@@ -101,6 +105,46 @@ class ReviewGitHubGatewayClient:
             },
         )
         return AuthorizedReviewSnapshot.from_mapping(decoded)
+
+    def authorize_feedback_delivery(
+        self,
+        *,
+        delivery_id: int,
+        lease_owner: str,
+        lease_generation: int,
+    ) -> AuthorizedFeedback:
+        decoded = self._post(
+            AUTHORIZE_FEEDBACK_DELIVERY_PATH,
+            {
+                "delivery_id": delivery_id,
+                "lease_owner": lease_owner,
+                "lease_generation": lease_generation,
+            },
+        )
+        return AuthorizedFeedback.from_mapping(decoded)
+
+    def acknowledge_feedback(
+        self,
+        *,
+        delivery_id: int,
+        lease_owner: str,
+        lease_generation: int,
+        status: FeedbackAcknowledgementStatus,
+    ) -> bool:
+        decoded = self._post(
+            ACKNOWLEDGE_FEEDBACK_PATH,
+            {
+                "delivery_id": delivery_id,
+                "lease_owner": lease_owner,
+                "lease_generation": lease_generation,
+                "status": status,
+            },
+        )
+        if set(decoded) != {"acknowledged"} or decoded.get("acknowledged") is not True:
+            raise GitHubGatewayProtocolError(
+                "gateway response fields do not match the feedback acknowledgement"
+            )
+        return True
 
     def for_publication(
         self,

@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
 from review_agent_tools.github.gateway import (  # noqa: E402
+    AuthorizedFeedback,
     AuthorizedReviewSnapshot,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
@@ -64,6 +65,8 @@ class _Gateway:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
         self.source_calls: list[dict[str, object]] = []
+        self.feedback_calls: list[dict[str, object]] = []
+        self.acknowledgement_calls: list[dict[str, object]] = []
         self.failure: Exception | None = None
 
     def authorize_review_delivery(self, **values: object) -> AuthorizedReviewSnapshot:
@@ -96,6 +99,28 @@ class _Gateway:
             pr_number=42,
             payload={"state": "open"},
         )
+
+    def authorize_feedback_delivery(self, **values: object) -> AuthorizedFeedback:
+        self.feedback_calls.append(values)
+        if self.failure is not None:
+            raise self.failure
+        return AuthorizedFeedback(
+            provider_installation_id=7001,
+            provider_repository_id=9001,
+            repository="CCimen/review-agent",
+            pr_number=42,
+            comment_id=6001,
+            sender_id=5001,
+            sender_login="ccimen",
+            author_association="MEMBER",
+            authorization_version="sha256:" + ("a" * 64),
+        )
+
+    def acknowledge_feedback(self, **values: object) -> bool:
+        self.acknowledgement_calls.append(values)
+        if self.failure is not None:
+            raise self.failure
+        return True
 
 
 class GitHubGatewayEntrypointTests(unittest.TestCase):
@@ -200,6 +225,45 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 400)
         raised.exception.close()
         self.assertEqual(len(self.gateway.source_calls), 1)
+
+    def test_feedback_routes_round_trip_only_lease_identity_and_fixed_status(self) -> None:
+        client = ReviewGitHubGatewayClient(self.base_url)
+
+        authorized = client.authorize_feedback_delivery(
+            delivery_id=32,
+            lease_owner="worker-feedback",
+            lease_generation=5,
+        )
+        acknowledged = client.acknowledge_feedback(
+            delivery_id=32,
+            lease_owner="worker-feedback",
+            lease_generation=5,
+            status="recorded",
+        )
+
+        self.assertEqual(authorized.sender_id, 5001)
+        self.assertTrue(acknowledged)
+        self.assertEqual(
+            self.gateway.feedback_calls,
+            [
+                {
+                    "delivery_id": 32,
+                    "lease_owner": "worker-feedback",
+                    "lease_generation": 5,
+                }
+            ],
+        )
+        self.assertEqual(
+            self.gateway.acknowledgement_calls,
+            [
+                {
+                    "delivery_id": 32,
+                    "lease_owner": "worker-feedback",
+                    "lease_generation": 5,
+                    "status": "recorded",
+                }
+            ],
+        )
 
     def test_publication_route_uses_only_durable_lease_identity(self) -> None:
         client = ReviewGitHubGatewayClient(self.base_url)

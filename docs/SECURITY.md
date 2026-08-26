@@ -18,16 +18,13 @@ model is trusted.
 
 ## Trust boundaries
 
-- GitHub Actions accepts only comments that start with `/review` or `@review`.
-- The workflow requires trusted GitHub association: `OWNER`, `MEMBER`, or
-  `COLLABORATOR`.
-- `AI_REVIEW_ALLOWED_USERS` must include the requester. Empty means deny all.
-- GitHub Actions sends a minimal HMAC-signed request to the admission service.
-- The optional GitHub App route verifies its own HMAC secret and stores only a
-  bounded normalized delivery. Its private key is mounted read-only into the
-  isolated App worker, not Hermes, PostgreSQL, admission, or logs.
-- Admission verifies the signature, allowlist, request identity, and current
-  GitHub PR snapshot before it commits the run and queue job together.
+- The admission service verifies the GitHub App webhook signature and stores
+  only a bounded normalized delivery.
+- The private gateway holds the App key and installation tokens. They never
+  enter Hermes, PostgreSQL, admission, worker payloads, or logs.
+- Before admitting a review or feedback command, the gateway verifies the
+  sender's current write or admin permission and the exact open,
+  same-repository pull-request snapshot.
 - A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded PR context and record candidate findings.
@@ -61,11 +58,11 @@ review profile tells the model to treat prompt-injection-looking text as evidenc
 only. Repository content cannot change reviewer policy, prompts, skills,
 suppressions, memory decisions, or feedback commands.
 
-The admission service and feedback bridge are outside the model path. The
-feedback bridge refetches the authoritative GitHub comment, parses only
-supported `/review ...` commands, authorizes the
-numeric GitHub actor id, writes PostgreSQL through the feedback application,
-and posts only a reaction or a short deterministic explanation.
+The admission service, App worker, and private gateway are outside the model
+path. Admission stores only a normalized `/review ...` command. Before the
+feedback application writes PostgreSQL, the gateway checks the exact open pull
+request and the sender's current GitHub write or admin permission. The gateway
+can then post only a code-owned reaction or explanation.
 
 Human feedback and coach exports may inform future reviewer changes, but they do
 not automatically rewrite prompts, skills, suppressions, or policy. In short:
@@ -129,7 +126,8 @@ Do not make the model the source of truth for CVE/GHSA status.
 
 ## Human-governed suppressions
 
-Only allowlisted human feedback or an operator command can suppress a finding.
+Only a GitHub collaborator with current write or admin permission, or an
+operator command, can suppress a finding.
 The model can record observations, but it cannot mark itself correct or dismiss
 its own findings.
 

@@ -22,7 +22,6 @@ from review_agent_tools import (  # noqa: E402
 )
 from review_agent_tools.domain.finding import FindingInput  # noqa: E402
 from review_agent_tools.domain.feedback import (  # noqa: E402
-    FeedbackResult,
     FeedbackStatus,
 )
 from review_agent_tools.domain.publication import (  # noqa: E402
@@ -33,6 +32,9 @@ from review_agent_tools.domain.publication import (  # noqa: E402
     resolve_publication_plan,
 )
 from review_agent_tools.domain.review import ReviewPhase  # noqa: E402
+from review_agent_tools.feedback_commands import (  # noqa: E402
+    parse_review_feedback_command,
+)
 from review_agent_tools.postgres import feedback as postgres_feedback  # noqa: E402
 from review_agent_tools.postgres import publications, review_runs  # noqa: E402
 from review_agent_tools.postgres import decisions as postgres_decisions  # noqa: E402
@@ -44,31 +46,36 @@ DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 
 
 class PostgreSQLFeedbackAdmissionTests(unittest.TestCase):
-    def test_unauthorized_feedback_rejects_before_pool_checkout(self) -> None:
+    def test_invalid_authorization_version_rejects_before_pool_checkout(self) -> None:
         runtime = PostgreSQLRuntime(
             PostgresDatabaseUrl("postgresql://invalid@127.0.0.1:1/unreachable")
         )
         self.addCleanup(runtime.close)
-
-        result = review_feedback_application.record_postgres_feedback(
-            runtime,
-            event_id="github:issue-comment:500",
-            repository="example-org/example-repository",
-            pr_number=17,
-            body="@review false-positive F1 Existing guard disproves this.",
-            actor_user_id=999,
-            actor_login="mallory",
-            author_association="OWNER",
-            source_comment_id=500,
-            source_comment_url=(
-                "https://github.test/example-org/example-repository/"
-                "pull/17#issuecomment-500"
-            ),
-            allowed_actor_ids=frozenset({"12345"}),
+        command = parse_review_feedback_command(
+            "@review false-positive F1 Existing guard disproves this."
         )
+        assert command is not None
 
-        self.assertEqual(result.status, "unauthorized")
-        self.assertFalse(result.replayed)
+        with self.assertRaisesRegex(
+            review_feedback_application.ReviewFeedbackError,
+            "authorization_version",
+        ):
+            review_feedback_application.record_postgres_feedback(
+                runtime,
+                event_id="github:issue-comment:500",
+                repository="example-org/example-repository",
+                pr_number=17,
+                command=command,
+                actor_user_id=999,
+                actor_login="mallory",
+                author_association="OWNER",
+                authorization_version="not-a-version",
+                source_comment_id=500,
+                source_comment_url=(
+                    "https://github.test/example-org/example-repository/"
+                    "pull/17#issuecomment-500"
+                ),
+            )
 
 
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
@@ -236,21 +243,23 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
         event_id: str = "github:issue-comment:500",
         source_comment_id: int = 500,
     ):
+        command = parse_review_feedback_command(body)
+        assert command is not None
         return review_feedback_application.record_postgres_feedback(
             self.runtime,
             event_id=event_id,
             repository="example-org/example-repository",
             pr_number=17,
-            body=body,
+            command=command,
             actor_user_id=12345,
             actor_login="alice",
             author_association="OWNER",
+            authorization_version="sha256:" + ("a" * 64),
             source_comment_id=source_comment_id,
             source_comment_url=(
                 "https://github.test/example-org/example-repository/"
                 f"pull/17#issuecomment-{source_comment_id}"
             ),
-            allowed_actor_ids=frozenset({"12345"}),
         )
 
     def test_false_positive_records_decision_audit_and_replays_outcome(self) -> None:
@@ -280,7 +289,7 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
             ).fetchone()
             audit = connection.execute(
                 """
-                SELECT actor_user_id, source_comment_id, allowlist_version
+                SELECT actor_user_id, source_comment_id, authorization_version
                 FROM review_agent.decision_audit
                 """
             ).fetchone()

@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T029
+active_task: T030
 
 tasks:
   - id: T001
@@ -205,6 +205,7 @@ tasks:
       - "tools/review_agent_admission.py"
       - "compose.yaml"
       - ".env.example"
+      - "README.md"
       - "docs/OPERATIONS.md"
       - "tests/test_github_webhook.py"
       - "tests/test_postgres_webhook_deliveries.py"
@@ -655,6 +656,7 @@ tasks:
     allowed_files:
       - ".env.example"
       - "Dockerfile"
+      - "pyrightconfig.json"
       - "compose.yaml"
       - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
       - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
@@ -1039,6 +1041,7 @@ tasks:
     allowed_files:
       - "README.md"
       - "docs/GETTING_STARTED.md"
+      - "docs/DEPLOYMENT.md"
       - "docs/HOW_REVIEWS_WORK.md"
       - "docs/DEPLOYMENT.md"
       - "docs/OPERATIONS.md"
@@ -1646,13 +1649,182 @@ tasks:
   - id: T029
     type: pm
     assignee: PM
-    status: active
+    status: done
     objective: "Process App feedback through the durable feedback application and gateway, then delete the feedback sidecar, HMAC route, PAT, and actor allowlist."
-    receipt: null
+    receipt:
+      result: done
+      decision: "Make the durable App delivery processor and PostgreSQL feedback application the only feedback path. Reuse the gateway's live delivery lease, current collaborator permission, exact open-PR snapshot, and repository App authority; add fixed code-owned acknowledgement operations under an App write token. Delete the sidecar, PAT, HMAC dispatch, numeric actor allowlist, and their entrypoints rather than retaining compatibility."
+      next_allowed_task: T038
+      acceptance:
+        - "A valid App feedback delivery is authorized against current write/admin collaborator permission and an exact open pull request before durable recording."
+        - "Recorded feedback is idempotent by source comment, and the gateway acknowledges it without caller-selected repository, pull request, comment, endpoint, token, or message authority."
+        - "Invalid feedback receives one deterministic confused acknowledgement; unauthorized feedback produces no GitHub write."
+        - "Provider or database failures retry without losing the durable delivery, while permanent rejection terminalizes it with an explicit reason."
+        - "Decision audit records the authorization policy version, not a deleted actor allowlist version."
+        - "No feedback PAT, HMAC secret, actor allowlist, sidecar service, copied feedback dispatch, or sidecar entrypoint remains live."
+      non_goals:
+        - "No command registry, plugin system, new queue, broker, model behavior, finding policy, or review renderer change."
+        - "No broad OpenShift topology, doctor, live GitHub mutation, Dokploy deployment, or Sundsvallskommun change."
+      rollback: "Revert the T038 commit before deployment. PostgreSQL migration 8 renames one audit column and its check constraint without changing stored values; roll it back by renaming both to their previous names if an older image must be restored."
+      spawned_tasks:
+        - T038
+  - id: T038
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Cut feedback over to the durable GitHub App processor and private gateway, preserve deterministic feedback behavior, and delete the sidecar/PAT/HMAC/actor-allowlist path."
+    allowed_files:
+      - ".env.example"
+      - ".github/workflows/ai-review-request.yml"
+      - "README.md"
+      - "benchmarks/image-footprint.md"
+      - "Dockerfile"
+      - "bootstrap/plugins/review_agent_tools/admission.py"
+      - "bootstrap/plugins/review_agent_tools/feedback_authorization.py"
+      - "bootstrap/plugins/review_agent_tools/feedback_bridge.py"
+      - "bootstrap/plugins/review_agent_tools/feedback_commands.py"
+      - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      - "bootstrap/plugins/review_agent_tools/github/publication.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/decisions.py"
+      - "bootstrap/plugins/review_agent_tools/postgres_migrations/008_feedback_authorization_audit.sql"
+      - "bootstrap/plugins/review_agent_tools/review_feedback_application.py"
+      - "bootstrap/plugins/review_agent_tools/review_finding_application.py"
+      - "compose.yaml"
+      - "docs/BEHAVIOR_OWNERSHIP.md"
+      - "docs/DEPLOYMENT.md"
+      - "docs/GETTING_STARTED.md"
+      - "docs/GITHUB_APP_PILOT.md"
+      - "docs/OPERATIONS.md"
+      - "docs/OVERVIEW.md"
+      - "docs/SECURITY.md"
+      - "docs/goals/github-app-pilot/state.yaml"
+      - "examples/github/ai-review-request.yml"
+      - "examples/openshift/review-agent-template.yaml"
+      - "pyrightconfig.json"
+      - "scripts/check_bundle.sh"
+      - "scripts/check_postgres_schema.sh"
+      - "scripts/review_status.py"
+      - "tests/test_admission.py"
+      - "tests/test_dockerfile_tools.py"
+      - "tests/test_docs_contract.py"
+      - "tests/test_feedback_bridge.py"
+      - "tests/test_feedback_bridge_entrypoint.py"
+      - "tests/test_feedback_workflow.py"
+      - "tests/test_github_app_processor.py"
+      - "tests/test_github_gateway.py"
+      - "tests/test_github_gateway_entrypoint.py"
+      - "tests/test_github_webhook.py"
+      - "tests/test_postgres_feedback.py"
+      - "tests/test_postgres_migrations.py"
+      - "tests/test_postgres_runtime.py"
+      - "tests/test_postgres_schema.py"
+      - "tests/test_postgres_suggestions_decisions.py"
+      - "tests/test_review_status.py"
+      - "tools/review_agent_feedback_bridge.py"
+      - "tools/review_agent_github_gateway.py"
+    verify:
+      - "Focused App normalization, processor, gateway, feedback, entrypoint, Docker, workflow, and docs contract tests pass."
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check <all changed Python files>"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "rg proves no live feedback PAT, HMAC secret, actor allowlist, sidecar service, or sidecar entrypoint remains outside historical goal receipts."
+      - "Claude Opus high pre-commit gate is green with score at least 8 in one resumable session."
+    stop_if:
+      - "Feedback requires caller-selected repository, pull request, comment, endpoint, token, acknowledgement body, or authorization policy."
+      - "The App key, JWT, installation token, PAT, webhook secret, or raw webhook body can enter the processor, PostgreSQL, logs, exceptions, tool output, or HTTP response."
+      - "Current collaborator permission, exact open-PR identity, live delivery lease, and App repository authority cannot be proved around provider I/O."
+      - "The implementation needs a new queue, broker, generic command framework, provider abstraction, or model-facing capability."
+      - "Verification fails twice for the same unexplained reason."
+    receipt:
+      result: done
+      commit: "the commit containing this receipt"
+      summary: "Moved normalized feedback into the durable App delivery processor and private gateway. Current GitHub permission and exact open-PR identity now authorize recording; code-owned App acknowledgements recover ambiguous comment writes by bot-authored marker. Deleted the feedback sidecar, PAT, HMAC dispatch, numeric actor allowlist, copied workflow, obsolete status tooling, and their runtime resources instead of retaining compatibility."
+      evidence:
+        - "Full bundle: 487 passed, 177 skipped; strict Pyright, YAML, and bundle contracts passed"
+        - "PostgreSQL contract: 177 passed; migration 8, readiness, backup, and restore passed"
+        - "Ruff passed on every changed surviving Python file"
+        - "Docs contract and Docusaurus TypeScript/production build passed"
+        - "Claude Opus high gate: green, score 8, session review-agent-app-feedback"
+        - "Residual secret/sidecar search found only negative contract assertions outside historical goal receipts"
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_postgres_schema.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "git diff --name-only --diff-filter=ACMR -- '*.py' | xargs -r /Users/ccimen/.local/bin/ruff check"
+        - "python3 scripts/check_docs.py"
+        - "npm run typecheck && npm run build (website)"
+      changed_files:
+        - ".env.example"
+        - "Dockerfile"
+        - "README.md"
+        - "benchmarks/image-footprint.md"
+        - "bootstrap/plugins/review_agent_tools/admission.py"
+        - "bootstrap/plugins/review_agent_tools/feedback_authorization.py"
+        - "bootstrap/plugins/review_agent_tools/feedback_bridge.py"
+        - "bootstrap/plugins/review_agent_tools/feedback_commands.py"
+        - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+        - "bootstrap/plugins/review_agent_tools/github/publication.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/decisions.py"
+        - "bootstrap/plugins/review_agent_tools/postgres_migrations/008_feedback_authorization_audit.sql"
+        - "bootstrap/plugins/review_agent_tools/review_feedback_application.py"
+        - "bootstrap/plugins/review_agent_tools/review_finding_application.py"
+        - "compose.yaml"
+        - "docs/BEHAVIOR_OWNERSHIP.md"
+        - "docs/DEPLOYMENT.md"
+        - "docs/GETTING_STARTED.md"
+        - "docs/GITHUB_APP_PILOT.md"
+        - "docs/OPERATIONS.md"
+        - "docs/OVERVIEW.md"
+        - "docs/SECURITY.md"
+        - "docs/goals/github-app-pilot/state.yaml"
+        - "examples/github/ai-review-request.yml"
+        - "examples/openshift/review-agent-template.yaml"
+        - "pyrightconfig.json"
+        - "scripts/check_bundle.sh"
+        - "scripts/review_status.py"
+        - "tests/test_dockerfile_tools.py"
+        - "tests/test_docs_contract.py"
+        - "tests/test_feedback_bridge_entrypoint.py"
+        - "tests/test_feedback_workflow.py"
+        - "tests/test_github_app_processor.py"
+        - "tests/test_github_gateway.py"
+        - "tests/test_github_gateway_entrypoint.py"
+        - "tests/test_postgres_feedback.py"
+        - "tests/test_postgres_migrations.py"
+        - "tests/test_postgres_runtime.py"
+        - "tests/test_postgres_schema.py"
+        - "tests/test_postgres_suggestions_decisions.py"
+        - "tests/test_review_status.py"
+        - "tools/review_agent_feedback_bridge.py"
+        - "tools/review_agent_github_gateway.py"
+      changed_owners:
+        - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+        - "bootstrap/plugins/review_agent_tools/github/publication.py"
+        - "bootstrap/plugins/review_agent_tools/review_feedback_application.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/decisions.py"
+        - "bootstrap/plugins/review_agent_tools/postgres_migrations/008_feedback_authorization_audit.sql"
+      deleted_paths:
+        - "bootstrap/plugins/review_agent_tools/feedback_authorization.py"
+        - "bootstrap/plugins/review_agent_tools/feedback_bridge.py"
+        - "tools/review_agent_feedback_bridge.py"
+        - "examples/github/ai-review-request.yml"
+        - "scripts/review_status.py"
+        - "tests/test_feedback_bridge_entrypoint.py"
+        - "tests/test_feedback_workflow.py"
+        - "tests/test_review_status.py"
+      rollback: "Revert the commit before deployment. Roll migration 8 back by renaming the authorization_version column and constraint to their prior names if an older image must be restored."
   - id: T030
     type: pm
     assignee: PM
-    status: queued
+    status: active
     objective: "Make the App-only Compose and OpenShift topology the default and delete the legacy admission route, copied workflow, App pilot profile, and transitional configuration."
     receipt: null
   - id: T031

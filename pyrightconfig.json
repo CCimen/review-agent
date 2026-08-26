@@ -8,7 +8,6 @@
     "tools/review_agent_coach.py",
     "tools/review_agent_coach_proposals.py",
     "tools/review_agent_coach_run.py",
-    "tools/review_agent_feedback_bridge.py",
     "tools/review_agent_memory.py",
     "tools/review_agent_replay.py",
     "tools/review_agent_verification.py"

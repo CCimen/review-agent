@@ -20,6 +20,7 @@ PUBLICATION_REQUEST_MAX_PAGES = 10
 _RETRYABLE_STATUS = frozenset({502, 503, 504})
 _RETRYABLE_METHODS = frozenset({"GET", "PATCH"})
 ReviewCommentSide = Literal["LEFT", "RIGHT"]
+IssueCommentReaction = Literal["+1", "confused"]
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,10 @@ class GitHubPublicationGateway(Protocol):
     def create_issue_comment(
         self, repository: str, issue_number: int, body: str
     ) -> IssueComment: ...
+
+    def create_issue_comment_reaction(
+        self, repository: str, comment_id: int, content: IssueCommentReaction
+    ) -> bool: ...
 
     def delete_issue_comment(self, repository: str, comment_id: int) -> None: ...
 
@@ -262,7 +267,7 @@ class GitHubIssueCommentGateway:
     ) -> Any:
         if not endpoint.startswith("/") or "//" in endpoint:
             raise GitHubPublicationError("invalid_github_endpoint")
-        return self._request_json_with_token(
+        result, _ = self._request_json_with_token(
             method,
             endpoint,
             token=self._token,
@@ -270,6 +275,7 @@ class GitHubIssueCommentGateway:
             max_bytes=max_bytes,
             operation=operation,
         )
+        return result
 
     def _request_json_with_token(
         self,
@@ -280,7 +286,7 @@ class GitHubIssueCommentGateway:
         payload: dict[str, object] | None,
         max_bytes: int,
         operation: str,
-    ) -> Any:
+    ) -> tuple[Any, int]:
         body = None
         headers = {
             "Accept": "application/vnd.github+json",
@@ -300,6 +306,7 @@ class GitHubIssueCommentGateway:
                     request, timeout=self._request_timeout_seconds
                 ) as response:
                     data = response.read(max_bytes + 1)
+                    status = int(getattr(response, "status", 200))
             except urllib.error.HTTPError as exc:
                 exc.close()
                 if (
@@ -323,9 +330,9 @@ class GitHubIssueCommentGateway:
                     "github_response_too_large", operation=operation
                 )
             if method == "DELETE" and not data:
-                return {}
+                return {}, status
             try:
-                return json.loads(data.decode("utf-8"))
+                return json.loads(data.decode("utf-8")), status
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise GitHubPublicationError(
                     "github_invalid_json", operation=operation
@@ -427,6 +434,22 @@ class GitHubIssueCommentGateway:
             body=str(root.get("body", "")),
             author_login=str(user.get("login", "")),
         )
+
+    def create_issue_comment_reaction(
+        self,
+        repository: str,
+        comment_id: int,
+        content: IssueCommentReaction,
+    ) -> bool:
+        _, status = self._request_json_with_token(
+            "POST",
+            f"/repos/{_owner_repo(repository)}/issues/comments/{comment_id}/reactions",
+            token=self._token,
+            payload={"content": content},
+            max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+            operation="create_issue_comment_reaction",
+        )
+        return status == 201
 
     def delete_issue_comment(self, repository: str, comment_id: int) -> None:
         self._request_json(

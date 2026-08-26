@@ -22,11 +22,10 @@ tokens for one repository and one purpose at a time.
 | Credential | Required permissions | Purpose |
 | --- | --- | --- |
 | GitHub App read token | Contents read, Issues read, Pull requests read, Metadata read | Exact PR source reads. |
-| GitHub App publication token | Issues write, Pull requests write, Metadata read | Deterministic comments, reviews, and native suggestions. |
-| `REVIEW_AGENT_FEEDBACK_GH_TOKEN` | Issues read/write, Metadata read, Pull requests read | Add feedback reactions and read PR/comment state. |
+| GitHub App publication token | Issues write, Pull requests write, Metadata read | Deterministic comments, reviews, suggestions, and feedback acknowledgements. |
 
-The feedback token is temporary and belongs only to the optional feedback
-sidecar. Admission, source reads, and publication use the App. Endpoint-specific failures such as
+The gateway mints each token for one enabled repository and one operation.
+Endpoint-specific failures such as
 `github_403_get_pull_request`, `github_403_list_issue_comments`,
 `github_403_create_issue_comment`, or
 `github_403_create_pull_request_review` identify the
@@ -189,19 +188,14 @@ hermes doctor
 hermes plugins list
 ```
 
-Inside the `hermes-review-feedback` container:
-
-```bash
-curl -fsS http://127.0.0.1:8645/ready
-review-agent-feedback-bridge verify-config
-```
-
 ## GitHub trigger
 
 The App receives `issue_comment` events at `/webhooks/github-app`. Admission
 persists the signed delivery before any provider read. The App worker then
 checks the sender's current permission and the repository's enabled state before
-creating a run.
+creating a run. Feedback commands follow the same durable path. The gateway
+rechecks the sender's current write or admin permission and the open pull
+request before the feedback application records anything.
 
 Set `REVIEW_AGENT_FEEDBACK_ENABLED=true` in Dokploy if the rendered review comment
 should show the copyable feedback commands documented below.
@@ -212,7 +206,8 @@ new or restored repository automatically.
 
 ## Run A Review
 
-On any open pull request, including a draft, an allowlisted maintainer comments:
+On any open pull request, including a draft, a collaborator with write or admin
+permission comments:
 
 ```text
 /review

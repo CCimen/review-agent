@@ -34,6 +34,7 @@ from review_agent_tools.github.gateway import (  # noqa: E402
 from review_agent_tools.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
+from review_agent_tools.github.publication import GitHubIssueCommentGateway  # noqa: E402
 from review_agent_tools.postgres import (  # noqa: E402
     github_app,
     jobs,
@@ -57,15 +58,53 @@ class _Tokens:
         self.repository_ids: list[int] = []
         self.invalidated_repository_ids: list[int] = []
 
-    def token_for(self, provider_repository_id: int) -> InstallationToken:
+    def token_for(
+        self, provider_repository_id: int, *, purpose: str = "review_read"
+    ) -> InstallationToken:
+        del purpose
         self.repository_ids.append(provider_repository_id)
         return InstallationToken(
             "installation-token",
             datetime.now(timezone.utc) + timedelta(hours=1),
         )
 
-    def invalidate(self, provider_repository_id: int) -> None:
+    def invalidate(
+        self, provider_repository_id: int, *, purpose: str = "review_read"
+    ) -> None:
+        del purpose
         self.invalidated_repository_ids.append(provider_repository_id)
+
+    def app_bot_login(self) -> str:
+        return "review-agent[bot]"
+
+
+class _FeedbackGitHub:
+    def __init__(self) -> None:
+        self.reactions: list[tuple[str, int, str]] = []
+        self.comments: list[tuple[str, int, str]] = []
+
+    def create_issue_comment_reaction(
+        self, repository: str, comment_id: int, content: str
+    ) -> bool:
+        self.reactions.append((repository, comment_id, content))
+        return True
+
+    def list_issue_comments(
+        self,
+        repository: str,
+        issue_number: int,
+        *,
+        max_pages: int = 3,
+        newest_first: bool = False,
+    ) -> list[object]:
+        del repository, issue_number, max_pages, newest_first
+        return []
+
+    def create_issue_comment(
+        self, repository: str, issue_number: int, body: str
+    ) -> object:
+        self.comments.append((repository, issue_number, body))
+        return object()
 
 
 class _GitHub(GitHubReadClient):
@@ -139,6 +178,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.runtime.open()
         self.addCleanup(self.runtime.close)
         self.tokens = _Tokens()
+        self.feedback_github = _FeedbackGitHub()
         self.contract = review_contract.ReviewContract(
             profile="sundsvall-standard",
             hermes_image="hermes@test",
@@ -163,6 +203,9 @@ class GitHubAppProcessorTests(unittest.TestCase):
             tokens=cast(GitHubAppTokenService, self.tokens),
             profile="sundsvall-standard",
             github_factory=lambda _: client,
+            feedback_factory=lambda _: cast(
+                GitHubIssueCommentGateway, self.feedback_github
+            ),
         )
         return app_processor.GitHubAppProcessor(
             postgres=self.runtime,
@@ -191,6 +234,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         elif normalized.command_kind in {
             github_webhook.CommandKind.FINDING_FEEDBACK,
             github_webhook.CommandKind.QUALITY_FEEDBACK,
+            github_webhook.CommandKind.INVALID,
         }:
             category = webhook_deliveries.CommandCategory.FEEDBACK
         else:
@@ -436,7 +480,8 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 github_app.authorize_review_read(connection, 9001)
         self.assertEqual(installation.status, github_app.InstallationStatus.SUSPENDED)
 
-    def test_ignored_and_pre_cutover_feedback_deliveries_terminalize(self) -> None:
+    def test_ignored_and_app_feedback_deliveries_terminalize(self) -> None:
+        self.enable_repository()
         ignored_payload = self.review_payload()
         ignored_comment = ignored_payload["comment"]
         assert isinstance(ignored_comment, dict)
@@ -457,7 +502,56 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(ignored.delivery_id if ignored else None, ignored_id)
         self.assertEqual(ignored.reason if ignored else None, "not_review_command")
         self.assertEqual(feedback.delivery_id if feedback else None, feedback_id)
-        self.assertEqual(feedback.reason if feedback else None, "feedback_not_cut_over")
+        self.assertEqual(feedback.status if feedback else None, "accepted")
+        self.assertIsNone(feedback.reason if feedback else None)
+        self.assertEqual(
+            self.feedback_github.reactions,
+            [("CCimen/review-agent", 6001, "confused")],
+        )
+        self.assertEqual(len(self.feedback_github.comments), 1)
+
+    def test_invalid_feedback_gets_confused_without_opening_feedback_state(self) -> None:
+        self.enable_repository()
+        payload = self.review_payload()
+        comment = payload["comment"]
+        assert isinstance(comment, dict)
+        comment["body"] = "/review false-positive F1"
+        delivery_id = self.register("issue_comment", payload)
+
+        result = self.processor().process_next(lease_owner="worker-invalid")
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "rejected")
+        self.assertEqual(result.reason if result else None, "invalid_command")
+        self.assertEqual(
+            self.feedback_github.reactions,
+            [("CCimen/review-agent", 6001, "confused")],
+        )
+        with self.runtime.transaction() as connection:
+            count = connection.execute(
+                "SELECT count(*) FROM review_agent.processed_feedback_events"
+            ).fetchone()
+        self.assertEqual(count, (0,))
+
+    def test_unauthorized_feedback_produces_no_github_write(self) -> None:
+        self.enable_repository()
+        payload = self.review_payload()
+        comment = payload["comment"]
+        assert isinstance(comment, dict)
+        comment["body"] = (
+            "/review false-positive F2 because Existing validation covers it."
+        )
+        delivery_id = self.register("issue_comment", payload)
+
+        result = self.processor(_GitHub(permission="read")).process_next(
+            lease_owner="worker-unauthorized-feedback"
+        )
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "rejected")
+        self.assertEqual(result.reason if result else None, "sender_not_authorized")
+        self.assertEqual(self.feedback_github.reactions, [])
+        self.assertEqual(self.feedback_github.comments, [])
 
     def test_review_uses_live_identity_snapshot_and_atomic_existing_admission(
         self,

@@ -20,8 +20,10 @@ from review_agent_tools.github import (  # noqa: E402
     publication_gateway as publication_gateway_module,
 )
 from review_agent_tools.github.gateway import (  # noqa: E402
+    FeedbackAcknowledgementRequest,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
+    GitHubGatewayRetryable,
     ReviewGitHubGateway,
     ReviewSourceRequest,
 )
@@ -49,8 +51,9 @@ from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
 
 
 class _Response:
-    def __init__(self, body: bytes) -> None:
+    def __init__(self, body: bytes, *, status: int = 200) -> None:
         self._body = body
+        self.status = status
 
     def __enter__(self) -> "_Response":
         return self
@@ -151,6 +154,75 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             },
         )
 
+    def test_feedback_gateway_sends_only_delivery_lease_and_fixed_status(self) -> None:
+        authorize_opener = _Opener(
+            json.dumps(
+                {
+                    "provider_installation_id": 7001,
+                    "provider_repository_id": 9001,
+                    "repository": "CCimen/review-agent",
+                    "pr_number": 42,
+                    "comment_id": 6001,
+                    "sender_id": 5001,
+                    "sender_login": "ccimen",
+                    "author_association": "MEMBER",
+                    "authorization_version": "sha256:" + ("a" * 64),
+                }
+            ).encode("utf-8")
+        )
+        client = ReviewGitHubGatewayClient(
+            "http://review-github-gateway:8646",
+            opener=cast(urllib.request.OpenerDirector, authorize_opener),
+        )
+
+        result = client.authorize_feedback_delivery(
+            delivery_id=32,
+            lease_owner="github-app:worker-1",
+            lease_generation=5,
+        )
+
+        self.assertEqual(result.sender_id, 5001)
+        request = authorize_opener.requests[0]
+        self.assertEqual(
+            getattr(request, "full_url"),
+            "http://review-github-gateway:8646/v1/review-feedback/authorize",
+        )
+        self.assertEqual(
+            json.loads(getattr(request, "data")),
+            {
+                "delivery_id": 32,
+                "lease_owner": "github-app:worker-1",
+                "lease_generation": 5,
+            },
+        )
+
+        acknowledgement_opener = _Opener(b'{"acknowledged":true}')
+        acknowledgement_client = ReviewGitHubGatewayClient(
+            "http://review-github-gateway:8646",
+            opener=cast(urllib.request.OpenerDirector, acknowledgement_opener),
+        )
+        acknowledged = acknowledgement_client.acknowledge_feedback(
+            delivery_id=32,
+            lease_owner="github-app:worker-1",
+            lease_generation=5,
+            status="recorded",
+        )
+        self.assertTrue(acknowledged)
+        acknowledgement_request = acknowledgement_opener.requests[0]
+        self.assertEqual(
+            getattr(acknowledgement_request, "full_url"),
+            "http://review-github-gateway:8646/v1/review-feedback/acknowledge",
+        )
+        self.assertEqual(
+            json.loads(getattr(acknowledgement_request, "data")),
+            {
+                "delivery_id": 32,
+                "lease_owner": "github-app:worker-1",
+                "lease_generation": 5,
+                "status": "recorded",
+            },
+        )
+
     def test_publication_gateway_preserves_failure_classification(self) -> None:
         client = Mock()
         gateway = AuthorizedPublicationGateway(
@@ -217,6 +289,22 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         ):
             gateway.list_issue_comments("CCimen/review-agent", 42)
 
+    def test_feedback_reaction_reports_only_new_creation(self) -> None:
+        gateway = GitHubIssueCommentGateway("installation-token", max_attempts=1)
+        for status, expected in ((201, True), (200, False)):
+            with (
+                self.subTest(status=status),
+                patch.object(
+                    publication_module.urllib.request,
+                    "urlopen",
+                    return_value=_Response(b'{"id":1}', status=status),
+                ),
+            ):
+                created = gateway.create_issue_comment_reaction(
+                    "CCimen/review-agent", 6001, "confused"
+                )
+                self.assertEqual(created, expected)
+
     def test_source_contract_rejects_caller_selected_repository_or_revision(self) -> None:
         request = {
             "operation": "pull",
@@ -262,6 +350,121 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             PublicationGatewayRequest.from_mapping(
                 {**posted_request, "lease_owner": "publisher-1"}
             )
+
+        feedback_request = {
+            "delivery_id": 32,
+            "lease_owner": "worker-feedback",
+            "lease_generation": 5,
+            "status": "recorded",
+        }
+        for field, value in (
+            ("repository", "other/repository"),
+            ("comment_id", 999),
+            ("token", "secret"),
+            ("body", "caller-controlled"),
+        ):
+            with self.subTest(field=field), self.assertRaises(
+                GitHubGatewayProtocolError
+            ):
+                FeedbackAcknowledgementRequest.from_mapping(
+                    {**feedback_request, field: value}
+                )
+
+    def test_feedback_ack_rechecks_lease_and_uses_write_scoped_token(self) -> None:
+        runtime = Mock()
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        github = Mock()
+        github.create_issue_comment_reaction.return_value = True
+        factory = Mock(return_value=github)
+        service = ReviewGitHubGateway(
+            postgres=runtime,
+            tokens=tokens,
+            profile="sundsvall-standard",
+            feedback_factory=factory,
+        )
+        command = SimpleNamespace(
+            provider_repository_id=9001,
+            repository="CCimen/review-agent",
+            pr_number=42,
+            comment_id=6001,
+        )
+
+        with patch.object(
+            ReviewGitHubGateway,
+            "_require_authority",
+            side_effect=(command, command),
+        ) as authorize:
+            acknowledged = service.acknowledge_feedback(
+                delivery_id=32,
+                lease_owner="worker-feedback",
+                lease_generation=5,
+                status="recorded",
+            )
+
+        self.assertTrue(acknowledged)
+        self.assertEqual(authorize.call_count, 2)
+        tokens.token_for.assert_called_once_with(9001, purpose="publication")
+        factory.assert_called_once_with("installation-token")
+        github.create_issue_comment_reaction.assert_called_once_with(
+            "CCimen/review-agent", 6001, "+1"
+        )
+        github.create_issue_comment.assert_not_called()
+
+    def test_feedback_ack_recovers_a_comment_after_an_ambiguous_write(self) -> None:
+        runtime = Mock()
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        tokens.app_bot_login.return_value = "review-agent[bot]"
+        github = Mock()
+        marker = "<!-- review-agent:feedback-ack source-comment=6001 -->"
+        github.list_issue_comments.side_effect = (
+            [],
+            [IssueComment(7001, f"status\n\n{marker}", "review-agent[bot]")],
+        )
+        github.create_issue_comment.side_effect = GitHubPublicationError(
+            "github_unreachable", status=503
+        )
+        github.create_issue_comment_reaction.return_value = True
+        service = ReviewGitHubGateway(
+            postgres=runtime,
+            tokens=tokens,
+            profile="sundsvall-standard",
+            feedback_factory=Mock(return_value=github),
+        )
+        command = SimpleNamespace(
+            provider_repository_id=9001,
+            repository="CCimen/review-agent",
+            pr_number=42,
+            comment_id=6001,
+        )
+
+        with patch.object(
+            ReviewGitHubGateway,
+            "_require_authority",
+            side_effect=(command, command, command, command),
+        ):
+            with self.assertRaises(GitHubGatewayRetryable):
+                service.acknowledge_feedback(
+                    delivery_id=32,
+                    lease_owner="worker-feedback",
+                    lease_generation=5,
+                    status="no_mapping",
+                )
+            acknowledged = service.acknowledge_feedback(
+                delivery_id=32,
+                lease_owner="worker-feedback",
+                lease_generation=5,
+                status="no_mapping",
+            )
+
+        self.assertTrue(acknowledged)
+        self.assertEqual(github.create_issue_comment.call_count, 1)
+        tokens.app_bot_login.assert_called()
+        github.current_user_login.assert_not_called()
+        github.create_issue_comment_reaction.assert_called_once_with(
+            "CCimen/review-agent", 6001, "confused"
+        )
 
     def test_posted_publication_rejects_new_provider_writes(self) -> None:
         runtime = Mock()

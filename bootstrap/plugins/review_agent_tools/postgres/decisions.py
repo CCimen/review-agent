@@ -33,7 +33,7 @@ class DecisionAudit:
     actor_user_id: str
     actor_login: str | None
     author_association: str | None
-    allowlist_version: str
+    authorization_version: str
     source_comment_id: int
     source_comment_url: str | None
 
@@ -154,7 +154,7 @@ def append_decision_with_audit(
             """
             INSERT INTO review_agent.decision_audit (
                 finding_decision_id, actor_user_id, actor_login,
-                author_association, allowlist_version, source_comment_id,
+                author_association, authorization_version, source_comment_id,
                 source_comment_url, created_at
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
@@ -163,7 +163,7 @@ def append_decision_with_audit(
                 audit.actor_user_id,
                 audit.actor_login,
                 audit.author_association,
-                audit.allowlist_version,
+                audit.authorization_version,
                 audit.source_comment_id,
                 audit.source_comment_url,
                 definition.created_at,

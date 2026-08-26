@@ -26,7 +26,7 @@ conditionals or copying policy into runtime code.
 | Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |
 | Durable job execution | `review_agent_tools.worker` and `review_agent_tools.postgres.jobs` | Claim, heartbeat, retry, or exact-run continuation behavior changes. |
 | Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |
-| Repository trigger contract | `examples/github/ai-review-request.yml` | Trusted GitHub request behavior changes. |
+| Repository trigger contract | `review_agent_tools.github_webhook` and `review_agent_tools.admission` | Signed GitHub App event or command behavior changes. |
 
 ## Selecting a deployment profile
 

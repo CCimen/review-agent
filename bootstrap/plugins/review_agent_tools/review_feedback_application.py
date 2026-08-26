@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 
 from .domain.feedback import (
     FeedbackResult,
@@ -13,11 +14,10 @@ from .domain.feedback import (
     resolve_text,
 )
 from .domain.finding import resolve_decision
-from .feedback_authorization import authorize_feedback_actor
 from .feedback_commands import (
+    FeedbackCommand,
     FindingFeedbackCommand,
     ReviewQualityFeedbackCommand,
-    parse_review_feedback_command,
 )
 from .postgres import decisions as postgres_decisions
 from .postgres import feedback as postgres_feedback
@@ -34,37 +34,24 @@ def record_postgres_feedback(
     event_id: str,
     repository: str,
     pr_number: int,
-    body: str,
+    command: FeedbackCommand,
     actor_user_id: object,
     actor_login: str = "",
     author_association: str = "",
+    authorization_version: str,
     source_comment_id: object,
     source_comment_url: str = "",
-    allowed_actor_ids: str | frozenset[str] | None = None,
     expires_days: int | None = None,
     now: datetime | None = None,
 ) -> FeedbackResult:
     """Validate feedback before opening its one PostgreSQL transaction."""
     resolved_event_id = resolve_event_id(event_id)
-    if body.strip().lower() in {"@review", "/review"}:
-        return FeedbackResult(
-            status=FeedbackStatus.IGNORED,
-            event_id=resolved_event_id,
-        )
-    actor = authorize_feedback_actor(
-        actor_user_id,
-        allowed_actor_ids=allowed_actor_ids,
+    resolved_actor_user_id = str(
+        resolve_positive_int(actor_user_id, field="actor_user_id")
     )
-    if actor is None:
-        return FeedbackResult(
-            status=FeedbackStatus.UNAUTHORIZED,
-            event_id=resolved_event_id,
-        )
-    command = parse_review_feedback_command(body)
-    if command is None:
-        return FeedbackResult(
-            status=FeedbackStatus.IGNORED,
-            event_id=resolved_event_id,
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", authorization_version) is None:
+        raise ReviewFeedbackError(
+            "authorization_version must be a sha256:<64 hex> identifier"
         )
     if (
         isinstance(command, FindingFeedbackCommand)
@@ -107,7 +94,7 @@ def record_postgres_feedback(
         decision_definition = resolve_decision(
             decision=command.decision,
             reason=command.reason,
-            actor=f"github-id:{actor.actor_user_id}",
+            actor=f"github-id:{resolved_actor_user_id}",
             adr_id=command.adr_id,
             expires_days=expires_days,
             now=moment,
@@ -162,7 +149,7 @@ def record_postgres_feedback(
                 connection,
                 publication=publication,
                 command=command,
-                actor_user_id=actor.actor_user_id,
+                actor_user_id=resolved_actor_user_id,
                 actor_login=resolved_actor_login or None,
                 author_association=resolved_association or None,
                 source_comment_id=resolved_source_comment_id,
@@ -204,10 +191,10 @@ def record_postgres_feedback(
             occurrence_id=target.occurrence_id,
             definition=decision_definition,
             audit=postgres_decisions.DecisionAudit(
-                actor_user_id=actor.actor_user_id,
+                actor_user_id=resolved_actor_user_id,
                 actor_login=resolved_actor_login or None,
                 author_association=resolved_association or None,
-                allowlist_version=actor.allowlist_version,
+                authorization_version=authorization_version,
                 source_comment_id=resolved_source_comment_id,
                 source_comment_url=resolved_source_url or None,
             ),

@@ -35,6 +35,19 @@ def sequence(value: object) -> list[object]:
 
 
 class DocsContractTests(unittest.TestCase):
+    def test_feedback_guide_separates_current_behavior_from_adr_extension(self):
+        guide = read("docs/FEEDBACK_AND_DECISIONS.md")
+        sidebar = read("website/sidebars.ts")
+        public_documents = read("website/public-documents.json")
+
+        self.assertIn("'docs/FEEDBACK_AND_DECISIONS'", sidebar)
+        self.assertIn('"docs/FEEDBACK_AND_DECISIONS.md"', public_documents)
+        self.assertIn("live reviewer does not load", guide)
+        self.assertIn("code-context hash still matches", guide)
+        self.assertIn(".review-agent/decisions.toml", guide)
+        self.assertIn("exact pull request base SHA", words(guide))
+        self.assertIn("do not limit pull-request size", words(guide))
+
     def test_github_app_setup_is_public_and_keeps_credential_boundary_explicit(self):
         guide = read("docs/GITHUB_APP_PILOT.md")
         sidebar = read("website/sidebars.ts")

@@ -54,6 +54,9 @@ for metrics, replay cases, and private improvement analysis. They do not suppres
 findings or rewrite prompts, skills, or policy. Broader reviewer changes remain
 human-reviewed and replay-tested before deployment.
 
+[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) gives the operator
+commands and explains which canonical owner should change for each signal.
+
 ## What is stored in PostgreSQL?
 
 Review runs, findings, coverage, publication and suggestion state, human

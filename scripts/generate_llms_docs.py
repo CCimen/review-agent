@@ -114,6 +114,7 @@ def generate() -> tuple[str, str]:
         f"- GitHub App setup: {BASE_URL}/docs/github-app-pilot",
         f"- AI-assisted setup: {BASE_URL}/docs/ai-assisted-setup",
         f"- Operations: {BASE_URL}/docs/operations",
+        f"- Feedback and design decisions: {BASE_URL}/docs/feedback-and-decisions",
         f"- Security: {BASE_URL}/docs/security",
         "",
         "## Coding-agent handoff",

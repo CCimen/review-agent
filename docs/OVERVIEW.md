@@ -141,6 +141,9 @@ Give feedback with a new top-level PR comment:
 
 `false-positive` is a finding decision. `feedback scope` and `feedback missed`
 are review-quality signals; they do not suppress findings automatically.
+[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) explains how teams
+turn repeated signals into reviewed changes and how the planned ADR context will
+protect repository invariants.
 
 ## Operations
 

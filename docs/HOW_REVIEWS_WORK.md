@@ -76,9 +76,14 @@ replicated; PostgreSQL coordinates claims and recovery.
 ## Learn from explicit feedback
 
 Authorized maintainers can report false positives, scope problems, and missed
-issues. Feedback is durable evidence for operators; it does not automatically
-rewrite policy or suppress future findings. Private coach and verification
-workflows remain outside the live review path and cannot gate a pull request.
+issues. An exact false-positive decision suppresses the same finding while its
+code-context hash still matches. Scope and missed-issue commands record quality
+evidence for operators. None of these commands rewrites policy or prompts.
+
+[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) shows the weekly
+and monthly operating flow, plus the planned repository ADR contract. Private
+coach and verification workflows remain outside the live review path and cannot
+gate a pull request.
 
 Read [Security](./SECURITY.md) for the trust boundaries and
 [Operations](./OPERATIONS.md) for lifecycle states and recovery commands.

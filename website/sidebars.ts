@@ -28,7 +28,12 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Operate',
       collapsed: false,
-      items: ['docs/OPERATIONS', 'docs/SECURITY', 'docs/FAQ'],
+      items: [
+        'docs/OPERATIONS',
+        'docs/FEEDBACK_AND_DECISIONS',
+        'docs/SECURITY',
+        'docs/FAQ',
+      ],
     },
     {
       type: 'category',

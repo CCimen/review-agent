@@ -9,8 +9,8 @@ last_verified: 2026-08-24
 
 # Behavior ownership
 
-> **Current with a planned extension** — The deployment-wide owners below are
-> current. Trusted base-branch repository configuration is planned and is
+> **Current with a planned extension**: The deployment-wide owners below are
+> current. Typed base-branch repository decision context is planned and is
 > labeled separately.
 
 The current deployment has one selected reviewer profile per environment.
@@ -81,7 +81,8 @@ onboarding mechanism is selected-repository GitHub App installation followed by
 explicit operator enablement, as described in [Getting
 started](./GETTING_STARTED.md).
 
-Trusted base-branch repository configuration and `AGENTS.md` discovery are
-planned. When implemented, that context will be read from the trusted base
-snapshot, never from a pull-request head `SOUL.md`. Until then, do not simulate
-overlays with repository-name branches in the engine.
+Typed repository decisions are planned as additive evidence from the exact base
+snapshot. Repository files will not replace the deployment profile or change
+review policy. [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md)
+defines the authoring and trust contract. Until the runtime slice ships, do not
+simulate overlays with repository-name branches in the engine.

@@ -405,6 +405,10 @@ imports another database backend.
 
 ## Private Reviewer-Improvement Exports
 
+[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) gives the shorter
+weekly and monthly operating flow. Use the commands below for private exports,
+diagnosis, and proposal details.
+
 Export the registry:
 
 ```bash

@@ -54,7 +54,7 @@ own profile and session files outside application state.
 
 ## Optional extensions
 
-- Trusted base-branch repository policy and `AGENTS.md` context.
+- Typed base-branch repository decision context with ADR provenance.
 - Per-repository profiles or reviewed repository-specific rules.
 - Notification or collaboration channels beyond GitHub.
 

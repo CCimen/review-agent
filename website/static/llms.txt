@@ -15,6 +15,7 @@ Feedback when enabled: `/review false-positive` suppresses only the same finding
 - GitHub App setup: https://ccimen.github.io/review-agent/docs/github-app-pilot
 - AI-assisted setup: https://ccimen.github.io/review-agent/docs/ai-assisted-setup
 - Operations: https://ccimen.github.io/review-agent/docs/operations
+- Feedback and design decisions: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
 - Security: https://ccimen.github.io/review-agent/docs/security
 
 ## Coding-agent handoff

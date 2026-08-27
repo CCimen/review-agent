@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Generic, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast
 
 import psycopg
 from psycopg.rows import TupleRow
@@ -35,9 +35,13 @@ from .domain.review import (
 from .postgres import registry as postgres_registry
 from .postgres import coverage as postgres_coverage
 from .postgres import jobs as postgres_jobs
+from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import review_runs as postgres_review_runs
 from .postgres.coverage import RunFileLookup
 from .postgres.runtime import PostgreSQLRuntime
+
+if TYPE_CHECKING:
+    from . import repository_decision_context
 
 
 PullPayload = TypeVar("PullPayload")
@@ -622,6 +626,36 @@ def load_live_run_state(
         file_index=file_index,
         resolved_config=scope.resolved_config,
     )
+
+
+def load_or_create_live_repository_decisions(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    loader: Callable[
+        [tuple[str, ...]],
+        "repository_decision_context.RepositoryDecisionContext",
+    ],
+) -> "repository_decision_context.RepositoryDecisionContext":
+    """Load one immutable base-snapshot decision context outside DB-held I/O."""
+    _require_live_scope(runtime, subject)
+    with runtime.transaction() as connection:
+        existing = postgres_repository_decisions.load_context(
+            connection, run_id=ReviewRunId(subject.run_id)
+        )
+        if existing.status != "pending":
+            return existing
+        paths = postgres_coverage.changed_paths(
+            connection, run_id=ReviewRunId(subject.run_id)
+        )
+    candidate = loader(paths)
+    _require_live_scope(runtime, subject)
+    with runtime.transaction() as connection:
+        return postgres_repository_decisions.store_context(
+            connection,
+            run_id=ReviewRunId(subject.run_id),
+            context=candidate,
+        )
 
 
 def advance_live_phase(

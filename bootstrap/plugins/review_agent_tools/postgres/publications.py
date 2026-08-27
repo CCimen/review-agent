@@ -30,6 +30,8 @@ from ..domain.publication import (
     resolve_rendered_blocks,
 )
 from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
+from ..repository_decision_context import RepositoryDecisionContext
+from . import repository_decisions as postgres_repository_decisions
 
 
 class PublicationStoreError(ValueError):
@@ -263,6 +265,7 @@ class PublicationPreparationContext:
     dropped_occurrence_ids: frozenset[int]
     dropped_reasons: tuple[tuple[int, str], ...]
     coverage: PreparationCoverage
+    repository_decisions: RepositoryDecisionContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -580,6 +583,10 @@ def preparation_context(
             truncated_paths=tuple(
                 str(row[0]) for row in path_rows if str(row[1]) == "truncated"
             ),
+        ),
+        repository_decisions=postgres_repository_decisions.load_context(
+            connection,
+            run_id=run_id,
         ),
     )
 

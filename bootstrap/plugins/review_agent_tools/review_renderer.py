@@ -102,6 +102,14 @@ class ReviewCoverageSummary(TypedDict):
     truncated_paths: list[str]
 
 
+class RepositoryDecisionSummary(TypedDict):
+    status: str
+    failure_code: str | None
+    base_sha: str
+    snapshot_hash: str
+    decision_ids: list[str]
+
+
 ReviewBlockKind = PublicationRenderedBlockKind
 
 
@@ -462,6 +470,32 @@ def coverage_summary_line(coverage: ReviewCoverageSummary | None) -> str:
     )
 
 
+def repository_decision_summary_line(
+    summary: RepositoryDecisionSummary | None,
+) -> str:
+    """Render a bounded receipt without treating optional ADRs as review coverage."""
+    if summary is None:
+        return ""
+    if summary["status"] == "loaded":
+        decisions = summary["decision_ids"]
+        consulted = (
+            "none matched the changed paths"
+            if not decisions
+            else ", ".join(inline_code(item, maximum=80) for item in decisions)
+        )
+        return (
+            f"<sub>Repository decisions: loaded {consulted} from base "
+            f"`{summary['base_sha'][:8]}`.</sub>"
+        )
+    if summary["status"] == "not_configured":
+        return "<sub>Repository decisions: not configured for this repository.</sub>"
+    reason = safe_text(summary["failure_code"] or "unknown", maximum=80)
+    return (
+        f"<sub>Repository decisions: {safe_text(summary['status'], maximum=40)} "
+        f"({reason}); the review continued without ADR evidence.</sub>"
+    )
+
+
 def ordered_findings(items: Sequence[PublishedFinding]) -> list[PublishedFinding]:
     return sorted(
         items,
@@ -796,6 +830,7 @@ def render_review(
     unchecked: Sequence[UncheckedFinding] = (),
     feedback_enabled: bool = False,
     coverage: ReviewCoverageSummary | None = None,
+    repository_decisions: RepositoryDecisionSummary | None = None,
     review_number: int | None = None,
     previous_review_number: int | None = None,
     previous_head_sha: str = "",
@@ -823,6 +858,9 @@ def render_review(
     coverage_line = coverage_summary_line(coverage)
     if coverage_line:
         header_lines.extend(["", coverage_line])
+    decision_line = repository_decision_summary_line(repository_decisions)
+    if decision_line:
+        header_lines.extend(["", decision_line])
     if not current and (
         not_checked_refs or coverage is None or coverage["state"] != "complete"
     ):
@@ -964,6 +1002,13 @@ def render_review(
                 f"coverage_hash={coverage['coverage_hash']}",
             ]
         )
+    if repository_decisions is not None:
+        metadata_lines.extend(
+            [
+                f"decision_status={repository_decisions['status']}",
+                f"decision_snapshot_hash={repository_decisions['snapshot_hash']}",
+            ]
+        )
     for item in current:
         metadata_lines.append(f"{item['local_reference']}={item['fingerprint']}")
     metadata_lines.append("-->")
@@ -991,6 +1036,7 @@ def render_review_markdown(
     unchecked: Sequence[UncheckedFinding] = (),
     feedback_enabled: bool = False,
     coverage: ReviewCoverageSummary | None = None,
+    repository_decisions: RepositoryDecisionSummary | None = None,
     review_number: int | None = None,
     previous_review_number: int | None = None,
     previous_head_sha: str = "",
@@ -1009,6 +1055,7 @@ def render_review_markdown(
         unchecked=unchecked,
         feedback_enabled=feedback_enabled,
         coverage=coverage,
+        repository_decisions=repository_decisions,
         review_number=review_number,
         previous_review_number=previous_review_number,
         previous_head_sha=previous_head_sha,

@@ -151,6 +151,31 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertNotIn("0 changed paths", line)
         self.assertNotIn("0 supporting files", line)
 
+    def test_review_reports_the_exact_repository_decision_snapshot(self) -> None:
+        rendered = review_renderer.render_review_markdown(
+            repository="example-org/example-repository",
+            pr_number=17,
+            head_sha="a" * 40,
+            findings=[],
+            closed=[],
+            still_present=[],
+            partially_resolved=[],
+            new_refs=[],
+            not_checked_refs=[],
+            coverage=self.coverage(),
+            repository_decisions={
+                "status": "loaded",
+                "failure_code": None,
+                "base_sha": "b" * 40,
+                "snapshot_hash": "sha256:" + "c" * 64,
+                "decision_ids": ["ADR-0042"],
+            },
+        )
+
+        self.assertIn("Repository decisions: loaded `ADR-0042`", rendered)
+        self.assertIn("decision_status=loaded", rendered)
+        self.assertIn("decision_snapshot_hash=sha256:" + "c" * 64, rendered)
+
     def test_complete_coverage_line_omits_zero_source_context_counts(self) -> None:
         line = review_renderer.coverage_summary_line(
             self.coverage(

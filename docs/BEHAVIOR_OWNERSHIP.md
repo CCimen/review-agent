@@ -9,9 +9,9 @@ last_verified: 2026-08-24
 
 # Behavior ownership
 
-> **Current with a planned extension**: The deployment-wide owners below are
-> current. Typed base-branch repository decision context is planned and is
-> labeled separately.
+> **Current**: Deployment profiles own reviewer behavior. Typed repository
+> decisions add evidence from the exact base commit without changing that
+> behavior.
 
 The current deployment has one selected reviewer profile per environment.
 Change the canonical owner of a concern instead of adding repository-name
@@ -28,6 +28,8 @@ conditionals or copying policy into runtime code.
 | Durable job execution | `review_agent_tools.worker` and `review_agent_tools.postgres.jobs` | Claim, heartbeat, retry, or exact-run continuation behavior changes. |
 | Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |
 | Repository trigger contract | `review_agent_tools.github_webhook` and `review_agent_tools.admission` | Signed GitHub App event or command behavior changes. |
+| Repository decision format and matching | `.review-agent/decisions.toml`, typed ADR headers, and `review_agent_tools.domain.repository_decisions` | A repository maps an accepted invariant to different paths or the shared typed contract changes. |
+| Immutable decision evidence | `review_agent_tools.repository_decision_context` and `review_decision_snapshots` | Loading, degradation, hashing, or run provenance changes. |
 
 ## Selecting a deployment profile
 
@@ -81,8 +83,8 @@ onboarding mechanism is selected-repository GitHub App installation followed by
 explicit operator enablement, as described in [Getting
 started](./GETTING_STARTED.md).
 
-Typed repository decisions are planned as additive evidence from the exact base
-snapshot. Repository files will not replace the deployment profile or change
+Typed repository decisions provide additive evidence from the exact base
+snapshot. Repository files do not replace the deployment profile or change
 review policy. [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md)
-defines the authoring and trust contract. Until the runtime slice ships, do not
-simulate overlays with repository-name branches in the engine.
+defines the authoring and trust contract. Keep repository-specific policy out of
+engine branches.

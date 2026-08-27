@@ -33,6 +33,9 @@ last_verified: 2026-08-26
 - **Deployment profiles:** a reviewed profile owns voice, stable rules,
   presentation, and enabled skills. Engine code keeps authorization, tool
   limits, snapshot checks, state transitions, and GitHub writes fixed.
+- **Repository decisions:** typed ADR metadata from the exact base commit gives
+  the reviewer repository-specific invariants without granting repository files
+  control over policy, tools, or severity.
 - **Portable deployment:** the repository ships one Compose stack for Docker,
   Dokploy, Coolify, and Portainer plus an arbitrary-UID OpenShift template.
 
@@ -54,7 +57,6 @@ own profile and session files outside application state.
 
 ## Optional extensions
 
-- Typed base-branch repository decision context with ADR provenance.
 - Per-repository profiles or reviewed repository-specific rules.
 - Notification or collaboration channels beyond GitHub.
 

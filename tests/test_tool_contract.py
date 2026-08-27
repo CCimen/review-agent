@@ -14,14 +14,17 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 import review_agent_tools  # noqa: E402
 from review_agent_tools import (  # noqa: E402
+    capacity,
     review_contract,
     review_delivery_tool,
     review_memory_tools,
+    repository_decision_context,
     review_run_application,
     review_source_tools,
     review_tool_runtime,
     schemas,
 )
+from review_agent_tools.domain.repository_decisions import RepositoryDecision  # noqa: E402
 from review_agent_tools.domain.review import (  # noqa: E402
     CoverageState,
     resolve_review_subject,
@@ -174,6 +177,13 @@ class ToolContractTests(unittest.TestCase):
                 "review_run_snapshot",
                 return_value=pull,
             ),
+            patch.object(
+                review_run_application,
+                "load_or_create_live_repository_decisions",
+                return_value=repository_decision_context.not_configured(
+                    base_sha="a" * 40,
+                ),
+            ),
             patch.object(review_run_application, "start_live_review") as start,
             patch.object(review_source_tools, "load_changed_files") as changed,
             patch.object(
@@ -197,8 +207,117 @@ class ToolContractTests(unittest.TestCase):
         self.assertEqual(result["run_id"], 41)
         self.assertEqual(result["phase"], "reviewing")
         self.assertTrue(result["continued"])
+        self.assertEqual(
+            result["repository_decisions_untrusted"]["status"],
+            "not_configured",
+        )
+        self.assertEqual(
+            result["repository_decisions_untrusted"]["decisions"],
+            [],
+        )
         start.assert_not_called()
         changed.assert_not_called()
+
+    def test_stored_adr_payload_degrades_when_the_response_budget_is_reduced(self) -> None:
+        pull = {
+            "state": "open",
+            "title": "Continue",
+            "base": {
+                "sha": "a" * 40,
+                "ref": "main",
+                "repo": {"id": 1, "full_name": self.repository},
+            },
+            "head": {
+                "sha": "b" * 40,
+                "ref": "change",
+                "repo": {"id": 1, "full_name": self.repository},
+            },
+            "changed_files": 1,
+        }
+        source = SimpleNamespace(
+            run_id=41,
+            lease=SimpleNamespace(job_id=7, lease_generation=3),
+        )
+        decisions = tuple(
+            RepositoryDecision(
+                id=f"ADR-{number:04d}",
+                adr_path=f"docs/decisions/ADR-{number:04d}.md",
+                applies_to=("src/**",),
+                title="T" * 300,
+                status="accepted",
+                invariant="I" * 500,
+                on_change=tuple("C" * 300 for _ in range(10)),
+                evidence=None,
+                origin_pr=None,
+                supersedes=None,
+                invariant_line=5,
+                matched_path_count=1,
+                metadata_hash="sha256:" + (f"{number:x}" * 64)[:64],
+            )
+            for number in range(10)
+        )
+        stored = repository_decision_context.loaded(
+            base_sha="a" * 40,
+            index_hash="sha256:" + ("f" * 64),
+            decisions=decisions,
+        )
+        runtime = self._runtime()
+        with (
+            patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
+            patch.object(review_source_tools, "postgres_runtime", return_value=runtime),
+            patch.object(review_tool_runtime.postgres_jobs, "require_live_lease"),
+            patch.object(
+                review_source_tools, "gateway_source_session", return_value=source
+            ),
+            patch.object(
+                review_source_tools,
+                "pull_request_identity",
+                return_value=(self.repository, 1, pull),
+            ),
+            patch.object(
+                review_run_application,
+                "load_live_run_state",
+                return_value=self._live_state(),
+            ),
+            patch.object(review_source_tools, "review_run_snapshot", return_value=pull),
+            patch.object(
+                review_run_application,
+                "load_or_create_live_repository_decisions",
+                return_value=stored,
+            ),
+            patch.object(
+                capacity,
+                "current",
+                return_value=capacity.CapacityLimits(
+                    result_max_chars=7_000,
+                    text_page_max_chars=1_000,
+                ),
+            ),
+            patch.object(
+                review_contract,
+                "load_installed_contract",
+                return_value=TEST_REVIEW_CONTRACT,
+            ),
+            patch.dict(
+                os.environ,
+                {"REVIEW_AGENT_PROFILE": "sundsvall-standard"},
+                clear=True,
+            ),
+        ):
+            result = json.loads(
+                review_source_tools.review_begin(
+                    {"existing_run_id": 41},
+                    session_id=self.session_id,
+                )
+            )
+
+        self.assertEqual(result["run_id"], 41)
+        self.assertEqual(result["repository_decisions_untrusted"]["status"], "unavailable")
+        self.assertEqual(
+            result["repository_decisions_untrusted"]["failure_code"],
+            "decision_context_result_budget",
+        )
+        self.assertEqual(result["repository_decisions_untrusted"]["decisions"], [])
 
     def test_pr_files_returns_the_persisted_run_inventory(self) -> None:
         pull = {

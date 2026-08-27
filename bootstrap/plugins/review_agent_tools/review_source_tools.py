@@ -12,6 +12,7 @@ from . import (
     diff_render,
     failure_codes,
     memory_validation,
+    repository_decision_context,
     review_contract,
     review_run_application,
     schemas,
@@ -36,6 +37,7 @@ from .review_tool_runtime import (
     parse_path,
     postgres_runtime,
     pull_request_identity,
+    pull_base_sha,
     pull_snapshot,
     review_run_snapshot,
     run_subject,
@@ -333,7 +335,59 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
                 "continued": True,
             }
         )
-        return output_json(result)
+
+        base_sha = pull_base_sha(pull)
+
+        def load_decisions(
+            changed_paths: tuple[str, ...],
+        ) -> repository_decision_context.RepositoryDecisionContext:
+            if not file_index.registration_complete:
+                return repository_decision_context.unavailable(
+                    base_sha=base_sha,
+                    failure_code="decision_changed_file_index_incomplete",
+                )
+            loaded = repository_decision_context.load(
+                source,
+                repository=repository,
+                base_sha=base_sha,
+                changed_paths=changed_paths,
+            )
+            if loaded.status == "loaded":
+                candidate = dict(result)
+                candidate["repository_decisions_untrusted"] = (
+                    repository_decision_context.payload(loaded)
+                )
+                if len(output_json(candidate)) > capacity.current().result_max_chars:
+                    return repository_decision_context.unavailable(
+                        base_sha=base_sha,
+                        failure_code="decision_context_result_budget",
+                    )
+            return loaded
+
+        decision_context = (
+            review_run_application.load_or_create_live_repository_decisions(
+                postgres_runtime(),
+                subject,
+                loader=load_decisions,
+            )
+        )
+        result["repository_decisions_untrusted"] = repository_decision_context.payload(
+            decision_context
+        )
+        rendered = output_json(result)
+        if len(rendered) > capacity.current().result_max_chars:
+            result["repository_decisions_untrusted"] = (
+                repository_decision_context.payload(
+                    repository_decision_context.unavailable(
+                        base_sha=base_sha,
+                        failure_code="decision_context_result_budget",
+                    )
+                )
+            )
+            rendered = output_json(result)
+        if len(rendered) > capacity.current().result_max_chars:
+            return error_output("review overview exceeded the configured result_max_chars")
+        return rendered
     except ReviewRunTerminal as terminal:
         return output_json(run_terminal_payload(terminal.run_id))
     except review_contract.ReviewContractError as exc:

@@ -9,10 +9,9 @@ last_verified: 2026-08-27
 
 # Feedback and design decisions
 
-> **Current with a planned extension**: Feedback collection, statistics, private
-> coaching, and operator decisions work now. The repository decision format on
-> this page defines the next runtime extension. The live reviewer does not load
-> repository ADRs yet.
+> **Current**: Feedback collection, statistics, private coaching, and typed
+> repository decision context work now. `/review intentional` remains planned
+> until the App can bind that feedback to the exact stored ADR snapshot.
 
 Review feedback has two jobs. It corrects one finding when the code disproves it,
 and it gives operators evidence for later reviewer improvements. Teams should
@@ -103,11 +102,12 @@ The operator must confirm that the ADR exists, remains accepted, and applies to
 the finding. PR comments cannot create intentional-design or accepted-risk
 decisions yet.
 
-## Planned repository decision contract
+## Repository decision contract
 
-The ADR-aware review extension will read typed evidence from the exact pull
-request base SHA. Repository content will not change review policy, severity,
-tools, prompts, or suppression rules.
+At the start of a review, the reviewer loads matching accepted ADR metadata from
+the exact pull request base SHA. It stores one immutable snapshot with the run
+and shows a short receipt in the published review. Repository content cannot
+change review policy, severity, tools, prompts, or suppression rules.
 
 One root index maps changed paths to ADR files:
 
@@ -135,6 +135,7 @@ on_change = [
   "Check truncation and overlap behavior."
 ]
 evidence = "docs/evaluations/rag-retrieval-baseline.md"
+origin_pr = 418
 +++
 
 # Context
@@ -142,12 +143,18 @@ evidence = "docs/evaluations/rag-retrieval-baseline.md"
 Describe the user problem, alternatives, and consequences for maintainers.
 ```
 
-The runtime will parse only `id`, `title`, `status`, `invariant`, `on_change`,
-and optional `evidence`. Keep the opening marker on line 1 and close the block
-within 60 lines. The index may contain at most 200 entries, and one review may
-load at most 10 matching ADRs. These guards bound optional GitHub reads; they do
-not limit pull-request size or source-review depth. Too many matches disable ADR
-context for that review instead of returning a partial decision set.
+The runtime parses `id`, `title`, `status`, `invariant`, `on_change`, and the
+optional `evidence`, `origin_pr`, and `supersedes` fields. Keep the opening
+marker on line 1 and close the block within 60 lines.
+
+The fixed guards protect this optional metadata path. The index accepts 200
+entries and 1,000 path patterns, and a run loads at most 10 matching typed ADR
+headers. Parsed field lengths keep the begin response within its 160 KiB result
+budget. The 200-entry index still covers path matching against GitHub's
+3,000-file pull-request response ceiling. These guards do not limit pull-request
+size and do not cap changed files, source reads, or review depth. The App ignores
+only ADR evidence for that run when the metadata exceeds a guard. It reports the
+reason and completes the code review.
 
 Use CODEOWNERS and branch review for `.review-agent/decisions.toml` and
 `docs/decisions/`. The index owns path relevance. The ADR owns the decision and
@@ -172,8 +179,8 @@ Smallest safe fix: keep the coupled values consistent, or merge a superseding
 ADR with updated evaluation evidence before changing the runtime contract.
 ```
 
-The reviewer will use a normal finding with `rule_id = design.adr-conflict`.
-It will not add a separate governance report or name decision authors.
+The reviewer uses a normal finding with `rule_id = design.adr-conflict`. It does
+not add a separate governance report or name decision authors.
 
 ## Update or retire a decision
 
@@ -187,17 +194,19 @@ the accepted base snapshot. If a team supersedes an ADR after a review but befor
 someone submits feedback, the feedback remains tied to the older review snapshot;
 the next `/review` loads the new decision.
 
-## Runtime delivery sequence
+## Current and next delivery boundary
 
-The planned implementation has three reviewable slices:
+The runtime now:
 
-1. Load a bounded, typed decision snapshot once per review run from the exact
-   base SHA. GitHub failures degrade the optional context and leave the normal
-   review running.
-2. Validate `/review intentional` against the snapshot that produced the
-   published finding. Store the ADR path and base SHA with the audit row.
-3. Teach the profile to treat decision context as additive evidence and protect
-   the RAG example with one replay.
+- loads one bounded snapshot from the exact base SHA;
+- gives the reviewer typed metadata as untrusted evidence;
+- publishes the snapshot status and matching ADR IDs;
+- continues the source review when GitHub or ADR parsing fails.
+
+The next slice validates `/review intentional` against the snapshot that
+produced the published finding. It will store the ADR path, metadata hash, and
+base SHA with the audit record. The App will suppress a later occurrence only
+when both the code-context hash and accepted ADR metadata hash still match.
 
 The first release will not add a dashboard, repository instruction injection,
 directory listing, symbol graph, vector database, author inference, or automatic

@@ -499,6 +499,24 @@ def insert_changed_files(
     )
 
 
+def changed_paths(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId
+) -> tuple[str, ...]:
+    """Return the authoritative changed paths for one registered review run."""
+    _require_transaction(connection)
+    _run_for_write(connection, run_id, exclusive=False)
+    rows = connection.execute(
+        """
+        SELECT path
+        FROM review_agent.review_run_files
+        WHERE review_run_id = %s AND is_changed_path
+        ORDER BY path
+        """,
+        (run_id,),
+    ).fetchall()
+    return tuple(str(row[0]) for row in rows)
+
+
 def insert_file_reads(
     connection: psycopg.Connection[TupleRow],
     *,

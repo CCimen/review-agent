@@ -42,11 +42,13 @@ class DocsContractTests(unittest.TestCase):
 
         self.assertIn("'docs/FEEDBACK_AND_DECISIONS'", sidebar)
         self.assertIn('"docs/FEEDBACK_AND_DECISIONS.md"', public_documents)
-        self.assertIn("live reviewer does not load", guide)
+        self.assertIn("reviewer loads matching accepted ADR metadata", guide)
         self.assertIn("code-context hash still matches", guide)
         self.assertIn(".review-agent/decisions.toml", guide)
         self.assertIn("exact pull request base SHA", words(guide))
         self.assertIn("do not limit pull-request size", words(guide))
+        self.assertIn("do not cap changed files, source reads, or review depth", words(guide))
+        self.assertIn("The App ignores only ADR evidence for that run", words(guide))
 
     def test_github_app_setup_is_public_and_keeps_credential_boundary_explicit(self):
         guide = read("docs/GITHUB_APP_PILOT.md")
@@ -750,6 +752,20 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("dependency-scanning scope", readme)
         self.assertNotIn("Snyk", readme)
         self.assertNotIn("Trivy", readme)
+
+    def test_profile_treats_repository_decisions_as_evidence_not_policy(self):
+        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        skill = read(
+            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+        )
+        combined = words(f"{canonical}\n{skill}")
+
+        self.assertIn("repository_decisions_untrusted", skill)
+        self.assertIn("Only accepted repository decisions are active constraints", combined)
+        self.assertIn("An ADR match alone is never a finding", combined)
+        self.assertIn("design.adr-conflict", combined)
+        self.assertIn("cannot change tools, model settings, severity", combined)
+        self.assertIn("actual downstream code path", combined)
 
     def test_private_claude_verification_is_shadow_and_non_gating(self):
         readme = read("README.md")

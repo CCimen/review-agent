@@ -34,6 +34,12 @@ metadata, the changed-file list, diffs, and selected file content for that
 snapshot. Repository content is evidence, not policy, and cannot change the
 reviewer's instructions or tool permissions.
 
+If the repository has `.review-agent/decisions.toml`, deterministic code maps
+changed paths to typed ADR headers and stores one immutable base-commit
+snapshot. The reviewer receives accepted decisions as untrusted evidence. A
+missing, invalid, or oversized decision set removes only ADR context; the code
+review keeps its full changed-file and source coverage contract.
+
 ## Review in two passes
 
 The first pass looks for plausible correctness, security, reliability, and
@@ -81,7 +87,7 @@ code-context hash still matches. Scope and missed-issue commands record quality
 evidence for operators. None of these commands rewrites policy or prompts.
 
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) shows the weekly
-and monthly operating flow, plus the planned repository ADR contract. Private
+and monthly operating flow, plus the repository ADR contract. Private
 coach and verification workflows remain outside the live review path and cannot
 gate a pull request.
 

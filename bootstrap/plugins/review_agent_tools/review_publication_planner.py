@@ -36,6 +36,7 @@ from .review_renderer import (
     PublishedFinding,
     ReviewBlock,
     ReviewCoverageSummary,
+    RepositoryDecisionSummary,
     UncheckedFinding,
     render_review,
     review_blocks_to_json,
@@ -214,6 +215,23 @@ def _coverage(context: PublicationPreparationContext) -> ReviewCoverageSummary:
         "coverage_hash": hashlib.sha256(material.encode("utf-8")).hexdigest(),
         "unavailable_paths": list(item.unavailable_paths),
         "truncated_paths": list(item.truncated_paths),
+    }
+
+
+def _repository_decisions(
+    context: PublicationPreparationContext,
+) -> RepositoryDecisionSummary:
+    snapshot = context.repository_decisions
+    return {
+        "status": snapshot.status,
+        "failure_code": (
+            "decision_snapshot_missing"
+            if snapshot.status == "pending"
+            else snapshot.failure_code
+        ),
+        "base_sha": snapshot.base_sha,
+        "snapshot_hash": snapshot.snapshot_hash,
+        "decision_ids": [decision.id for decision in snapshot.decisions],
     }
 
 
@@ -432,6 +450,7 @@ def build_publication(
         not_checked_refs=tuple(item["local_reference"] for item in unchecked),
         feedback_enabled=feedback_enabled,
         coverage=_coverage(context),
+        repository_decisions=_repository_decisions(context),
         review_number=context.review_number,
         previous_review_number=context.previous_review_number,
         previous_head_sha=context.previous_head_sha,

@@ -8,6 +8,7 @@ if ! command -v pyright >/dev/null 2>&1; then
   exit 1
 fi
 pyright -p "$ROOT"
+python3 "$ROOT/scripts/check_app_only_candidate.py"
 PYTHONPATH="$ROOT/bootstrap/plugins" python3 -m unittest discover -s "$ROOT/tests" -v
 replay_fixture=""
 for candidate in "$ROOT"/review-learning/replay/*.json; do
@@ -23,14 +24,9 @@ fi
 
 python3 - "$ROOT" <<'PY'
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 
-try:
-    import yaml
-except ModuleNotFoundError:
-    yaml = None
+import yaml
 
 root = Path(sys.argv[1])
 for relative in [
@@ -40,25 +36,10 @@ for relative in [
     "examples/openshift/review-agent-template.yaml",
 ]:
     path = root / relative
-    if yaml is not None:
-        with path.open(encoding="utf-8") as handle:
-            value = yaml.safe_load(handle)
-        if not isinstance(value, dict):
-            raise SystemExit(f"{relative} did not parse to a YAML mapping")
-    else:
-        ruby = shutil.which("ruby")
-        if not ruby:
-            raise SystemExit("PyYAML is not installed and ruby is unavailable for YAML validation")
-        subprocess.run(
-            [
-                ruby,
-                "-ryaml",
-                "-e",
-                "v = YAML.safe_load(File.read(ARGV[0]), aliases: true); exit(v.is_a?(Hash) ? 0 : 1)",
-                str(path),
-            ],
-            check=True,
-        )
+    with path.open(encoding="utf-8") as handle:
+        value = yaml.safe_load(handle)
+    if not isinstance(value, dict):
+        raise SystemExit(f"{relative} did not parse to a YAML mapping")
     print(f"YAML OK: {relative}")
 PY
 

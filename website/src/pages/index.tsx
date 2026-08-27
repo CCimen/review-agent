@@ -12,7 +12,7 @@ import styles from './index.module.css';
 const lifecycle = [
   [
     '/review requested',
-    'A trusted developer asks for a review with a pull-request comment.',
+    'An authorized maintainer asks for a review with a pull-request comment.',
   ],
   ['Snapshot locked', 'The exact base and head commits are pinned and recorded.'],
   ['Diff analyzed', 'Bounded read tools feed a two-pass, evidence-first review.'],
@@ -26,7 +26,7 @@ const setupSteps = [
   ['Deploy the service', 'Start the reviewer stack and PostgreSQL from compose.yaml.'],
   [
     'Connect GitHub',
-    'Install the trusted workflow, set its secrets, and define the repository allowlist.',
+    'Install the GitHub App on selected repositories, then enable each approved repository.',
   ],
   [
     'Run /review',

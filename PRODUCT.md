@@ -36,8 +36,10 @@ scan, with long-form reading treated as the primary task.
 
 ## Current Product Truth
 
-- One deployment-wide reviewer profile serves an explicit repository allowlist.
-- GitHub Actions authorizes trusted commenters and sends HMAC-signed webhooks.
+- One deployment-wide reviewer profile serves repositories selected in the
+  GitHub App installation and explicitly enabled in Review Agent.
+- The GitHub App receives `/review` comments and deterministic code authorizes
+  the requester before creating durable work.
 - The live model receives bounded GitHub read tools, no shell, and no arbitrary
   GitHub writer.
 - PostgreSQL owns durable review, publication, feedback, and operator state.
@@ -47,9 +49,8 @@ scan, with long-form reading treated as the primary task.
 
 ## Roadmap Boundary
 
-Durable jobs, trusted base-branch repository context, a GitHub App, and broader
-integrations are planned work. Scanner and Codex Security integrations are
-explicitly deferred. The site must never present these as shipped behavior.
+Scanner and Codex Security integrations are explicitly deferred. The site must
+never present optional integrations as shipped behavior.
 
 ## Content And Language
 

@@ -7,7 +7,7 @@ and Codex with deterministic controls.
 [![Publish documentation](https://github.com/CCimen/review-agent/actions/workflows/docs-pages.yml/badge.svg)](https://github.com/CCimen/review-agent/actions/workflows/docs-pages.yml)
 [![Documentation](https://img.shields.io/badge/docs-ccimen.github.io-blue)](https://ccimen.github.io/review-agent/)
 
-A trusted developer comments `/review` on a pull request. The service pins the
+An authorized maintainer comments `/review` on a pull request. The service pins the
 exact base/head snapshot, reviews it in two passes through bounded read tools,
 and posts evidence-backed findings through a deterministic publisher. Reviews
 stay advisory: the reviewer has no shell, no repository write access, and no

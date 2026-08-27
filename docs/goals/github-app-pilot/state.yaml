@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T033
+active_task: T034
 
 tasks:
   - id: T001
@@ -2107,13 +2107,75 @@ tasks:
   - id: T033
     type: pm
     assignee: PM
-    status: active
+    status: done
     objective: "Run the automated App-only candidate gate and prove no live PAT, allowlist, copied workflow, legacy route, sidecar, or credential exposure remains."
-    receipt: null
+    canonical_owner:
+      candidate_gate: "scripts/check_app_only_candidate.py"
+      default_topology: "compose.yaml"
+      product_truth: "PRODUCT.md and website/src/pages/index.tsx"
+    constraints:
+      - "Scan shipped runtime, deployment, example, automation, and public documentation surfaces; exclude only internal goal history, tests that name deleted paths, dependencies, build output, and the gate's own signatures."
+      - "Prove the GitHub App private key is mounted only in the private gateway and no PAT, legacy repository allowlist, copied review workflow, legacy HMAC route, or feedback sidecar remains."
+      - "Delete the obsolete legacy webhook smoke client; review-agent-admin smoke-test remains the supported dry-run owner."
+      - "Keep the gate deterministic, standard-library-first, and runnable from the existing bundle and CI path."
+      - "Do not deploy, mutate GitHub, add secret scanning infrastructure, or broaden into the live pilot."
+    expected_output:
+      - "One bounded candidate gate with readable path-and-line failures and behavior tests for its residual scanner."
+      - "Current product and site copy describe GitHub App installation, selected-repository access, and explicit database activation."
+      - "The Python bundle runs the candidate gate automatically, and direct execution passes on the exact commit."
+    allowed_files:
+      - "PRODUCT.md"
+      - "README.md"
+      - "docs/HOW_REVIEWS_WORK.md"
+      - "docs/OVERVIEW.md"
+      - "docs/goals/github-app-pilot/state.yaml"
+      - "scripts/check_app_only_candidate.py"
+      - "scripts/check_bundle.sh"
+      - "scripts/smoke_webhook.py (deleted)"
+      - "tests/test_app_only_candidate.py"
+      - "website/src/pages/index.tsx"
+      - "website/static/llms-full.txt"
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH python3 scripts/check_app_only_candidate.py"
+      - "docker compose --env-file .env.example config --quiet"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 ./scripts/check_bundle.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check scripts/check_app_only_candidate.py tests/test_app_only_candidate.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH pyright"
+      - "python3 scripts/generate_llms_docs.py --check"
+      - "npm --prefix website run typecheck && npm --prefix website run build"
+      - "git diff --check"
+    stop_if:
+      - "A forbidden residual is still required by current App-only runtime behavior."
+      - "The private key must be mounted outside the gateway or a caller needs raw GitHub credential access."
+      - "The gate requires a generic policy engine, dependency, live secret, deployment, or GitHub mutation."
+    receipt:
+      result: done
+      commit: "the commit containing this receipt"
+      summary: "Added one required App-only candidate gate over shipped runtime, deployment, automation, example, and public documentation surfaces. The gate rejects deleted PAT and webhook identifiers, repository allowlists, copied review workflows, legacy HMAC routes, feedback sidecars, embedded credentials, misplaced App credential classes, and a publicly exposed GitHub gateway. Removed the obsolete legacy webhook smoke client and corrected the remaining copied-workflow product copy."
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH python3 scripts/check_app_only_candidate.py"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 ./scripts/check_bundle.sh"
+        - "docker compose --env-file .env.example config --quiet"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check scripts/check_app_only_candidate.py tests/test_app_only_candidate.py"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH pyright"
+        - "python3 scripts/generate_llms_docs.py --check"
+        - "npm --prefix website run typecheck && npm --prefix website run build"
+        - "python3 scripts/check_docs.py --build-dir website/build"
+        - "node /Users/ccimen/.codex/skills/goal-maker/scripts/check-goal-state.mjs docs/goals/github-app-pilot/state.yaml"
+        - "git diff --check"
+      evidence:
+        - "Full bundle passed 512 tests with 178 container-only skips; the candidate gate ran before the test suite and passed."
+        - "Seven candidate-gate behavior tests cover real-tree success, residual path diagnostics, both Compose credential syntaxes, exact credential-class ownership, missing topology, and public gateway ports and labels."
+        - "Pyright reported 0 errors; changed-path Ruff, Compose rendering, generated documentation freshness, goal-state validation, and diff checks passed."
+        - "Docusaurus typecheck, production build, route validation, and search checks passed after the product-copy cleanup."
+        - "Claude Opus high resumed commit gate returned green at score 8 with no T033 blockers in review-agent-app-only-candidate iteration 3."
+      deferred:
+        - "The gate intentionally makes no live GitHub, Dokploy, model-provider, or database mutation."
+        - "The owner-controlled deployment and end-to-end pilot remain T034."
   - id: T034
     type: pm
     assignee: PM
-    status: queued
+    status: active
     objective: "Deploy the exact candidate and run the owner-controlled App-only end-to-end pilot on CCimen/review-agent, including publication, feedback, redelivery, recovery, removal, and rotation evidence."
     receipt: null
   - id: T035

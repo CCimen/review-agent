@@ -21,7 +21,7 @@ code decides what snapshot is valid and how stored results reach GitHub.
 
 ## Request and authorize
 
-A trusted developer posts `/review` on a pull request. The GitHub App receives
+An authorized maintainer posts `/review` on a pull request. The GitHub App receives
 the signed event, verifies the requester's current repository permission, and
 checks that an operator enabled the repository before admitting durable work.
 Source reads and publication use short-lived, repository-scoped installation
@@ -75,7 +75,7 @@ replicated; PostgreSQL coordinates claims and recovery.
 
 ## Learn from explicit feedback
 
-Allowlisted maintainers can report false positives, scope problems, and missed
+Authorized maintainers can report false positives, scope problems, and missed
 issues. Feedback is durable evidence for operators; it does not automatically
 rewrite policy or suppress future findings. Private coach and verification
 workflows remain outside the live review path and cannot gate a pull request.

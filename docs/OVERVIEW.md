@@ -13,7 +13,7 @@ last_verified: 2026-08-25
 > today.
 
 Review Agent is a self-hosted, advisory pull-request reviewer built on Hermes
-and Codex. A trusted developer comments `/review` on a PR; the service pins the
+and Codex. An authorized maintainer comments `/review` on a PR; the service pins the
 exact base/head snapshot, reviews it through bounded read tools, and posts
 evidence-backed findings through a deterministic publisher.
 
@@ -183,6 +183,6 @@ Run the bundle check before shipping changes:
 GitHub Actions runs the same bundle for pull requests and pushes to `main`,
 builds the container, checks its worker entrypoint, and verifies the pinned
 Hermes session/context adapter contracts used by durable execution. The bundle
-validates Python imports, strict type checks, unit tests, replay fixtures, and
-YAML. It cannot live-test your deployed routes, GitHub token approval, ChatGPT
-OAuth state, or repository rules.
+validates Python imports, strict type checks, the App-only candidate contract,
+unit tests, replay fixtures, and YAML. It cannot live-test your deployed routes,
+GitHub token approval, ChatGPT OAuth state, or repository rules.

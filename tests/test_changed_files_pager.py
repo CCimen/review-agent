@@ -10,7 +10,7 @@ from unittest.mock import Mock
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import changed_files, tools  # noqa: E402
+from review_agent_tools import changed_files, review_source_tools  # noqa: E402
 from review_agent_tools.github.source import ReviewSourceBytes  # noqa: E402
 
 
@@ -124,7 +124,7 @@ class ChangedFilePagerTests(unittest.TestCase):
 
 
 class ChangedFilesIntegrationTests(unittest.TestCase):
-    """tools._changed_files delegates to the pager: full pagination, stable contract."""
+    """The source tool delegates to the pager with a stable pagination contract."""
 
     def _source(self, master: list[dict[str, object]]) -> SimpleNamespace:
         client = Mock()
@@ -150,7 +150,7 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
 
     def test_changed_files_paginates_past_300(self):
         master = _files(350)
-        files = tools._changed_files(self._source(master))
+        files = review_source_tools.load_changed_files(self._source(master))
         self.assertEqual(len(files), 350)
         # Stable downstream contract: path + trusted context hash fields preserved.
         self.assertEqual(files[0]["path"], "src/file_0000.py")
@@ -171,7 +171,7 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
                 "changes": 0,
             }
         ]
-        files = tools._changed_files(self._source(master))
+        files = review_source_tools.load_changed_files(self._source(master))
         self.assertEqual(len(files[0]["previous_path"]), 500)
 
     def test_changed_files_patch_hash_fallback_when_no_blob_sha(self):
@@ -188,7 +188,7 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
                 "changes": 2,
             }
         ]
-        files = tools._changed_files(self._source(master))
+        files = review_source_tools.load_changed_files(self._source(master))
         self.assertEqual(files[0]["context_hash_source"], "patch")
         import hashlib
 

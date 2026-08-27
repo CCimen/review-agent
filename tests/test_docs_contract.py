@@ -526,7 +526,6 @@ class DocsContractTests(unittest.TestCase):
 
     def test_machine_metadata_is_hidden_from_reading_path(self):
         canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
-        tools = read("bootstrap/plugins/review_agent_tools/tools.py")
         for body in [
             canonical,
             read("examples/comments/example-review.md"),
@@ -537,7 +536,6 @@ class DocsContractTests(unittest.TestCase):
             "Keep machine identifiers out of the developer reading path", canonical
         )
         self.assertIn("hidden metadata", canonical)
-        self.assertIn("only in hidden review metadata", tools)
 
     def test_feedback_and_learning_are_human_governed(self):
         readme = read("README.md")

@@ -35,53 +35,55 @@ def _installed_result_max_chars() -> int:
 
 
 def register(ctx: ToolRegistry) -> None:
-    # Keep package import light: static package imports here trip pyright's
-    # import-cycle gate because schemas/tools import the memory facade.
+    # Import concrete owners after package initialization so submodules can import
+    # package-owned contracts without creating a static package import cycle.
     capacity = import_module(f"{__name__}.capacity")
     limits = capacity.configure(result_max_chars=_installed_result_max_chars())
     schemas = import_module(f"{__name__}.schemas")
     schemas.apply_capacity(limits)
-    tools = import_module(f"{__name__}.tools")
+    source_tools = import_module(f"{__name__}.review_source_tools")
+    memory_tools = import_module(f"{__name__}.review_memory_tools")
+    delivery_tool = import_module(f"{__name__}.review_delivery_tool")
 
     ctx.register_tool(
         name="review_agent_begin",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_BEGIN"),
-        handler=getattr(tools, "review_begin"),
+        handler=getattr(source_tools, "review_begin"),
     )
     ctx.register_tool(
         name="review_agent_pr_diff",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_PR_DIFF"),
-        handler=getattr(tools, "pr_diff"),
+        handler=getattr(source_tools, "pr_diff"),
     )
     ctx.register_tool(
         name="review_agent_pr_files",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_PR_FILES"),
-        handler=getattr(tools, "pr_files"),
+        handler=getattr(source_tools, "pr_files"),
     )
     ctx.register_tool(
         name="review_agent_pr_file",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_PR_FILE"),
-        handler=getattr(tools, "pr_file"),
+        handler=getattr(source_tools, "pr_file"),
     )
     ctx.register_tool(
         name="review_agent_memory_context",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_MEMORY_CONTEXT"),
-        handler=getattr(tools, "review_memory_context"),
+        handler=getattr(memory_tools, "review_memory_context"),
     )
     ctx.register_tool(
         name="review_agent_memory_record",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_MEMORY_RECORD"),
-        handler=getattr(tools, "review_memory_record"),
+        handler=getattr(memory_tools, "review_memory_record"),
     )
     ctx.register_tool(
         name="review_agent_deliver",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_DELIVER"),
-        handler=getattr(tools, "review_deliver"),
+        handler=getattr(delivery_tool, "review_deliver"),
     )

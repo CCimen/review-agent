@@ -20,6 +20,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'docs/DEPLOYMENT',
         'docs/GITHUB_APP_PILOT',
+        'docs/AI_ASSISTED_SETUP',
         'docs/BEHAVIOR_OWNERSHIP',
       ],
     },

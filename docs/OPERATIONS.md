@@ -379,8 +379,15 @@ docker compose exec -T review-postgres \
   > review-agent.dump
 ```
 
-Test recovery in a fresh database before relying on a backup. Stop the reviewer
-and feedback services, restore with `pg_restore --exit-on-error`, run
+Test recovery in a fresh database before relying on a backup. Stop the
+application services that read or write Review Agent state:
+
+```bash
+docker compose stop review-admission review-github-app-worker review-worker \
+  review-publisher review-github-gateway hermes-review
+```
+
+Restore with `pg_restore --exit-on-error`, run
 `review-agent-admin database migrate` and `review-agent-admin database ready`, then point the
 environment at the restored database and redeploy. Recovery never converts or
 imports another database backend.

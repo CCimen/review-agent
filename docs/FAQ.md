@@ -64,9 +64,10 @@ Security integrations are deferred.
 
 ## Why did a review fail or stop?
 
-Common causes include an unauthorized requester, repository allowlist denial,
-invalid HMAC signature, a stale head SHA, GitHub permission failure, oversized
-output, or a stalled lifecycle transition. Use the exact status and
+Common causes include an unauthorized requester, a disabled or removed
+repository, an invalid GitHub App signature, a stale head SHA, GitHub permission
+failure, oversized output, or a stalled lifecycle transition. Use the exact
+status and
 [Operations runbook](./OPERATIONS.md#runbook); do not infer success from a
 workflow that merely started.
 

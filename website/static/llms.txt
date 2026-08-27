@@ -1,0 +1,25 @@
+# Review Agent
+
+Self-hosted, advisory pull-request review with bounded model tools, deterministic authorization, PostgreSQL state, and GitHub App publication.
+
+Release state: main (unreleased; pin the exact commit you inspect)
+Authentication: GitHub App only; install it on explicitly selected repositories, then enable each repository separately.
+Trigger: an authorized maintainer posts a new top-level `/review` comment on an open same-repository pull request.
+Security boundary: the model has no shell, merge authority, App private key, installation token, or arbitrary GitHub write access.
+Feedback when enabled: authorized maintainers use `/review false-positive`, `/review feedback scope`, and `/review feedback missed`.
+
+## Start here
+
+- Quick start: https://ccimen.github.io/review-agent/docs/getting-started
+- Deployment: https://ccimen.github.io/review-agent/docs/deployment
+- GitHub App setup: https://ccimen.github.io/review-agent/docs/github-app-pilot
+- AI-assisted setup: https://ccimen.github.io/review-agent/docs/ai-assisted-setup
+- Operations: https://ccimen.github.io/review-agent/docs/operations
+- Security: https://ccimen.github.io/review-agent/docs/security
+
+## Operator interface
+
+From the source checkout, run `python3 tools/review_agent_admin.py capabilities` and `python3 tools/review_agent_admin.py preflight`. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.
+
+Full public documentation: https://ccimen.github.io/review-agent/llms-full.txt
+Source: https://github.com/CCimen/review-agent

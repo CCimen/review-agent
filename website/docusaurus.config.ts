@@ -168,6 +168,7 @@ const config: Config = {
           items: [
             {label: 'Deploy', to: '/docs/deployment'},
             {label: 'GitHub App setup', to: '/docs/github-app-pilot'},
+            {label: 'Set up with an agent', to: '/docs/ai-assisted-setup'},
             {label: 'Configure behavior', to: '/docs/behavior-ownership'},
           ],
         },

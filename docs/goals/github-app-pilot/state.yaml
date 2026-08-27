@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T032
+active_task: T033
 
 tasks:
   - id: T001
@@ -2016,13 +2016,98 @@ tasks:
   - id: T032
     type: pm
     assignee: PM
-    status: active
+    status: done
     objective: "Publish concise App-only documentation, generated public LLM context, validated non-secret installation configuration, and one canonical installation skill with required mirrors."
-    receipt: null
+    canonical_owner:
+      public_setup: "docs/AI_ASSISTED_SETUP.md"
+      public_corpus: "website/public-documents.json and scripts/generate_llms_docs.py"
+      installation_contract: "install/review-agent.schema.json"
+      installation_skill: "skills/install-review-agent/SKILL.md"
+    constraints:
+      - "Describe only the shipped App-only operator commands and current manual gates; roadmap and proposal text are not setup authority."
+      - "Generate llms.txt and llms-full.txt only from the public documentation manifest and fail CI when either artifact is stale."
+      - "Keep installation configuration non-secret, exact-revision oriented, and schema validated without arbitrary workload ceilings."
+      - "Maintain one installation-skill body; generate the Codex and Claude mirrors and verify their required frontmatter."
+      - "Reuse review-agent-admin capabilities, preflight, doctor, inventory, activation, and dry-run smoke commands."
+      - "Do not add a deployment service, manifest callback, secret file format, provider abstraction, admin UI, or live mutation."
+    expected_output:
+      - "A current AI-assisted setup page that separates preparation from owner, secret, OAuth, DNS, deployment, and live-review approval gates."
+      - "Short llms.txt and generated llms-full.txt with canonical URLs, source paths, current status, verification dates, and release-state guidance."
+      - "A validated example installation plan and JSON Schema containing no credential values or repository-specific hidden defaults."
+      - "One concise install-review-agent skill plus generated Codex and Claude mirrors, with CI freshness checks."
+      - "README, navigation, docs search, and workflow path filters expose and validate the new setup surface."
+    allowed_files:
+      - ".agents/skills/install-review-agent/SKILL.md"
+      - ".claude/skills/install-review-agent/SKILL.md"
+      - ".github/workflows/docs-check.yml"
+      - ".github/workflows/docs-pages.yml"
+      - ".gitignore"
+      - "README.md"
+      - "docs/AI_ASSISTED_SETUP.md"
+      - "docs/BEHAVIOR_OWNERSHIP.md"
+      - "docs/FAQ.md"
+      - "docs/GETTING_STARTED.md"
+      - "docs/ROADMAP.md"
+      - "docs/OPERATIONS.md"
+      - "docs/goals/github-app-pilot/state.yaml"
+      - "install/review-agent.example.yaml"
+      - "install/package-lock.json"
+      - "install/package.json"
+      - "install/review-agent.schema.json"
+      - "install/validate.mjs"
+      - "scripts/generate_llms_docs.py"
+      - "scripts/sync_install_skill.py"
+      - "skills/install-review-agent/SKILL.md"
+      - "tests/test_ai_onboarding.py"
+      - "website/docusaurus.config.ts"
+      - "website/public-documents.json"
+      - "website/sidebars.ts"
+      - "website/static/llms.txt"
+      - "website/static/llms-full.txt"
+    verify:
+      - "python3 scripts/generate_llms_docs.py --check"
+      - "python3 scripts/sync_install_skill.py --check"
+      - "npm --prefix install test"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_ai_onboarding tests.test_docs_contract"
+      - "npm --prefix website run typecheck && npm --prefix website run build"
+      - "python3 scripts/check_docs.py --build-dir website/build"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ./scripts/check_bundle.sh"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check scripts/generate_llms_docs.py scripts/sync_install_skill.py tests/test_ai_onboarding.py"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH pyright"
+    stop_if:
+      - "The skill or docs require a command, credential path, deployment mode, or permission that the current product does not ship."
+      - "Generated LLM output includes private goal notes, secrets, local paths, or historical implementation diaries."
+      - "Installation configuration becomes a second runtime configuration owner or contains secret values."
+      - "Mirror maintenance requires hand-copying skill bodies."
+    receipt:
+      result: done
+      commit: "the commit containing this receipt"
+      summary: "Published one current App-only onboarding surface for humans and coding agents: concise public setup gates, generated bounded LLM context, a non-secret schema-validated installation plan, and one canonical installation skill with generated Codex and Claude mirrors. The contract maps every configurable field to shipped runtime controls and keeps owner approvals, credentials, DNS, deployment, and live-review authorization explicit."
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 ./scripts/check_bundle.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -q tests.test_ai_onboarding tests.test_docs_contract"
+        - "npm --prefix install test"
+        - "npm --prefix website run typecheck && npm --prefix website run build"
+        - "python3 scripts/check_docs.py --build-dir website/build"
+        - "python3 scripts/generate_llms_docs.py --check"
+        - "python3 scripts/sync_install_skill.py --check"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check scripts/generate_llms_docs.py scripts/sync_install_skill.py tests/test_ai_onboarding.py"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH pyright"
+        - "git diff --check"
+      evidence:
+        - "Full bundle passed: 507 tests, 178 container-only skips, Pyright 0 errors, and all YAML contracts parsed."
+        - "Focused onboarding and documentation checks passed 34 tests even with install/node_modules moved out of the repository."
+        - "The isolated install contract passed schema validation and proved the untouched example is rejected with both required placeholder diagnostics; npm audit reported 0 vulnerabilities."
+        - "Docusaurus clean install, typecheck, production build, route validation, and search checks passed under Node 24."
+        - "Generated LLM context, generated skill mirrors, Ruff, goal-state validation, and diff checks passed."
+        - "Claude Opus high resumed quality gate returned green at score 8 with no T032 blockers in review-agent-ai-onboarding iteration 4."
+      deferred:
+        - "The automated App-only candidate hygiene gate remains T033."
+        - "No deployment, GitHub mutation, or release was made in this documentation slice."
   - id: T033
     type: pm
     assignee: PM
-    status: queued
+    status: active
     objective: "Run the automated App-only candidate gate and prove no live PAT, allowlist, copied workflow, legacy route, sidecar, or credential exposure remains."
     receipt: null
   - id: T034

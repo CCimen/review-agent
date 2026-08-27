@@ -7,8 +7,14 @@ on:
       - '.github/workflows/docs-pages.yml'
       - 'docs/**'
       - '!docs/goals/**'
+      - '.agents/skills/install-review-agent/**'
+      - '.claude/skills/install-review-agent/**'
       - 'examples/comments/**'
+      - 'install/**'
       - 'scripts/check_docs.py'
+      - 'scripts/generate_llms_docs.py'
+      - 'scripts/sync_install_skill.py'
+      - 'skills/install-review-agent/**'
       - 'website/**'
   workflow_dispatch:
 
@@ -31,16 +37,26 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache-dependency-path: |
+            website/package-lock.json
+            install/package-lock.json
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
 
       - name: Install dependencies
-        run: npm --prefix website ci
+        run: |
+          npm --prefix website ci
+          npm --prefix install ci
 
       - name: Validate public documentation
         run: python3 scripts/check_docs.py
+
+      - name: Validate generated onboarding artifacts
+        run: |
+          python3 scripts/generate_llms_docs.py --check
+          python3 scripts/sync_install_skill.py --check
+          npm --prefix install test
 
       - name: Type-check the site
         run: npm --prefix website run typecheck

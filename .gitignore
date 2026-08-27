@@ -7,5 +7,6 @@ __pycache__/
 *.sqlite3-wal
 .DS_Store
 website/node_modules/
+install/node_modules/
 website/.docusaurus/
 website/build/

@@ -75,8 +75,9 @@ than relying on prose alone.
 ## Repository-specific context
 
 Today, repositories share the same deployment-wide profile. The current
-onboarding mechanism is the explicit allowlist plus the protected GitHub
-workflow described in [Getting started](./GETTING_STARTED.md).
+onboarding mechanism is selected-repository GitHub App installation followed by
+explicit operator enablement, as described in [Getting
+started](./GETTING_STARTED.md).
 
 Trusted base-branch repository configuration and `AGENTS.md` discovery are
 planned. When implemented, that context will be read from the trusted base

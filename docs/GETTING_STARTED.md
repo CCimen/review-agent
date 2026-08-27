@@ -12,9 +12,10 @@ last_verified: 2026-08-26
 > **Current** — One GitHub App installation owns admission, source access, and
 > deterministic publication for explicitly enabled repositories.
 
-Review Agent is deployed once per environment and serves an explicit
-repository allowlist. Adding a repository changes configuration around that
-shared platform; it does not create another reviewer, database, or profile.
+Review Agent is deployed once per environment and serves repositories that an
+operator explicitly enables after App installation. Adding a repository changes
+configuration around that shared platform; it does not create another reviewer,
+database, or profile.
 The environment stores application state in one private PostgreSQL database.
 
 ## Before you begin

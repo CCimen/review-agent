@@ -1,0 +1,38 @@
+schema_version: 1
+
+deployment:
+  environment: pilot
+  platform: compose
+  public_url: https://review.example.org
+  image:
+    repository: ghcr.io/ccimen/review-agent
+    digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  profile: sundsvall-standard
+  timezone: Europe/Stockholm
+  advisory_only: true
+  feedback_enabled: true
+
+github:
+  owner: CCimen
+  owner_type: user
+  installation_mode: selected_repositories
+  repositories:
+    - full_name: CCimen/review-agent
+      enabled: true
+      trigger_mode: manual
+      profile: sundsvall-standard
+
+runtime:
+  worker_replicas: 1
+  worker_concurrency: 1
+  active_job_limit: 20
+  publication_replicas: 1
+
+operations:
+  backups:
+    enabled: true
+    owner: review-agent-operator
+
+# Copy this file before editing it. Replace the example URL, image digest,
+# owner, repositories, and backup owner. Secrets belong in the deployment
+# platform, never in this installation plan.

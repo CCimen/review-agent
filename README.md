@@ -54,6 +54,7 @@ search and task-based navigation. Key pages:
 | Run your first review | [Getting started](docs/GETTING_STARTED.md) |
 | Deploy the service | [Deployment](docs/DEPLOYMENT.md) |
 | Install and enable the GitHub App | [GitHub App setup](docs/GITHUB_APP_PILOT.md) |
+| Set up with Codex or Claude Code | [AI-assisted setup](docs/AI_ASSISTED_SETUP.md) |
 | Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |

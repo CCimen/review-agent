@@ -54,9 +54,8 @@ own profile and session files outside application state.
 
 ## Optional extensions
 
-- Move the optional feedback sidecar behind the same App boundary.
 - Trusted base-branch repository policy and `AGENTS.md` context.
-- Operator-facing repository management and policy controls.
+- Per-repository profiles or reviewed repository-specific rules.
 - Notification or collaboration channels beyond GitHub.
 
 Each extension needs a concrete operator need, an owner, and a security review.

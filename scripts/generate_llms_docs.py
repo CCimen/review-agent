@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Generate public LLM context from the documentation manifest."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import re
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MANIFEST = ROOT / "website" / "public-documents.json"
+STATIC = ROOT / "website" / "static"
+BASE_URL = "https://ccimen.github.io/review-agent"
+SOURCE_BASE = "https://github.com/CCimen/review-agent/blob/main"
+REVISION = "main (unreleased; pin the exact commit you inspect)"
+FRONTMATTER = re.compile(r"\A---\n(?P<header>.*?)\n---\n", re.DOTALL)
+TAB_ITEM = re.compile(r'^<TabItem\b[^>]*\blabel="(?P<label>[^"]+)"[^>]*>$')
+DIRECTIVE = re.compile(r"^(?P<indent>\s*):::(?P<kind>[a-z]+)\[(?P<title>[^]]+)]$")
+
+
+class GenerationError(RuntimeError):
+    """A public source document cannot be represented safely."""
+
+
+def _metadata(relative_path: str) -> tuple[dict[str, str], str]:
+    path = (ROOT / relative_path).resolve()
+    if not path.is_relative_to(ROOT) or not path.is_file():
+        raise GenerationError(f"invalid public document: {relative_path}")
+    text = path.read_text(encoding="utf-8")
+    match = FRONTMATTER.match(text)
+    if match is None:
+        raise GenerationError(f"missing frontmatter: {relative_path}")
+    values: dict[str, str] = {}
+    for line in match.group("header").splitlines():
+        if not line or line.startswith((" ", "#")) or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        values[key.strip()] = value.strip().strip("\"'")
+    for required in ("title", "slug", "status", "last_verified"):
+        if not values.get(required):
+            raise GenerationError(f"{relative_path}: missing {required}")
+    return values, text[match.end() :].strip()
+
+
+def _url(metadata: dict[str, str]) -> str:
+    return f"{BASE_URL}/docs/{metadata['slug'].strip('/')}"
+
+
+def _plain_text(body: str) -> str:
+    lines: list[str] = []
+    fence: str | None = None
+    for line in body.splitlines():
+        stripped = line.strip()
+        marker = stripped[:3]
+        if marker in {"```", "~~~"}:
+            if fence is None:
+                fence = marker
+            elif fence == marker:
+                fence = None
+            lines.append(line)
+            continue
+        if fence is not None:
+            lines.append(line)
+            continue
+        if stripped.startswith("import ") or stripped in {"</Tabs>", "</TabItem>"}:
+            continue
+        if stripped == "<Tabs>" or stripped.startswith("<Tabs "):
+            continue
+        tab_item = TAB_ITEM.fullmatch(stripped)
+        if tab_item is not None:
+            lines.append(f"### {tab_item.group('label')}")
+            continue
+        directive = DIRECTIVE.fullmatch(line)
+        if directive is not None:
+            kind = directive.group("kind").replace("-", " ").title()
+            lines.append(
+                f"{directive.group('indent')}**{kind}: {directive.group('title')}**"
+            )
+            continue
+        if stripped == ":::":
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def generate() -> tuple[str, str]:
+    raw = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    if (
+        not isinstance(raw, list)
+        or not raw
+        or not all(isinstance(item, str) for item in raw)
+        or len(raw) != len(set(raw))
+    ):
+        raise GenerationError("public-documents.json must be a unique string array")
+    documents = [(path, *_metadata(path)) for path in raw]
+
+    short = [
+        "# Review Agent",
+        "",
+        "Self-hosted, advisory pull-request review with bounded model tools, deterministic authorization, PostgreSQL state, and GitHub App publication.",
+        "",
+        f"Release state: {REVISION}",
+        "Authentication: GitHub App only; install it on explicitly selected repositories, then enable each repository separately.",
+        "Trigger: an authorized maintainer posts a new top-level `/review` comment on an open same-repository pull request.",
+        "Security boundary: the model has no shell, merge authority, App private key, installation token, or arbitrary GitHub write access.",
+        "Feedback when enabled: authorized maintainers use `/review false-positive`, `/review feedback scope`, and `/review feedback missed`.",
+        "",
+        "## Start here",
+        "",
+        f"- Quick start: {BASE_URL}/docs/getting-started",
+        f"- Deployment: {BASE_URL}/docs/deployment",
+        f"- GitHub App setup: {BASE_URL}/docs/github-app-pilot",
+        f"- AI-assisted setup: {BASE_URL}/docs/ai-assisted-setup",
+        f"- Operations: {BASE_URL}/docs/operations",
+        f"- Security: {BASE_URL}/docs/security",
+        "",
+        "## Operator interface",
+        "",
+        "From the source checkout, run `python3 tools/review_agent_admin.py capabilities` and `python3 tools/review_agent_admin.py preflight`. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.",
+        "",
+        f"Full public documentation: {BASE_URL}/llms-full.txt",
+        "Source: https://github.com/CCimen/review-agent",
+        "",
+    ]
+
+    full = [
+        "# Review Agent: full public documentation",
+        "",
+        "Generated from `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.",
+        f"Review Agent revision: {REVISION}",
+        "",
+    ]
+    for relative_path, metadata, body in documents:
+        full.extend(
+            [
+                "---",
+                "",
+                f"Title: {metadata['title']}",
+                f"Canonical URL: {_url(metadata)}",
+                f"Source: {SOURCE_BASE}/{relative_path}",
+                f"Status: {metadata['status']}",
+                f"Last verified: {metadata['last_verified']}",
+                f"Review Agent revision: {REVISION}",
+                "",
+                _plain_text(body),
+                "",
+            ]
+        )
+    return "\n".join(short), "\n".join(full)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    index, full = generate()
+    outputs = {
+        STATIC / "llms.txt": index,
+        STATIC / "llms-full.txt": full,
+    }
+    if args.check:
+        stale = [
+            str(path.relative_to(ROOT))
+            for path, expected in outputs.items()
+            if not path.is_file() or path.read_text(encoding="utf-8") != expected
+        ]
+        if stale:
+            raise SystemExit("generated LLM documentation is stale: " + ", ".join(stale))
+        print("Generated LLM documentation is current.")
+        return 0
+    STATIC.mkdir(parents=True, exist_ok=True)
+    for path, content in outputs.items():
+        path.write_text(content, encoding="utf-8")
+        print(f"Wrote {path.relative_to(ROOT)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

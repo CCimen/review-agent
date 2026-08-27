@@ -524,6 +524,51 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         )
         github.create_issue_comment.assert_not_called()
 
+    def test_stale_intentional_feedback_gets_a_deterministic_retry_message(self) -> None:
+        runtime = Mock()
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        github = Mock()
+        github.create_issue_comment.return_value = IssueComment(
+            7001,
+            "stale",
+            "review-agent[bot]",
+        )
+        github.list_issue_comments.return_value = []
+        github.create_issue_comment_reaction.return_value = True
+        service = ReviewGitHubGateway(
+            postgres=runtime,
+            tokens=tokens,
+            profile="sundsvall-standard",
+            feedback_factory=Mock(return_value=github),
+        )
+        command = SimpleNamespace(
+            provider_repository_id=9001,
+            repository="CCimen/review-agent",
+            pr_number=42,
+            comment_id=6001,
+        )
+
+        with patch.object(
+            ReviewGitHubGateway,
+            "_require_authority",
+            side_effect=(command, command, command),
+        ):
+            acknowledged = service.acknowledge_feedback(
+                delivery_id=32,
+                lease_owner="worker-feedback",
+                lease_generation=5,
+                status="stale",
+            )
+
+        self.assertTrue(acknowledged)
+        github.create_issue_comment_reaction.assert_called_once_with(
+            "CCimen/review-agent", 6001, "confused"
+        )
+        body = github.create_issue_comment.call_args.args[2]
+        self.assertIn("exact accepted ADR snapshot and path", body)
+        self.assertIn("Run `/review`", body)
+
     def test_feedback_ack_recovers_a_comment_after_an_ambiguous_write(self) -> None:
         runtime = Mock()
         tokens = Mock()

@@ -45,9 +45,11 @@ and a fresh review round.
 
 ## Does feedback affect later reviews?
 
-Only an exact false-positive decision does so directly. `/review false-positive`
-suppresses the same stable finding while its code-context hash still matches. A
-changed finding or changed context must be reviewed again.
+Two exact decisions can do so directly. `/review false-positive` suppresses the
+same stable finding while its code-context hash still matches. `/review
+intentional` also requires the same accepted ADR ID and metadata in the current
+base snapshot. Changed code, changed ADR metadata, or a superseded ADR requires
+a new review.
 
 `/review feedback scope` and `/review feedback missed` record quality evidence
 for metrics, replay cases, and private improvement analysis. They do not suppress

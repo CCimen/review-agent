@@ -10,8 +10,8 @@ last_verified: 2026-08-27
 # Feedback and design decisions
 
 > **Current**: Feedback collection, statistics, private coaching, and typed
-> repository decision context work now. `/review intentional` remains planned
-> until the App can bind that feedback to the exact stored ADR snapshot.
+> repository decisions are active. Intentional feedback is accepted only when
+> it matches the finding's exact stored base-commit ADR snapshot and path.
 
 Review feedback has two jobs. It corrects one finding when the code disproves it,
 and it gives operators evidence for later reviewer improvements. Teams should
@@ -26,6 +26,7 @@ review.
 | Command | Immediate effect | Later use |
 | --- | --- | --- |
 | `/review false-positive F2 because ...` | Suppresses the same finding while its code-context hash still matches. | Highlights evidence rules or replay cases that may need work. |
+| `/review intentional F2 ADR-0007 because ...` | Suppresses the same finding while both its code context and accepted ADR metadata still match. | Preserves a repository decision and exposes weak ADR path mapping. |
 | `/review feedback scope F2 because ...` | Records scope confusion. It does not suppress the finding. | Shows where PR structure or repository context caused poor review scope. |
 | `/review feedback missed because ...` | Records a concrete issue the review missed. | Shows gaps in source coverage, tools, or review rules. |
 
@@ -81,10 +82,22 @@ Do not rank developers or repositories from raw feedback counts. The coach
 exports omit actor identities, and teams should keep that privacy property when
 they build internal reports.
 
-## Current intentional-design decisions
+## Record an intentional design
 
-An operator can record an intentional design decision against an existing
-finding:
+The normal developer path is a top-level PR comment using the latest review's F
+reference:
+
+```text
+/review intentional F2 ADR-0007 because the accepted retrieval budget requires these coupled values
+```
+
+The App verifies the maintainer's current write or admin permission and binds
+the decision to the published finding. It accepts the command only when
+`ADR-0007` was accepted in that finding's stored base snapshot and its index
+mapping covers the finding path. The audit stores the exact snapshot, ADR path,
+metadata hash, and base SHA.
+
+An authenticated operator can record the same decision from the CLI:
 
 ```bash
 review-agent-memory decide <fingerprint> intentional_by_design \
@@ -97,10 +110,9 @@ review-agent-memory decide <fingerprint> intentional_by_design \
   --expires-days 180
 ```
 
-The current command stores the ADR ID but does not read or validate the ADR.
-The operator must confirm that the ADR exists, remains accepted, and applies to
-the finding. PR comments cannot create intentional-design or accepted-risk
-decisions yet.
+The CLI applies the same snapshot and path validation. It is an operational
+alternative, not a bypass. Accepted-risk decisions remain CLI-only governance
+actions.
 
 ## Repository decision contract
 
@@ -192,21 +204,21 @@ change needs the new contract.
 An ADR edit on the current pull-request head remains a proposal. The review uses
 the accepted base snapshot. If a team supersedes an ADR after a review but before
 someone submits feedback, the feedback remains tied to the older review snapshot;
-the next `/review` loads the new decision.
+the next `/review` loads the new decision. An earlier intentional decision stops
+suppressing as soon as the current base snapshot lacks the same accepted ADR
+metadata, even when the code context did not change.
 
-## Current and next delivery boundary
+## Runtime boundary
 
 The runtime now:
 
 - loads one bounded snapshot from the exact base SHA;
 - gives the reviewer typed metadata as untrusted evidence;
 - publishes the snapshot status and matching ADR IDs;
+- validates intentional feedback against the finding's immutable source snapshot;
+- reuses an intentional decision only while code context, accepted ADR ID, and
+  ADR metadata hash still match;
 - continues the source review when GitHub or ADR parsing fails.
-
-The next slice validates `/review intentional` against the snapshot that
-produced the published finding. It will store the ADR path, metadata hash, and
-base SHA with the audit record. The App will suppress a later occurrence only
-when both the code-context hash and accepted ADR metadata hash still match.
 
 The first release will not add a dashboard, repository instruction injection,
 directory listing, symbol graph, vector database, author inference, or automatic

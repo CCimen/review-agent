@@ -141,6 +141,18 @@ class FindingDecisionDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class IntentionalDesignEvidence:
+    """Exact accepted repository decision used to justify one human decision."""
+
+    review_run_id: ReviewRunId
+    review_decision_snapshot_id: int
+    repository_decision_id: str
+    repository_decision_metadata_hash: str
+    repository_decision_path: str
+    repository_decision_base_sha: str
+
+
+@dataclass(frozen=True, slots=True)
 class FindingDecision:
     id: FindingDecisionId
     finding_id: FindingId
@@ -275,10 +287,15 @@ def suppression_is_active(
     current_context_hash: str,
     expires_at: datetime | None,
     now: datetime,
+    intentional_evidence_current: bool = False,
 ) -> bool:
     """Apply a suppression only to the exact context a human reviewed."""
     return (
         decision in SUPPRESSIVE_DECISION_KINDS
+        and (
+            decision is not DecisionKind.INTENTIONAL_BY_DESIGN
+            or intentional_evidence_current
+        )
         and expires_at is not None
         and expires_at > now
         and bool(decision_context_hash)

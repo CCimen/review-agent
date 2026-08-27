@@ -495,6 +495,7 @@ class GitHubAppProcessor:
                 FeedbackStatus.RECORDED,
                 FeedbackStatus.NO_MAPPING,
                 FeedbackStatus.NOT_CURRENT,
+                FeedbackStatus.STALE,
                 FeedbackStatus.UNSUPPORTED,
             }:
                 raise _Reject("invalid_feedback_outcome")
@@ -503,6 +504,7 @@ class GitHubAppProcessor:
                     "recorded",
                     "no_mapping",
                     "not_current",
+                    "stale",
                     "unsupported",
                 ],
                 result_status.value,

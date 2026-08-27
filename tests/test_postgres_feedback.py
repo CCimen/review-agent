@@ -15,12 +15,18 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+from review_agent_tools import repository_decision_context  # noqa: E402
 from review_agent_tools import review_feedback_application  # noqa: E402
 from review_agent_tools import (  # noqa: E402
     review_finding_application,
     review_run_application,
 )
-from review_agent_tools.domain.finding import FindingInput  # noqa: E402
+from review_agent_tools.domain.finding import (  # noqa: E402
+    FindingId,
+    FindingInput,
+    suppression_is_active,
+)
+from review_agent_tools.domain import repository_decisions as decision_domain  # noqa: E402
 from review_agent_tools.domain.feedback import (  # noqa: E402
     FeedbackStatus,
 )
@@ -36,7 +42,8 @@ from review_agent_tools.feedback_commands import (  # noqa: E402
     parse_review_feedback_command,
 )
 from review_agent_tools.postgres import feedback as postgres_feedback  # noqa: E402
-from review_agent_tools.postgres import publications, review_runs  # noqa: E402
+from review_agent_tools.postgres import repository_decisions  # noqa: E402
+from review_agent_tools.postgres import publications, reporting, review_runs  # noqa: E402
 from review_agent_tools.postgres import decisions as postgres_decisions  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
@@ -117,6 +124,8 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
         head_sha: str = "a" * 40,
         with_finding: bool = True,
         key_character: str = "d",
+        decision_status: str | None = None,
+        decision_applies_to: tuple[str, ...] = ("src/api/**",),
     ) -> publications.StoredPublication:
         started = review_run_application.start_postgres_review(
             self.runtime,
@@ -146,6 +155,37 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
             changed_files_reported=1,
             registration_complete=True,
         )
+        if decision_status is not None:
+            entry = decision_domain.DecisionIndexEntry(
+                id="ADR-0042",
+                adr_path="docs/decisions/ADR-0042.md",
+                applies_to=decision_applies_to,
+            )
+            decision = decision_domain.parse_adr(
+                f"""+++
+id = "ADR-0042"
+title = "Keep authorization context coupled"
+status = "{decision_status}"
+invariant = "Authorization context and writes stay coupled."
+on_change = ["Run the cross-scope authorization test."]
++++
+""",
+                match=decision_domain.DecisionIndexMatch(
+                    entry=entry,
+                    matched_path_count=1,
+                ),
+            )
+            context = repository_decision_context.loaded(
+                base_sha="b" * 40,
+                index_hash="sha256:" + ("e" * 64),
+                decisions=(decision,),
+            )
+            with self.runtime.transaction() as connection:
+                repository_decisions.store_context(
+                    connection,
+                    run_id=started.run.id,
+                    context=context,
+                )
         batch = review_finding_application.record_postgres_findings(
             self.runtime,
             run_id=started.run.id,
@@ -297,6 +337,158 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
         assert audit is not None
         self.assertEqual(audit[:2], ("12345", 500))
         self.assertRegex(str(audit[2]), r"^sha256:[0-9a-f]{64}$")
+
+    def test_intentional_feedback_binds_the_exact_accepted_adr_snapshot(self) -> None:
+        self.publish(decision_status="accepted")
+
+        result = self.feedback(
+            "@review intentional F1 ADR-0042 because this is the accepted design."
+        )
+
+        self.assertEqual(result.status, "recorded")
+        self.assertEqual(result.adr_id, "ADR-0042")
+        with self.runtime.transaction() as connection:
+            row = connection.execute(
+                """
+                SELECT evidence.repository_decision_id,
+                       evidence.repository_decision_metadata_hash,
+                       evidence.repository_decision_path,
+                       evidence.repository_decision_base_sha,
+                       snapshot.status,
+                       decision.decision
+                FROM review_agent.intentional_design_evidence AS evidence
+                JOIN review_agent.review_decision_snapshots AS snapshot
+                  ON snapshot.id = evidence.review_decision_snapshot_id
+                JOIN review_agent.finding_decisions AS decision
+                  ON decision.id = evidence.finding_decision_id
+                """
+            ).fetchone()
+        assert row is not None
+        self.assertEqual(row[0], "ADR-0042")
+        self.assertRegex(str(row[1]), r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(row[2:], (
+            "docs/decisions/ADR-0042.md",
+            "b" * 40,
+            "loaded",
+            "intentional_by_design",
+        ))
+
+    def test_intentional_suppression_requires_the_same_current_adr_metadata(self) -> None:
+        self.publish(decision_status="accepted")
+        recorded = self.feedback(
+            "@review intentional F1 ADR-0042 because this is the accepted design."
+        )
+        self.assertEqual(recorded.status, "recorded")
+
+        same_adr = self.publish(
+            request_key="github:issue-comment:review-2",
+            key_character="e",
+            decision_status="accepted",
+        )
+        now = datetime.now(timezone.utc)
+        with self.runtime.transaction() as connection:
+            same_row = connection.execute(
+                """
+                SELECT finding_id, context_hash
+                FROM review_agent.finding_occurrences
+                WHERE review_run_id = %s
+                """,
+                (same_adr.review_run_id,),
+            ).fetchone()
+            assert same_row is not None
+            same = postgres_decisions.latest_suppression_decisions(
+                connection,
+                finding_ids=(FindingId(int(same_row[0])),),
+                current_run_id=same_adr.review_run_id,
+            )[FindingId(int(same_row[0]))]
+            same_report = reporting.list_findings(
+                connection,
+                repository="example-org/example-repository",
+                limit=10,
+                include_suppressed=True,
+                now=now,
+            )[0]
+
+        self.assertTrue(same.intentional_evidence_current)
+        self.assertTrue(
+            suppression_is_active(
+                decision=same.latest.decision,
+                decision_context_hash=same.latest.context_hash,
+                current_context_hash=str(same_row[1]),
+                expires_at=same.latest.expires_at,
+                intentional_evidence_current=same.intentional_evidence_current,
+                now=now,
+            )
+        )
+        self.assertTrue(same_report.suppressed)
+
+        superseded_adr = self.publish(
+            request_key="github:issue-comment:review-3",
+            key_character="f",
+            decision_status="superseded",
+        )
+        with self.runtime.transaction() as connection:
+            superseded_row = connection.execute(
+                """
+                SELECT finding_id, context_hash
+                FROM review_agent.finding_occurrences
+                WHERE review_run_id = %s
+                """,
+                (superseded_adr.review_run_id,),
+            ).fetchone()
+            assert superseded_row is not None
+            superseded = postgres_decisions.latest_suppression_decisions(
+                connection,
+                finding_ids=(FindingId(int(superseded_row[0])),),
+                current_run_id=superseded_adr.review_run_id,
+            )[FindingId(int(superseded_row[0]))]
+            superseded_report = reporting.list_findings(
+                connection,
+                repository="example-org/example-repository",
+                limit=10,
+                include_suppressed=True,
+                now=now,
+            )[0]
+
+        self.assertFalse(superseded.intentional_evidence_current)
+        self.assertFalse(
+            suppression_is_active(
+                decision=superseded.latest.decision,
+                decision_context_hash=superseded.latest.context_hash,
+                current_context_hash=str(superseded_row[1]),
+                expires_at=superseded.latest.expires_at,
+                intentional_evidence_current=(
+                    superseded.intentional_evidence_current
+                ),
+                now=now,
+            )
+        )
+        self.assertFalse(superseded_report.suppressed)
+
+    def test_intentional_feedback_rejects_an_adr_outside_the_source_snapshot(self) -> None:
+        self.publish(decision_status="accepted")
+
+        first = self.feedback(
+            "@review intentional F1 ADR-9999 because this is documented elsewhere."
+        )
+        replay = self.feedback(
+            "@review intentional F1 ADR-9999 because this is documented elsewhere."
+        )
+
+        self.assertEqual(first.status, "stale")
+        self.assertEqual(first.local_reference, "F1")
+        self.assertEqual(first.adr_id, "ADR-9999")
+        self.assertTrue(replay.replayed)
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM review_agent.finding_decisions),
+                    (SELECT count(*) FROM review_agent.intentional_design_evidence),
+                    (SELECT outcome FROM review_agent.processed_feedback_events)
+                """
+            ).fetchone()
+        self.assertEqual(counts, (0, 0, "stale"))
 
     def test_missing_publication_persists_no_mapping_for_replay(self) -> None:
         first = self.feedback(

@@ -17,7 +17,11 @@ from ..domain.finding import (
     FindingDecisionId,
     FindingId,
     FindingOccurrenceId,
+    IntentionalDesignEvidence,
 )
+from ..domain.review import ReviewRunId
+from .. import repository_decision_context
+from . import repository_decisions as decision_snapshots
 
 
 class DecisionStoreError(ValueError):
@@ -39,6 +43,14 @@ class DecisionAudit:
 
 
 @dataclass(frozen=True, slots=True)
+class SuppressionDecision:
+    """Latest finding decision plus current-run ADR validity when required."""
+
+    latest: FindingDecision
+    intentional_evidence_current: bool
+
+
+@dataclass(frozen=True, slots=True)
 class _DecisionRow:
     id: FindingDecisionId
     finding_id: FindingId
@@ -50,6 +62,19 @@ class _DecisionRow:
     adr_id: str | None
     created_at: datetime
     expires_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class _IntentionalEvidenceRow:
+    finding_decision_id: FindingDecisionId
+    finding_id: FindingId
+    finding_path: str
+    review_run_id: ReviewRunId
+    review_decision_snapshot_id: int
+    repository_decision_id: str
+    repository_decision_metadata_hash: str
+    repository_decision_path: str
+    repository_decision_base_sha: str
 
 
 _DECISION_COLUMNS = """
@@ -133,6 +158,88 @@ def _append_decision(
     return _decision(row)
 
 
+def _validated_intentional_evidence(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    finding_id: FindingId,
+    occurrence_id: FindingOccurrenceId,
+    definition: FindingDecisionDefinition,
+    evidence: IntentionalDesignEvidence | None,
+) -> IntentionalDesignEvidence | None:
+    intentional = definition.decision is DecisionKind.INTENTIONAL_BY_DESIGN
+    if intentional != (evidence is not None):
+        raise DecisionStoreError(
+            "intentional-by-design decisions require exact repository evidence"
+        )
+    if evidence is None:
+        return None
+    target = connection.execute(
+        """
+        SELECT occurrence.review_run_id, identity.path
+        FROM review_agent.finding_occurrences AS occurrence
+        JOIN review_agent.finding_identities AS identity
+          ON identity.id = occurrence.finding_id
+        WHERE occurrence.id = %s AND occurrence.finding_id = %s
+        FOR KEY SHARE OF occurrence
+        """,
+        (occurrence_id, finding_id),
+    ).fetchone()
+    if target is None:
+        raise DecisionStoreError(
+            "decision occurrence does not belong to the selected finding"
+        )
+    review_run_id = ReviewRunId(int(target[0]))
+    context = decision_snapshots.load_context(
+        connection,
+        run_id=review_run_id,
+    )
+    expected = repository_decision_context.intentional_evidence(
+        context,
+        review_run_id=review_run_id,
+        adr_id=definition.adr_id or "",
+        finding_path=str(target[1]),
+    )
+    if expected is None or expected != evidence:
+        raise DecisionStoreError(
+            "intentional repository evidence does not match the finding snapshot"
+        )
+    return expected
+
+
+def _insert_intentional_evidence(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    decision: FindingDecision,
+    evidence: IntentionalDesignEvidence | None,
+) -> None:
+    if evidence is None:
+        return
+    if decision.occurrence_id is None:
+        raise DecisionStoreError("intentional decision is missing its occurrence")
+    connection.execute(
+        """
+        INSERT INTO review_agent.intentional_design_evidence (
+            finding_decision_id, finding_occurrence_id, review_run_id,
+            decision_kind, review_decision_snapshot_id,
+            repository_decision_id, repository_decision_metadata_hash,
+            repository_decision_path, repository_decision_base_sha, recorded_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            decision.id,
+            decision.occurrence_id,
+            evidence.review_run_id,
+            decision.decision.value,
+            evidence.review_decision_snapshot_id,
+            evidence.repository_decision_id,
+            evidence.repository_decision_metadata_hash,
+            evidence.repository_decision_path,
+            evidence.repository_decision_base_sha,
+            decision.created_at,
+        ),
+    )
+
+
 def append_decision_with_audit(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -140,9 +247,17 @@ def append_decision_with_audit(
     occurrence_id: FindingOccurrenceId,
     definition: FindingDecisionDefinition,
     audit: DecisionAudit,
+    intentional_evidence: IntentionalDesignEvidence | None = None,
 ) -> FindingDecision:
     """Derive occurrence context and append the decision plus audit atomically."""
     _require_transaction(connection)
+    resolved_evidence = _validated_intentional_evidence(
+        connection,
+        finding_id=finding_id,
+        occurrence_id=occurrence_id,
+        definition=definition,
+        evidence=intentional_evidence,
+    )
     decision = _append_decision(
         connection,
         finding_id=finding_id,
@@ -173,6 +288,11 @@ def append_decision_with_audit(
         raise DecisionAuditConflict(
             "decision audit source comment was already applied"
         ) from exc
+    _insert_intentional_evidence(
+        connection,
+        decision=decision,
+        evidence=resolved_evidence,
+    )
     return decision
 
 
@@ -182,15 +302,29 @@ def append_operator_decision(
     finding_id: FindingId,
     occurrence_id: FindingOccurrenceId,
     definition: FindingDecisionDefinition,
+    intentional_evidence: IntentionalDesignEvidence | None = None,
 ) -> FindingDecision:
     """Append a directly authenticated operator decision without GitHub audit data."""
     _require_transaction(connection)
-    return _append_decision(
+    resolved_evidence = _validated_intentional_evidence(
+        connection,
+        finding_id=finding_id,
+        occurrence_id=occurrence_id,
+        definition=definition,
+        evidence=intentional_evidence,
+    )
+    decision = _append_decision(
         connection,
         finding_id=finding_id,
         occurrence_id=occurrence_id,
         definition=definition,
     )
+    _insert_intentional_evidence(
+        connection,
+        decision=decision,
+        evidence=resolved_evidence,
+    )
+    return decision
 
 
 def latest_decision(
@@ -229,6 +363,72 @@ def latest_decisions(
             (unique_ids,),
         ).fetchall()
     return {row.finding_id: _decision(row) for row in rows}
+
+
+def latest_suppression_decisions(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    finding_ids: Sequence[FindingId],
+    current_run_id: ReviewRunId,
+) -> dict[FindingId, SuppressionDecision]:
+    """Load latest decisions and validate intentional evidence once per run."""
+    decisions = latest_decisions(connection, finding_ids=finding_ids)
+    intentional_ids = [
+        int(decision.id)
+        for decision in decisions.values()
+        if decision.decision is DecisionKind.INTENTIONAL_BY_DESIGN
+    ]
+    current_evidence: set[FindingId] = set()
+    if intentional_ids:
+        context = decision_snapshots.load_context(
+            connection,
+            run_id=current_run_id,
+        )
+        with connection.cursor(row_factory=class_row(_IntentionalEvidenceRow)) as cursor:
+            rows = cursor.execute(
+                """
+                SELECT evidence.finding_decision_id,
+                       decision.finding_id,
+                       identity.path AS finding_path,
+                       evidence.review_run_id,
+                       evidence.review_decision_snapshot_id,
+                       evidence.repository_decision_id,
+                       evidence.repository_decision_metadata_hash,
+                       evidence.repository_decision_path,
+                       evidence.repository_decision_base_sha
+                FROM review_agent.intentional_design_evidence AS evidence
+                JOIN review_agent.finding_decisions AS decision
+                  ON decision.id = evidence.finding_decision_id
+                JOIN review_agent.finding_identities AS identity
+                  ON identity.id = decision.finding_id
+                WHERE evidence.finding_decision_id = ANY(%s::bigint[])
+                """,
+                (intentional_ids,),
+            ).fetchall()
+        for row in rows:
+            evidence = IntentionalDesignEvidence(
+                review_run_id=row.review_run_id,
+                review_decision_snapshot_id=row.review_decision_snapshot_id,
+                repository_decision_id=row.repository_decision_id,
+                repository_decision_metadata_hash=(
+                    row.repository_decision_metadata_hash
+                ),
+                repository_decision_path=row.repository_decision_path,
+                repository_decision_base_sha=row.repository_decision_base_sha,
+            )
+            if repository_decision_context.intentional_evidence_is_current(
+                context,
+                evidence=evidence,
+                finding_path=row.finding_path,
+            ):
+                current_evidence.add(row.finding_id)
+    return {
+        finding_id: SuppressionDecision(
+            latest=decision,
+            intentional_evidence_current=finding_id in current_evidence,
+        )
+        for finding_id, decision in decisions.items()
+    }
 
 
 def decision_history(

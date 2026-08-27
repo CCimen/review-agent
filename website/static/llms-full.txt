@@ -140,12 +140,15 @@ Give feedback with a new top-level PR comment:
 
 ```text
 /review false-positive F2 because <what code, guard, or invariant disproves it>
+/review intentional F2 ADR-0007 because <why the accepted ADR requires this design>
 /review feedback scope F2 because <why this finding is outside the intended PR scope>
 /review feedback missed because <what concrete issue was missed and where>
 ```
 
-`false-positive` is a finding decision. `feedback scope` and `feedback missed`
-are review-quality signals; they do not suppress findings automatically.
+`false-positive` and `intentional` are exact, expiring finding decisions.
+Intentional feedback also requires the same accepted ADR metadata in later
+reviews. `feedback scope` and `feedback missed` are review-quality signals; they
+do not suppress findings automatically.
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) explains how teams
 turn repeated signals into reviewed changes and how exact base-commit ADR
 context protects repository invariants.
@@ -263,7 +266,8 @@ creates a new review round while the prior round remains historical context.
 - Apply only suggestions that are independently safe; use the coding-agent brief
   for coordinated changes.
 - If feedback is enabled, use the deterministic `/review false-positive`,
-  `/review feedback scope`, or `/review feedback missed` commands described in
+  `/review intentional`, `/review feedback scope`, or `/review feedback missed`
+  commands described in
   [Operations](./OPERATIONS.md#developer-feedback).
 
 If no comment appears, follow the [failure runbook](./OPERATIONS.md#runbook)
@@ -1096,10 +1100,12 @@ replicated; PostgreSQL coordinates claims and recovery.
 
 ## Learn from explicit feedback
 
-Authorized maintainers can report false positives, scope problems, and missed
-issues. An exact false-positive decision suppresses the same finding while its
-code-context hash still matches. Scope and missed-issue commands record quality
-evidence for operators. None of these commands rewrites policy or prompts.
+Authorized maintainers can report false positives, intentional designs, scope
+problems, and missed issues. Exact false-positive decisions require the same
+finding and code context. Intentional decisions also require the same accepted
+ADR metadata in the current base snapshot. Scope and missed-issue commands
+record quality evidence for operators. None of these commands rewrites policy
+or prompts.
 
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) shows the weekly
 and monthly operating flow, plus the repository ADR contract. Private
@@ -1247,9 +1253,11 @@ and a fresh review round.
 
 ## Does feedback affect later reviews?
 
-Only an exact false-positive decision does so directly. `/review false-positive`
-suppresses the same stable finding while its code-context hash still matches. A
-changed finding or changed context must be reviewed again.
+Two exact decisions can do so directly. `/review false-positive` suppresses the
+same stable finding while its code-context hash still matches. `/review
+intentional` also requires the same accepted ADR ID and metadata in the current
+base snapshot. Changed code, changed ADR metadata, or a superseded ADR requires
+a new review.
 
 `/review feedback scope` and `/review feedback missed` record quality evidence
 for metrics, replay cases, and private improvement analysis. They do not suppress
@@ -1637,23 +1645,27 @@ not reply inside an inline diff thread.
 ```text
 /review false-positive F2 because <what code, guard, or invariant disproves it>
 
+/review intentional F2 ADR-0007 because <why the accepted ADR requires this design>
+
 /review feedback scope F2 because <why this finding is in the diff but outside the intended PR scope>
 
 /review feedback missed because <what concrete issue was missed and where>
 ```
 
 `false-positive` is a durable finding decision. A later review suppresses the
-same stable finding only while its code-context hash still matches; changed code
-must be evaluated again. `feedback scope` records author-intent or stacked-branch
-scope confusion without suppressing the finding. `feedback missed` records
-review-quality feedback for metrics, replay cases, and private
-reviewer-improvement analysis. Neither quality-feedback command rewrites the
-live reviewer's prompts, skills, or policy.
+same stable finding only while its code-context hash still matches. `intentional`
+adds the exact accepted ADR ID, metadata hash, path, and base snapshot to that
+rule; code or ADR changes require a fresh review. `feedback scope` records
+author-intent or stacked-branch scope confusion without suppressing the finding.
+`feedback missed` records review-quality feedback for metrics, replay cases, and
+private reviewer-improvement analysis. Quality feedback never rewrites the live
+reviewer's prompts, skills, or policy.
 
 Successful feedback receives a `+1` reaction. Invalid, stale, not-current, or
 unsupported commands receive a `confused` reaction and one deterministic
-explanation. Intentional-design and accepted-risk decisions remain CLI or
-governance actions until there is deterministic ADR validation for PR comments.
+explanation. A stale intentional command tells the maintainer to run `/review`
+after the ADR is accepted, then use the latest F reference. Accepted-risk
+decisions remain governance actions.
 
 ## Runbook
 
@@ -1939,8 +1951,8 @@ Review Agent revision: main (unreleased; pin the exact commit you inspect)
 # Feedback and design decisions
 
 > **Current**: Feedback collection, statistics, private coaching, and typed
-> repository decision context work now. `/review intentional` remains planned
-> until the App can bind that feedback to the exact stored ADR snapshot.
+> repository decisions are active. Intentional feedback is accepted only when
+> it matches the finding's exact stored base-commit ADR snapshot and path.
 
 Review feedback has two jobs. It corrects one finding when the code disproves it,
 and it gives operators evidence for later reviewer improvements. Teams should
@@ -1955,6 +1967,7 @@ review.
 | Command | Immediate effect | Later use |
 | --- | --- | --- |
 | `/review false-positive F2 because ...` | Suppresses the same finding while its code-context hash still matches. | Highlights evidence rules or replay cases that may need work. |
+| `/review intentional F2 ADR-0007 because ...` | Suppresses the same finding while both its code context and accepted ADR metadata still match. | Preserves a repository decision and exposes weak ADR path mapping. |
 | `/review feedback scope F2 because ...` | Records scope confusion. It does not suppress the finding. | Shows where PR structure or repository context caused poor review scope. |
 | `/review feedback missed because ...` | Records a concrete issue the review missed. | Shows gaps in source coverage, tools, or review rules. |
 
@@ -2010,10 +2023,22 @@ Do not rank developers or repositories from raw feedback counts. The coach
 exports omit actor identities, and teams should keep that privacy property when
 they build internal reports.
 
-## Current intentional-design decisions
+## Record an intentional design
 
-An operator can record an intentional design decision against an existing
-finding:
+The normal developer path is a top-level PR comment using the latest review's F
+reference:
+
+```text
+/review intentional F2 ADR-0007 because the accepted retrieval budget requires these coupled values
+```
+
+The App verifies the maintainer's current write or admin permission and binds
+the decision to the published finding. It accepts the command only when
+`ADR-0007` was accepted in that finding's stored base snapshot and its index
+mapping covers the finding path. The audit stores the exact snapshot, ADR path,
+metadata hash, and base SHA.
+
+An authenticated operator can record the same decision from the CLI:
 
 ```bash
 review-agent-memory decide <fingerprint> intentional_by_design \
@@ -2026,10 +2051,9 @@ review-agent-memory decide <fingerprint> intentional_by_design \
   --expires-days 180
 ```
 
-The current command stores the ADR ID but does not read or validate the ADR.
-The operator must confirm that the ADR exists, remains accepted, and applies to
-the finding. PR comments cannot create intentional-design or accepted-risk
-decisions yet.
+The CLI applies the same snapshot and path validation. It is an operational
+alternative, not a bypass. Accepted-risk decisions remain CLI-only governance
+actions.
 
 ## Repository decision contract
 
@@ -2121,21 +2145,21 @@ change needs the new contract.
 An ADR edit on the current pull-request head remains a proposal. The review uses
 the accepted base snapshot. If a team supersedes an ADR after a review but before
 someone submits feedback, the feedback remains tied to the older review snapshot;
-the next `/review` loads the new decision.
+the next `/review` loads the new decision. An earlier intentional decision stops
+suppressing as soon as the current base snapshot lacks the same accepted ADR
+metadata, even when the code context did not change.
 
-## Current and next delivery boundary
+## Runtime boundary
 
 The runtime now:
 
 - loads one bounded snapshot from the exact base SHA;
 - gives the reviewer typed metadata as untrusted evidence;
 - publishes the snapshot status and matching ADR IDs;
+- validates intentional feedback against the finding's immutable source snapshot;
+- reuses an intentional decision only while code context, accepted ADR ID, and
+  ADR metadata hash still match;
 - continues the source review when GitHub or ADR parsing fails.
-
-The next slice validates `/review intentional` against the snapshot that
-produced the published finding. It will store the ADR path, metadata hash, and
-base SHA with the audit record. The App will suppress a later occurrence only
-when both the code-context hash and accepted ADR metadata hash still match.
 
 The first release will not add a dashboard, repository instruction injection,
 directory listing, symbol graph, vector database, author inference, or automatic
@@ -2438,6 +2462,12 @@ does not mark the finding incorrect.
 
 ```text
 /review false-positive <F-reference> because <what code, guard, or invariant disproves it>
+```
+
+**The finding conflicts with an accepted design decision**
+
+```text
+/review intentional <F-reference> <ADR-id> because <why the accepted ADR requires this design>
 ```
 
 **The finding is in the diff but outside the intended PR scope**

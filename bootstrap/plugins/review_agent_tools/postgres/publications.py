@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import psycopg
@@ -29,9 +29,11 @@ from ..domain.publication import (
     decode_publication_delivery,
     resolve_rendered_blocks,
 )
+from ..domain.finding import FindingId, suppression_is_active
 from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
 from ..repository_decision_context import RepositoryDecisionContext
 from . import repository_decisions as postgres_repository_decisions
+from . import decisions as postgres_decisions
 
 
 class PublicationStoreError(ValueError):
@@ -300,7 +302,6 @@ class _PreparationFindingRow:
     disproof_checks: str
     impact: str
     smallest_fix: str
-    suppressed: bool
     suggestion_path: str | None
     suggestion_start_line: int | None
     suggestion_end_line: int | None
@@ -317,7 +318,6 @@ class _PreviousFindingRow:
     fingerprint: str
     title: str
     context_hash: str
-    suppressed: bool
 
 
 def preparation_context(
@@ -376,17 +376,6 @@ def preparation_context(
                    occurrence.context_hash, occurrence.evidence,
                    occurrence.disproof_checks, occurrence.impact,
                    occurrence.smallest_fix,
-                   COALESCE(
-                       decision.decision IN (
-                           'false_positive', 'intentional_by_design',
-                           'accepted_risk', 'duplicate'
-                       )
-                       AND decision.context_hash = occurrence.context_hash
-                       AND (
-                           decision.expires_at IS NULL
-                           OR decision.expires_at > statement_timestamp()
-                       ), false
-                   ) AS suppressed,
                    identity.path AS suggestion_path,
                    suggestion.start_line AS suggestion_start_line,
                    suggestion.end_line AS suggestion_end_line,
@@ -398,14 +387,6 @@ def preparation_context(
             JOIN review_agent.pull_request_finding_references AS reference
               ON reference.pull_request_id = occurrence.pull_request_id
              AND reference.finding_id = occurrence.finding_id
-            LEFT JOIN LATERAL (
-                SELECT finding_decision.decision,
-                       finding_decision.context_hash,
-                       finding_decision.expires_at
-                FROM review_agent.finding_decisions AS finding_decision
-                WHERE finding_decision.finding_id = occurrence.finding_id
-                ORDER BY finding_decision.id DESC LIMIT 1
-            ) AS decision ON true
             LEFT JOIN review_agent.finding_suggestions AS suggestion
               ON suggestion.finding_occurrence_id = occurrence.id
             WHERE occurrence.review_run_id = %s
@@ -421,18 +402,7 @@ def preparation_context(
                    item.source_finding_occurrence_id AS occurrence_id,
                    item.source_review_run_id AS source_run_id,
                    item.local_reference, identity.fingerprint,
-                   occurrence.title, occurrence.context_hash,
-                   COALESCE(
-                       decision.decision IN (
-                           'false_positive', 'intentional_by_design',
-                           'accepted_risk', 'duplicate'
-                       )
-                       AND decision.context_hash = occurrence.context_hash
-                       AND (
-                           decision.expires_at IS NULL
-                           OR decision.expires_at > statement_timestamp()
-                       ), false
-                   ) AS suppressed
+                   occurrence.title, occurrence.context_hash
             FROM review_agent.publications AS publication
             JOIN review_agent.publication_findings AS item
               ON item.publication_id = publication.id
@@ -440,14 +410,6 @@ def preparation_context(
               ON identity.id = item.finding_id
             JOIN review_agent.finding_occurrences AS occurrence
               ON occurrence.id = item.source_finding_occurrence_id
-            LEFT JOIN LATERAL (
-                SELECT finding_decision.decision,
-                       finding_decision.context_hash,
-                       finding_decision.expires_at
-                FROM review_agent.finding_decisions AS finding_decision
-                WHERE finding_decision.finding_id = item.finding_id
-                ORDER BY finding_decision.id DESC LIMIT 1
-            ) AS decision ON true
             WHERE publication.pull_request_id = %s
               AND publication.status = 'posted'
               AND publication.superseded_by_publication_id IS NULL
@@ -513,6 +475,27 @@ def preparation_context(
             suggestion_key=row.suggestion_key,
         )
 
+    finding_ids = tuple(
+        FindingId(row.finding_id) for row in (*current_rows, *previous_rows)
+    )
+    decisions = postgres_decisions.latest_suppression_decisions(
+        connection,
+        finding_ids=finding_ids,
+        current_run_id=run_id,
+    )
+    moment = datetime.now(timezone.utc)
+
+    def suppressed(*, finding_id: int, context_hash: str) -> bool:
+        candidate = decisions.get(FindingId(finding_id))
+        return candidate is not None and suppression_is_active(
+            decision=candidate.latest.decision,
+            decision_context_hash=candidate.latest.context_hash,
+            current_context_hash=context_hash,
+            expires_at=candidate.latest.expires_at,
+            intentional_evidence_current=candidate.intentional_evidence_current,
+            now=moment,
+        )
+
     return PublicationPreparationContext(
         run_id=int(run_id),
         repository=scope.repository,
@@ -543,7 +526,10 @@ def preparation_context(
                 disproof_checks=row.disproof_checks,
                 impact=row.impact,
                 smallest_fix=row.smallest_fix,
-                suppressed=row.suppressed,
+                suppressed=suppressed(
+                    finding_id=row.finding_id,
+                    context_hash=row.context_hash,
+                ),
                 suggestion=suggestion(row),
             )
             for row in current_rows
@@ -557,7 +543,10 @@ def preparation_context(
                 fingerprint=row.fingerprint,
                 title=row.title,
                 context_hash=row.context_hash,
-                suppressed=row.suppressed,
+                suppressed=suppressed(
+                    finding_id=row.finding_id,
+                    context_hash=row.context_hash,
+                ),
             )
             for row in previous_rows
         ),

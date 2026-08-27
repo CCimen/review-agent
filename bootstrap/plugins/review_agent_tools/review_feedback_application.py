@@ -21,6 +21,8 @@ from .feedback_commands import (
 )
 from .postgres import decisions as postgres_decisions
 from .postgres import feedback as postgres_feedback
+from .postgres import repository_decisions as postgres_repository_decisions
+from . import repository_decision_context
 from .postgres.runtime import PostgreSQLRuntime
 
 
@@ -53,17 +55,6 @@ def record_postgres_feedback(
         raise ReviewFeedbackError(
             "authorization_version must be a sha256:<64 hex> identifier"
         )
-    if (
-        isinstance(command, FindingFeedbackCommand)
-        and command.decision == "intentional_by_design"
-    ):
-        return FeedbackResult(
-            status=FeedbackStatus.UNSUPPORTED,
-            event_id=resolved_event_id,
-            local_reference=command.local_reference,
-            adr_id=command.adr_id,
-        )
-
     resolved_repository = resolve_repository(repository)
     resolved_pr_number = resolve_positive_int(pr_number, field="pr_number")
     resolved_source_comment_id = resolve_positive_int(
@@ -185,6 +176,30 @@ def record_postgres_feedback(
             )
         if decision_definition is None:
             raise ReviewFeedbackError("finding feedback has no decision definition")
+        intentional_evidence = None
+        if command.decision == "intentional_by_design":
+            decision_context = postgres_repository_decisions.load_context(
+                connection,
+                run_id=target.review_run_id,
+            )
+            intentional_evidence = repository_decision_context.intentional_evidence(
+                decision_context,
+                review_run_id=target.review_run_id,
+                adr_id=command.adr_id,
+                finding_path=target.path,
+            )
+            if intentional_evidence is None:
+                postgres_feedback.complete_event(
+                    connection,
+                    event_id=resolved_event_id,
+                    outcome=FeedbackStatus.STALE,
+                )
+                return FeedbackResult(
+                    status=FeedbackStatus.STALE,
+                    event_id=resolved_event_id,
+                    local_reference=target.local_reference,
+                    adr_id=command.adr_id,
+                )
         decision = postgres_decisions.append_decision_with_audit(
             connection,
             finding_id=target.finding_id,
@@ -198,6 +213,7 @@ def record_postgres_feedback(
                 source_comment_id=resolved_source_comment_id,
                 source_comment_url=resolved_source_url or None,
             ),
+            intentional_evidence=intentional_evidence,
         )
         postgres_feedback.complete_event(
             connection,

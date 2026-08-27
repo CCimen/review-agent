@@ -104,6 +104,8 @@ class FindingDetail:
 class DecisionTarget:
     finding_id: FindingId
     occurrence_id: FindingOccurrenceId
+    review_run_id: ReviewRunId
+    path: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +266,7 @@ class _FindingRow:
     decision_adr_id: str | None
     decision_created_at: datetime | None
     decision_expires_at: datetime | None
+    intentional_evidence_current: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,7 +346,31 @@ class _PublicationReportRow:
     verification_failure_code: str | None
 
 
-_FINDING_SELECT = """
+# Operator lists need to filter in SQL before LIMIT, so they cannot reuse the
+# Python predicate used by review and publication paths. The metadata hash covers
+# `applies_to`; matching it proves that the stored path rule is unchanged.
+_INTENTIONAL_EVIDENCE_CURRENT_SQL = """
+    EXISTS (
+        SELECT 1
+        FROM review_agent.intentional_design_evidence AS intentional
+        JOIN review_agent.review_decision_snapshots AS current_snapshot
+          ON current_snapshot.review_run_id = occurrence.review_run_id
+         AND current_snapshot.status = 'loaded'
+        CROSS JOIN LATERAL jsonb_array_elements(
+            current_snapshot.payload -> 'decisions'
+        ) AS current_decision
+        WHERE intentional.finding_decision_id = decision.id
+          AND current_decision ->> 'id' = intentional.repository_decision_id
+          AND current_decision ->> 'status' = 'accepted'
+          AND current_decision ->> 'metadata_hash'
+                = intentional.repository_decision_metadata_hash
+          AND current_decision ->> 'adr_path'
+                = intentional.repository_decision_path
+    )
+"""
+
+
+_FINDING_SELECT = f"""
     SELECT identity.id, repository.full_name AS repository,
            identity.fingerprint, identity.rule_id, identity.path,
            identity.symbol, identity.anchor, identity.first_seen_at,
@@ -359,7 +386,12 @@ _FINDING_SELECT = """
            decision.context_hash AS decision_context_hash,
            decision.adr_id AS decision_adr_id,
            decision.created_at AS decision_created_at,
-           decision.expires_at AS decision_expires_at
+           decision.expires_at AS decision_expires_at,
+           CASE
+               WHEN decision.decision = 'intentional_by_design'
+               THEN {_INTENTIONAL_EVIDENCE_CURRENT_SQL}
+               ELSE false
+           END AS intentional_evidence_current
     FROM review_agent.finding_identities AS identity
     JOIN review_agent.repositories AS repository
       ON repository.id = identity.repository_id
@@ -428,6 +460,7 @@ def _finding(row: _FindingRow, *, now: datetime) -> FindingReport:
             decision_context_hash=row.decision_context_hash,
             current_context_hash=row.context_hash,
             expires_at=row.decision_expires_at,
+            intentional_evidence_current=row.intentional_evidence_current,
             now=now,
         )
     return FindingReport(
@@ -479,7 +512,9 @@ def list_findings(
             "decision.decision = ANY(%s::text[]) "
             "AND decision.expires_at > %s "
             "AND decision.context_hash <> '' "
-            "AND decision.context_hash = occurrence.context_hash, false)"
+            "AND decision.context_hash = occurrence.context_hash "
+            "AND (decision.decision <> 'intentional_by_design' OR "
+            f"{_INTENTIONAL_EVIDENCE_CURRENT_SQL}), false)"
         )
         parameters.extend(
             ([item.value for item in SUPPRESSIVE_DECISION_KINDS], now)
@@ -530,6 +565,7 @@ def active_repeat_suppressions(
     connection: psycopg.Connection[TupleRow],
     *,
     repository_id: RepositoryId,
+    current_run_id: ReviewRunId,
     fingerprint_contexts: Sequence[tuple[str, str]],
     now: datetime,
 ) -> frozenset[str]:
@@ -543,32 +579,40 @@ def active_repeat_suppressions(
         WITH target(fingerprint, context_hash) AS (
             SELECT * FROM unnest(%s::text[], %s::text[])
         )
-        SELECT identity.fingerprint
+        SELECT identity.id, identity.fingerprint, target.context_hash
         FROM target
         JOIN review_agent.finding_identities AS identity
           ON identity.repository_id = %s
          AND identity.fingerprint = target.fingerprint
-        JOIN LATERAL (
-            SELECT stored.*
-            FROM review_agent.finding_decisions AS stored
-            WHERE stored.finding_id = identity.id
-            ORDER BY stored.id DESC
-            LIMIT 1
-        ) AS decision ON true
-        WHERE decision.decision = ANY(%s::text[])
-          AND decision.expires_at > %s
-          AND decision.context_hash <> ''
-          AND decision.context_hash = target.context_hash
         """,
         (
             list(fingerprints),
             list(context_hashes),
             repository_id,
-            [item.value for item in SUPPRESSIVE_DECISION_KINDS],
-            now,
         ),
     ).fetchall()
-    return frozenset(str(row[0]) for row in rows)
+    decisions = postgres_decisions.latest_suppression_decisions(
+        connection,
+        finding_ids=tuple(FindingId(int(row[0])) for row in rows),
+        current_run_id=current_run_id,
+    )
+    return frozenset(
+        str(row[1])
+        for row in rows
+        if (
+            (candidate := decisions.get(FindingId(int(row[0])))) is not None
+            and suppression_is_active(
+                decision=candidate.latest.decision,
+                decision_context_hash=candidate.latest.context_hash,
+                current_context_hash=str(row[2]),
+                expires_at=candidate.latest.expires_at,
+                intentional_evidence_current=(
+                    candidate.intentional_evidence_current
+                ),
+                now=now,
+            )
+        )
+    )
 
 
 def finding_detail(
@@ -618,7 +662,7 @@ def decision_target(
     except FindingDomainError as exc:
         raise ReportingError(str(exc)) from exc
     identity = connection.execute(
-        "SELECT id FROM review_agent.finding_identities "
+        "SELECT id, path FROM review_agent.finding_identities "
         "WHERE repository_id = %s AND fingerprint = %s",
         (repository_id, fingerprint),
     ).fetchone()
@@ -627,25 +671,25 @@ def decision_target(
     finding_id = FindingId(int(identity[0]))
     if occurrence_id is not None:
         occurrence = connection.execute(
-            "SELECT id FROM review_agent.finding_occurrences "
+            "SELECT id, review_run_id FROM review_agent.finding_occurrences "
             "WHERE id = %s AND finding_id = %s",
             (occurrence_id, finding_id),
         ).fetchone()
     elif latest:
         occurrence = connection.execute(
-            "SELECT id FROM review_agent.finding_occurrences "
+            "SELECT id, review_run_id FROM review_agent.finding_occurrences "
             "WHERE finding_id = %s ORDER BY observed_at DESC, id DESC LIMIT 1",
             (finding_id,),
         ).fetchone()
     else:
         occurrence = connection.execute(
             """
-            SELECT occurrence.id
+            SELECT occurrence.id, occurrence.review_run_id
             FROM review_agent.pull_requests AS pull_request
             JOIN review_agent.pull_request_finding_references AS reference
               ON reference.pull_request_id = pull_request.id
             JOIN LATERAL (
-                SELECT stored.id
+                SELECT stored.id, stored.review_run_id
                 FROM review_agent.finding_occurrences AS stored
                 JOIN review_agent.review_runs AS run
                   ON run.id = stored.review_run_id
@@ -665,6 +709,8 @@ def decision_target(
     return DecisionTarget(
         finding_id=finding_id,
         occurrence_id=FindingOccurrenceId(int(occurrence[0])),
+        review_run_id=ReviewRunId(int(occurrence[1])),
+        path=str(identity[1]),
     )
 
 
@@ -703,7 +749,8 @@ def finding_stats(
                 WHERE true {repository_filter}
             ), latest_occurrence AS (
                 SELECT DISTINCT ON (occurrence.finding_id)
-                       occurrence.finding_id, occurrence.context_hash,
+                       occurrence.finding_id, occurrence.review_run_id,
+                       occurrence.context_hash,
                        occurrence.observed_at,
                        count(*) OVER (PARTITION BY occurrence.finding_id)::integer
                            AS occurrence_count
@@ -728,6 +775,10 @@ def finding_stats(
                            'accepted_risk', 'duplicate'
                        ) AND decision.expires_at > %s
                          AND decision.context_hash = occurrence.context_hash
+                         AND (
+                             decision.decision <> 'intentional_by_design'
+                             OR {_INTENTIONAL_EVIDENCE_CURRENT_SQL}
+                         )
                    )::integer AS active_suppressions,
                    count(*) FILTER (
                        WHERE decision.decision IN (
@@ -736,6 +787,10 @@ def finding_stats(
                        ) AND decision.expires_at > %s
                          AND decision.expires_at <= %s
                          AND decision.context_hash = occurrence.context_hash
+                         AND (
+                             decision.decision <> 'intentional_by_design'
+                             OR {_INTENTIONAL_EVIDENCE_CURRENT_SQL}
+                         )
                    )::integer AS active_suppressions_nearing_expiry,
                    count(*) FILTER (
                        WHERE occurrence.occurrence_count > 1

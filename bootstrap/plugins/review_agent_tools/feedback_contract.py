@@ -8,6 +8,8 @@ CANONICAL_TRIGGER = "/review"
 COMPATIBLE_TRIGGERS = ("/review", "@review")
 
 FALSE_POSITIVE_PLACEHOLDER = "<what code, guard, or invariant disproves it>"
+ADR_ID_PLACEHOLDER = "<ADR-id>"
+INTENTIONAL_DESIGN_PLACEHOLDER = "<why the accepted ADR requires this design>"
 MISSED_ISSUE_PLACEHOLDER = "<what concrete issue was missed and where>"
 SCOPE_CONFUSION_PLACEHOLDER = (
     "<why this finding is in the diff but outside the intended PR scope>"
@@ -23,6 +25,8 @@ class FeedbackCommandTemplate:
 def contains_placeholder(value: str) -> bool:
     return (
         FALSE_POSITIVE_PLACEHOLDER in value
+        or ADR_ID_PLACEHOLDER in value
+        or INTENTIONAL_DESIGN_PLACEHOLDER in value
         or MISSED_ISSUE_PLACEHOLDER in value
         or SCOPE_CONFUSION_PLACEHOLDER in value
     )
@@ -41,6 +45,13 @@ def missed_issue_command() -> str:
     )
 
 
+def intentional_design_command(local_reference: str) -> str:
+    return (
+        f"{CANONICAL_TRIGGER} intentional {local_reference} "
+        f"{ADR_ID_PLACEHOLDER} because {INTENTIONAL_DESIGN_PLACEHOLDER}"
+    )
+
+
 def scope_confusion_command(local_reference: str) -> str:
     return (
         f"{CANONICAL_TRIGGER} feedback scope {local_reference} because "
@@ -56,6 +67,10 @@ def feedback_templates(
             FeedbackCommandTemplate(
                 title="The finding is incorrect",
                 command=false_positive_command(local_reference),
+            ),
+            FeedbackCommandTemplate(
+                title="The finding conflicts with an accepted design decision",
+                command=intentional_design_command(local_reference),
             ),
             FeedbackCommandTemplate(
                 title="The finding is in the diff but outside the intended PR scope",

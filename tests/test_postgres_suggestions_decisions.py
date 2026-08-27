@@ -59,6 +59,29 @@ class FindingDecisionDomainTests(unittest.TestCase):
                 now=now,
             )
         )
+
+    def test_intentional_suppression_requires_current_adr_evidence(self) -> None:
+        now = datetime(2026, 8, 24, tzinfo=timezone.utc)
+
+        self.assertFalse(
+            suppression_is_active(
+                decision=DecisionKind.INTENTIONAL_BY_DESIGN,
+                decision_context_hash="a" * 40,
+                current_context_hash="a" * 40,
+                expires_at=now + timedelta(days=1),
+                now=now,
+            )
+        )
+        self.assertTrue(
+            suppression_is_active(
+                decision=DecisionKind.INTENTIONAL_BY_DESIGN,
+                decision_context_hash="a" * 40,
+                current_context_hash="a" * 40,
+                expires_at=now + timedelta(days=1),
+                intentional_evidence_current=True,
+                now=now,
+            )
+        )
         self.assertFalse(
             suppression_is_active(
                 decision=DecisionKind.RESOLVED,
@@ -433,6 +456,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             review_finding_application.load_postgres_active_suppression(
                 self.runtime,
                 finding_id=target.finding_id,
+                run_id=batch.run_id,
                 context_hash="c" * 40,
             )
         )
@@ -440,6 +464,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             review_finding_application.load_postgres_active_suppression(
                 self.runtime,
                 finding_id=target.finding_id,
+                run_id=batch.run_id,
                 context_hash="e" * 40,
             )
         )
@@ -507,6 +532,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             review_finding_application.load_postgres_active_suppression(
                 self.runtime,
                 finding_id=target.finding_id,
+                run_id=batch.run_id,
                 context_hash="c" * 40,
                 now=decision_time + timedelta(hours=2),
             )

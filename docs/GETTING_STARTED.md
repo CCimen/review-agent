@@ -66,7 +66,8 @@ creates a new review round while the prior round remains historical context.
 - Apply only suggestions that are independently safe; use the coding-agent brief
   for coordinated changes.
 - If feedback is enabled, use the deterministic `/review false-positive`,
-  `/review feedback scope`, or `/review feedback missed` commands described in
+  `/review intentional`, `/review feedback scope`, or `/review feedback missed`
+  commands described in
   [Operations](./OPERATIONS.md#developer-feedback).
 
 If no comment appears, follow the [failure runbook](./OPERATIONS.md#runbook)

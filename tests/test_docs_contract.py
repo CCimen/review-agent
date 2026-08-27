@@ -384,10 +384,13 @@ class DocsContractTests(unittest.TestCase):
         )
         self.assertIn("must post /review as a new top-level PR comment", body)
         self.assertIn("/review false-positive <F-reference> because", body)
+        self.assertIn(
+            "/review intentional <F-reference> <ADR-id> because",
+            body,
+        )
         self.assertIn("/review feedback scope <F-reference> because", body)
         self.assertIn("/review feedback missed because", body)
         self.assertNotIn("@review false-positive", body)
-        self.assertNotIn("/review intentional", body)
 
         canonical = words(
             read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
@@ -577,10 +580,10 @@ class DocsContractTests(unittest.TestCase):
         for body in [readme, operations]:
             with self.subTest(body=body[:30]):
                 self.assertIn("/review false-positive F2 because", body)
+                self.assertIn("/review intentional F2 ADR-0007 because", body)
                 self.assertIn("/review feedback scope F2 because", body)
                 self.assertIn("/review feedback missed because", body)
                 self.assertNotIn("@review false-positive", body)
-                self.assertNotIn("/review intentional F2", body)
         self.assertIn("ADRs are context, not immunity", security)
         self.assertIn("do not automatically rewrite prompts", words(security))
         self.assertIn("learning-report", operations)

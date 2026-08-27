@@ -11,6 +11,8 @@ from typing import Literal, Protocol, cast
 
 from . import capacity, schemas
 from .domain import repository_decisions
+from .domain.finding import IntentionalDesignEvidence
+from .domain.review import ReviewRunId
 from .github.gateway import GitHubGatewayError
 
 
@@ -429,6 +431,68 @@ def payload(context: RepositoryDecisionContext) -> dict[str, object]:
     }
 
 
+def intentional_evidence(
+    context: RepositoryDecisionContext,
+    *,
+    review_run_id: ReviewRunId,
+    adr_id: str,
+    finding_path: str,
+) -> IntentionalDesignEvidence | None:
+    """Resolve an accepted ADR from the exact source run and finding path."""
+    if context.status != "loaded" or context.snapshot_id is None:
+        return None
+    decision = next(
+        (item for item in context.decisions if item.id == adr_id),
+        None,
+    )
+    if (
+        decision is None
+        or decision.status != "accepted"
+        or not repository_decisions.decision_applies_to(
+            decision,
+            path=finding_path,
+        )
+    ):
+        return None
+    return IntentionalDesignEvidence(
+        review_run_id=review_run_id,
+        review_decision_snapshot_id=context.snapshot_id,
+        repository_decision_id=decision.id,
+        repository_decision_metadata_hash=decision.metadata_hash,
+        repository_decision_path=decision.adr_path,
+        repository_decision_base_sha=context.base_sha,
+    )
+
+
+def intentional_evidence_is_current(
+    context: RepositoryDecisionContext,
+    *,
+    evidence: IntentionalDesignEvidence,
+    finding_path: str,
+) -> bool:
+    """Check that recorded ADR evidence still matches the current base snapshot."""
+    if context.status != "loaded" or context.snapshot_id is None:
+        return False
+    decision = next(
+        (
+            item
+            for item in context.decisions
+            if item.id == evidence.repository_decision_id
+        ),
+        None,
+    )
+    return bool(
+        decision is not None
+        and decision.status == "accepted"
+        and decision.metadata_hash == evidence.repository_decision_metadata_hash
+        and decision.adr_path == evidence.repository_decision_path
+        and repository_decisions.decision_applies_to(
+            decision,
+            path=finding_path,
+        )
+    )
+
+
 def load(
     source: GatewayDecisionSource,
     *,
@@ -524,6 +588,7 @@ __all__ = [
     "RepositoryDecisionContextError",
     "SNAPSHOT_SCHEMA_VERSION",
     "failed",
+    "intentional_evidence",
     "load",
     "loaded",
     "not_configured",

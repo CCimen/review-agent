@@ -249,23 +249,27 @@ not reply inside an inline diff thread.
 ```text
 /review false-positive F2 because <what code, guard, or invariant disproves it>
 
+/review intentional F2 ADR-0007 because <why the accepted ADR requires this design>
+
 /review feedback scope F2 because <why this finding is in the diff but outside the intended PR scope>
 
 /review feedback missed because <what concrete issue was missed and where>
 ```
 
 `false-positive` is a durable finding decision. A later review suppresses the
-same stable finding only while its code-context hash still matches; changed code
-must be evaluated again. `feedback scope` records author-intent or stacked-branch
-scope confusion without suppressing the finding. `feedback missed` records
-review-quality feedback for metrics, replay cases, and private
-reviewer-improvement analysis. Neither quality-feedback command rewrites the
-live reviewer's prompts, skills, or policy.
+same stable finding only while its code-context hash still matches. `intentional`
+adds the exact accepted ADR ID, metadata hash, path, and base snapshot to that
+rule; code or ADR changes require a fresh review. `feedback scope` records
+author-intent or stacked-branch scope confusion without suppressing the finding.
+`feedback missed` records review-quality feedback for metrics, replay cases, and
+private reviewer-improvement analysis. Quality feedback never rewrites the live
+reviewer's prompts, skills, or policy.
 
 Successful feedback receives a `+1` reaction. Invalid, stale, not-current, or
 unsupported commands receive a `confused` reaction and one deterministic
-explanation. Intentional-design and accepted-risk decisions remain CLI or
-governance actions until there is deterministic ADR validation for PR comments.
+explanation. A stale intentional command tells the maintainer to run `/review`
+after the ADR is accepted, then use the latest F reference. Accepted-risk
+decisions remain governance actions.
 
 ## Runbook
 

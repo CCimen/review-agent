@@ -135,12 +135,15 @@ Give feedback with a new top-level PR comment:
 
 ```text
 /review false-positive F2 because <what code, guard, or invariant disproves it>
+/review intentional F2 ADR-0007 because <why the accepted ADR requires this design>
 /review feedback scope F2 because <why this finding is outside the intended PR scope>
 /review feedback missed because <what concrete issue was missed and where>
 ```
 
-`false-positive` is a finding decision. `feedback scope` and `feedback missed`
-are review-quality signals; they do not suppress findings automatically.
+`false-positive` and `intentional` are exact, expiring finding decisions.
+Intentional feedback also requires the same accepted ADR metadata in later
+reviews. `feedback scope` and `feedback missed` are review-quality signals; they
+do not suppress findings automatically.
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) explains how teams
 turn repeated signals into reviewed changes and how exact base-commit ADR
 context protects repository invariants.

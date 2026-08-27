@@ -24,6 +24,7 @@ from ..review_identity import (
     FEEDBACK_COMMAND_NOT_RECOGNIZED,
     FEEDBACK_NO_CURRENT_REVIEW,
     FEEDBACK_NOT_CURRENT_REVIEW,
+    FEEDBACK_STALE_CONTEXT,
     FEEDBACK_UNSUPPORTED_COMMAND,
 )
 from .app_auth import (
@@ -55,7 +56,7 @@ _FEEDBACK_AUTHORIZATION_VERSION = "sha256:" + hashlib.sha256(
     b"github-app-feedback:v1:write-or-admin:exact-user:open-same-repository-pr"
 ).hexdigest()
 FeedbackAcknowledgementStatus = Literal[
-    "recorded", "invalid", "no_mapping", "not_current", "unsupported"
+    "recorded", "invalid", "no_mapping", "not_current", "stale", "unsupported"
 ]
 
 
@@ -163,6 +164,7 @@ class FeedbackAcknowledgementRequest:
             "invalid",
             "no_mapping",
             "not_current",
+            "stale",
             "unsupported",
         }:
             raise GitHubGatewayProtocolError("feedback status is invalid")
@@ -388,6 +390,8 @@ def _feedback_status_message(status: FeedbackAcknowledgementStatus) -> str:
         return FEEDBACK_NO_CURRENT_REVIEW
     if status == "not_current":
         return FEEDBACK_NOT_CURRENT_REVIEW
+    if status == "stale":
+        return FEEDBACK_STALE_CONTEXT
     if status == "unsupported":
         return FEEDBACK_UNSUPPORTED_COMMAND
     if status == "invalid":

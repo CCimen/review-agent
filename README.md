@@ -45,6 +45,7 @@ permission post structured feedback in a new top-level comment:
 
 ```text
 /review false-positive F2 because <what code, guard, or invariant disproves it>
+/review intentional F2 ADR-0007 because <why the accepted ADR requires this design>
 /review feedback scope F2 because <why this finding is outside the intended PR scope>
 /review feedback missed because <what concrete issue was missed and where>
 ```

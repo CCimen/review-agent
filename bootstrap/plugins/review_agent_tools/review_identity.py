@@ -23,11 +23,11 @@ FEEDBACK_NOT_CURRENT_REVIEW = (
     "AI review comment."
 )
 FEEDBACK_STALE_CONTEXT = (
-    "That finding cannot be recorded because its trusted file context is "
-    "missing or stale. Run `/review` again, then retry with the latest F "
-    "reference."
+    "That intentional-design decision does not match the finding's exact "
+    "accepted ADR snapshot and path. Run `/review` after the ADR is accepted, "
+    "then retry with the latest F reference."
 )
 FEEDBACK_UNSUPPORTED_COMMAND = (
-    "That feedback command is not available from PR comments yet. Intentional "
-    "design and accepted-risk decisions need the governance CLI."
+    "That feedback command is not available from PR comments yet. Accepted-risk "
+    "decisions need the governance CLI."
 )

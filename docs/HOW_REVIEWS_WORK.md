@@ -81,10 +81,12 @@ replicated; PostgreSQL coordinates claims and recovery.
 
 ## Learn from explicit feedback
 
-Authorized maintainers can report false positives, scope problems, and missed
-issues. An exact false-positive decision suppresses the same finding while its
-code-context hash still matches. Scope and missed-issue commands record quality
-evidence for operators. None of these commands rewrites policy or prompts.
+Authorized maintainers can report false positives, intentional designs, scope
+problems, and missed issues. Exact false-positive decisions require the same
+finding and code context. Intentional decisions also require the same accepted
+ADR metadata in the current base snapshot. Scope and missed-issue commands
+record quality evidence for operators. None of these commands rewrites policy
+or prompts.
 
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) shows the weekly
 and monthly operating flow, plus the repository ADR contract. Private

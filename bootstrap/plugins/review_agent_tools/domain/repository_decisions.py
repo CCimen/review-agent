@@ -257,6 +257,12 @@ def matching_entries(
     return tuple(matches)
 
 
+def decision_applies_to(decision: RepositoryDecision, *, path: str) -> bool:
+    """Return whether one typed decision covers the normalized finding path."""
+    normalized_path = _path(path, field="finding path")
+    return any(_matches(pattern, normalized_path) for pattern in decision.applies_to)
+
+
 def _metadata_hash(
     *,
     entry: DecisionIndexEntry,
@@ -556,6 +562,7 @@ __all__ = [
     "MAX_TOTAL_GLOBS",
     "RepositoryDecision",
     "RepositoryDecisionError",
+    "decision_applies_to",
     "matching_entries",
     "parse_adr",
     "parse_index",

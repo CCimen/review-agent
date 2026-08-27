@@ -216,16 +216,17 @@ def _record_postgres_optional_suggestions(
         "not_requested"
     ] * len(findings)
     context: postgres_suggestions.SuggestionContext | None = None
-    decisions: Mapping[FindingId, FindingDecision] = {}
+    decisions: Mapping[FindingId, postgres_decisions.SuppressionDecision] = {}
     if requested:
         try:
             with runtime.transaction() as connection:
                 loaded_context = postgres_suggestions.load_context(
                     connection, batch
                 )
-                loaded_decisions = postgres_decisions.latest_decisions(
+                loaded_decisions = postgres_decisions.latest_suppression_decisions(
                     connection,
                     finding_ids=tuple(item.finding_id for item in batch.items),
+                    current_run_id=batch.run_id,
                 )
             context, decisions = loaded_context, loaded_decisions
         except (
@@ -273,10 +274,13 @@ def _record_postgres_optional_suggestions(
                     ),
                     suppressed=decision is not None
                     and suppression_is_active(
-                        decision=decision.decision,
-                        decision_context_hash=decision.context_hash,
+                        decision=decision.latest.decision,
+                        decision_context_hash=decision.latest.context_hash,
                         current_context_hash=context_hash,
-                        expires_at=decision.expires_at,
+                        expires_at=decision.latest.expires_at,
+                        intentional_evidence_current=(
+                            decision.intentional_evidence_current
+                        ),
                         now=moment,
                     ),
                     rule_id=finding.rule_id,
@@ -411,9 +415,10 @@ def record_live_findings(
         head_file_loader=head_file_loader,
     )
     with runtime.transaction() as connection:
-        decisions = postgres_decisions.latest_decisions(
+        decisions = postgres_decisions.latest_suppression_decisions(
             connection,
             finding_ids=tuple(item.finding_id for item in result.batch.items),
+            current_run_id=run_id,
         )
     changed_by_path = {
         resolve_finding_path(item.path): item for item in changed_files
@@ -431,10 +436,11 @@ def record_live_findings(
         )
         decision = decisions.get(recorded.finding_id)
         suppressed = decision is not None and suppression_is_active(
-            decision=decision.decision,
-            decision_context_hash=decision.context_hash,
+            decision=decision.latest.decision,
+            decision_context_hash=decision.latest.context_hash,
             current_context_hash=context_hash,
-            expires_at=decision.expires_at,
+            expires_at=decision.latest.expires_at,
+            intentional_evidence_current=decision.intentional_evidence_current,
             now=moment,
         )
         items.append(
@@ -445,7 +451,11 @@ def record_live_findings(
                 local_reference=recorded.local_reference,
                 context_hash=context_hash,
                 suppressed=suppressed,
-                decision=decision.decision.value if suppressed and decision else None,
+                decision=(
+                    decision.latest.decision.value
+                    if suppressed and decision
+                    else None
+                ),
                 suggestion_status=suggestion_status,
             )
         )
@@ -522,22 +532,26 @@ def load_postgres_active_suppression(
     runtime: PostgreSQLRuntime,
     *,
     finding_id: FindingId,
+    run_id: ReviewRunId,
     context_hash: str,
     now: datetime | None = None,
 ) -> FindingDecision | None:
     """Return an unexpired suppressive decision for the exact current context."""
     current_context_hash = resolve_context_hash(context_hash)
     with runtime.transaction() as connection:
-        decision = postgres_decisions.latest_decision(
-            connection, finding_id=finding_id
-        )
+        decision = postgres_decisions.latest_suppression_decisions(
+            connection,
+            finding_ids=(finding_id,),
+            current_run_id=run_id,
+        ).get(finding_id)
     if decision is None:
         return None
-    return decision if suppression_is_active(
-        decision=decision.decision,
-        decision_context_hash=decision.context_hash,
+    return decision.latest if suppression_is_active(
+        decision=decision.latest.decision,
+        decision_context_hash=decision.latest.context_hash,
         current_context_hash=current_context_hash,
-        expires_at=decision.expires_at,
+        expires_at=decision.latest.expires_at,
+        intentional_evidence_current=decision.intentional_evidence_current,
         now=now or datetime.now(timezone.utc),
     ) else None
 
@@ -589,6 +603,7 @@ def load_live_context(
                     postgres_reporting.active_repeat_suppressions(
                         connection,
                         repository_id=repository.id,
+                        current_run_id=ReviewRunId(int(active[0])),
                         fingerprint_contexts=tuple(
                             (item.fingerprint, item.context_hash) for item in repeats
                         ),

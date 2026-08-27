@@ -18,6 +18,7 @@ from .domain.finding import (
 )
 from .domain.review import JsonObject, ReviewRunId, ReviewStatus
 from . import failure_codes, review_run_application
+from . import repository_decision_context
 from .github import app_auth, app_inventory
 from .postgres import coaching as postgres_coaching
 from .postgres import decisions as postgres_decisions
@@ -25,6 +26,7 @@ from .postgres import findings as postgres_findings
 from .postgres import github_app as postgres_github_app
 from .postgres import jobs as postgres_jobs
 from .postgres import publications as postgres_publications
+from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import reporting as postgres_reporting
 from .postgres import review_runs as postgres_review_runs
 from .postgres.runtime import PostgreSQLRuntime
@@ -402,11 +404,29 @@ def decide_finding(
             local_reference=local_reference,
             latest=request.latest,
         )
+        intentional_evidence = None
+        if definition.decision is DecisionKind.INTENTIONAL_BY_DESIGN:
+            decision_context = postgres_repository_decisions.load_context(
+                connection,
+                run_id=target.review_run_id,
+            )
+            intentional_evidence = repository_decision_context.intentional_evidence(
+                decision_context,
+                review_run_id=target.review_run_id,
+                adr_id=definition.adr_id or "",
+                finding_path=target.path,
+            )
+            if intentional_evidence is None:
+                raise OperatorInputError(
+                    "intentional decision does not match the occurrence's exact "
+                    "accepted ADR snapshot and path"
+                )
         stored = postgres_decisions.append_operator_decision(
             connection,
             finding_id=target.finding_id,
             occurrence_id=target.occurrence_id,
             definition=definition,
+            intentional_evidence=intentional_evidence,
         )
     return OperatorDecisionResult(
         id=stored.id,

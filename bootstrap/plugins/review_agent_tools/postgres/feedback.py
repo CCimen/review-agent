@@ -13,6 +13,7 @@ from ..domain.feedback import FeedbackStatus
 from ..domain.finding import FindingId, FindingOccurrenceId
 from ..domain.publication import PublicationId
 from ..domain.review import PullRequestId
+from ..domain.review import ReviewRunId
 from ..feedback_commands import ReviewQualityFeedbackCommand
 
 
@@ -30,8 +31,10 @@ class PublicationTarget:
 class FindingTarget:
     finding_id: FindingId
     occurrence_id: FindingOccurrenceId
+    review_run_id: ReviewRunId
     local_reference: str
     fingerprint: str
+    path: str
     title: str
     context_hash: str
 
@@ -95,6 +98,7 @@ def complete_event(
         FeedbackStatus.RECORDED,
         FeedbackStatus.NO_MAPPING,
         FeedbackStatus.NOT_CURRENT,
+        FeedbackStatus.STALE,
     }:
         raise FeedbackStoreError("feedback outcome is not persistable")
     updated = connection.execute(
@@ -154,8 +158,10 @@ def current_finding(
             """
             SELECT finding.id AS finding_id,
                    occurrence.id AS occurrence_id,
+                   occurrence.review_run_id,
                    publication_finding.local_reference,
                    finding.fingerprint,
+                   finding.path,
                    occurrence.title,
                    occurrence.context_hash
             FROM review_agent.publication_findings AS publication_finding

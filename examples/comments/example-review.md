@@ -121,6 +121,12 @@ does not mark the finding incorrect.
 /review false-positive <F-reference> because <what code, guard, or invariant disproves it>
 ```
 
+**The finding conflicts with an accepted design decision**
+
+```text
+/review intentional <F-reference> <ADR-id> because <why the accepted ADR requires this design>
+```
+
 **The finding is in the diff but outside the intended PR scope**
 
 ```text

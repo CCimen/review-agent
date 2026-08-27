@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Verify the post-refactor reliability review against current main, implement confirmed pre-pilot corrections in bounded owner-level slices, and audit readiness."
-  status: done
+  tranche: "Complete governed missed-issue triage, honest quality reporting, coach integration, documentation, and final deployment validation."
+  status: active
 
 rules:
   pm_owns_state: true
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 6
+  completed_write_tasks_in_thread: 7
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "5a319a8634a429a8d73443bc098c922d4052a9a3"
+  last_verified_revision: "0d9acedea087d0ffef683b158026d3a3e1de9acb"
 
-active_task: null
+active_task: T205
 
 tasks:
   - id: T001
@@ -3016,16 +3016,114 @@ tasks:
       before_first_release:
         - "Publish one prerelease and confirm the GHCR attestation, two-platform index, prerelease latest behavior, and emulated arm64 build time end to end."
         - "Choose the package retention policy, then make the first package public if anonymous pulls are intended; public visibility cannot be reversed."
+  - id: T204
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: high
+    objective: "Add append-only operator triage for missed-issue feedback and expose only actionable, stably identified triage to the existing private coach."
+    constraints:
+      - "Reuse review_quality_feedback, operator_application, PostgreSQL exports, and the existing coach; do not add a service, queue, dashboard, or automatic policy mutation."
+      - "Missed feedback is pending by default and has no suppressive effect."
+      - "Only actionable triage with a stable key and target owner may become a coach candidate; preserve triage history."
+      - "Do not expose actor rankings or copy actor identities into coach events."
+      - "Use focused behavior and PostgreSQL integration tests before the broad bundle."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/feedback.py
+      - bootstrap/plugins/review_agent_tools/operator_application.py
+      - bootstrap/plugins/review_agent_tools/postgres/feedback.py
+      - bootstrap/plugins/review_agent_tools/postgres/quality_triage.py
+      - bootstrap/plugins/review_agent_tools/postgres/reporting.py
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/**
+      - tools/review_agent_learning.py
+      - tools/review_agent_coach.py
+      - tools/review_agent_coach_proposals.py
+      - tools/review_agent_coach_run.py
+      - tools/review_agent_export.py
+      - tools/review_agent_memory.py
+      - tests/test_postgres_feedback.py
+      - tests/test_postgres_migrations.py
+      - tests/test_postgres_runtime.py
+      - tests/test_postgres_reporting_cli.py
+      - tests/test_review_learning.py
+      - tests/test_review_coach.py
+      - tests/test_review_coach_proposals.py
+      - tests/test_review_coach_run.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Focused triage domain, operator, export, learning, and coach tests."
+      - "Real PostgreSQL migration/schema/backup/restore tests."
+      - "Strict Pyright and Ruff."
+      - "One broad bundle after focused checks pass."
+      - "One stable Claude commit gate with score at least 8."
+    stop_if:
+      - "The implementation requires developers to classify internal reviewer failure modes."
+      - "A coach candidate can be produced without actionable human triage and stable identity."
+      - "The slice requires a normalized general feedback engine, actor ranking, or files outside the allowed owners."
+    receipt:
+      result: done
+      decision: complete
+      summary: "Added append-only operator triage for missed issues. Only the latest actionable triage with a stable key and target owner can enter the private coach; later non-actionable triage removes promotion eligibility without rewriting history."
+      commit: "0d9acedea087d0ffef683b158026d3a3e1de9acb"
+      changed_files:
+        - bootstrap/plugins/review_agent_tools/domain/feedback.py
+        - bootstrap/plugins/review_agent_tools/postgres/quality_triage.py
+        - bootstrap/plugins/review_agent_tools/postgres_migrations/011_review_quality_feedback_triage.sql
+        - bootstrap/plugins/review_agent_tools/postgres/reporting.py
+        - tools/review_agent_learning.py
+        - tools/review_agent_coach.py
+        - tools/review_agent_coach_proposals.py
+        - tools/review_agent_memory.py
+      commands:
+        - cmd: "focused triage domain, coach, proposal, and PostgreSQL rejection tests"
+          status: pass
+          summary: "Actionable promotion, latest-state demotion, cursor re-entry, same-PR episode grouping, invalid domain input, direct SQL checks, and non-missed feedback rejection passed."
+        - cmd: "scripts/check_postgres_schema.sh"
+          status: pass
+          summary: "205 PostgreSQL migration, schema, runtime, backup, and recovery tests passed; migration 11 is ready."
+        - cmd: "scripts/check_bundle.sh"
+          status: pass
+          summary: "568 tests passed with 187 environment-dependent skips; strict Pyright, YAML, and bundle contracts passed."
+        - cmd: "Ruff and git diff --check"
+          status: pass
+          summary: "Changed production owners and the final patch were clean."
+        - cmd: "Claude Opus/high stable commit gate"
+          status: pass
+          summary: "Session review-agent-quality-triage reached green at score 8 after fixing same-PR episode counting and a PostgreSQL NULL CHECK hole."
+      evidence:
+        - "Developer feedback remains pending and cannot change reviewer behavior without explicit operator triage."
+        - "Coach artifacts use stable key and target owner but exclude triage actor identity."
+        - "A separate triage cursor lets older feedback enter a later incremental coach run after human classification."
+  - id: T205
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Add a bounded quality report with explicit denominators and stable repository/reviewer-contract cohorts, without claiming accuracy from silence."
+    receipt: null
+  - id: T206
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: default
+    objective: "Update the public docs, generated LLM guidance, and operator examples for triage and quality reporting, then deploy GitHub Pages."
+    receipt: null
+  - id: T207
+    type: judge
+    assignee: Judge
+    status: queued
+    reasoning_hint: high
+    objective: "Audit the complete feedback-quality tranche, deploy the reviewed candidate, and validate the live Review Agent behavior."
+    receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-only-after-80eb0480"
+  dirty_fingerprint: "goal-control-files-after-0d9acede"
   last_verification:
     result: pass
-    task: T203
+    task: T204
     commands:
-      - "Strict Pyright with zero diagnostics and 383-test bundle"
-      - "Production image build and shared runtime artifact smoke"
-      - "Ten-document source and built-route documentation contract"
-      - "Claude Opus/high session review-agent-image-ghcr-release green at score 8"
-      - "GitHub Python bundle, container, docs build, and Pages deployment checks"
-      - "Source revision 80eb0480f4159ab19c297270da250c86df0eea4b"
+      - "Strict Pyright with zero diagnostics and 568-test bundle"
+      - "205-test PostgreSQL schema and recovery contract"
+      - "Focused negative domain, raw SQL, cursor, and independent-episode tests"
+      - "Claude Opus/high session review-agent-quality-triage green at score 8"
+      - "Source revision 0d9acedea087d0ffef683b158026d3a3e1de9acb"

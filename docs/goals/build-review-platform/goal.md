@@ -14,12 +14,11 @@ weakening the proven review contract.
 
 ## Current Tranche
 
-Complete. The maintainability-first platform and its public documentation have
-passed the final audit. PostgreSQL owns application state, admission and review
-work are durable and recoverable, immutable publication intent reaches GitHub
-through a separately leased publisher, and the public site documents that
-lifecycle with task navigation and local search. Optional integrations remain
-explicitly outside the completed core.
+Complete the approved feedback-quality refinement without turning human signals
+into automatic policy. Add governed missed-issue triage, denominator-based
+quality reporting, and coach input from actionable triage only. Keep the
+existing PostgreSQL feedback, operator, reporting, and private-coach owners;
+finish with current public documentation and live deployment validation.
 
 ## Approved Sequencing Input
 

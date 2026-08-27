@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
+import logging
 from typing import Literal, cast
 
 import psycopg
@@ -30,11 +31,15 @@ from ..review_run_application import (
     admit_postgres_review_in_transaction,
 )
 from .gateway import (
+    GitHubGatewayError,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
 )
 from .gateway_client import ReviewGitHubGatewayClient
+
+
+logger = logging.getLogger(__name__)
 
 
 _IGNORED_REASONS = frozenset(
@@ -55,7 +60,7 @@ class ProcessorConfig:
     job_priority: int
     job_max_attempts: int
     active_job_limit: int
-    # Two bounded GitHub reads plus token exchange fit inside this lease.
+    # Provider authorization and snapshot reads fit inside this lease.
     lease_duration: timedelta = timedelta(minutes=5)
     retry_delay: timedelta = timedelta(seconds=30)
 
@@ -410,6 +415,17 @@ class GitHubAppProcessor:
             raise _Reject("repository_not_authorized") from exc
         except (jobs.ReviewQueueFull, jobs.ReviewJobBusy) as exc:
             raise _Retry("review_queue_unavailable") from exc
+
+        try:
+            self._gateway.acknowledge_review(
+                run_id=int(admitted.run.run.id),
+            )
+        except GitHubGatewayError as exc:
+            logger.warning(
+                "Review run %s was admitted without a GitHub acknowledgement: %s",
+                int(admitted.run.run.id),
+                type(exc).__name__,
+            )
         return ProcessingResult(
             finished.id,
             finished.status,

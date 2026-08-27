@@ -898,7 +898,6 @@ def _comments_by_id(
 
 
 _FAILURE_STATUS_TOKEN = "review-agent:failure-status"
-_FAILURE_STATUS_SCAN_PAGES = 50
 _FAILURE_REASONS = {
     failure_codes.STALE_TIMEOUT: (
         "the review run stopped responding and was marked stale"
@@ -933,7 +932,7 @@ def _my_failure_status_comments(
     comments = gateway.list_issue_comments(
         repository,
         pr_number,
-        max_pages=_FAILURE_STATUS_SCAN_PAGES,
+        max_pages=PUBLICATION_REQUEST_MAX_PAGES,
     )
     return [
         comment

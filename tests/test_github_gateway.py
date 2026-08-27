@@ -19,11 +19,13 @@ from review_agent_tools.github import (  # noqa: E402
     publication as publication_module,
     publication_gateway as publication_gateway_module,
 )
+from review_agent_tools import review_publication_application  # noqa: E402
 from review_agent_tools.github.gateway import (  # noqa: E402
     FeedbackAcknowledgementRequest,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
+    ReviewAcknowledgementRequest,
     ReviewGitHubGateway,
     ReviewSourceRequest,
 )
@@ -224,6 +226,25 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             },
         )
 
+    def test_review_acknowledgement_sends_only_admitted_run_identity(self) -> None:
+        opener = _Opener(b'{"acknowledged":true}')
+        client = ReviewGitHubGatewayClient(
+            "http://review-github-gateway:8646",
+            opener=cast(urllib.request.OpenerDirector, opener),
+        )
+
+        acknowledged = client.acknowledge_review(run_id=51)
+
+        self.assertTrue(acknowledged)
+        request = opener.requests[0]
+        self.assertEqual(
+            getattr(request, "full_url"),
+            "http://review-github-gateway:8646/v1/review-runs/acknowledge",
+        )
+        self.assertEqual(
+            json.loads(getattr(request, "data")),
+            {"run_id": 51},
+        )
     def test_publication_gateway_preserves_failure_classification(self) -> None:
         client = Mock()
         gateway = AuthorizedPublicationGateway(
@@ -306,6 +327,50 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 )
                 self.assertEqual(created, expected)
 
+    def test_failure_status_scan_stays_inside_the_gateway_page_contract(self) -> None:
+        gateway = Mock()
+        gateway.current_user_login.return_value = "review-agent[bot]"
+        gateway.list_issue_comments.return_value = []
+
+        comments = review_publication_application._my_failure_status_comments(
+            gateway, "CCimen/review-agent", 42
+        )
+
+        self.assertEqual(comments, [])
+        gateway.list_issue_comments.assert_called_once_with(
+            "CCimen/review-agent",
+            42,
+            max_pages=publication_module.PUBLICATION_REQUEST_MAX_PAGES,
+        )
+        request = PublicationGatewayRequest.from_mapping(
+            {
+                "scope_kind": "failure_status",
+                "scope_id": 51,
+                "lease_owner": "publisher-1",
+                "lease_generation": 3,
+                "operation": "list_issue_comments",
+                "max_pages": publication_module.PUBLICATION_REQUEST_MAX_PAGES,
+                "newest_first": False,
+            }
+        )
+        self.assertEqual(
+            request.max_pages, publication_module.PUBLICATION_REQUEST_MAX_PAGES
+        )
+        with self.assertRaises(GitHubGatewayProtocolError):
+            PublicationGatewayRequest.from_mapping(
+                {
+                    "scope_kind": "failure_status",
+                    "scope_id": 51,
+                    "lease_owner": "publisher-1",
+                    "lease_generation": 3,
+                    "operation": "list_issue_comments",
+                    "max_pages": (
+                        publication_module.PUBLICATION_REQUEST_MAX_PAGES + 1
+                    ),
+                    "newest_first": False,
+                }
+            )
+
     def test_source_contract_rejects_caller_selected_repository_or_revision(self) -> None:
         request = {
             "operation": "pull",
@@ -370,6 +435,53 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 FeedbackAcknowledgementRequest.from_mapping(
                     {**feedback_request, field: value}
                 )
+
+        review_request = {"run_id": 51}
+        for field, value in (
+            ("repository", "other/repository"),
+            ("comment_id", 999),
+            ("token", "secret"),
+        ):
+            with self.subTest(field=field), self.assertRaises(
+                GitHubGatewayProtocolError
+            ):
+                ReviewAcknowledgementRequest.from_mapping(
+                    {**review_request, field: value}
+                )
+
+    def test_review_ack_rechecks_run_and_uses_write_scoped_token(self) -> None:
+        runtime = Mock()
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        github = Mock()
+        github.create_issue_comment_reaction.return_value = True
+        factory = Mock(return_value=github)
+        service = ReviewGitHubGateway(
+            postgres=runtime,
+            tokens=tokens,
+            profile="sundsvall-standard",
+            feedback_factory=factory,
+        )
+        target = SimpleNamespace(
+            provider_repository_id=9001,
+            repository="CCimen/review-agent",
+            comment_id=6001,
+        )
+
+        with patch.object(
+            ReviewGitHubGateway,
+            "_require_review_acknowledgement",
+            side_effect=(target, target),
+        ) as authorize:
+            acknowledged = service.acknowledge_review(run_id=51)
+
+        self.assertTrue(acknowledged)
+        self.assertEqual(authorize.call_count, 2)
+        tokens.token_for.assert_called_once_with(9001, purpose="publication")
+        factory.assert_called_once_with("installation-token")
+        github.create_issue_comment_reaction.assert_called_once_with(
+            "CCimen/review-agent", 6001, "eyes"
+        )
 
     def test_feedback_ack_rechecks_lease_and_uses_write_scoped_token(self) -> None:
         runtime = Mock()

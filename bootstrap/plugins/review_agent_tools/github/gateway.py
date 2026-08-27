@@ -45,6 +45,7 @@ from .publication import GitHubIssueCommentGateway, GitHubPublicationError
 
 
 AUTHORIZE_REVIEW_DELIVERY_PATH = "/v1/review-deliveries/authorize"
+ACKNOWLEDGE_REVIEW_PATH = "/v1/review-runs/acknowledge"
 AUTHORIZE_FEEDBACK_DELIVERY_PATH = "/v1/review-feedback/authorize"
 ACKNOWLEDGE_FEEDBACK_PATH = "/v1/review-feedback/acknowledge"
 READ_REVIEW_SOURCE_PATH = "/v1/review-sources/read"
@@ -119,6 +120,23 @@ class DeliveryLeaseIdentity:
                 value.get("lease_generation"), "lease_generation"
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewAcknowledgementRequest:
+    """One admitted run whose trigger comment may receive an eyes reaction."""
+
+    run_id: int
+
+    @classmethod
+    def from_mapping(
+        cls, value: Mapping[str, object]
+    ) -> "ReviewAcknowledgementRequest":
+        if set(value) != {"run_id"}:
+            raise GitHubGatewayProtocolError(
+                "gateway request fields do not match the review acknowledgement"
+            )
+        return cls(run_id=_positive(value.get("run_id"), "run_id"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -520,6 +538,13 @@ class _IssueCommentCommand:
     author_association: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ReviewAcknowledgementTarget:
+    provider_repository_id: int
+    repository: str
+    comment_id: int
+
+
 def _issue_comment_command(
     delivery: webhook_deliveries.WebhookDelivery,
     *,
@@ -638,6 +663,25 @@ class ReviewGitHubGateway:
             author_association=command.author_association,
             authorization_version=_FEEDBACK_AUTHORIZATION_VERSION,
         )
+
+    def acknowledge_review(
+        self,
+        *,
+        run_id: int,
+    ) -> bool:
+        target = self._require_review_acknowledgement(run_id)
+
+        def operation(token: str) -> bool:
+            github = self._feedback_factory(token)
+            current = self._require_review_acknowledgement(run_id)
+            if current != target:
+                raise GitHubGatewayRejected("review_acknowledgement_changed")
+            github.create_issue_comment_reaction(
+                target.repository, target.comment_id, "eyes"
+            )
+            return True
+
+        return self._provider_feedback(target.provider_repository_id, operation)
 
     def acknowledge_feedback(
         self,
@@ -966,6 +1010,36 @@ class ReviewGitHubGateway:
                 }:
                     raise GitHubGatewayRetryable(reason) from exc
                 raise GitHubGatewayRejected(reason) from exc
+
+    def _require_review_acknowledgement(
+        self, run_id: int
+    ) -> _ReviewAcknowledgementTarget:
+        try:
+            with self._postgres.transaction() as connection:
+                scope = review_runs.get_run_scope(
+                    connection, ReviewRunId(_positive(run_id, "run_id"))
+                )
+                comment_id = scope.run.trigger_comment_id
+                if comment_id is None:
+                    raise GitHubGatewayRejected(
+                        "review_acknowledgement_unavailable"
+                    )
+                github_app.authorize_review_publication(
+                    connection,
+                    scope.provider_repository_id,
+                    profile_key=self._profile,
+                )
+                return _ReviewAcknowledgementTarget(
+                    provider_repository_id=scope.provider_repository_id,
+                    repository=scope.repository,
+                    comment_id=comment_id,
+                )
+        except review_runs.ReviewRunError as exc:
+            raise GitHubGatewayRejected(
+                "review_acknowledgement_unavailable"
+            ) from exc
+        except github_app.GitHubAppRepositoryUnauthorized as exc:
+            raise GitHubGatewayRejected("repository_not_authorized") from exc
 
     def _provider_snapshot(self, command: _IssueCommentCommand) -> PullSnapshot:
         def operation(github: GitHubReadClient) -> PullSnapshot:

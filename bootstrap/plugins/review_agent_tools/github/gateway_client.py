@@ -13,6 +13,7 @@ import urllib.request
 from .. import capacity, changed_files
 from .gateway import (
     ACKNOWLEDGE_FEEDBACK_PATH,
+    ACKNOWLEDGE_REVIEW_PATH,
     AUTHORIZE_FEEDBACK_DELIVERY_PATH,
     AUTHORIZE_REVIEW_DELIVERY_PATH,
     OPERATOR_SMOKE_PATH,
@@ -151,6 +152,21 @@ class ReviewGitHubGatewayClient:
             },
         )
         return AuthorizedFeedback.from_mapping(decoded)
+
+    def acknowledge_review(
+        self,
+        *,
+        run_id: int,
+    ) -> bool:
+        decoded = self._post(
+            ACKNOWLEDGE_REVIEW_PATH,
+            {"run_id": run_id},
+        )
+        if set(decoded) != {"acknowledged"} or decoded.get("acknowledged") is not True:
+            raise GitHubGatewayProtocolError(
+                "gateway response fields do not match the review acknowledgement"
+            )
+        return True
 
     def acknowledge_feedback(
         self,

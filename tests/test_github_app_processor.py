@@ -29,6 +29,7 @@ from review_agent_tools.github.app_auth import (  # noqa: E402
 from review_agent_tools.github.gateway import (  # noqa: E402
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
+    GitHubGatewayRetryable,
     ReviewGitHubGateway,
 )
 from review_agent_tools.github.gateway_client import (  # noqa: E402
@@ -55,14 +56,13 @@ DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 
 class _Tokens:
     def __init__(self) -> None:
-        self.repository_ids: list[int] = []
+        self.token_requests: list[tuple[int, str]] = []
         self.invalidated_repository_ids: list[int] = []
 
     def token_for(
         self, provider_repository_id: int, *, purpose: str = "review_read"
     ) -> InstallationToken:
-        del purpose
-        self.repository_ids.append(provider_repository_id)
+        self.token_requests.append((provider_repository_id, purpose))
         return InstallationToken(
             "installation-token",
             datetime.now(timezone.utc) + timedelta(hours=1),
@@ -167,6 +167,17 @@ class _ProtocolFailureGateway:
         raise GitHubGatewayProtocolError("invalid response")
 
 
+class _AcknowledgementFailureGateway:
+    def __init__(self, delegate: ReviewGitHubGateway) -> None:
+        self._delegate = delegate
+
+    def authorize_review_delivery(self, **values: object) -> object:
+        return self._delegate.authorize_review_delivery(**values)
+
+    def acknowledge_review(self, **_values: object) -> bool:
+        raise GitHubGatewayRetryable("github_unreachable")
+
+
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
 class GitHubAppProcessorTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -196,6 +207,8 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self,
         github: _GitHub | None = None,
         gateway: object | None = None,
+        *,
+        acknowledgement_failure: bool = False,
     ) -> app_processor.GitHubAppProcessor:
         client = github or _GitHub()
         gateway_service = ReviewGitHubGateway(
@@ -207,11 +220,14 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 GitHubIssueCommentGateway, self.feedback_github
             ),
         )
+        selected_gateway: object = gateway if gateway is not None else gateway_service
+        if acknowledgement_failure:
+            selected_gateway = _AcknowledgementFailureGateway(gateway_service)
         return app_processor.GitHubAppProcessor(
             postgres=self.runtime,
             gateway=cast(
                 ReviewGitHubGatewayClient,
-                gateway if gateway is not None else gateway_service,
+                selected_gateway,
             ),
             config=app_processor.ProcessorConfig(
                 profile="sundsvall-standard",
@@ -601,7 +617,25 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(third.status if third else None, "accepted")
         self.assertEqual(first.run_id, third.run_id if third else None)
         self.assertEqual(first.job_id, third.job_id if third else None)
-        self.assertEqual(self.tokens.repository_ids, [9001, 9001, 9001])
+        self.assertEqual(
+            self.tokens.token_requests,
+            [
+                (9001, "review_read"),
+                (9001, "publication"),
+                (9001, "review_read"),
+                (9001, "publication"),
+                (9001, "review_read"),
+                (9001, "publication"),
+            ],
+        )
+        self.assertEqual(
+            self.feedback_github.reactions,
+            [
+                ("CCimen/review-agent", 6001, "eyes"),
+                ("CCimen/review-agent", 6001, "eyes"),
+                ("CCimen/review-agent", 6001, "eyes"),
+            ],
+        )
         self.assertEqual(
             github.endpoints[0],
             "/repos/CCimen/review-agent/collaborators/ccimen/permission",
@@ -618,6 +652,35 @@ class GitHubAppProcessorTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(counts, (1, 1))
         self.assertEqual(repository_name, ("CCimen/review-agent",))
+
+    def test_review_acknowledgement_failure_keeps_durable_admission_accepted(
+        self,
+    ) -> None:
+        self.enable_repository()
+        delivery_id = self.register("issue_comment", self.review_payload())
+
+        with patch.object(
+            app_processor.review_contract,
+            "load_packaged_contract",
+            return_value=self.contract,
+        ):
+            result = self.processor(
+                acknowledgement_failure=True
+            ).process_next(lease_owner="worker-ack-failure")
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "accepted")
+        self.assertIsNotNone(result.run_id if result else None)
+        self.assertIsNotNone(result.job_id if result else None)
+        with self.runtime.transaction() as connection:
+            delivery = webhook_deliveries.get_delivery(connection, delivery_id)
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.review_runs), "
+                "(SELECT count(*) FROM review_agent.review_jobs)"
+            ).fetchone()
+        self.assertEqual(delivery.status, webhook_deliveries.DeliveryStatus.ACCEPTED)
+        self.assertEqual(counts, (1, 1))
+        self.assertEqual(self.feedback_github.reactions, [])
 
     def test_lost_gateway_lease_stops_without_terminalizing_or_admitting(self) -> None:
         self.enable_repository()

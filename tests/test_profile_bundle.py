@@ -137,6 +137,12 @@ class ProfileBundleTests(unittest.TestCase):
                     "enabled"
                 ],
             )
+            self.assertEqual(
+                33,
+                self.install.load_yaml(hermes_home / "config.yaml")[
+                    "_config_version"
+                ],
+            )
             self.assertNotIn("stale-model", installed_config)
             self.assertNotIn("operator:\n", installed_config)
             self.assertEqual(

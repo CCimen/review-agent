@@ -41,10 +41,6 @@ class _FakeRegistry:
     def __init__(self) -> None:
         self.tools: dict[str, dict[str, object]] = {}
 
-    def get_config(self, key: str, default: object = None) -> object:
-        del key
-        return default
-
     def register_tool(
         self,
         *,
@@ -434,7 +430,12 @@ class ToolContractTests(unittest.TestCase):
 
     def test_plugin_manifest_and_registered_handlers_have_one_owner(self) -> None:
         registry = _FakeRegistry()
-        review_agent_tools.register(registry)
+        with patch.object(
+            review_agent_tools,
+            "_installed_result_max_chars",
+            return_value=160_000,
+        ):
+            review_agent_tools.register(registry)
 
         manifest = (PACKAGE_ROOT / "review_agent_tools" / "plugin.yaml").read_text(
             encoding="utf-8"

@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, cast
 
 
 class ToolRegistry(Protocol):
-    def get_config(self, key: str, default: object = None) -> object: ...
-
     def register_tool(
         self,
         *,
@@ -19,16 +17,28 @@ class ToolRegistry(Protocol):
     ) -> None: ...
 
 
+class _InstalledReviewContract(Protocol):
+    plugin_result_max_chars: int
+
+
+class _ReviewContractModule(Protocol):
+    def load_installed_contract(self) -> _InstalledReviewContract: ...
+
+
+def _installed_result_max_chars() -> int:
+    """Read the result budget from the verified installed behavior receipt."""
+    review_contract = cast(
+        _ReviewContractModule, import_module(f"{__name__}.review_contract")
+    )
+    contract = review_contract.load_installed_contract()
+    return contract.plugin_result_max_chars
+
+
 def register(ctx: ToolRegistry) -> None:
     # Keep package import light: static package imports here trip pyright's
     # import-cycle gate because schemas/tools import the memory facade.
     capacity = import_module(f"{__name__}.capacity")
-    limits = capacity.configure(
-        result_max_chars=ctx.get_config(
-            "result_max_chars",
-            default=capacity.DEFAULT_RESULT_MAX_CHARS,
-        )
-    )
+    limits = capacity.configure(result_max_chars=_installed_result_max_chars())
     schemas = import_module(f"{__name__}.schemas")
     schemas.apply_capacity(limits)
     tools = import_module(f"{__name__}.tools")

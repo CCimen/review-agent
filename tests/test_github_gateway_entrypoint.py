@@ -68,6 +68,7 @@ class _Gateway:
         self.calls: list[dict[str, object]] = []
         self.source_calls: list[dict[str, object]] = []
         self.feedback_calls: list[dict[str, object]] = []
+        self.review_acknowledgement_calls: list[dict[str, object]] = []
         self.acknowledgement_calls: list[dict[str, object]] = []
         self.failure: Exception | None = None
         self.operator_smoke_calls: list[dict[str, object]] = []
@@ -121,6 +122,12 @@ class _Gateway:
 
     def acknowledge_feedback(self, **values: object) -> bool:
         self.acknowledgement_calls.append(values)
+        if self.failure is not None:
+            raise self.failure
+        return True
+
+    def acknowledge_review(self, **values: object) -> bool:
+        self.review_acknowledgement_calls.append(values)
         if self.failure is not None:
             raise self.failure
         return True
@@ -349,6 +356,19 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
                     "lease_generation": 5,
                     "status": "recorded",
                 }
+            ],
+        )
+
+    def test_review_acknowledgement_round_trips_only_admitted_run_identity(self) -> None:
+        client = ReviewGitHubGatewayClient(self.base_url)
+
+        acknowledged = client.acknowledge_review(run_id=51)
+
+        self.assertTrue(acknowledged)
+        self.assertEqual(
+            self.gateway.review_acknowledgement_calls,
+            [
+                {"run_id": 51}
             ],
         )
 

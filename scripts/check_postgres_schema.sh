@@ -67,7 +67,8 @@ REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/r
         tests.test_postgres_feedback \
         tests.test_postgres_suggestions_decisions \
         tests.test_postgres_verification_coaching \
-        tests.test_postgres_reporting_cli
+        tests.test_postgres_reporting_cli \
+        tests.test_github_app_processor
 
 # Seed one stable application row so backup/restore proves domain state, not
 # merely that the migration ledger can be copied.

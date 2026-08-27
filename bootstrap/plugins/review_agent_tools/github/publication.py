@@ -20,7 +20,7 @@ PUBLICATION_REQUEST_MAX_PAGES = 10
 _RETRYABLE_STATUS = frozenset({502, 503, 504})
 _RETRYABLE_METHODS = frozenset({"GET", "PATCH"})
 ReviewCommentSide = Literal["LEFT", "RIGHT"]
-IssueCommentReaction = Literal["+1", "confused"]
+IssueCommentReaction = Literal["+1", "confused", "eyes"]
 
 
 @dataclass(frozen=True)

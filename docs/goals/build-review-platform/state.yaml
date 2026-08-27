@@ -3100,7 +3100,28 @@ tasks:
     status: active
     reasoning_hint: high
     objective: "Add a bounded quality report with explicit denominators and stable repository/reviewer-contract cohorts, without claiming accuracy from silence."
-    receipt: null
+    constraints:
+      - "Expose one operator command for a bounded time window and optional repository; do not add a dashboard, background aggregation, or schema migration."
+      - "Report explicit signal counts beside their real denominators; never label silence as precision, recall, or model accuracy."
+      - "Cohort completed runs by repository, profile, review-contract hash, provider/model, policy revision, and window."
+      - "Reuse existing review, publication, finding, decision, feedback, triage, and coverage state in set-oriented PostgreSQL queries."
+      - "Do not expose actor identities or rank developers or repositories."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/operator_application.py
+      - bootstrap/plugins/review_agent_tools/postgres/quality_reporting.py
+      - tools/review_agent_memory.py
+      - tests/test_postgres_reporting_cli.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Focused real-PostgreSQL quality report behavior with explicit denominators, window/repository scope, cohorts, triage backlog, and bounded rankings."
+      - "CLI JSON and Markdown rendering contract."
+      - "Strict Pyright and Ruff."
+      - "One broad bundle after focused checks pass."
+      - "One stable Claude commit gate with score at least 8."
+    stop_if:
+      - "A metric requires inferring correctness from missing feedback."
+      - "A cohort value cannot be derived from persisted review-subject state without guessing."
+      - "The report requires materialized aggregates, a new service, or files outside the declared owners."
   - id: T206
     type: pm
     assignee: PM

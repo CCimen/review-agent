@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 from typing import cast
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,6 +91,39 @@ class _Authenticator:
 
 
 class GitHubAppInventoryTests(unittest.TestCase):
+    def test_resolves_installation_id_from_repository_name(self) -> None:
+        authenticator = _Authenticator(total=1)
+
+        installation_id = app_inventory.installation_id_for_repository(
+            cast(app_auth.GitHubAppAuthenticator, authenticator),
+            repository="CCimen/review-agent",
+            now=NOW,
+        )
+
+        self.assertEqual(installation_id, 7001)
+        self.assertEqual(
+            authenticator.app_paths,
+            ["/repos/CCimen/review-agent/installation"],
+        )
+
+    def test_rejects_invalid_repository_installation_identity(self) -> None:
+        class InvalidAuthenticator(_Authenticator):
+            def app_json(
+                self, path: str, *, now: datetime | None = None
+            ) -> object:
+                self.app_paths.append(path)
+                return {"id": False}
+
+        with self.assertRaisesRegex(
+            app_inventory.GitHubAppInventoryPermanent,
+            "installation id",
+        ):
+            app_inventory.installation_id_for_repository(
+                cast(app_auth.GitHubAppAuthenticator, InvalidAuthenticator()),
+                repository="CCimen/review-agent",
+                now=NOW,
+            )
+
     def test_reads_selected_installation_and_every_repository_page(self) -> None:
         authenticator = _Authenticator()
 
@@ -244,6 +277,102 @@ class GitHubAppInventoryTests(unittest.TestCase):
                 ),
             ),
         )
+
+    def test_onboard_enables_named_repository_from_the_selected_installation(self) -> None:
+        reconciliation = Mock(installation=Mock(id=7))
+        current = Mock(installation_id=7, repository_id=11)
+        enabled = Mock()
+
+        class Runtime:
+            @contextmanager
+            def transaction(self):
+                yield object()
+
+        with (
+            patch.object(
+                app_inventory,
+                "installation_id_for_repository",
+                return_value=7001,
+            ) as resolve_installation,
+            patch.object(
+                operator_application,
+                "sync_github_app_installation",
+                return_value=reconciliation,
+            ) as sync,
+            patch.object(
+                github_app,
+                "get_repository_access_by_full_name",
+                return_value=current,
+            ) as get_access,
+            patch.object(github_app, "enable_repository", return_value=enabled) as enable,
+        ):
+            result = operator_application.onboard_github_app_repository(
+                cast(PostgreSQLRuntime, Runtime()),
+                cast(app_auth.GitHubAppAuthenticator, object()),
+                repository="CCimen/review-agent",
+                profile="sundsvall-standard",
+                actor="github:CCimen",
+                reason="approved repository onboarding",
+            )
+
+        self.assertIs(result.reconciliation, reconciliation)
+        self.assertIs(result.access, enabled)
+        resolve_installation.assert_called_once_with(
+            ANY,
+            repository="CCimen/review-agent",
+        )
+        sync.assert_called_once_with(
+            ANY,
+            ANY,
+            provider_installation_id=7001,
+            actor="github:CCimen",
+            reason="approved repository onboarding",
+        )
+        get_access.assert_called_once_with(ANY, "CCimen/review-agent")
+        enable.assert_called_once_with(
+            ANY,
+            repository_id=11,
+            profile_key="sundsvall-standard",
+            trigger_mode=github_app.TriggerMode.MANUAL,
+            actor="github:CCimen",
+            reason="approved repository onboarding",
+        )
+
+    def test_onboard_refuses_a_repository_from_another_installation(self) -> None:
+        reconciliation = Mock(installation=Mock(id=7))
+        current = Mock(installation_id=8)
+
+        class Runtime:
+            @contextmanager
+            def transaction(self):
+                yield object()
+
+        with (
+            patch.object(
+                app_inventory,
+                "installation_id_for_repository",
+                return_value=7001,
+            ),
+            patch.object(
+                operator_application,
+                "sync_github_app_installation",
+                return_value=reconciliation,
+            ),
+            patch.object(
+                github_app,
+                "get_repository_access_by_full_name",
+                return_value=current,
+            ),
+            self.assertRaises(operator_application.OperatorInputError),
+        ):
+            operator_application.onboard_github_app_repository(
+                cast(PostgreSQLRuntime, Runtime()),
+                cast(app_auth.GitHubAppAuthenticator, object()),
+                repository="CCimen/review-agent",
+                profile="sundsvall-standard",
+                actor="github:CCimen",
+                reason="approved repository onboarding",
+            )
 
     def test_cli_requires_sync_identity_before_loading_runtime(self) -> None:
         stderr = io.StringIO()

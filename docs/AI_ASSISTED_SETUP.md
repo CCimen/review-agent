@@ -100,8 +100,9 @@ names:
 - migration, backup, verification, and rollback steps;
 - every action that still needs a human.
 
-Approve only the named scope. Installing the App makes a repository available;
-the separate `repositories enable` command authorizes reviews.
+Approve only the named scope. `github-app onboard` reconciles App access and
+records review authorization for one named repository. It does not enable other
+repositories selected in the installation.
 
 ## 4. Deploy and finish the owner gates
 

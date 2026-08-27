@@ -125,6 +125,13 @@ class AiOnboardingContractTests(unittest.TestCase):
                 "--public-url",
                 "https://review.example.org",
             ),
+            (
+                "github-app",
+                "onboard",
+                "owner/repository",
+                "--actor",
+                "github:operator",
+            ),
         )
         for command in commands:
             with self.subTest(command=command):

@@ -47,6 +47,12 @@ class QueueHealth:
     publication_queue: postgres_publications.PublicationQueueHealth
 
 
+@dataclass(frozen=True, slots=True)
+class RepositoryOnboardingResult:
+    reconciliation: postgres_github_app.InstallationReconciliationResult
+    access: postgres_github_app.RepositoryAccessState
+
+
 def queue_health(runtime: PostgreSQLRuntime) -> QueueHealth:
     """Read only review and publication queue health counters."""
     with runtime.transaction() as connection:
@@ -204,6 +210,50 @@ def enable_github_app_repository(
             actor=actor,
             reason=reason,
         )
+
+
+def onboard_github_app_repository(
+    runtime: PostgreSQLRuntime,
+    authenticator: app_auth.GitHubAppAuthenticator,
+    *,
+    repository: str,
+    profile: str,
+    actor: str,
+    reason: str,
+) -> RepositoryOnboardingResult:
+    """Reconcile one App installation and enable one selected repository."""
+    full_name = resolve_repository(repository)
+    provider_installation_id = app_inventory.installation_id_for_repository(
+        authenticator,
+        repository=full_name,
+    )
+    reconciliation = sync_github_app_installation(
+        runtime,
+        authenticator,
+        provider_installation_id=provider_installation_id,
+        actor=actor,
+        reason=reason,
+    )
+    with runtime.transaction() as connection:
+        current = postgres_github_app.get_repository_access_by_full_name(
+            connection, full_name
+        )
+        if current.installation_id != reconciliation.installation.id:
+            raise OperatorInputError(
+                "repository does not belong to the selected App installation"
+            )
+        access = postgres_github_app.enable_repository(
+            connection,
+            repository_id=current.repository_id,
+            profile_key=profile,
+            trigger_mode=postgres_github_app.TriggerMode.MANUAL,
+            actor=actor,
+            reason=reason,
+        )
+    return RepositoryOnboardingResult(
+        reconciliation=reconciliation,
+        access=access,
+    )
 
 
 def disable_github_app_repository(

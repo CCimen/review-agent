@@ -28,11 +28,17 @@ Compose platforms, and OpenShift. This page keeps repository onboarding short.
 
 ## 1. Install and enable the repository
 
-Install the GitHub App with **Only select repositories**, choose the repository,
-then reconcile and enable it with the commands in [GitHub App
-setup](./GITHUB_APP_PILOT.md). Installation makes the repository available;
-the separate enable step is the operator approval boundary. A blank enabled set
-denies all review requests.
+Install the GitHub App with **Only select repositories** and choose the
+repository. Then onboard it from the private gateway:
+
+```bash
+review-agent-admin github-app onboard <owner/repository> \
+  --actor "github:<operator>"
+```
+
+The command reconciles GitHub access and records the operator's approval for the
+named repository. A blank enabled set denies all review requests. [GitHub App
+setup](./GITHUB_APP_PILOT.md) shows the container-specific command.
 
 ## 2. Run the first review
 
@@ -63,9 +69,9 @@ rather than retrying blindly.
 
 ## Onboard many repositories
 
-One deployment serves an entire organization. Select additional repositories in
-the App installation, reconcile the inventory, and enable each repository
-explicitly. No repository workflow or duplicated Actions secrets are required.
+One deployment serves an entire organization. Select another repository in the
+App installation and run `github-app onboard` for its full name. No repository
+workflow or duplicated Actions secrets are required.
 
 Every onboarded repository shares one queue, one PostgreSQL database, and one
 reviewer profile. PostgreSQL serializes reviews within a repository, so

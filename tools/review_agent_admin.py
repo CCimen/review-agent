@@ -117,6 +117,15 @@ def _parser() -> argparse.ArgumentParser:
     registration.add_argument("--public-url", required=True)
     registration.add_argument("--name")
     registration.add_argument("--json", action="store_true")
+    onboard = github_app_commands.add_parser(
+        "onboard", help="Reconcile an installation and enable one repository."
+    )
+    onboard.add_argument("repository")
+    onboard.add_argument("--profile")
+    onboard.add_argument("--actor", required=True)
+    onboard.add_argument(
+        "--reason", default="approved repository onboarding"
+    )
 
     installations = commands.add_parser(
         "installations", help="Inspect or reconcile GitHub App installations."
@@ -596,6 +605,64 @@ def _sync_installation(args: argparse.Namespace) -> int:
     return 0
 
 
+def _onboard_repository(args: argparse.Namespace) -> int:
+    try:
+        runtime = _runtime()
+    except (PostgreSQLRuntimeError, psycopg.Error):
+        _json_error(code="database_unavailable", retryable=True)
+        return os.EX_TEMPFAIL
+    try:
+        settings = ReviewAgentSettings.from_environment()
+        authenticator = operator_setup.github_app_authenticator(os.environ)
+        result = operator_application.onboard_github_app_repository(
+            runtime,
+            authenticator,
+            repository=args.repository,
+            profile=args.profile or settings.profile,
+            actor=args.actor,
+            reason=args.reason,
+        )
+    except (
+        app_auth.GitHubAppTokenRetryable,
+        app_inventory.GitHubAppInventoryRetryable,
+        PostgreSQLRuntimeError,
+        psycopg.OperationalError,
+    ):
+        _json_error(code="repository_onboarding_unavailable", retryable=True)
+        return os.EX_TEMPFAIL
+    except (
+        app_auth.GitHubAppConfigurationError,
+        app_auth.GitHubAppTokenPermanent,
+        app_inventory.GitHubAppInventoryPermanent,
+        github_app.GitHubAppStateError,
+        operator_application.OperatorInputError,
+        registry.RegistryError,
+        psycopg.Error,
+        ValueError,
+    ):
+        _json_error(code="repository_onboarding_failed", retryable=False)
+        return 1
+    finally:
+        runtime.close()
+    access = result.access
+    _json(
+        {
+            "access": access.access_state.value,
+            "enabled": access.enabled,
+            "installation_id": (
+                result.reconciliation.installation.provider_installation_id
+            ),
+            "profile": access.profile_key,
+            "repositories_removed": result.reconciliation.repositories_removed,
+            "repositories_seen": result.reconciliation.repositories_seen,
+            "repository": access.full_name,
+            "repository_id": access.provider_repository_id,
+            "trigger_mode": access.trigger_mode.value,
+        }
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -628,6 +695,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(url)
         return 0
+    if args.command == "github-app" and args.github_app_command == "onboard":
+        return _onboard_repository(args)
     if args.command == "installations" and args.installation_command == "list":
         try:
             limit = _page_limit(args.limit)

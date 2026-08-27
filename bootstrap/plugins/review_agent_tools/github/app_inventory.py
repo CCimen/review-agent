@@ -6,7 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
+import urllib.parse
 
+from ..domain.feedback import resolve_repository
 from ..postgres import github_app, registry
 from .app_auth import GitHubAppAuthenticator
 
@@ -35,6 +37,23 @@ class InstallationInventory:
     definition: github_app.InstallationDefinition
     status: github_app.InstallationStatus
     repositories: tuple[github_app.InstallationRepositoryDefinition, ...]
+
+
+def installation_id_for_repository(
+    authenticator: GitHubAppAuthenticator,
+    *,
+    repository: str,
+    now: datetime | None = None,
+) -> int:
+    """Resolve the App installation that currently grants access to a repository."""
+    normalized = resolve_repository(repository)
+    encoded = urllib.parse.quote(normalized, safe="/")
+    metadata = authenticator.app_json(
+        f"/repos/{encoded}/installation",
+        now=now,
+    )
+    root = _object(metadata, "repository installation")
+    return _positive(root.get("id"), "installation id")
 
 
 def _object(value: object, field: str) -> Mapping[str, object]:

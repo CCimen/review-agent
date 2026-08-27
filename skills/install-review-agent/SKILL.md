@@ -93,11 +93,11 @@ commands with `oc exec` in the matching workload.
 
 1. Run `review-agent-admin doctor` and `review-agent-admin queues inspect` in
    `hermes-review`.
-2. Reconcile the selected-repository installation from the private gateway with
-   `review-agent-admin installations sync` in `review-github-gateway`.
-3. List durable repositories, then explicitly enable only approved stable
-   repository IDs with `review-agent-admin repositories enable` in
-   `review-github-gateway`.
+2. Reconcile and enable each approved repository from the private gateway with
+   `review-agent-admin github-app onboard <owner/name>
+   --actor <audited-identity>` in `review-github-gateway`.
+3. List durable repositories and confirm that the command enabled only the
+   approved names.
 4. Run `review-agent-admin smoke-test --dry-run --repository <owner/name> --pr
    <number>` in `hermes-review`. This must complete without a model call or
    GitHub write.

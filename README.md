@@ -20,7 +20,14 @@ merge authority.
 1. **Deploy the service** with Compose, Dokploy, Coolify, Portainer, or
    OpenShift: [deployment guide](docs/DEPLOYMENT.md).
 2. **Onboard a repository**: install the GitHub App on selected repositories,
-   then explicitly enable each one: [getting started](docs/GETTING_STARTED.md).
+   then run one audited command in the private gateway:
+
+   ```bash
+   review-agent-admin github-app onboard <owner/repository> \
+     --actor "github:<operator>"
+   ```
+
+   [Getting started](docs/GETTING_STARTED.md) shows the container-specific form.
 3. **Request a review** with a new top-level PR comment:
 
    ```text

@@ -22,6 +22,7 @@ PLUGIN_PARENT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
 from review_agent_tools import operator_application, operator_setup  # noqa: E402
+from review_agent_tools.github import app_auth  # noqa: E402
 from review_agent_tools.github.gateway import (  # noqa: E402
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
@@ -29,6 +30,7 @@ from review_agent_tools.github.gateway import (  # noqa: E402
     OperatorSmokeResult,
 )
 from review_agent_tools.postgres import github_app, jobs, publications  # noqa: E402
+from review_agent_tools.postgres.runtime import PostgreSQLUnavailable  # noqa: E402
 from review_agent_tools.domain.review import RepositoryId  # noqa: E402
 
 
@@ -477,6 +479,143 @@ class OperatorAdminCliTests(unittest.TestCase):
                 "trigger_mode": "manual",
             },
         )
+
+    def test_github_app_onboard_reconciles_and_enables_by_repository_name(self) -> None:
+        admin = _load_admin_cli()
+        runtime = Mock()
+        access = Mock(
+            access_state=github_app.RepositoryAccess.AVAILABLE,
+            enabled=True,
+            full_name="CCimen/review-agent",
+            profile_key="sundsvall-standard",
+            provider_repository_id=9001,
+            trigger_mode=github_app.TriggerMode.MANUAL,
+        )
+        reconciliation = Mock(
+            installation=Mock(provider_installation_id=7001),
+            repositories_enabled=0,
+            repositories_removed=0,
+            repositories_seen=1,
+        )
+        result = Mock(access=access, reconciliation=reconciliation)
+        stdout = io.StringIO()
+        with (
+            patch.object(admin, "_runtime", return_value=runtime),
+            patch.object(
+                admin.operator_setup,
+                "github_app_authenticator",
+                return_value="authenticator",
+            ),
+            patch.object(
+                admin.operator_application,
+                "onboard_github_app_repository",
+                return_value=result,
+            ) as onboard,
+            patch.dict(os.environ, {"REVIEW_AGENT_PROFILE": "sundsvall-standard"}),
+            redirect_stdout(stdout),
+        ):
+            status = admin.main(
+                [
+                    "github-app",
+                    "onboard",
+                    "CCimen/review-agent",
+                    "--actor",
+                    "github:CCimen",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        onboard.assert_called_once_with(
+            runtime,
+            "authenticator",
+            repository="CCimen/review-agent",
+            profile="sundsvall-standard",
+            actor="github:CCimen",
+            reason="approved repository onboarding",
+        )
+        runtime.close.assert_called_once()
+        self.assertEqual(
+            json.loads(stdout.getvalue()),
+            {
+                "access": "available",
+                "enabled": True,
+                "profile": "sundsvall-standard",
+                "repositories_removed": 0,
+                "repositories_seen": 1,
+                "installation_id": 7001,
+                "repository": "CCimen/review-agent",
+                "repository_id": 9001,
+                "trigger_mode": "manual",
+            },
+        )
+
+    def test_github_app_onboard_reports_bounded_failure_classes(self) -> None:
+        admin = _load_admin_cli()
+        arguments = [
+            "github-app",
+            "onboard",
+            "CCimen/review-agent",
+            "--actor",
+            "github:CCimen",
+        ]
+        cases = (
+            (
+                app_auth.GitHubAppTokenRetryable("provider-secret"),
+                os.EX_TEMPFAIL,
+                "repository_onboarding_unavailable",
+                True,
+            ),
+            (
+                app_auth.GitHubAppTokenPermanent("provider-secret"),
+                1,
+                "repository_onboarding_failed",
+                False,
+            ),
+        )
+        for failure, expected_status, expected_code, retryable in cases:
+            with self.subTest(expected_code=expected_code):
+                runtime = Mock()
+                stderr = io.StringIO()
+                with (
+                    patch.object(admin, "_runtime", return_value=runtime),
+                    patch.object(
+                        admin.operator_setup,
+                        "github_app_authenticator",
+                        return_value="authenticator",
+                    ),
+                    patch.object(
+                        admin.operator_application,
+                        "onboard_github_app_repository",
+                        side_effect=failure,
+                    ),
+                    redirect_stderr(stderr),
+                ):
+                    status = admin.main(arguments)
+
+                self.assertEqual(status, expected_status)
+                runtime.close.assert_called_once()
+                error = json.loads(stderr.getvalue())["error"]
+                self.assertEqual(error["code"], expected_code)
+                self.assertEqual(error["retryable"], retryable)
+                self.assertNotIn("provider-secret", stderr.getvalue())
+
+        stderr = io.StringIO()
+        with (
+            patch.object(
+                admin,
+                "_runtime",
+                side_effect=PostgreSQLUnavailable("host=secret.internal"),
+            ),
+            redirect_stderr(stderr),
+        ):
+            status = admin.main(arguments)
+
+        self.assertEqual(status, os.EX_TEMPFAIL)
+        self.assertEqual(
+            json.loads(stderr.getvalue())["error"],
+            {"code": "database_unavailable", "retryable": True},
+        )
+        self.assertNotIn("secret.internal", stderr.getvalue())
 
     def test_smoke_command_preserves_retryable_and_permanent_failures(self) -> None:
         admin = _load_admin_cli()

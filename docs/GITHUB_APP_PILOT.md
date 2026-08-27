@@ -101,45 +101,34 @@ docker compose ps
 Use `--build` for a reviewed local-source deployment. The App key stays in the
 private gateway. Workers receive no GitHub credential.
 
-## 3. Install, reconcile, and enable
+## 3. Install and onboard
 
 Open the App's **Install App** page, choose **Only select repositories**, and
 select the test repository. The current runtime rejects **All repositories** so
 new repositories cannot become available implicitly.
 
-Record the installation ID from the installation settings URL, then get the
-repository's stable ID:
-
-```bash
-gh api repos/CCimen/review-agent --jq .id
-```
-
-Reconcile the complete selected-repository inventory:
+Run one command in the private gateway:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin installations sync <installation-id> \
-  --actor "github:<operator>" \
-  --reason "initial GitHub App inventory"
+  review-agent-admin github-app onboard CCimen/review-agent \
+  --actor "github:<operator>"
 ```
 
-Newly discovered repositories remain disabled. Enable only the intended stable
-repository ID:
+The command finds the repository's App installation, reconciles GitHub's
+selected-repository inventory, and enables only the named repository. Review
+Agent reads `REVIEW_AGENT_PROFILE` from the running stack, so you do not need to
+copy the installation ID or profile into the command.
 
-```bash
-docker compose exec review-github-gateway \
-  review-agent-admin repositories enable <repository-id> \
-  --profile sundsvall-standard \
-  --actor "github:<operator>" \
-  --reason "approved review repository"
-```
+GitHub App access and review enablement remain separate audited decisions. The
+onboarding command performs both steps in order for one named repository. It
+never enables the rest of the installation.
 
-The `--profile` value must match `REVIEW_AGENT_PROFILE` in the running stack.
 Changing the deployment profile intentionally revokes repositories enabled for
 a different profile until an operator enables them for the new one.
 
-Reconcile again after changing the App's repository selection or repairing a
-missed lifecycle event. Reconciliation is atomic and never enables a repository.
+Run the onboarding command again after adding the repository to the App or when
+the service missed an installation webhook. The operation is safe to repeat.
 
 Before sending a review request, verify the live deployment and one open pull
 request without calling the model or writing to GitHub:
@@ -185,7 +174,8 @@ authorization. Preserve audit rows when diagnosing an incident.
 | --- | --- |
 | Webhook returns `401` | GitHub and the deployment use different webhook secrets. |
 | Sync rejects the installation | Confirm **Only select repositories** and all four permissions above. |
-| `repository_not_authorized` | Reconcile, then explicitly enable the stable repository ID and profile. |
+| `repository_onboarding_failed` | Run `doctor`, confirm the App is installed on the named repository with **Only select repositories**, and verify the App key and permissions. |
+| `repository_not_authorized` | Confirm the App selection, then rerun `github-app onboard` for the named repository. |
 | `sender_not_authorized` | The commenter needs current `write` or `admin` permission. |
 | `fork_source_not_supported` | Test with a branch in the selected base repository. |
 | `provider_authorization_denied` | Confirm the App is installed, active, and still includes the repository. |

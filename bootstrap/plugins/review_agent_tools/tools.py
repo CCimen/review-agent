@@ -32,8 +32,13 @@ from .postgres.runtime import (
     PostgreSQLRuntimeError,
     PostgreSQLRuntimeRole,
 )
-from .postgres.coverage import FileIndexSummary, RunFile, RunFilePage
-from .domain.review import ReviewRunId
+from .postgres.coverage import (
+    CoverageSummary,
+    FileIndexSummary,
+    RunFile,
+    RunFilePage,
+)
+from .domain.review import DiffState, ReviewRunId
 from .github.gateway import (
     GitHubGatewayError,
     GitHubGatewayRejected,
@@ -762,10 +767,24 @@ def _pr_diff_from_patches(
         run_id=run_id,
     )
     if path and not assembled.path_present:
+        registered = review_run_application.lookup_live_run_file(
+            _postgres_runtime(), subject, path=path
+        )
+        mark_unavailable = (
+            index.index_state == "complete"
+            and registered.item is not None
+            and registered.item.is_changed_path
+            and registered.item.diff_state is not DiffState.COMPLETE
+        )
         review_run_application.record_live_diff_result(
             _postgres_runtime(),
             subject,
-            review_run_application.DiffExposure(),
+            review_run_application.DiffExposure(
+                unavailable_paths=(path,) if mark_unavailable else (),
+                unavailable_reason=(
+                    "the registered path was absent from GitHub's changed-file patches"
+                ),
+            ),
         )
         if index.index_state == "complete":
             path_state: Literal[
@@ -789,7 +808,7 @@ def _pr_diff_from_patches(
             path=path,
             path_state=path_state,
             index_state=index.index_state,
-            unavailable_paths=[],
+            unavailable_paths=[path] if mark_unavailable else [],
             next_action=next_action,
         )
     # Fully returned files are complete exposure; only a file actually cut at the
@@ -1419,6 +1438,16 @@ def _mark_run_failed(
         pass
 
 
+def _recoverable_diff_gap(coverage: CoverageSummary) -> int:
+    """Count registered paths Hermes can still diff-review before delivery."""
+    if (
+        not coverage.registration_complete
+        or coverage.changed_files_reported != coverage.changed_files_registered
+    ):
+        return 0
+    return coverage.unseen_paths
+
+
 @_worker_lease_fence()
 def review_deliver(args: dict[str, Any], **context: Any) -> str:
     repository = ""
@@ -1453,6 +1482,39 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
         )
         if pull.get("state") != "open":
             raise ToolInputError("the pull request is no longer open")
+        # Reaching rendering records that deterministic coverage recovery was
+        # already requested once; a later delivery must remain publishable.
+        if persisted.phase not in {"rendering", "publishing"}:
+            coverage = review_run_application.summarize_postgres_coverage(
+                _postgres_runtime(), ReviewRunId(run_id)
+            )
+            recoverable_paths = _recoverable_diff_gap(coverage)
+            if recoverable_paths:
+                return _output(
+                    {
+                        "stage": "validation_failed",
+                        "published": False,
+                        "retryable": True,
+                        "run_id": run_id,
+                        "error": (
+                            f"{recoverable_paths} registered changed path(s) "
+                            "have not been diff-reviewed"
+                        ),
+                        "changed_paths_registered": (
+                            coverage.changed_files_registered
+                        ),
+                        "changed_paths_with_complete_diff": (
+                            coverage.changed_paths_with_complete_diff
+                        ),
+                        "changed_paths_unseen": coverage.unseen_paths,
+                        "next_action": (
+                            "Call review_agent_pr_files and page the changed paths. "
+                            "For every item whose diff_state is unseen, call "
+                            "review_agent_pr_diff and follow any continuation. Then "
+                            "call review_agent_deliver again with this same run_id."
+                        ),
+                    }
+                )
         configured = settings.ReviewAgentSettings.from_environment()
         lease = postgres_jobs.WorkerLeaseSession.parse(context.get("session_id"))
         prepared = review_publication_application.prepare_postgres_publication(

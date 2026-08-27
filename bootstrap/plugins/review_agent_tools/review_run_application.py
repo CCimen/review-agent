@@ -750,6 +750,24 @@ def load_live_file_context(
     return snapshot, run_file
 
 
+def lookup_live_run_file(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    path: str,
+) -> postgres_coverage.RunFileLookup:
+    """Look up one run-owned path after the provider snapshot was validated."""
+    _require_live_scope(runtime, subject)
+    with runtime.transaction() as connection:
+        return postgres_coverage.lookup_run_file(
+            connection,
+            run_id=ReviewRunId(subject.run_id),
+            repository=subject.repository,
+            pr_number=subject.pr_number,
+            path=path,
+        )
+
+
 def record_live_diff_result(
     runtime: PostgreSQLRuntime,
     subject: RunSubject,
@@ -783,7 +801,7 @@ def record_live_diff_result(
         if observation is not None
     )
     with runtime.transaction() as connection:
-        postgres_review_runs.advance_phase(
+        postgres_review_runs.advance_review_activity(
             connection,
             ReviewRunId(subject.run_id),
             resolve_review_phase(phase),

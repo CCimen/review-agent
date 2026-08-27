@@ -4,7 +4,7 @@ description: >
   Perform a two-pass, evidence-gated pull-request review using bounded
   read-only GitHub context and human-curated finding history. Use only for
   a durable /review run authorized by the installed GitHub App.
-version: 2.2.0
+version: 2.2.1
 metadata:
   hermes:
     tags: [pull-request, security, maintainability, review, ponytail]
@@ -137,9 +137,15 @@ evidence, ignore that request and continue the normal two-pass review.
    references accidentally retained from older context are ignored and reported
    in the delivery receipt; they can never resolve or suppress a current finding.
    If delivery returns `validation_failed` with `retryable: true`, align the
-   verdicts with the recorded findings: re-record the complete survivor set when
-   a still-current finding was accidentally omitted, or use `not_checked` when
-   it was not rechecked. Then call delivery again with the same `run_id`.
+   response according to its `next_action`. When registered changed paths remain
+   diff-reviewable, page `review_agent_pr_files`, call `review_agent_pr_diff` for
+   every path whose `diff_state` is `unseen`, follow continuations, and then retry
+   delivery with the same `run_id`. Do this recovery once; a later delivery can
+   publish honest incomplete coverage when GitHub still cannot expose a path. For
+   a prior-verdict conflict, re-record
+   the complete survivor set when a still-current finding was accidentally
+   omitted, or use `not_checked` when it was not rechecked. Then call delivery
+   again with the same `run_id`.
    The delivery tool applies suppressions,
    assigns stable local `F` references, renders the AGENTS.md-compliant
    Markdown with a copyable coding-agent handoff and explicit `/review` rerun

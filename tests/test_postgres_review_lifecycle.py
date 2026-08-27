@@ -411,6 +411,54 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
             with self.assertRaises(postgres_review_runs.InvalidReviewTransition):
                 postgres_review_runs.reopen_finding_collection(connection, run_id)
 
+    def test_review_activity_can_reenter_without_moving_the_phase_backward(self) -> None:
+        started = review_run_application.start_postgres_review(
+            self.runtime,
+            self.request(request_key="github:issue-comment:reenter-review"),
+        )
+        assert isinstance(started, postgres_review_runs.StartedRun)
+        run_id = started.run.id
+
+        with self.runtime.transaction() as connection:
+            for phase in (
+                ReviewPhase.FETCHING_PR,
+                ReviewPhase.COLLECTING_DIFF,
+                ReviewPhase.REVIEWING,
+                ReviewPhase.RENDERING,
+            ):
+                postgres_review_runs.advance_phase(connection, run_id, phase)
+            diff_read = postgres_review_runs.advance_review_activity(
+                connection, run_id, ReviewPhase.COLLECTING_DIFF
+            )
+            source_read = postgres_review_runs.advance_review_activity(
+                connection, run_id, ReviewPhase.REVIEWING
+            )
+            snapshot, current, superseded = postgres_review_runs.validate_snapshot(
+                connection,
+                run_id=run_id,
+                repository="team/reviewer",
+                pr_number=14,
+                base_sha="b" * 40,
+                head_sha="a" * 40,
+                expected_head_sha="a" * 40,
+                phase=ReviewPhase.COLLECTING_DIFF,
+            )
+
+        self.assertEqual(diff_read.phase, ReviewPhase.RENDERING)
+        self.assertEqual(source_read.phase, ReviewPhase.RENDERING)
+        self.assertEqual(snapshot.run.phase, ReviewPhase.RENDERING)
+        self.assertTrue(current)
+        self.assertFalse(superseded)
+
+        with self.runtime.transaction() as connection:
+            postgres_review_runs.advance_phase(
+                connection, run_id, ReviewPhase.PUBLISHING
+            )
+            with self.assertRaises(postgres_review_runs.InvalidReviewTransition):
+                postgres_review_runs.advance_review_activity(
+                    connection, run_id, ReviewPhase.COLLECTING_DIFF
+                )
+
     def test_new_exact_subject_supersedes_the_active_run(self) -> None:
         first = review_run_application.start_postgres_review(
             self.runtime, self.request()

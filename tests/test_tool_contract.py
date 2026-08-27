@@ -14,11 +14,16 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 import review_agent_tools  # noqa: E402
 from review_agent_tools import review_contract, review_run_application, schemas, tools  # noqa: E402
-from review_agent_tools.domain.review import resolve_review_subject  # noqa: E402
+from review_agent_tools.domain.review import (  # noqa: E402
+    CoverageState,
+    resolve_review_subject,
+)
 from review_agent_tools.github.source import ReviewFilePage  # noqa: E402
 from review_agent_tools.postgres.coverage import (  # noqa: E402
+    CoverageSummary,
     FileIndexSummary,
     RunFile,
+    RunFileLookup,
     RunFilePage,
 )
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
@@ -257,6 +262,63 @@ class ToolContractTests(unittest.TestCase):
                 self.assertEqual(result["diff_source"], "per_file_patch")
                 fallback.assert_called_once()
 
+    def test_terminal_per_file_handoff_records_only_registered_paths(self) -> None:
+        source = SimpleNamespace(run_id=41)
+        registered = RunFile(
+            path="missing.py",
+            change_status="modified",
+            previous_path="",
+            domain="general",
+            review_mode="normal",
+            diff_state=review_run_application.DiffState.UNSEEN,
+            is_changed_path=True,
+        )
+        cases = (
+            ("complete", None, (), "not_in_changed_files"),
+            ("complete", registered, ("missing.py",), "not_in_changed_files"),
+            ("incomplete", registered, (), "not_in_changed_index"),
+        )
+        for index_state, item, expected, path_state in cases:
+            index = SimpleNamespace(files=[], index_state=index_state)
+            with (
+                self.subTest(index_state=index_state, registered=item is not None),
+                patch.object(
+                    tools, "_enumerate_changed_file_index", return_value=index
+                ),
+                patch.object(
+                    tools.review_run_application,
+                    "lookup_live_run_file",
+                    return_value=RunFileLookup(
+                        item=item,
+                        registration_complete=True,
+                    ),
+                ),
+                patch.object(
+                    tools.review_run_application, "record_live_diff_result"
+                ) as record,
+                patch.object(
+                    tools, "_postgres_runtime", return_value=self._runtime()
+                ),
+            ):
+                result = json.loads(
+                    tools._pr_diff_from_patches(
+                        source=source,
+                        repository=self.repository,
+                        number=1,
+                        run_id=41,
+                        path="missing.py",
+                        max_chars=10_000,
+                        start_char=0,
+                        reported=1,
+                    )
+                )
+
+            exposure = record.call_args.args[2]
+            self.assertEqual(exposure.unavailable_paths, expected)
+            self.assertEqual(result["path_state"], path_state)
+            self.assertEqual(result["unavailable_paths"], list(expected))
+            self.assertTrue(result["terminal"])
+
     def test_pr_file_reads_a_renamed_base_file_at_its_previous_path(self) -> None:
         pull = {
             "base": {"sha": "a" * 40},
@@ -390,6 +452,147 @@ class ToolContractTests(unittest.TestCase):
                     result["error"],
                     "a live review worker lease is required; stop this review turn",
                 )
+
+    def test_delivery_retries_a_recoverable_changed_path_coverage_gap(self) -> None:
+        runtime = self._runtime()
+        source = SimpleNamespace(run_id=41)
+        pull = {"state": "open", "head": {"sha": "b" * 40}}
+        coverage = CoverageSummary(
+            state=CoverageState.INCOMPLETE,
+            changed_files_reported=2,
+            changed_files_registered=2,
+            registration_complete=True,
+            changed_paths_with_complete_diff=1,
+            changed_paths_with_source_reads=1,
+            supporting_context_paths_read=0,
+            context_ranges_read=1,
+            unseen_paths=1,
+            unavailable_paths=0,
+            truncated_paths=0,
+        )
+        with (
+            patch.object(tools, "_postgres_runtime", return_value=runtime),
+            patch.object(tools, "_gateway_source_session", return_value=source),
+            patch.object(
+                tools,
+                "_pr",
+                return_value=(self.repository, 7, pull),
+            ),
+            patch.object(
+                tools.review_run_application,
+                "load_live_run_state",
+                return_value=SimpleNamespace(phase="reviewing"),
+            ),
+            patch.object(
+                tools,
+                "_review_run_snapshot",
+                return_value=(pull, Mock()),
+            ),
+            patch.object(
+                tools.review_run_application,
+                "summarize_postgres_coverage",
+                return_value=coverage,
+            ),
+            patch.object(
+                tools.review_publication_application,
+                "prepare_postgres_publication",
+            ) as prepare,
+        ):
+            result = json.loads(tools.review_deliver.__wrapped__({"run_id": 41}))
+
+        self.assertEqual(result["stage"], "validation_failed")
+        self.assertTrue(result["retryable"])
+        self.assertEqual(result["changed_paths_registered"], 2)
+        self.assertEqual(result["changed_paths_with_complete_diff"], 1)
+        self.assertEqual(result["changed_paths_unseen"], 1)
+        self.assertIn("diff_state is unseen", result["next_action"])
+        self.assertIn("review_agent_pr_files", result["next_action"])
+        self.assertIn("review_agent_pr_diff", result["next_action"])
+        prepare.assert_not_called()
+
+    def test_delivery_keeps_terminal_gaps_publishable(
+        self,
+    ) -> None:
+        coverage = CoverageSummary(
+            state=CoverageState.INCOMPLETE,
+            changed_files_reported=2,
+            changed_files_registered=2,
+            registration_complete=True,
+            changed_paths_with_complete_diff=1,
+            changed_paths_with_source_reads=0,
+            supporting_context_paths_read=0,
+            context_ranges_read=0,
+            unseen_paths=0,
+            unavailable_paths=1,
+            truncated_paths=0,
+        )
+
+        self.assertEqual(tools._recoverable_diff_gap(coverage), 0)
+
+    def test_delivery_publishes_after_one_coverage_recovery_attempt(self) -> None:
+        runtime = self._runtime()
+        source = SimpleNamespace(run_id=41)
+        pull = {"state": "open", "head": {"sha": "b" * 40}}
+        coverage = CoverageSummary(
+            state=CoverageState.INCOMPLETE,
+            changed_files_reported=2,
+            changed_files_registered=2,
+            registration_complete=True,
+            changed_paths_with_complete_diff=1,
+            changed_paths_with_source_reads=1,
+            supporting_context_paths_read=0,
+            context_ranges_read=1,
+            unseen_paths=1,
+            unavailable_paths=0,
+            truncated_paths=0,
+        )
+        prepared = SimpleNamespace(
+            publication_id=81,
+            findings_count=0,
+            suggestions_count=0,
+            resolved_count=0,
+            ignored_previous_verdicts=(),
+        )
+        with (
+            patch.object(tools, "_postgres_runtime", return_value=runtime),
+            patch.object(tools, "_gateway_source_session", return_value=source),
+            patch.object(
+                tools, "_pr", return_value=(self.repository, 7, pull)
+            ),
+            patch.object(
+                tools.review_run_application,
+                "load_live_run_state",
+                return_value=SimpleNamespace(phase="rendering"),
+            ),
+            patch.object(
+                tools, "_review_run_snapshot", return_value=(pull, Mock())
+            ),
+            patch.object(
+                tools.review_run_application,
+                "summarize_postgres_coverage",
+                return_value=coverage,
+            ) as summarize,
+            patch.object(
+                tools.settings.ReviewAgentSettings,
+                "from_environment",
+                return_value=SimpleNamespace(
+                    feedback_enabled=False,
+                    publish_max_bytes=100_000,
+                    publication_max_attempts=3,
+                ),
+            ),
+            patch.object(
+                tools.review_publication_application,
+                "prepare_postgres_publication",
+                return_value=prepared,
+            ) as prepare,
+        ):
+            result = json.loads(tools.review_deliver.__wrapped__({"run_id": 41}))
+
+        self.assertEqual(result["stage"], "queued_for_publication")
+        self.assertEqual(result["publication_id"], 81)
+        summarize.assert_not_called()
+        prepare.assert_called_once()
 
     def test_malformed_worker_session_fails_before_source_or_database_work(self) -> None:
         with (

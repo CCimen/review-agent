@@ -197,6 +197,19 @@ _NEXT_PHASE = {
 }
 _ACTIVE_PHASES = frozenset(_NEXT_PHASE) | {ReviewPhase.PUBLISHING}
 
+_REENTRANT_REVIEW_ACTIVITY = {
+    ReviewPhase.COLLECTING_DIFF: frozenset(
+        {
+            ReviewPhase.COLLECTING_DIFF,
+            ReviewPhase.REVIEWING,
+            ReviewPhase.RENDERING,
+        }
+    ),
+    ReviewPhase.REVIEWING: frozenset(
+        {ReviewPhase.REVIEWING, ReviewPhase.RENDERING}
+    ),
+}
+
 
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
     if connection.info.transaction_status != TransactionStatus.INTRANS:
@@ -400,7 +413,11 @@ def validate_snapshot(
             head_sha=scope.head_sha,
             resolved_config=scope.resolved_config,
         ), False, True
-    updated = advance_phase(connection, run_id, phase)
+    updated = (
+        advance_review_activity(connection, run_id, phase)
+        if phase in _REENTRANT_REVIEW_ACTIVITY
+        else advance_phase(connection, run_id, phase)
+    )
     return ReviewRunScope(
         run=updated,
         provider_repository_id=scope.provider_repository_id,
@@ -992,6 +1009,28 @@ def advance_phase(
     if row is None:
         raise InvalidReviewTransition("review run stopped before phase update")
     return _run(row)
+
+
+def advance_review_activity(
+    connection: psycopg.Connection[TupleRow],
+    run_id: ReviewRunId,
+    phase: ReviewPhase,
+) -> ReviewRun:
+    """Advance review work or heartbeat a later pre-publication milestone.
+
+    Diff and source inspection are iterative. Once a run reaches reviewing or
+    rendering, another bounded read must not move the durable phase backward,
+    but it must remain legal until the publication plan is frozen.
+    """
+    _require_transaction(connection)
+    allowed = _REENTRANT_REVIEW_ACTIVITY.get(phase)
+    if allowed is None:
+        raise InvalidReviewTransition("target phase is not review activity")
+    run = _by_id(connection, run_id, for_update=True)
+    if run is None:
+        raise ReviewRunNotFound("review run does not exist")
+    target = run.phase if run.phase in allowed else phase
+    return advance_phase(connection, run_id, target)
 
 
 def reopen_finding_collection(

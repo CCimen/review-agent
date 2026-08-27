@@ -64,6 +64,7 @@ class CoverageSummary:
     changed_paths_with_source_reads: int
     supporting_context_paths_read: int
     context_ranges_read: int
+    unseen_paths: int
     unavailable_paths: int
     truncated_paths: int
 
@@ -141,6 +142,7 @@ class _SummaryRow:
     changed_paths_with_source_reads: int
     supporting_context_paths_read: int
     context_ranges_read: int
+    unseen_paths: int
     unavailable_paths: int
     truncated_paths: int
 
@@ -644,6 +646,9 @@ def summarize(
                 )::integer AS supporting_context_paths_read,
                 count(read.id)::integer AS context_ranges_read,
                 count(DISTINCT file.id) FILTER (
+                    WHERE file.is_changed_path AND file.diff_state = 'unseen'
+                )::integer AS unseen_paths,
+                count(DISTINCT file.id) FILTER (
                     WHERE file.is_changed_path AND file.diff_state = 'unavailable'
                 )::integer AS unavailable_paths,
                 count(DISTINCT file.id) FILTER (
@@ -682,6 +687,7 @@ def summarize(
         changed_paths_with_source_reads=row.changed_paths_with_source_reads,
         supporting_context_paths_read=row.supporting_context_paths_read,
         context_ranges_read=row.context_ranges_read,
+        unseen_paths=row.unseen_paths,
         unavailable_paths=row.unavailable_paths,
         truncated_paths=row.truncated_paths,
     )

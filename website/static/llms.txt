@@ -17,6 +17,10 @@ Feedback when enabled: authorized maintainers use `/review false-positive`, `/re
 - Operations: https://ccimen.github.io/review-agent/docs/operations
 - Security: https://ccimen.github.io/review-agent/docs/security
 
+## Coding-agent handoff
+
+Use the repository's `skills/install-review-agent/SKILL.md`. Work from an exact release or commit, read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.
+
 ## Operator interface
 
 From the source checkout, run `python3 tools/review_agent_admin.py capabilities` and `python3 tools/review_agent_admin.py preflight`. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.

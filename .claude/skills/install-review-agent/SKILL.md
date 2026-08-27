@@ -11,6 +11,27 @@ Work from an exact release or commit. Treat the checked-out repository as the
 source of truth; do not infer shipped behavior from a roadmap, proposal, or old
 conversation.
 
+Follow five phases:
+
+1. Inspect the exact revision and shipped capabilities.
+2. Prepare and validate one non-secret installation plan.
+3. Present one mutation, verification, rollback, and human-gate plan.
+4. Apply only the approved deployment and repository scope.
+5. Prove readiness with doctor, inventory, dry-run, and one approved live test.
+
+## Minimize operator effort
+
+- Resolve repository, release, platform, and current deployment facts with the
+  available read-only tools before asking the operator.
+- Collect missing non-secret owner decisions into one concise request. Do not
+  ask one question at a time when the decisions can be made together.
+- Never ask the operator to paste a secret into chat. Give the exact protected
+  field, file mount, or interactive login command and pause for confirmation.
+- Pause once at each unavoidable manual gate, then resume from the recorded
+  plan and evidence. Do not make the operator repeat confirmed information.
+- If access is missing, state the exact blocked action and the smallest access
+  or manual step needed. Never substitute a guess.
+
 ## Establish the contract
 
 Read only the material needed for the requested platform:
@@ -65,6 +86,13 @@ before planning. It returns the shipped behavior as bounded JSON.
    Opening and submitting the GitHub form is an owner action.
 4. Populate the deployment's protected secret store. Refer to secret names,
    never values, in the plan.
+   Keep the default `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
+   `REVIEW_AGENT_REASONING_EFFORT`, or select a provider/model pair supported by
+   Hermes and the owner's account. Prefer the default Codex device-code OAuth
+   route for the first deployment because it needs no model API key. Use
+   `hermes model` for OAuth, API keys, and custom endpoints. Keep provider
+   secrets in Hermes' persisted credential store or Hermes-owned `.env`. The
+   deployment values, not the interactive wizard, are the source of truth.
 5. Run `python3 tools/review_agent_admin.py preflight` in the prepared host
    environment. It is local and non-mutating.
 
@@ -79,6 +107,13 @@ Use the repository's Compose or OpenShift definition without copying its logic
 into another template. Change only the named environment or project. Keep the
 GitHub gateway, PostgreSQL, Hermes API, workers, and publishers private; expose
 only the admission route.
+
+On Dokploy, use **Deploy** when the source revision changes and confirm the
+expected commit. A plain **Redeploy** may reuse the existing checkout. Preserve
+the Hermes data volume so normal deployments retain provider credentials.
+Request setup again only when that volume changed or authentication actually
+fails. Use `hermes model` for provider setup, then rerun the managed profile
+installer so the deployment-selected provider/model remains canonical.
 
 Pause for the human when GitHub owner approval, selected-repository approval,
 secret placement, DNS control, or Hermes model login cannot be completed with
@@ -132,6 +167,18 @@ receipt, queue state, or container health alone.
 Report stable IDs, exact versions and digests, readiness, dry-run and live-run
 results, backup state, rollback readiness, and unresolved manual gates. Never
 include secret values, full webhook payloads, model prompts, or source excerpts.
+
+Use this compact completion shape:
+
+```text
+Status: ready | incomplete | failed
+Deployed: <exact release, commit, or image digest> in <environment>
+GitHub App: <App and installation IDs>; <enabled repositories>
+Runtime: <profile, provider/model policy, doctor and queue result>
+Acceptance: <dry-run result>; <live run and publication IDs or not approved>
+Recovery: <backup owner and rollback state>
+Owner actions: <none or exact remaining gates>
+```
 
 Classify failures before acting:
 

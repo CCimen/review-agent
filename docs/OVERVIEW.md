@@ -12,8 +12,8 @@ last_verified: 2026-08-25
 > **Current** — This page describes the reviewer available in this repository
 > today.
 
-Review Agent is a self-hosted, advisory pull-request reviewer built on Hermes
-and Codex. An authorized maintainer comments `/review` on a PR; the service pins the
+Review Agent is a self-hosted, advisory pull-request reviewer built on Hermes.
+An authorized maintainer comments `/review` on a PR; the service pins the
 exact base/head snapshot, reviews it through bounded read tools, and posts
 evidence-backed findings through a deterministic publisher.
 
@@ -57,7 +57,7 @@ exact comment shape a pull request receives.
   interrupted delivery resumes from durable state.
 - Can export a private shadow-mode verification bundle and store
   provider-neutral verifier state for a run. The live deployment still
-  publishes from Codex-owned findings unless an explicit reconciliation
+  publishes from the review model's findings unless an explicit reconciliation
   decision says otherwise.
 
 ## What it does not do
@@ -73,7 +73,7 @@ exact comment shape a pull request receives.
 
 ## Review flow
 
-![Four phases of a review: request and authorize, read and review, verify and publish, then learn on re-review.](../website/static/img/review-lifecycle.png)
+![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](../website/static/img/review-lifecycle.webp)
 
 The model proposes and challenges findings. Plugin code owns the durable
 state, publication, feedback parsing, snapshot checks, and GitHub writes.

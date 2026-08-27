@@ -167,7 +167,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        managed = load_yaml(SOURCE / "config.yaml")
+        managed, managed_bytes = review_contract.render_managed_config(
+            SOURCE / "config.yaml"
+        )
         installed_profile, previous_skills = installed_profile_receipt()
         profile = load_profile(
             args.profile
@@ -176,7 +178,7 @@ def main() -> int:
             or DEFAULT_PROFILE,
             required_skills=REQUIRED_PROFILE_SKILLS,
         )
-    except ProfileError as exc:
+    except (ProfileError, review_contract.ReviewContractError) as exc:
         parser.error(str(exc))
 
     HERMES_HOME.mkdir(parents=True, exist_ok=True)
@@ -189,7 +191,7 @@ def main() -> int:
         shutil.copy2(config_path, config_path.with_suffix(".yaml.before-review-agent"))
     atomic_write(
         config_path,
-        (SOURCE / "config.yaml").read_bytes(),
+        managed_bytes,
     )
 
     soul_target = HERMES_HOME / "SOUL.md"
@@ -236,8 +238,8 @@ def main() -> int:
 
     print(f"Installed review profile {profile.key!r} into {HERMES_HOME}")
     print(
-        "Next: authenticate with `hermes auth add openai-codex` if needed, "
-        "then restart the gateway."
+        "Next: authenticate the configured model provider if needed, then restart "
+        "the gateway."
     )
     return 0
 

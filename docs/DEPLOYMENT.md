@@ -19,7 +19,7 @@ import TabItem from '@theme/TabItem';
 
 ## Runtime shape
 
-![Review Agent runtime: GitHub App webhooks enter through admission, review workers use Hermes, a separate publisher writes through the private App gateway, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.png)
+![Review Agent runtime: GitHub App webhooks enter through admission, review workers use Hermes, a separate publisher writes through the private App gateway, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.webp)
 
 One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
@@ -87,6 +87,27 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    PostgreSQL password and URL.
    Every other value is a documented tuning default you can keep.
 
+   `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
+   `REVIEW_AGENT_REASONING_EFFORT` select inference behavior for new reviews.
+   The defaults are `openai-codex`, `gpt-5.6-sol`, and `xhigh`. We recommend
+   this route for the first deployment because Hermes supports a ChatGPT
+   device-code login and you do not need to provision a model API key. Hermes
+   does not document how this traffic counts against each ChatGPT plan's Codex
+   allowance, so check your provider usage after the pilot.
+
+   You can use any provider/model pair supported by the installed Hermes
+   release. For Claude, set provider `anthropic` and choose a Claude model from
+   Hermes. Hermes documents that Claude OAuth requires Claude Max plus
+   extra-usage credits; use an Anthropic API key when that route does not fit.
+   Hermes maps reasoning effort to the selected provider.
+
+   Use Hermes' current [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers)
+   and [model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)
+   to choose the three values. The [environment reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
+   lists API-key and custom-endpoint settings. Keep those provider secrets in
+   Hermes' persisted credential store or Hermes-owned `.env`; do not add them
+   to the shared Review Agent `.env`.
+
    On Dokploy, add the App PEM as the file mount described in
    [GitHub App setup](./GITHUB_APP_PILOT.md#2-configure-and-start-the-deployment),
    then set:
@@ -134,6 +155,10 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    docker compose ps
    ```
 
+   In Dokploy, use **Deploy** after a source commit changes so the platform
+   fetches the new revision. **Redeploy** can reuse the existing source
+   checkout. Confirm the deployment shows the intended commit before testing.
+
 4. Route the review hostname to `review-admission:8644`.
 
    :::warning[Keep private services off the proxy]
@@ -145,13 +170,20 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    `review-admission` from `dokploy-network`. Leave **Enable Isolated
    Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
    declares the private database, runtime, egress, and GitHub-control networks.
-5. Connect the Codex account and restart Hermes:
+5. Connect the selected provider and restart Hermes:
 
    ```bash
-   docker compose exec hermes-review hermes auth add openai-codex
+   docker compose exec hermes-review hermes model
+   docker compose exec hermes-review /opt/review-agent-bootstrap/install.sh
    docker compose restart hermes-review
    curl -fsS https://review.example.org/ready
    ```
+
+   `hermes model` is Hermes' provider setup wizard for OAuth, API-key, and
+   custom routes. The installer command restores the deployment-selected
+   provider, model, and effort after the wizard stores credentials. Credentials
+   live in `hermes_review_data`; normal redeploys retain them. Repeat setup only
+   after replacing that volume or when Hermes reports an authorization failure.
 
 Dokploy reads `compose.yaml` as a Compose application. Add one HTTPS domain to
 admission and keep the generated Traefik settings. The checked-in health checks
@@ -161,7 +193,7 @@ Use the matching container for operator commands:
 
 | Task | Container |
 | --- | --- |
-| Connect Codex, run `doctor`, or run `smoke-test` | `hermes-review` |
+| Connect the model provider, run `doctor`, or run `smoke-test` | `hermes-review` |
 | Onboard, disable, or reconcile repositories | `review-github-gateway` |
 | Inspect review execution | `review-github-app-worker`, `review-worker`, and `review-publisher` logs |
 
@@ -222,10 +254,11 @@ templates are immutable, and recreating them makes the profile and migration
 checks run against the exact image being deployed.
 
 Use `https://<route-host>/webhooks/github-app` as the App webhook URL. Connect
-Codex inside Hermes once, then restart that deployment:
+the configured model provider inside Hermes once, then restart that deployment:
 
 ```bash
-oc rsh deployment/hermes-review hermes auth add openai-codex
+oc rsh deployment/hermes-review hermes model
+oc rsh deployment/hermes-review /opt/review-agent-bootstrap/install.sh
 oc rollout restart deployment/hermes-review
 ```
 

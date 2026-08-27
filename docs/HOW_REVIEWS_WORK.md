@@ -4,7 +4,7 @@ slug: /how-reviews-work
 title: How reviews work
 description: The trusted path from a review request to deterministic GitHub publication.
 status: current
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 ---
 
 # How reviews work
@@ -17,7 +17,7 @@ The reviewer separates model reasoning from authorization, state transitions,
 and GitHub writes. The model can investigate and propose findings; deterministic
 code decides what snapshot is valid and how stored results reach GitHub.
 
-![Four phases of a review: request and authorize, read and review, verify and publish, then learn on re-review.](../website/static/img/review-lifecycle.png)
+![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](../website/static/img/review-lifecycle.webp)
 
 ## Request and authorize
 

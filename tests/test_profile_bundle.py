@@ -55,6 +55,7 @@ class ProfileBundleTests(unittest.TestCase):
         *arguments: str,
         profiles_source: Path | None = None,
         profile_environment: str | None = "sundsvall-standard",
+        deployment_environment: dict[str, str] | None = None,
     ) -> int:
         with (
             mock.patch.dict(
@@ -66,6 +67,7 @@ class ProfileBundleTests(unittest.TestCase):
                         else {}
                     ),
                     "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
+                    **(deployment_environment or {}),
                 },
                 clear=True,
             ),
@@ -126,10 +128,12 @@ class ProfileBundleTests(unittest.TestCase):
                 tree_bytes(hermes_home / "plugins" / "review_agent_tools"),
             )
             installed_config_bytes = (hermes_home / "config.yaml").read_bytes()
-            self.assertEqual(
-                (self.install.SOURCE / "config.yaml").read_bytes(),
-                installed_config_bytes,
+            _, expected_config_bytes = (
+                self.install.review_contract.render_managed_config(
+                    self.install.SOURCE / "config.yaml"
+                )
             )
+            self.assertEqual(expected_config_bytes, installed_config_bytes)
             installed_config = installed_config_bytes.decode("utf-8")
             self.assertEqual(
                 ["review-agent-tools"],
@@ -217,6 +221,70 @@ class ProfileBundleTests(unittest.TestCase):
                 )
 
             self.assertEqual(self.load_installed_contract(hermes_home), packaged_contract)
+
+    def test_model_overrides_are_rendered_into_one_review_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            hermes_home = Path(temp) / "hermes-home"
+            overrides = {
+                "REVIEW_AGENT_MODEL_PROVIDER": "anthropic",
+                "REVIEW_AGENT_MODEL": "vendor/claude-sonnet-4-6@review",
+                "REVIEW_AGENT_REASONING_EFFORT": "high",
+            }
+            with mock.patch.dict(os.environ, overrides):
+                installed = self.run_installer(
+                    hermes_home,
+                    deployment_environment=overrides,
+                )
+                self.assertEqual(0, installed)
+                packaged = self.install.review_contract.load_packaged_contract(
+                    "sundsvall-standard",
+                    self.install.SOURCE,
+                    hermes_image=HERMES_IMAGE,
+                )
+                installed_contract = self.load_installed_contract(hermes_home)
+
+            self.assertEqual(packaged, installed_contract)
+            self.assertEqual("anthropic", packaged.model_provider)
+            self.assertEqual("vendor/claude-sonnet-4-6@review", packaged.model)
+            self.assertEqual("high", packaged.reasoning_effort)
+            installed_config = self.install.load_yaml(hermes_home / "config.yaml")
+            self.assertEqual("anthropic", installed_config["model"]["provider"])
+            self.assertEqual(
+                "vendor/claude-sonnet-4-6@review",
+                installed_config["model"]["default"],
+            )
+            self.assertEqual("high", installed_config["agent"]["reasoning_effort"])
+
+    def test_model_override_is_quoted_as_one_yaml_scalar(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            hermes_home = Path(temp) / "hermes-home"
+            overrides = {"REVIEW_AGENT_MODEL": "model-a # retained"}
+            with mock.patch.dict(os.environ, overrides):
+                installed = self.run_installer(
+                    hermes_home,
+                    deployment_environment=overrides,
+                )
+                packaged = self.install.review_contract.load_packaged_contract(
+                    "sundsvall-standard",
+                    self.install.SOURCE,
+                    hermes_image=HERMES_IMAGE,
+                )
+
+            self.assertEqual(0, installed)
+            self.assertEqual(
+                "model-a # retained",
+                self.install.load_yaml(hermes_home / "config.yaml")["model"]["default"],
+            )
+            self.assertEqual(packaged, self.load_installed_contract(hermes_home))
+
+    def test_invalid_reasoning_effort_fails_before_installation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            hermes_home = Path(temp) / "hermes-home"
+            with self.assertRaises(SystemExit):
+                self.run_installer(
+                    hermes_home,
+                    deployment_environment={"REVIEW_AGENT_REASONING_EFFORT": "fastest"},
+                )
 
     def test_redeploy_restores_source_controlled_soul_and_agents(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

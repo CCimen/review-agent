@@ -20,6 +20,26 @@ predictable setup, also ask it to use
 [`install-review-agent`](https://github.com/CCimen/review-agent/tree/main/skills/install-review-agent)
 from the source checkout.
 
+## Give this assignment to your agent
+
+```text
+Set up Review Agent from this exact checkout or release. Use
+skills/install-review-agent/SKILL.md and website/static/llms.txt as your entry
+points. Read only the documentation for my deployment platform. Prepare and
+validate the non-secret installation plan, then show one concise mutation and
+rollback plan before external changes. Resolve facts you can inspect and group
+missing owner decisions into one request. Never ask me to paste secrets into
+chat. Pause only when I must approve the GitHub App, repository access, secret
+placement, DNS, model login, deployment, or the first live /review. Finish with
+doctor, inventory, dry-run, and one approved live-review result. Report exact
+versions and stable IDs, and mark unknowns as incomplete instead of guessing.
+```
+
+Add the target platform, public hostname, GitHub owner and repositories, and
+the deployment tools the agent may use. The validated installation plan records
+the remaining non-secret choices. This keeps the conversation focused on real
+owner decisions instead of asking you to translate the deployment guide.
+
 ## What the agent may do
 
 | The agent can | A human owner must approve or complete |
@@ -60,6 +80,9 @@ The plan maps to shipped deployment controls:
 | --- | --- |
 | `deployment.image` | `REVIEW_AGENT_IMAGE=<repository>@<digest>` |
 | `deployment.profile` | `REVIEW_AGENT_PROFILE` |
+| `deployment.model_provider` | `REVIEW_AGENT_MODEL_PROVIDER` |
+| `deployment.model` | `REVIEW_AGENT_MODEL` |
+| `deployment.reasoning_effort` | `REVIEW_AGENT_REASONING_EFFORT` |
 | `deployment.timezone` | `TZ` |
 | `deployment.feedback_enabled` | `REVIEW_AGENT_FEEDBACK_ENABLED` |
 | `runtime.worker_concurrency` | `REVIEW_AGENT_WORKER_CONCURRENCY` |

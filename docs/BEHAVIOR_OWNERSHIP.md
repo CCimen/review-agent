@@ -22,7 +22,8 @@ conditionals or copying policy into runtime code.
 | Identity, tone, and evidence posture | `bootstrap/profiles/sundsvall-standard/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
 | Review rules and visible contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
 | Review procedure and tool sequence | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
-| Model, toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
+| Provider, model, and reasoning effort | Deployment environment rendered into `bootstrap/config.yaml` | The inference route, model, or review depth changes. |
+| Toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
 | Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |
 | Durable job execution | `review_agent_tools.worker` and `review_agent_tools.postgres.jobs` | Claim, heartbeat, retry, or exact-run continuation behavior changes. |
 | Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |
@@ -50,10 +51,11 @@ currently `review-agent-pr`. Additional skill files are trusted, code-reviewed
 profile content. The installer validates their keys and presence; it does not
 interpret or authorize their prose or front matter.
 
-The machine-validated manifest deliberately has no model, provider, route, tool, authorization,
-snapshot, persistence, marker, or lifecycle settings. Those remain fixed in
-managed configuration and deterministic code. Fixed GitHub headings and hidden
-markers are not free-form profile templates.
+The machine-validated manifest deliberately has no model, provider, route,
+tool, authorization, snapshot, persistence, marker, or lifecycle settings.
+The deployment selects the provider, model, and reasoning effort; other runtime
+invariants remain fixed in managed configuration and deterministic code. Fixed
+GitHub headings and hidden markers are not free-form profile templates.
 
 ## Changing `SOUL.md`
 

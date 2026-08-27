@@ -13,9 +13,11 @@ plugins:
       settings:
         result_max_chars: 160000
 
-# The repository owns the production route. Authentication remains in Hermes'
-# separate auth store, but mutable `hermes model` selections must not survive a
-# redeploy and silently keep the reviewer on an older model.
+# The deployment may override provider, model, and reasoning effort through
+# REVIEW_AGENT_MODEL_PROVIDER, REVIEW_AGENT_MODEL, and
+# REVIEW_AGENT_REASONING_EFFORT. The installer renders those values into this
+# managed config so every review records one exact behavior contract.
+# Authentication remains in Hermes' separate auth store.
 model:
   provider: openai-codex
   default: gpt-5.6-sol

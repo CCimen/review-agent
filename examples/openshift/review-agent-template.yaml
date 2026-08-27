@@ -8,6 +8,15 @@ parameters:
     required: true
   - name: PROFILE
     value: sundsvall-standard
+  - name: MODEL_PROVIDER
+    description: Hermes model provider identifier.
+    value: openai-codex
+  - name: MODEL
+    description: Model identifier available to the configured Hermes provider.
+    value: gpt-5.6-sol
+  - name: REASONING_EFFORT
+    description: Reasoning effort used for new reviews.
+    value: xhigh
   - name: WORKER_CONCURRENCY
     description: Concurrent reviews per worker replica.
     value: "4"
@@ -21,6 +30,9 @@ objects:
       name: review-agent-config
     data:
       REVIEW_AGENT_PROFILE: ${PROFILE}
+      REVIEW_AGENT_MODEL_PROVIDER: ${MODEL_PROVIDER}
+      REVIEW_AGENT_MODEL: ${MODEL}
+      REVIEW_AGENT_REASONING_EFFORT: ${REASONING_EFFORT}
       REVIEW_AGENT_POLICY_REVISION: policy-v1
       REVIEW_AGENT_ACTIVE_JOB_LIMIT: "100"
       REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS: "100"

@@ -43,6 +43,8 @@ class AiOnboardingContractTests(unittest.TestCase):
         full = (ROOT / "website/static/llms-full.txt").read_text(encoding="utf-8")
         self.assertIn("Authentication: GitHub App only", short)
         self.assertIn("AI-assisted setup", short)
+        self.assertIn("## Coding-agent handoff", short)
+        self.assertIn("skills/install-review-agent/SKILL.md", short)
         self.assertIn(
             "python3 tools/review_agent_admin.py capabilities", short
         )
@@ -89,6 +91,7 @@ class AiOnboardingContractTests(unittest.TestCase):
             encoding="utf-8"
         )
         combined = f"{setup}\n{skill}"
+        self.assertIn("skills/install-review-agent/SKILL.md", setup)
         self.assertIn("python3 tools/review_agent_admin.py capabilities", combined)
         self.assertIn("python3 tools/review_agent_admin.py preflight", combined)
         self.assertIn("--homepage-url", combined)

@@ -131,7 +131,7 @@ The deployment uses two named volumes:
 
 | Volume | Mounted in | Purpose |
 | --- | --- | --- |
-| `hermes_review_data` | Profile installer (write); Hermes and workers (read) | Hermes config, Codex OAuth state, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
+| `hermes_review_data` | Profile installer (write); Hermes and workers (read) | Hermes config, provider credentials, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
 | `review_postgres_data` | `review-postgres` at `/var/lib/postgresql/data` | PostgreSQL review state. |
 
 Do not run two Hermes gateways against the same `hermes_review_data` volume.
@@ -170,19 +170,26 @@ review-agent-admin database ready
 Run those commands inside the `hermes-review` container, then restart the
 service.
 
-## Connect Codex
+## Connect The Model Provider
 
 Inside the `hermes-review` container:
 
 ```bash
 hermes plugins list
-hermes auth add openai-codex
+hermes model
 /opt/review-agent-bootstrap/install.sh
 ```
 
-Complete the ChatGPT device-code login with the intended subscription account.
-The managed profile, rather than the interactive model picker, owns
-`openai-codex`, `gpt-5.6-sol`, and `xhigh`. Restart the service and verify:
+Use Hermes' wizard to authenticate the provider selected by
+`REVIEW_AGENT_MODEL_PROVIDER`. The default `openai-codex` route uses ChatGPT
+device-code OAuth and needs no model API key. Hermes also supports Anthropic,
+API-key providers, and custom endpoints. Hermes documents that Anthropic OAuth
+requires Claude Max plus extra-usage credits; its API-key route is independent.
+The deployment variables `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
+`REVIEW_AGENT_REASONING_EFFORT` remain the review contract; rerunning the
+installer restores them after the wizard stores credentials. A selection
+change applies after the installer and services restart. Already queued reviews
+fail closed and should be requested again. Verify:
 
 ```bash
 curl -fsS http://127.0.0.1:8642/health
@@ -325,6 +332,7 @@ Common states:
 | `running` with an old heartbeat | Review execution stopped before reaching a terminal state. |
 | `publish_failed` | GitHub publication was attempted and failed; inspect `failure=`. |
 | `body_too_large` | Review could not fit within the configured per-comment byte budget. |
+| `review_contract_changed` | The queued provider/model/effort contract differs from the installed reviewer. Confirm the three model variables match across services, rerun the profile installer, restart the services, and request a fresh review. |
 | `stale` | PR base or head changed before posting. |
 | `stalled` or old `running` | Run heartbeat stopped; mark stale runs failed before retrying. |
 
@@ -437,13 +445,13 @@ run/publication ids, exact base/head SHAs, coverage summary, and bounded
 `*_untrusted` evidence for the current published findings. A maintainer may hand
 it to Claude or another private review tool and ask for falsification. Verifier
 output can be stored in PostgreSQL for audit, but raw verifier verdicts are not
-authoritative: only an explicit Codex reconciliation decision for the same run
-can drop a recorded candidate before publication.
+authoritative: only an explicit reconciliation decision for the same run can
+drop a recorded candidate before publication.
 
 The schema is provider-neutral (`provider`, `model`, `mode`, `status`) so future
-profiles can choose Codex-only, advisory verification, or gated verification.
-This repository does not launch Claude from the webhook reviewer in the current
-slice; adding that runner is a separate reviewed runtime change.
+profiles can choose one review provider, advisory verification, or gated
+verification. This repository does not launch a second verifier from the
+webhook reviewer; adding that runner is a separate reviewed runtime change.
 
 Do not paste raw database exports into an LLM. Use `verification-export` for
 review-finding falsification and `coach-export` for reviewer-improvement
@@ -496,12 +504,19 @@ multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency
 bump. Never replace this with the moving `latest` or `main` tag.
 
-Hermes v2026.8.3 supports the managed GPT-5.6 model configuration used here.
-The managed profile still configures `gpt-5.6-sol` directly so deployment does
-not depend on an interactive picker. A controlled review after deployment is
-the final proof that the subscription is entitled to the model and the OAuth
-route accepts it. The Hermes image does not bundle the standalone Codex CLI;
-this service uses Hermes' `openai-codex` provider directly.
+Hermes v2026.8.3 owns the supported provider integrations. The Review Agent
+renders the deployment-selected provider, model, and effort into managed config
+so runtime behavior does not depend on a mutable interactive choice. A
+controlled review after deployment is the final proof that the provider
+credential is entitled to the selected model. Follow the current Hermes
+provider guide when changing routes because authentication and billing differ
+between providers. Use the official [Hermes provider
+guide](https://hermes-agent.nousresearch.com/docs/integrations/providers) as
+the current authority. Use its [model
+catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)
+for model IDs and its [environment
+reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
+for API-key and custom-endpoint variables.
 
 After a source update, redeploy. `review-profile-install` refreshes the managed
 profile, and `review-db-migrate` verifies and applies PostgreSQL migrations

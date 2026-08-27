@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 from typing import cast
 
 import yaml
 
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+
+from review_agent_tools import review_contract  # noqa: E402
 
 
 def read(relative: str) -> str:
@@ -155,9 +158,7 @@ class DocsContractTests(unittest.TestCase):
             "REVIEW_AGENT_GITHUB_APP_ID",
             "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE",
         }
-        self.assertTrue(
-            app_credentials <= env_names["review-agent-github-gateway"]
-        )
+        self.assertTrue(app_credentials <= env_names["review-agent-github-gateway"])
         for name, names in env_names.items():
             if name != "review-agent-github-gateway":
                 self.assertTrue(app_credentials.isdisjoint(names), name)
@@ -215,7 +216,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("REVIEW_AGENT_ALLOWED_REPOSITORIES", template)
         self.assertNotIn("REVIEW_AGENT_ADMISSION_MAX_BODY_BYTES", template)
         self.assertNotIn("not yet App-only", deployment)
-        self.assertIn("oc process -f examples/openshift/review-agent-template.yaml", deployment)
+        self.assertIn(
+            "oc process -f examples/openshift/review-agent-template.yaml", deployment
+        )
         self.assertNotIn("ALLOWED_REPOSITORIES", read("website/src/pages/index.tsx"))
 
     def test_learning_runbook_uses_the_current_postgresql_cli(self):
@@ -859,9 +862,9 @@ class DocsContractTests(unittest.TestCase):
         operations = read("docs/OPERATIONS.md")
         dockerfile = read("Dockerfile")
         openshift = read("examples/openshift/review-agent-template.yaml")
-        openshift_worker = openshift.split(
-            "      name: review-agent-worker", 1
-        )[1].split("  - apiVersion: networking.k8s.io/v1", 1)[0]
+        openshift_worker = openshift.split("      name: review-agent-worker", 1)[
+            1
+        ].split("  - apiVersion: networking.k8s.io/v1", 1)[0]
 
         digest = "nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e"
         self.assertIn(digest, compose)
@@ -878,24 +881,78 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("pg_dump", operations)
         self.assertIn("pg_restore --exit-on-error", operations)
         self.assertIn("review-agent-admin database ready", operations)
-        self.assertIn("name: HERMES_HOME\n                  value: /opt/data", openshift_worker)
-        self.assertIn("mountPath: /opt/data\n                  readOnly: true", openshift_worker)
+        self.assertIn(
+            "name: HERMES_HOME\n                  value: /opt/data", openshift_worker
+        )
+        self.assertIn(
+            "mountPath: /opt/data\n                  readOnly: true", openshift_worker
+        )
         self.assertIn("claimName: review-agent-hermes-data", openshift_worker)
         self.assertNotIn("REVIEW_AGENT_SKILL_PATH", openshift_worker)
 
-    def test_managed_profile_owns_the_codex_model(self):
+    def test_deployment_owns_the_model_provider_and_effort(self):
         config = read("bootstrap/config.yaml")
+        compose = read("compose.yaml")
+        env_example = read(".env.example")
         installer = read("bootstrap/install.py")
+        install_example = read("install/review-agent.example.yaml")
+        install_schema = mapping(
+            yaml.safe_load(read("install/review-agent.schema.json"))
+        )
+        openshift = read("examples/openshift/review-agent-template.yaml")
         operations = read("docs/OPERATIONS.md")
 
         self.assertIn(
             "model:\n  provider: openai-codex\n  default: gpt-5.6-sol\n", config
         )
         self.assertIn("  reasoning_effort: xhigh\n", config)
-        self.assertIn("hermes auth add openai-codex", installer)
-        self.assertIn("hermes auth add openai-codex", operations)
+        for value in (
+            "REVIEW_AGENT_MODEL_PROVIDER=openai-codex",
+            "REVIEW_AGENT_MODEL=gpt-5.6-sol",
+            "REVIEW_AGENT_REASONING_EFFORT=xhigh",
+        ):
+            self.assertIn(value, env_example)
+        self.assertEqual(
+            5,
+            compose.count(
+                'REVIEW_AGENT_MODEL_PROVIDER: "${REVIEW_AGENT_MODEL_PROVIDER:-openai-codex}"'
+            ),
+        )
+        self.assertEqual(
+            5,
+            compose.count('REVIEW_AGENT_MODEL: "${REVIEW_AGENT_MODEL:-gpt-5.6-sol}"'),
+        )
+        self.assertEqual(
+            5,
+            compose.count(
+                'REVIEW_AGENT_REASONING_EFFORT: "${REVIEW_AGENT_REASONING_EFFORT:-xhigh}"'
+            ),
+        )
+        self.assertIn("  model_provider: openai-codex", install_example)
+        self.assertIn("  model: gpt-5.6-sol", install_example)
+        self.assertIn("  reasoning_effort: xhigh", install_example)
+        self.assertIn(
+            "  - name: MODEL_PROVIDER\n    description: Hermes model provider identifier.\n    value: openai-codex",
+            openshift,
+        )
+        self.assertIn(
+            "  - name: MODEL\n    description: Model identifier available to the configured Hermes provider.\n    value: gpt-5.6-sol",
+            openshift,
+        )
+        self.assertIn(
+            "  - name: REASONING_EFFORT\n    description: Reasoning effort used for new reviews.\n    value: xhigh",
+            openshift,
+        )
+        deployment_schema = mapping(mapping(install_schema["properties"])["deployment"])
+        deployment_properties = mapping(deployment_schema["properties"])
+        effort_schema = mapping(deployment_properties["reasoning_effort"])
+        self.assertEqual(
+            review_contract.REASONING_EFFORTS,
+            frozenset(sequence(effort_schema["enum"])),
+        )
+        self.assertIn("authenticate the configured model provider", installer)
+        self.assertIn("hermes model", operations)
         self.assertNotIn("hermes model", installer)
-        self.assertNotIn("hermes model", operations)
 
 
 if __name__ == "__main__":

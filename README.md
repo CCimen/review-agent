@@ -1,7 +1,7 @@
 # Review Agent
 
 Self-hosted, advisory AI code review for GitHub pull requests, built on Hermes
-and Codex with deterministic controls.
+with deterministic controls.
 
 [![Python bundle](https://github.com/CCimen/review-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/CCimen/review-agent/actions/workflows/ci.yml)
 [![Publish documentation](https://github.com/CCimen/review-agent/actions/workflows/docs-pages.yml/badge.svg)](https://github.com/CCimen/review-agent/actions/workflows/docs-pages.yml)
@@ -13,7 +13,7 @@ and posts evidence-backed findings through a deterministic publisher. Reviews
 stay advisory: the reviewer has no shell, no repository write access, and no
 merge authority.
 
-![Four phases of a review: request and authorize, read and review, verify and publish, then learn on re-review.](website/static/img/review-lifecycle.png)
+![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](website/static/img/review-lifecycle.webp)
 
 ## Quick start
 
@@ -62,7 +62,7 @@ search and task-based navigation. Key pages:
 | Run your first review | [Getting started](docs/GETTING_STARTED.md) |
 | Deploy the service | [Deployment](docs/DEPLOYMENT.md) |
 | Install and enable the GitHub App | [GitHub App setup](docs/GITHUB_APP_PILOT.md) |
-| Set up with Codex or Claude Code | [AI-assisted setup](docs/AI_ASSISTED_SETUP.md) |
+| Set up with a coding agent | [AI-assisted setup](docs/AI_ASSISTED_SETUP.md) |
 | Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |
@@ -104,6 +104,18 @@ reads, PostgreSQL review state, deterministic publication, and operator
 tooling. Voice and review policy live in a swappable profile; select one with
 `REVIEW_AGENT_PROFILE=<profile-key>`. The shipped `sundsvall-standard` bundle
 is the default deployment profile, not the product identity.
+
+The deployment selects the Hermes provider, model, and reasoning effort with
+`REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
+`REVIEW_AGENT_REASONING_EFFORT`. The defaults use `openai-codex`,
+`gpt-5.6-sol`, and `xhigh`. Hermes can authenticate this route with a ChatGPT
+device-code login, so the recommended setup needs no model API key. Anthropic
+Claude, API-key services, and self-hosted OpenAI-compatible endpoints use the
+same deployment settings and Hermes-owned credentials. Check Hermes'
+[provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers),
+[model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog),
+and [environment reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
+before selecting a route.
 
 [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) maps every concern to its
 owner and explains how to create a profile. Authorization, snapshot checks,

@@ -18,6 +18,10 @@ SCHEMA_VERSION = 2
 _PINNED_IMAGE_RE = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
 _PROFILE_KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+# Hermes configuration reference, validated again by the installed runtime.
+REASONING_EFFORTS = frozenset(
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
+)
 
 
 class ReviewContractError(ValueError):
@@ -111,6 +115,67 @@ def _load_config(path: Path) -> object:
         raise ReviewContractError("managed reviewer config is missing or invalid") from exc
 
 
+def _deployment_text(name: str, default: str) -> str:
+    value = os.environ.get(name, default).strip()
+    if not value or not value.isprintable():
+        raise ReviewContractError(f"{name} must be one non-empty printable value")
+    return value
+
+
+def render_managed_config(path: Path) -> tuple[object, bytes]:
+    """Apply operator-owned model settings to the managed config."""
+    try:
+        yaml_module = cast(_YamlModule, importlib.import_module("yaml"))
+        source = path.read_text(encoding="utf-8")
+        base = yaml_module.safe_load(source)
+    except (ImportError, OSError) as exc:
+        raise ReviewContractError(
+            "managed reviewer config is missing or invalid"
+        ) from exc
+    except Exception as exc:  # PyYAML exceptions have no stable shared base protocol.
+        raise ReviewContractError(
+            "managed reviewer config is missing or invalid"
+        ) from exc
+
+    default_provider = _text(base, "model", "provider")
+    default_model = _text(base, "model", "default")
+    default_effort = _text(base, "agent", "reasoning_effort")
+    provider = _deployment_text("REVIEW_AGENT_MODEL_PROVIDER", default_provider)
+    model = _deployment_text("REVIEW_AGENT_MODEL", default_model)
+    effort = (
+        os.environ.get("REVIEW_AGENT_REASONING_EFFORT", default_effort).strip().lower()
+    )
+    if effort not in REASONING_EFFORTS:
+        choices = ", ".join(sorted(REASONING_EFFORTS))
+        raise ReviewContractError(
+            f"REVIEW_AGENT_REASONING_EFFORT must be one of: {choices}"
+        )
+
+    provider_line = f"  provider: {default_provider}\n"
+    model_line = f"  default: {default_model}\n"
+    effort_line = f"  reasoning_effort: {default_effort}\n"
+    if any(
+        source.count(line) != 1 for line in (provider_line, model_line, effort_line)
+    ):
+        raise ReviewContractError("managed reviewer config template is invalid")
+    rendered = (
+        source.replace(provider_line, f"  provider: {json.dumps(provider)}\n", 1)
+        .replace(model_line, f"  default: {json.dumps(model)}\n", 1)
+        .replace(
+            effort_line,
+            f"  reasoning_effort: {effort}\n",
+            1,
+        )
+    )
+    try:
+        config = yaml_module.safe_load(rendered)
+    except Exception as exc:  # PyYAML exceptions have no stable shared base protocol.
+        raise ReviewContractError(
+            "managed reviewer config is missing or invalid"
+        ) from exc
+    return config, rendered.encode("utf-8")
+
+
 def _file(path: Path, logical_path: str) -> ContractFile:
     if not path.is_file():
         raise ReviewContractError(f"reviewer file is missing: {logical_path}")
@@ -189,8 +254,14 @@ def _profile_skills(manifest_path: Path) -> tuple[str, ...]:
 
 
 def _packaged_files(
-    source: Path, profile: str, skills: tuple[str, ...]
-) -> tuple[tuple[ContractFile, ...], tuple[ContractFile, ...], tuple[ContractFile, ...]]:
+    source: Path,
+    profile: str,
+    skills: tuple[str, ...],
+    *,
+    config_bytes: bytes,
+) -> tuple[
+    tuple[ContractFile, ...], tuple[ContractFile, ...], tuple[ContractFile, ...]
+]:
     profile_source = source / "profiles" / profile
     profile_files = (
         _file(profile_source / "profile.json", "profile/profile.json"),
@@ -207,7 +278,7 @@ def _packaged_files(
             )
         ),
     )
-    config_files = (_file(source / "config.yaml", "config.yaml"),)
+    config_files = (ContractFile(path="config.yaml", sha256=_digest(config_bytes)),)
     engine_files = _tree(
         source / "plugins" / "review_agent_tools", "plugins/review_agent_tools"
     )
@@ -299,9 +370,14 @@ def load_packaged_contract(
     resolved_source = (source or Path("/opt/review-agent-bootstrap")).resolve()
     profile_source = resolved_source / "profiles" / profile
     skills = _profile_skills(profile_source / "profile.json")
-    config = _load_config(resolved_source / "config.yaml")
+    config, config_bytes = render_managed_config(resolved_source / "config.yaml")
     return _build_contract(
-        _packaged_files(resolved_source, profile, skills),
+        _packaged_files(
+            resolved_source,
+            profile,
+            skills,
+            config_bytes=config_bytes,
+        ),
         profile=profile,
         hermes_image=(
             hermes_image

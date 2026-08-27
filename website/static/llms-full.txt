@@ -17,8 +17,8 @@ Review Agent revision: main (unreleased; pin the exact commit you inspect)
 > **Current** — This page describes the reviewer available in this repository
 > today.
 
-Review Agent is a self-hosted, advisory pull-request reviewer built on Hermes
-and Codex. An authorized maintainer comments `/review` on a PR; the service pins the
+Review Agent is a self-hosted, advisory pull-request reviewer built on Hermes.
+An authorized maintainer comments `/review` on a PR; the service pins the
 exact base/head snapshot, reviews it through bounded read tools, and posts
 evidence-backed findings through a deterministic publisher.
 
@@ -62,7 +62,7 @@ exact comment shape a pull request receives.
   interrupted delivery resumes from durable state.
 - Can export a private shadow-mode verification bundle and store
   provider-neutral verifier state for a run. The live deployment still
-  publishes from Codex-owned findings unless an explicit reconciliation
+  publishes from the review model's findings unless an explicit reconciliation
   decision says otherwise.
 
 ## What it does not do
@@ -78,7 +78,7 @@ exact comment shape a pull request receives.
 
 ## Review flow
 
-![Four phases of a review: request and authorize, read and review, verify and publish, then learn on re-review.](../website/static/img/review-lifecycle.png)
+![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](../website/static/img/review-lifecycle.webp)
 
 The model proposes and challenges findings. Plugin code owns the durable
 state, publication, feedback parsing, snapshot checks, and GitHub writes.
@@ -302,7 +302,7 @@ Review Agent revision: main (unreleased; pin the exact commit you inspect)
 
 ## Runtime shape
 
-![Review Agent runtime: GitHub App webhooks enter through admission, review workers use Hermes, a separate publisher writes through the private App gateway, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.png)
+![Review Agent runtime: GitHub App webhooks enter through admission, review workers use Hermes, a separate publisher writes through the private App gateway, and PostgreSQL owns durable state and queues.](../website/static/img/runtime-shape.webp)
 
 One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
@@ -369,6 +369,27 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    PostgreSQL password and URL.
    Every other value is a documented tuning default you can keep.
 
+   `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
+   `REVIEW_AGENT_REASONING_EFFORT` select inference behavior for new reviews.
+   The defaults are `openai-codex`, `gpt-5.6-sol`, and `xhigh`. We recommend
+   this route for the first deployment because Hermes supports a ChatGPT
+   device-code login and you do not need to provision a model API key. Hermes
+   does not document how this traffic counts against each ChatGPT plan's Codex
+   allowance, so check your provider usage after the pilot.
+
+   You can use any provider/model pair supported by the installed Hermes
+   release. For Claude, set provider `anthropic` and choose a Claude model from
+   Hermes. Hermes documents that Claude OAuth requires Claude Max plus
+   extra-usage credits; use an Anthropic API key when that route does not fit.
+   Hermes maps reasoning effort to the selected provider.
+
+   Use Hermes' current [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers)
+   and [model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)
+   to choose the three values. The [environment reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
+   lists API-key and custom-endpoint settings. Keep those provider secrets in
+   Hermes' persisted credential store or Hermes-owned `.env`; do not add them
+   to the shared Review Agent `.env`.
+
    On Dokploy, add the App PEM as the file mount described in
    [GitHub App setup](./GITHUB_APP_PILOT.md#2-configure-and-start-the-deployment),
    then set:
@@ -416,6 +437,10 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    docker compose ps
    ```
 
+   In Dokploy, use **Deploy** after a source commit changes so the platform
+   fetches the new revision. **Redeploy** can reuse the existing source
+   checkout. Confirm the deployment shows the intended commit before testing.
+
 4. Route the review hostname to `review-admission:8644`.
 
    **Warning: Keep private services off the proxy**
@@ -426,13 +451,20 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    `review-admission` from `dokploy-network`. Leave **Enable Isolated
    Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
    declares the private database, runtime, egress, and GitHub-control networks.
-5. Connect the Codex account and restart Hermes:
+5. Connect the selected provider and restart Hermes:
 
    ```bash
-   docker compose exec hermes-review hermes auth add openai-codex
+   docker compose exec hermes-review hermes model
+   docker compose exec hermes-review /opt/review-agent-bootstrap/install.sh
    docker compose restart hermes-review
    curl -fsS https://review.example.org/ready
    ```
+
+   `hermes model` is Hermes' provider setup wizard for OAuth, API-key, and
+   custom routes. The installer command restores the deployment-selected
+   provider, model, and effort after the wizard stores credentials. Credentials
+   live in `hermes_review_data`; normal redeploys retain them. Repeat setup only
+   after replacing that volume or when Hermes reports an authorization failure.
 
 Dokploy reads `compose.yaml` as a Compose application. Add one HTTPS domain to
 admission and keep the generated Traefik settings. The checked-in health checks
@@ -442,7 +474,7 @@ Use the matching container for operator commands:
 
 | Task | Container |
 | --- | --- |
-| Connect Codex, run `doctor`, or run `smoke-test` | `hermes-review` |
+| Connect the model provider, run `doctor`, or run `smoke-test` | `hermes-review` |
 | Onboard, disable, or reconcile repositories | `review-github-gateway` |
 | Inspect review execution | `review-github-app-worker`, `review-worker`, and `review-publisher` logs |
 
@@ -501,10 +533,11 @@ templates are immutable, and recreating them makes the profile and migration
 checks run against the exact image being deployed.
 
 Use `https://<route-host>/webhooks/github-app` as the App webhook URL. Connect
-Codex inside Hermes once, then restart that deployment:
+the configured model provider inside Hermes once, then restart that deployment:
 
 ```bash
-oc rsh deployment/hermes-review hermes auth add openai-codex
+oc rsh deployment/hermes-review hermes model
+oc rsh deployment/hermes-review /opt/review-agent-bootstrap/install.sh
 oc rollout restart deployment/hermes-review
 ```
 
@@ -804,6 +837,26 @@ predictable setup, also ask it to use
 [`install-review-agent`](https://github.com/CCimen/review-agent/tree/main/skills/install-review-agent)
 from the source checkout.
 
+## Give this assignment to your agent
+
+```text
+Set up Review Agent from this exact checkout or release. Use
+skills/install-review-agent/SKILL.md and website/static/llms.txt as your entry
+points. Read only the documentation for my deployment platform. Prepare and
+validate the non-secret installation plan, then show one concise mutation and
+rollback plan before external changes. Resolve facts you can inspect and group
+missing owner decisions into one request. Never ask me to paste secrets into
+chat. Pause only when I must approve the GitHub App, repository access, secret
+placement, DNS, model login, deployment, or the first live /review. Finish with
+doctor, inventory, dry-run, and one approved live-review result. Report exact
+versions and stable IDs, and mark unknowns as incomplete instead of guessing.
+```
+
+Add the target platform, public hostname, GitHub owner and repositories, and
+the deployment tools the agent may use. The validated installation plan records
+the remaining non-secret choices. This keeps the conversation focused on real
+owner decisions instead of asking you to translate the deployment guide.
+
 ## What the agent may do
 
 | The agent can | A human owner must approve or complete |
@@ -844,6 +897,9 @@ The plan maps to shipped deployment controls:
 | --- | --- |
 | `deployment.image` | `REVIEW_AGENT_IMAGE=<repository>@<digest>` |
 | `deployment.profile` | `REVIEW_AGENT_PROFILE` |
+| `deployment.model_provider` | `REVIEW_AGENT_MODEL_PROVIDER` |
+| `deployment.model` | `REVIEW_AGENT_MODEL` |
+| `deployment.reasoning_effort` | `REVIEW_AGENT_REASONING_EFFORT` |
 | `deployment.timezone` | `TZ` |
 | `deployment.feedback_enabled` | `REVIEW_AGENT_FEEDBACK_ENABLED` |
 | `runtime.worker_concurrency` | `REVIEW_AGENT_WORKER_CONCURRENCY` |
@@ -960,7 +1016,7 @@ Title: How reviews work
 Canonical URL: https://ccimen.github.io/review-agent/docs/how-reviews-work
 Source: https://github.com/CCimen/review-agent/blob/main/docs/HOW_REVIEWS_WORK.md
 Status: current
-Last verified: 2026-08-26
+Last verified: 2026-08-27
 Review Agent revision: main (unreleased; pin the exact commit you inspect)
 
 # How reviews work
@@ -973,7 +1029,7 @@ The reviewer separates model reasoning from authorization, state transitions,
 and GitHub writes. The model can investigate and propose findings; deterministic
 code decides what snapshot is valid and how stored results reach GitHub.
 
-![Four phases of a review: request and authorize, read and review, verify and publish, then learn on re-review.](../website/static/img/review-lifecycle.png)
+![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](../website/static/img/review-lifecycle.webp)
 
 ## Request and authorize
 
@@ -1063,7 +1119,8 @@ conditionals or copying policy into runtime code.
 | Identity, tone, and evidence posture | `bootstrap/profiles/sundsvall-standard/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
 | Review rules and visible contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
 | Review procedure and tool sequence | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
-| Model, toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
+| Provider, model, and reasoning effort | Deployment environment rendered into `bootstrap/config.yaml` | The inference route, model, or review depth changes. |
+| Toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
 | Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |
 | Durable job execution | `review_agent_tools.worker` and `review_agent_tools.postgres.jobs` | Claim, heartbeat, retry, or exact-run continuation behavior changes. |
 | Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |
@@ -1091,10 +1148,11 @@ currently `review-agent-pr`. Additional skill files are trusted, code-reviewed
 profile content. The installer validates their keys and presence; it does not
 interpret or authorize their prose or front matter.
 
-The machine-validated manifest deliberately has no model, provider, route, tool, authorization,
-snapshot, persistence, marker, or lifecycle settings. Those remain fixed in
-managed configuration and deterministic code. Fixed GitHub headings and hidden
-markers are not free-form profile templates.
+The machine-validated manifest deliberately has no model, provider, route,
+tool, authorization, snapshot, persistence, marker, or lifecycle settings.
+The deployment selects the provider, model, and reasoning effort; other runtime
+invariants remain fixed in managed configuration and deterministic code. Fixed
+GitHub headings and hidden markers are not free-form profile templates.
 
 ## Changing `SOUL.md`
 
@@ -1434,7 +1492,7 @@ The deployment uses two named volumes:
 
 | Volume | Mounted in | Purpose |
 | --- | --- | --- |
-| `hermes_review_data` | Profile installer (write); Hermes and workers (read) | Hermes config, Codex OAuth state, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
+| `hermes_review_data` | Profile installer (write); Hermes and workers (read) | Hermes config, provider credentials, sessions, managed skills, plugins, and the installed reviewer receipt. Admission derives the same contract from immutable image files and cannot read this volume. |
 | `review_postgres_data` | `review-postgres` at `/var/lib/postgresql/data` | PostgreSQL review state. |
 
 Do not run two Hermes gateways against the same `hermes_review_data` volume.
@@ -1473,19 +1531,26 @@ review-agent-admin database ready
 Run those commands inside the `hermes-review` container, then restart the
 service.
 
-## Connect Codex
+## Connect The Model Provider
 
 Inside the `hermes-review` container:
 
 ```bash
 hermes plugins list
-hermes auth add openai-codex
+hermes model
 /opt/review-agent-bootstrap/install.sh
 ```
 
-Complete the ChatGPT device-code login with the intended subscription account.
-The managed profile, rather than the interactive model picker, owns
-`openai-codex`, `gpt-5.6-sol`, and `xhigh`. Restart the service and verify:
+Use Hermes' wizard to authenticate the provider selected by
+`REVIEW_AGENT_MODEL_PROVIDER`. The default `openai-codex` route uses ChatGPT
+device-code OAuth and needs no model API key. Hermes also supports Anthropic,
+API-key providers, and custom endpoints. Hermes documents that Anthropic OAuth
+requires Claude Max plus extra-usage credits; its API-key route is independent.
+The deployment variables `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
+`REVIEW_AGENT_REASONING_EFFORT` remain the review contract; rerunning the
+installer restores them after the wizard stores credentials. A selection
+change applies after the installer and services restart. Already queued reviews
+fail closed and should be requested again. Verify:
 
 ```bash
 curl -fsS http://127.0.0.1:8642/health
@@ -1628,6 +1693,7 @@ Common states:
 | `running` with an old heartbeat | Review execution stopped before reaching a terminal state. |
 | `publish_failed` | GitHub publication was attempted and failed; inspect `failure=`. |
 | `body_too_large` | Review could not fit within the configured per-comment byte budget. |
+| `review_contract_changed` | The queued provider/model/effort contract differs from the installed reviewer. Confirm the three model variables match across services, rerun the profile installer, restart the services, and request a fresh review. |
 | `stale` | PR base or head changed before posting. |
 | `stalled` or old `running` | Run heartbeat stopped; mark stale runs failed before retrying. |
 
@@ -1740,13 +1806,13 @@ run/publication ids, exact base/head SHAs, coverage summary, and bounded
 `*_untrusted` evidence for the current published findings. A maintainer may hand
 it to Claude or another private review tool and ask for falsification. Verifier
 output can be stored in PostgreSQL for audit, but raw verifier verdicts are not
-authoritative: only an explicit Codex reconciliation decision for the same run
-can drop a recorded candidate before publication.
+authoritative: only an explicit reconciliation decision for the same run can
+drop a recorded candidate before publication.
 
 The schema is provider-neutral (`provider`, `model`, `mode`, `status`) so future
-profiles can choose Codex-only, advisory verification, or gated verification.
-This repository does not launch Claude from the webhook reviewer in the current
-slice; adding that runner is a separate reviewed runtime change.
+profiles can choose one review provider, advisory verification, or gated
+verification. This repository does not launch a second verifier from the
+webhook reviewer; adding that runner is a separate reviewed runtime change.
 
 Do not paste raw database exports into an LLM. Use `verification-export` for
 review-finding falsification and `coach-export` for reviewer-improvement
@@ -1799,12 +1865,19 @@ multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency
 bump. Never replace this with the moving `latest` or `main` tag.
 
-Hermes v2026.8.3 supports the managed GPT-5.6 model configuration used here.
-The managed profile still configures `gpt-5.6-sol` directly so deployment does
-not depend on an interactive picker. A controlled review after deployment is
-the final proof that the subscription is entitled to the model and the OAuth
-route accepts it. The Hermes image does not bundle the standalone Codex CLI;
-this service uses Hermes' `openai-codex` provider directly.
+Hermes v2026.8.3 owns the supported provider integrations. The Review Agent
+renders the deployment-selected provider, model, and effort into managed config
+so runtime behavior does not depend on a mutable interactive choice. A
+controlled review after deployment is the final proof that the provider
+credential is entitled to the selected model. Follow the current Hermes
+provider guide when changing routes because authentication and billing differ
+between providers. Use the official [Hermes provider
+guide](https://hermes-agent.nousresearch.com/docs/integrations/providers) as
+the current authority. Use its [model
+catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)
+for model IDs and its [environment
+reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
+for API-key and custom-endpoint variables.
 
 After a source update, redeploy. `review-profile-install` refreshes the managed
 profile, and `review-db-migrate` verifies and applies PostgreSQL migrations

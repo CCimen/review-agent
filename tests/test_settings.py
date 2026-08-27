@@ -65,6 +65,42 @@ class ReviewAgentSettingsTests(unittest.TestCase):
             SettingsError, "REVIEW_AGENT_GITHUB_GATEWAY_URL is required"
         ):
             ReviewAgentSettings({}).github_gateway_url
+        for invalid in (
+            "gateway:8646",
+            "http://user:secret@gateway:8646",
+            "http://gateway:8646/path",
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(SettingsError, "one HTTP origin"):
+                    ReviewAgentSettings(
+                        {"REVIEW_AGENT_GITHUB_GATEWAY_URL": invalid}
+                    ).github_gateway_url
+
+    def test_operator_health_settings_are_bounded_and_derived(self) -> None:
+        settings = ReviewAgentSettings(
+            {
+                "REVIEW_AGENT_ACTIVE_JOB_LIMIT": "250",
+                "REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS": "500",
+                "REVIEW_AGENT_HERMES_CHAT_URL": (
+                    "http://hermes-review:8642/v1/chat/completions"
+                ),
+            }
+        )
+
+        self.assertEqual(settings.active_job_limit, 250)
+        self.assertEqual(settings.operator_page_max_items, 500)
+        self.assertEqual(
+            settings.hermes_health_url,
+            "http://hermes-review:8642/health",
+        )
+        self.assertEqual(ReviewAgentSettings({}).active_job_limit, 100)
+        self.assertEqual(ReviewAgentSettings({}).operator_page_max_items, 100)
+        for invalid in ("0", "many"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(SettingsError):
+                    ReviewAgentSettings(
+                        {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": invalid}
+                    ).active_job_limit
 
     def test_publish_byte_limit_preserves_default_clamp_and_error(self) -> None:
         self.assertEqual(ReviewAgentSettings({}).publish_max_bytes, 60_000)

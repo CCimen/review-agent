@@ -138,10 +138,10 @@ fi
 
 PYTHONDONTWRITEBYTECODE=1 \
 REVIEW_AGENT_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
-    python3 tools/review_agent_database.py migrate
+    python3 tools/review_agent_admin.py database migrate
 PYTHONDONTWRITEBYTECODE=1 \
 REVIEW_AGENT_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
-    python3 tools/review_agent_database.py ready
+    python3 tools/review_agent_admin.py database ready
 
 RESTORED_MIGRATIONS=$(docker exec "$RESTORE_CONTAINER" \
     psql \

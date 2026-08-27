@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
 status: current
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 ---
 
 import Tabs from '@theme/Tabs';
@@ -172,6 +172,8 @@ Render the template with one immutable image, wait for its initialization jobs,
 then start the six long-running components:
 
 ```bash
+oc delete job review-agent-profile-install review-agent-db-migrate \
+  --ignore-not-found
 oc process -f examples/openshift/review-agent-template.yaml \
   -p IMAGE=ghcr.io/ccimen/review-agent:vX.Y.Z \
   -p WORKER_CONCURRENCY=4 | oc apply -f -
@@ -184,12 +186,17 @@ oc scale deployment/hermes-review deployment/review-agent-admission \
 oc get route review-agent
 ```
 
+Delete only these completed initialization Jobs before an upgrade. Their pod
+templates are immutable, and recreating them makes the profile and migration
+checks run against the exact image being deployed.
+
 Use `https://<route-host>/webhooks/github-app` as the App webhook URL. Connect
 Codex inside Hermes once, then restart that deployment:
 
 ```bash
 oc rsh deployment/hermes-review hermes auth add openai-codex
 oc rollout restart deployment/hermes-review
+oc rsh deployment/hermes-review review-agent-admin doctor
 ```
 
 Only admission has a Route. The template mounts the App key into the private
@@ -246,9 +253,10 @@ database prevents two publishers from owning the same delivery generation.
 Inspect active jobs, release a delayed retry, or cancel the owning run:
 
 ```bash
-review-agent-database jobs --limit 100
-review-agent-database retry-job --job-id 42
-review-agent-database cancel-job --job-id 42
+review-agent-admin queues inspect
+review-agent-admin jobs list --limit 100
+review-agent-admin jobs retry 42
+review-agent-admin jobs cancel 42
 ```
 
 Tune `REVIEW_AGENT_ACTIVE_JOB_LIMIT` from observed wait time and model capacity.

@@ -729,6 +729,86 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
 
         self.assertEqual(resolved, access)
 
+    def test_operator_inventory_lists_stable_installations_and_repositories(self) -> None:
+        installation = self.installation()
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                second = github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7002,
+                        account_id=8002,
+                        account_login="Example-Org",
+                        account_type=github_app.AccountType.ORGANIZATION,
+                        repository_selection=github_app.RepositorySelection.SELECTED,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.WRITE,
+                        pull_requests_permission=github_app.PermissionLevel.WRITE,
+                    ),
+                )
+                first_repository = github_app.grant_repository_access(
+                    connection,
+                    installation_id=installation.id,
+                    provider_repository_id=9002,
+                    full_name="CCimen/zeta",
+                    actor="github-app:installation_repositories",
+                    reason="repository selected",
+                )
+                second_repository = github_app.grant_repository_access(
+                    connection,
+                    installation_id=second.id,
+                    provider_repository_id=9001,
+                    full_name="Example-Org/alpha",
+                    actor="github-app:installation_repositories",
+                    reason="repository selected",
+                )
+                installations = github_app.list_installations(
+                    connection,
+                    limit=100,
+                )
+                repositories = github_app.list_repository_access(
+                    connection,
+                    limit=100,
+                )
+                first_page = github_app.list_repository_access(
+                    connection,
+                    limit=1,
+                )
+                second_page = github_app.list_repository_access(
+                    connection,
+                    limit=1,
+                    after_provider_repository_id=9001,
+                )
+                health = github_app.access_health(
+                    connection,
+                    profile_key="sundsvall-standard",
+                )
+                by_name = github_app.get_repository_access_by_full_name(
+                    connection, "example-org/ALPHA"
+                )
+
+        self.assertEqual(
+            tuple(item.provider_installation_id for item in installations),
+            (7001, 7002),
+        )
+        self.assertEqual(
+            tuple(item.provider_repository_id for item in repositories),
+            (9001, 9002),
+        )
+        self.assertEqual(repositories, (second_repository, first_repository))
+        self.assertEqual(first_page, (second_repository,))
+        self.assertEqual(second_page, (first_repository,))
+        self.assertEqual(
+            health,
+            github_app.GitHubAppAccessHealth(
+                active_installations=2,
+                invalid_active_installations=0,
+                repositories=2,
+                enabled_repositories=0,
+            ),
+        )
+        self.assertEqual(by_name, second_repository)
+
     def test_concurrent_suspend_cannot_overwrite_terminal_deletion(self) -> None:
         installation = self.installation()
         with psycopg.connect(DSN) as connection:

@@ -92,6 +92,11 @@ class DockerfileToolsTests(unittest.TestCase):
             dockerfile,
         )
         self.assertIn(
+            "cp /usr/local/bin/review_agent_admin.py /usr/local/bin/review-agent-admin",
+            dockerfile,
+        )
+        self.assertNotIn("review-agent-database", dockerfile)
+        self.assertIn(
             "cp /usr/local/bin/review_agent_github_app_worker.py /usr/local/bin/review-agent-github-app-worker",
             dockerfile,
         )

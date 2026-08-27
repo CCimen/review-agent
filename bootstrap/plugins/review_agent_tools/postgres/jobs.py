@@ -186,6 +186,15 @@ class ReviewJobReport:
     run_status: ReviewStatus
 
 
+@dataclass(frozen=True, slots=True)
+class ReviewQueueHealth:
+    active: int
+    queued: int
+    leased: int
+    expired_leases: int
+    dead_letters: int
+
+
 _JOB_COLUMNS = """
     id, review_run_id, status, priority, available_at, attempt_count,
     max_attempts, lease_owner, lease_generation, lease_expires_at,
@@ -311,6 +320,38 @@ def list_jobs(
             )
         )
     return tuple(reports)
+
+
+def queue_health(
+    connection: psycopg.Connection[TupleRow],
+) -> ReviewQueueHealth:
+    """Return set-oriented queue and abandoned-lease counts for operator checks."""
+    _require_transaction(connection)
+    row = connection.execute(
+        """
+        SELECT
+            count(*) FILTER (
+                WHERE status IN ('queued', 'leased', 'awaiting_publication')
+            ),
+            count(*) FILTER (WHERE status = 'queued'),
+            count(*) FILTER (WHERE status = 'leased'),
+            count(*) FILTER (
+                WHERE status = 'leased'
+                  AND lease_expires_at <= statement_timestamp()
+            ),
+            count(*) FILTER (WHERE status = 'dead_letter')
+        FROM review_agent.review_jobs
+        """
+    ).fetchone()
+    if row is None or len(row) != 5 or any(type(value) is not int for value in row):
+        raise ReviewJobError("review queue health could not be read")
+    return ReviewQueueHealth(
+        active=int(row[0]),
+        queued=int(row[1]),
+        leased=int(row[2]),
+        expired_leases=int(row[3]),
+        dead_letters=int(row[4]),
+    )
 
 
 def retry_queued_job(

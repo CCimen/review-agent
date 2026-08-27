@@ -3,7 +3,7 @@ sidebar_label: Operations
 slug: /operations
 title: Operations
 status: current
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 ---
 
 # Operations
@@ -55,6 +55,9 @@ All values are optional and have deployable defaults:
   with each publication before the publisher claims it.
 - `REVIEW_AGENT_PUBLICATION_LEASE_SECONDS` /
   `REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS` — defaults `120` / `30`.
+- `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS`: default `100`. This bounds one JSON
+  inventory or job page. Use `--after-id` to read the next installation or
+  repository page.
 - `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` — default `8`. Concurrent
   signed admission requests per process.
 - `REVIEW_AGENT_PUBLISH_MAX_BYTES` — default `60000`. Bytes per GitHub comment
@@ -160,8 +163,8 @@ Manual recovery only:
 
 ```bash
 /opt/review-agent-bootstrap/install.sh
-review-agent-database migrate
-review-agent-database ready
+review-agent-admin database migrate
+review-agent-admin database ready
 ```
 
 Run those commands inside the `hermes-review` container, then restart the
@@ -259,17 +262,18 @@ governance actions until there is deterministic ADR validation for PR comments.
 Inspect active queue work:
 
 ```bash
-review-agent-database jobs --limit 100
+review-agent-admin queues inspect
+review-agent-admin jobs list --limit 100
 ```
 
 Release a delayed queued retry or cancel its active run:
 
 ```bash
-review-agent-database retry-job --job-id <id>
-review-agent-database cancel-job --job-id <id>
+review-agent-admin jobs retry <id>
+review-agent-admin jobs cancel <id>
 ```
 
-`retry-job` cannot revive failed or dead-letter work. Post a new `/review` after
+`jobs retry` cannot revive failed or dead-letter work. Post a new `/review` after
 you correct a terminal failure. `cancel-job` fences a leased worker by failing
 the owning run and reconciling its job in one transaction.
 
@@ -377,7 +381,7 @@ docker compose exec -T review-postgres \
 
 Test recovery in a fresh database before relying on a backup. Stop the reviewer
 and feedback services, restore with `pg_restore --exit-on-error`, run
-`review-agent-database migrate` and `review-agent-database ready`, then point the
+`review-agent-admin database migrate` and `review-agent-admin database ready`, then point the
 environment at the restored database and redeploy. Recovery never converts or
 imports another database backend.
 

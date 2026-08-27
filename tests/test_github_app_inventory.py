@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 from typing import cast
 import unittest
 from unittest.mock import Mock, patch
@@ -24,7 +23,7 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
 )
-from tools import review_agent_database as database_cli  # noqa: E402
+from tools import review_agent_admin as admin_cli  # noqa: E402
 
 
 NOW = datetime(2026, 8, 26, 9, tzinfo=timezone.utc)
@@ -252,10 +251,10 @@ class GitHubAppInventoryTests(unittest.TestCase):
             redirect_stderr(stderr),
             self.assertRaises(SystemExit) as raised,
         ):
-            database_cli.main(
+            admin_cli.main(
                 [
-                    "sync-github-app-installation",
-                    "--provider-installation-id",
+                    "installations",
+                    "sync",
                     "7001",
                     "--reason",
                     "repair inventory",
@@ -263,17 +262,17 @@ class GitHubAppInventoryTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.code, 2)
-        self.assertIn("--actor is required", stderr.getvalue())
+        self.assertIn("required: --actor", stderr.getvalue())
 
         stderr = io.StringIO()
         with (
             redirect_stderr(stderr),
             self.assertRaises(SystemExit) as raised,
         ):
-            database_cli.main(
+            admin_cli.main(
                 [
-                    "sync-github-app-installation",
-                    "--provider-installation-id",
+                    "installations",
+                    "sync",
                     "0",
                     "--actor",
                     "operator:ccimen",
@@ -296,8 +295,8 @@ class GitHubAppInventoryTests(unittest.TestCase):
             repositories_enabled=1,
         )
         arguments = [
-            "sync-github-app-installation",
-            "--provider-installation-id",
+            "installations",
+            "sync",
             "7001",
             "--actor",
             "operator:ccimen",
@@ -317,26 +316,11 @@ class GitHubAppInventoryTests(unittest.TestCase):
             side_effect = outcome if isinstance(outcome, Exception) else None
             return_value = None if side_effect is not None else outcome
             with (
-                patch.dict(
-                    os.environ,
-                    {
-                        "REVIEW_AGENT_GITHUB_APP_ID": "1234",
-                        "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": "/run/key.pem",
-                    },
-                ),
+                patch.object(admin_cli, "_runtime", side_effect=open_error or None, return_value=runtime),
                 patch.object(
-                    database_cli.ReviewAgentSettings,
-                    "from_environment",
-                    return_value=SimpleNamespace(
-                        postgres_database_url="postgresql://unused"
-                    ),
-                ),
-                patch.object(database_cli, "PostgreSQLRuntime", return_value=runtime),
-                patch.object(
-                    app_auth, "load_private_key_file", return_value="private PEM"
-                ),
-                patch.object(
-                    app_auth, "GitHubAppAuthenticator", return_value=object()
+                    admin_cli.operator_setup,
+                    "github_app_authenticator",
+                    return_value=object(),
                 ),
                 patch.object(
                     operator_application,
@@ -347,7 +331,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
                 redirect_stdout(stdout),
                 redirect_stderr(stderr),
             ):
-                result = database_cli.main(arguments)
+                result = admin_cli.main(arguments)
             if open_error is None:
                 runtime.close.assert_called_once()
             else:
@@ -373,26 +357,27 @@ class GitHubAppInventoryTests(unittest.TestCase):
             app_auth.GitHubAppTokenRetryable("provider unavailable")
         )
         self.assertEqual((code, stdout), (os.EX_TEMPFAIL, ""))
-        self.assertIn("retryable", stderr)
-        self.assertNotIn("usage:", stderr)
+        error = json.loads(stderr)["error"]
+        self.assertTrue(error["retryable"])
+        self.assertNotIn("provider unavailable", stderr)
 
         code, stdout, stderr = run(
             success,
             open_error=PostgreSQLUnavailable("host=secret.internal port=5432"),
         )
         self.assertEqual((code, stdout), (os.EX_TEMPFAIL, ""))
-        self.assertEqual(
-            stderr,
-            "GitHub App installation sync is retryable: database unavailable\n",
-        )
+        error = json.loads(stderr)["error"]
+        self.assertEqual(error["code"], "database_unavailable")
+        self.assertTrue(error["retryable"])
         self.assertNotIn("secret.internal", stderr)
 
         code, stdout, stderr = run(
             github_app.GitHubAppStateError("installation conflict")
         )
         self.assertEqual((code, stdout), (1, ""))
-        self.assertIn("installation conflict", stderr)
-        self.assertNotIn("usage:", stderr)
+        error = json.loads(stderr)["error"]
+        self.assertEqual(error["code"], "installation_sync_failed")
+        self.assertFalse(error["retryable"])
 
 
 if __name__ == "__main__":

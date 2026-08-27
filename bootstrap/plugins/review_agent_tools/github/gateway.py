@@ -48,6 +48,8 @@ AUTHORIZE_REVIEW_DELIVERY_PATH = "/v1/review-deliveries/authorize"
 AUTHORIZE_FEEDBACK_DELIVERY_PATH = "/v1/review-feedback/authorize"
 ACKNOWLEDGE_FEEDBACK_PATH = "/v1/review-feedback/acknowledge"
 READ_REVIEW_SOURCE_PATH = "/v1/review-sources/read"
+OPERATOR_STATUS_PATH = "/v1/operator/status"
+OPERATOR_SMOKE_PATH = "/v1/operator/smoke"
 _FEEDBACK_AUTHORIZATION_VERSION = "sha256:" + hashlib.sha256(
     b"github-app-feedback:v1:write-or-admin:exact-user:open-same-repository-pr"
 ).hexdigest()
@@ -155,6 +157,112 @@ class FeedbackAcknowledgementRequest:
             status=cast(FeedbackAcknowledgementStatus, status),
         )
 
+
+@dataclass(frozen=True, slots=True)
+class OperatorSmokeResult:
+    repository_id: int
+    repository: str
+    pr_number: int
+    base_sha: str
+    head_sha: str
+    publication_permission: bool
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "base_sha": self.base_sha,
+            "head_sha": self.head_sha,
+            "pr_number": self.pr_number,
+            "publication_permission": self.publication_permission,
+            "repository": self.repository,
+            "repository_id": self.repository_id,
+        }
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "OperatorSmokeResult":
+        expected = {
+            "base_sha",
+            "head_sha",
+            "pr_number",
+            "publication_permission",
+            "repository",
+            "repository_id",
+        }
+        if set(value) != expected or value.get("publication_permission") is not True:
+            raise GitHubGatewayProtocolError(
+                "gateway response fields do not match the operator smoke contract"
+            )
+        return cls(
+            repository_id=_positive(value.get("repository_id"), "repository_id"),
+            repository=_text(value.get("repository"), "repository", 260),
+            pr_number=_positive(value.get("pr_number"), "pr_number"),
+            base_sha=_text(value.get("base_sha"), "base_sha", 128),
+            head_sha=_text(value.get("head_sha"), "head_sha", 128),
+            publication_permission=True,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorSmokeRequest:
+    repository: str
+    pr_number: int
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "OperatorSmokeRequest":
+        if set(value) != {"repository", "pr_number"}:
+            raise GitHubGatewayProtocolError(
+                "gateway request fields do not match the operator smoke contract"
+            )
+        return cls(
+            repository=_text(value.get("repository"), "repository", 260),
+            pr_number=_positive(value.get("pr_number"), "pr_number"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorAppStatus:
+    provider_app_id: int
+    slug: str
+    owner: str
+    permissions: tuple[tuple[str, str], ...]
+    events: tuple[str, ...]
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "app_id": self.provider_app_id,
+            "events": list(self.events),
+            "owner": self.owner,
+            "permissions": dict(self.permissions),
+            "slug": self.slug,
+        }
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "OperatorAppStatus":
+        if set(value) != {"app_id", "events", "owner", "permissions", "slug"}:
+            raise GitHubGatewayProtocolError(
+                "gateway response fields do not match the operator status contract"
+            )
+        raw_permissions = value.get("permissions")
+        raw_events = value.get("events")
+        if not isinstance(raw_permissions, Mapping) or not isinstance(
+            raw_events, list
+        ):
+            raise GitHubGatewayProtocolError("gateway returned invalid App metadata")
+        permission_mapping = cast(Mapping[object, object], raw_permissions)
+        event_values = cast(list[object], raw_events)
+        if any(
+            not isinstance(name, str) or not isinstance(level, str)
+            for name, level in permission_mapping.items()
+        ) or any(not isinstance(event, str) or not event for event in event_values):
+            raise GitHubGatewayProtocolError("gateway returned invalid App metadata")
+        return cls(
+            provider_app_id=_positive(value.get("app_id"), "app_id"),
+            slug=_text(value.get("slug"), "slug", 100),
+            owner=_text(value.get("owner"), "owner", 100),
+            permissions=tuple(
+                sorted(cast(Mapping[str, str], permission_mapping).items())
+            ),
+            events=tuple(cast(list[str], event_values)),
+        )
 
 @dataclass(frozen=True, slots=True)
 class ReviewSourceRequest:
@@ -633,6 +741,89 @@ class ReviewGitHubGateway:
         )
         return result
 
+    def operator_smoke(
+        self, *, repository: str, pr_number: int
+    ) -> OperatorSmokeResult:
+        """Prove one enabled same-repository PR is readable and publishable."""
+        resolved_repository = _text(repository, "repository", 260)
+        resolved_pr_number = _positive(pr_number, "pr_number")
+        access = self._require_operator_repository(resolved_repository)
+
+        def read(github: GitHubReadClient) -> PullSnapshot:
+            return read_pull_snapshot(
+                github, resolved_repository, resolved_pr_number
+            )
+
+        snapshot = self._provider_source(
+            access.provider_repository_id, read
+        )
+        assert isinstance(snapshot, PullSnapshot)
+        self._validate_pull_snapshot(
+            snapshot,
+            provider_repository_id=access.provider_repository_id,
+            repository=access.full_name,
+            pr_number=resolved_pr_number,
+        )
+        try:
+            self._tokens.token_for(
+                access.provider_repository_id, purpose="publication"
+            )
+        except GitHubAppTokenRetryable as exc:
+            raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+        except GitHubAppTokenPermanent as exc:
+            raise GitHubGatewayRejected("provider_authorization_denied") from exc
+        except github_app.GitHubAppRepositoryUnauthorized as exc:
+            raise GitHubGatewayRejected("repository_not_authorized") from exc
+        current = self._require_operator_repository(resolved_repository)
+        if current.provider_repository_id != access.provider_repository_id:
+            raise GitHubGatewayRejected("repository_not_authorized")
+        return OperatorSmokeResult(
+            repository_id=access.provider_repository_id,
+            repository=snapshot.repository,
+            pr_number=snapshot.number,
+            base_sha=snapshot.base_sha,
+            head_sha=snapshot.head_sha,
+            publication_permission=True,
+        )
+
+    def operator_status(self) -> OperatorAppStatus:
+        """Return secret-free GitHub App metadata proved with App authentication."""
+        try:
+            identity = self._tokens.app_identity()
+        except GitHubAppTokenRetryable as exc:
+            raise GitHubGatewayRetryable("github_app_status_unavailable") from exc
+        except GitHubAppTokenPermanent as exc:
+            raise GitHubGatewayRejected("github_app_status_invalid") from exc
+        return OperatorAppStatus(
+            provider_app_id=identity.provider_app_id,
+            slug=identity.slug,
+            owner=identity.owner_login,
+            permissions=identity.permissions,
+            events=identity.events,
+        )
+
+    def _require_operator_repository(
+        self, repository: str
+    ) -> github_app.RepositoryAccessState:
+        try:
+            with self._postgres.transaction() as connection:
+                access = github_app.get_repository_access_by_full_name(
+                    connection, repository
+                )
+                github_app.authorize_review_read(
+                    connection,
+                    access.provider_repository_id,
+                    profile_key=self._profile,
+                )
+                github_app.authorize_review_publication(
+                    connection,
+                    access.provider_repository_id,
+                    profile_key=self._profile,
+                )
+                return access
+        except github_app.GitHubAppStateError as exc:
+            raise GitHubGatewayRejected("repository_not_authorized") from exc
+
     def _require_source_authority(
         self,
         *,
@@ -824,10 +1015,25 @@ class ReviewGitHubGateway:
     def _validate_snapshot(
         command: _IssueCommentCommand, snapshot: PullSnapshot
     ) -> None:
+        ReviewGitHubGateway._validate_pull_snapshot(
+            snapshot,
+            provider_repository_id=command.provider_repository_id,
+            repository=command.repository,
+            pr_number=command.pr_number,
+        )
+
+    @staticmethod
+    def _validate_pull_snapshot(
+        snapshot: PullSnapshot,
+        *,
+        provider_repository_id: int,
+        repository: str,
+        pr_number: int,
+    ) -> None:
         if (
-            snapshot.repository_id != command.provider_repository_id
-            or snapshot.repository.casefold() != command.repository.casefold()
-            or snapshot.number != command.pr_number
+            snapshot.repository_id != provider_repository_id
+            or snapshot.repository.casefold() != repository.casefold()
+            or snapshot.number != pr_number
         ):
             raise GitHubGatewayRejected("pull_request_identity_mismatch")
         if snapshot.state != "open":

@@ -176,6 +176,14 @@ class GitHubAppAuthorization:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubAppAccessHealth:
+    active_installations: int
+    invalid_active_installations: int
+    repositories: int
+    enabled_repositories: int
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewAdmissionAuthorization:
     """Locked repository state authorized for final review admission."""
 
@@ -453,6 +461,35 @@ def get_installation_by_provider_id(
     return _installation(row)
 
 
+def list_installations(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    limit: int,
+    after_provider_installation_id: int = 0,
+) -> tuple[GitHubAppInstallation, ...]:
+    """Return one keyset-paginated installation inventory page."""
+    _require_transaction(connection)
+    if type(limit) is not int or limit < 1:
+        raise GitHubAppStateError("limit must be positive")
+    if (
+        type(after_provider_installation_id) is not int
+        or after_provider_installation_id < 0
+    ):
+        raise GitHubAppStateError("after_provider_installation_id must be nonnegative")
+    with connection.cursor(row_factory=class_row(_InstallationRow)) as cursor:
+        rows = cursor.execute(
+            f"""
+            SELECT {_INSTALLATION_COLUMNS}
+            FROM review_agent.github_app_installations
+            WHERE provider_installation_id > %s
+            ORDER BY provider_installation_id
+            LIMIT %s
+            """,
+            (after_provider_installation_id, limit),
+        ).fetchall()
+    return tuple(_installation(row) for row in rows)
+
+
 def _lock_installation(
     connection: psycopg.Connection[TupleRow],
     installation_id: GitHubAppInstallationId,
@@ -520,6 +557,113 @@ def get_repository_access_by_provider_id(
             "GitHub App repository access was not found"
         )
     return _access(row)
+
+
+def get_repository_access_by_full_name(
+    connection: psycopg.Connection[TupleRow], full_name: str
+) -> RepositoryAccessState:
+    """Resolve App access by the repository's current case-insensitive label."""
+    _require_transaction(connection)
+    resolved_name = _text(full_name, "full_name", 260)
+    with connection.cursor(row_factory=class_row(_RepositoryAccessRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            SELECT {_ACCESS_COLUMNS}
+            FROM review_agent.github_app_repository_access AS access
+            JOIN review_agent.repositories AS repository
+              ON repository.id = access.repository_id
+            WHERE repository.provider = 'github'
+              AND lower(repository.full_name) = lower(%s)
+            """,
+            (resolved_name,),
+        ).fetchone()
+    if row is None:
+        raise GitHubAppRepositoryNotFound(
+            "GitHub App repository access was not found"
+        )
+    return _access(row)
+
+
+def list_repository_access(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    limit: int,
+    after_provider_repository_id: int = 0,
+) -> tuple[RepositoryAccessState, ...]:
+    """Return one keyset-paginated repository access inventory page."""
+    _require_transaction(connection)
+    if type(limit) is not int or limit < 1:
+        raise GitHubAppStateError("limit must be positive")
+    if (
+        type(after_provider_repository_id) is not int
+        or after_provider_repository_id < 0
+    ):
+        raise GitHubAppStateError("after_provider_repository_id must be nonnegative")
+    with connection.cursor(row_factory=class_row(_RepositoryAccessRow)) as cursor:
+        rows = cursor.execute(
+            f"""
+            SELECT {_ACCESS_COLUMNS}
+            FROM review_agent.github_app_repository_access AS access
+            JOIN review_agent.repositories AS repository
+              ON repository.id = access.repository_id
+            WHERE repository.provider = 'github'
+              AND repository.provider_repository_id > %s
+            ORDER BY repository.provider_repository_id
+            LIMIT %s
+            """,
+            (after_provider_repository_id, limit),
+        ).fetchall()
+    return tuple(_access(row) for row in rows)
+
+
+def access_health(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    profile_key: str,
+) -> GitHubAppAccessHealth:
+    """Return set-oriented installation and enabled-repository health counts."""
+    _require_transaction(connection)
+    profile = _text(profile_key, "profile_key", 80)
+    installation_row = connection.execute(
+        """
+        SELECT
+            count(*) FILTER (WHERE status = 'active'),
+            count(*) FILTER (
+                WHERE status = 'active'
+                  AND (
+                    repository_selection <> 'selected'
+                    OR contents_permission <> 'read'
+                    OR issues_permission <> 'write'
+                    OR pull_requests_permission <> 'write'
+                  )
+            )
+        FROM review_agent.github_app_installations
+        """
+    ).fetchone()
+    repository_row = connection.execute(
+        """
+        SELECT
+            count(*),
+            count(*) FILTER (
+                WHERE access.enabled
+                  AND access.access_state = 'available'
+                  AND access.profile_key = %s
+            )
+        FROM review_agent.github_app_repository_access AS access
+        """,
+        (profile,),
+    ).fetchone()
+    if installation_row is None or repository_row is None:
+        raise GitHubAppStateError("GitHub App access health could not be read")
+    values = (*installation_row, *repository_row)
+    if len(values) != 4 or any(type(value) is not int for value in values):
+        raise GitHubAppStateError("GitHub App access health could not be read")
+    return GitHubAppAccessHealth(
+        active_installations=int(values[0]),
+        invalid_active_installations=int(values[1]),
+        repositories=int(values[2]),
+        enabled_repositories=int(values[3]),
+    )
 
 
 def authorize_review_read(

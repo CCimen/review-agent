@@ -23,6 +23,8 @@ from review_agent_tools.github.gateway import (  # noqa: E402
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
+    OperatorAppStatus,
+    OperatorSmokeResult,
     ReviewSourceRequest,
     ReviewGitHubGateway,
 )
@@ -68,6 +70,7 @@ class _Gateway:
         self.feedback_calls: list[dict[str, object]] = []
         self.acknowledgement_calls: list[dict[str, object]] = []
         self.failure: Exception | None = None
+        self.operator_smoke_calls: list[dict[str, object]] = []
 
     def authorize_review_delivery(self, **values: object) -> AuthorizedReviewSnapshot:
         self.calls.append(values)
@@ -122,6 +125,34 @@ class _Gateway:
             raise self.failure
         return True
 
+    def operator_status(self) -> OperatorAppStatus:
+        if self.failure is not None:
+            raise self.failure
+        return OperatorAppStatus(
+            provider_app_id=1234,
+            slug="review-agent-test",
+            owner="CCimen",
+            permissions=(
+                ("contents", "read"),
+                ("issues", "write"),
+                ("pull_requests", "write"),
+            ),
+            events=("issue_comment",),
+        )
+
+    def operator_smoke(self, **values: object) -> OperatorSmokeResult:
+        self.operator_smoke_calls.append(values)
+        if self.failure is not None:
+            raise self.failure
+        return OperatorSmokeResult(
+            repository_id=9001,
+            repository="CCimen/review-agent",
+            pr_number=42,
+            base_sha="b" * 40,
+            head_sha="a" * 40,
+            publication_permission=True,
+        )
+
 
 class GitHubGatewayEntrypointTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -137,6 +168,7 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
             ),
             runtime=cast(PostgreSQLRuntime, _Runtime()),
             max_concurrent_requests=2,
+            operator_key="operator-test-key",
         )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -168,6 +200,61 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_operator_routes_require_the_operator_key_and_remain_read_only(self) -> None:
+        without_key = ReviewGitHubGatewayClient(self.base_url)
+        with self.assertRaises(GitHubGatewayProtocolError):
+            without_key.operator_status()
+
+        client = ReviewGitHubGatewayClient(
+            self.base_url,
+            operator_key="operator-test-key",
+        )
+        status = client.operator_status()
+        smoke = client.operator_smoke(
+            repository="CCimen/review-agent",
+            pr_number=42,
+        )
+
+        self.assertEqual(status.provider_app_id, 1234)
+        self.assertEqual(smoke.repository_id, 9001)
+        self.assertTrue(smoke.publication_permission)
+        self.assertEqual(
+            self.gateway.operator_smoke_calls,
+            [{"repository": "CCimen/review-agent", "pr_number": 42}],
+        )
+
+    def test_operator_http_routes_reject_missing_or_wrong_bearer_token(self) -> None:
+        requests = []
+        for authorization in (None, "Bearer not-the-key"):
+            status_headers = {}
+            smoke_headers = {"Content-Type": "application/json"}
+            if authorization is not None:
+                status_headers["Authorization"] = authorization
+                smoke_headers["Authorization"] = authorization
+            requests.extend(
+                (
+                    urllib.request.Request(
+                        f"{self.base_url}/v1/operator/status",
+                        method="GET",
+                        headers=status_headers,
+                    ),
+                    urllib.request.Request(
+                        f"{self.base_url}/v1/operator/smoke",
+                        data=b'{"repository":"CCimen/review-agent","pr_number":42}',
+                        method="POST",
+                        headers=smoke_headers,
+                    ),
+                )
+            )
+
+        for request in requests:
+            with self.subTest(path=request.full_url):
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(request)
+                self.assertEqual(raised.exception.code, 401)
+                raised.exception.close()
+        self.assertEqual(self.gateway.operator_smoke_calls, [])
 
     def test_unknown_request_field_is_rejected_before_gateway_execution(self) -> None:
         request = urllib.request.Request(

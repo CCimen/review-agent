@@ -15,6 +15,8 @@ from .gateway import (
     ACKNOWLEDGE_FEEDBACK_PATH,
     AUTHORIZE_FEEDBACK_DELIVERY_PATH,
     AUTHORIZE_REVIEW_DELIVERY_PATH,
+    OPERATOR_SMOKE_PATH,
+    OPERATOR_STATUS_PATH,
     READ_REVIEW_SOURCE_PATH,
     AuthorizedFeedback,
     AuthorizedReviewSnapshot,
@@ -22,6 +24,8 @@ from .gateway import (
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
+    OperatorAppStatus,
+    OperatorSmokeResult,
 )
 from .source import (
     GitHubSourceError,
@@ -85,9 +89,34 @@ class ReviewGitHubGatewayClient:
         base_url: str,
         *,
         opener: urllib.request.OpenerDirector | None = None,
+        operator_key: str | None = None,
     ) -> None:
         self._base_url = _base_url(base_url)
         self._opener = opener or urllib.request.build_opener()
+        self._operator_key = operator_key.strip() if operator_key is not None else None
+        if self._operator_key == "":
+            raise GitHubGatewayProtocolError("operator key must not be empty")
+        if self._operator_key is not None:
+            try:
+                self._operator_key.encode("ascii")
+            except UnicodeEncodeError as exc:
+                raise GitHubGatewayProtocolError(
+                    "operator key must contain ASCII characters"
+                ) from exc
+
+    def operator_status(self) -> OperatorAppStatus:
+        decoded = self._operator_request("GET", OPERATOR_STATUS_PATH)
+        return OperatorAppStatus.from_mapping(decoded)
+
+    def operator_smoke(
+        self, *, repository: str, pr_number: int
+    ) -> OperatorSmokeResult:
+        decoded = self._operator_request(
+            "POST",
+            OPERATOR_SMOKE_PATH,
+            {"pr_number": pr_number, "repository": repository},
+        )
+        return OperatorSmokeResult.from_mapping(decoded)
 
     def authorize_review_delivery(
         self,
@@ -303,16 +332,60 @@ class ReviewGitHubGatewayClient:
         payload_value: dict[str, object],
         max_response_bytes: int = _MAX_RESPONSE_BYTES,
     ) -> dict[str, object]:
-        payload = json.dumps(payload_value, separators=(",", ":")).encode("utf-8")
-        request = urllib.request.Request(
-            f"{self._base_url}{path}",
-            data=payload,
-            method="POST",
+        return self._request(
+            "POST",
+            path,
+            payload_value,
             headers={
                 "Accept": "application/json",
                 "Content-Type": "application/json",
                 "User-Agent": "Review-Agent-GitHub-Events/1.0",
             },
+            max_response_bytes=max_response_bytes,
+        )
+
+    def _operator_request(
+        self,
+        method: Literal["GET", "POST"],
+        path: str,
+        payload_value: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        if self._operator_key is None:
+            raise GitHubGatewayProtocolError("operator key is required")
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self._operator_key}",
+            "User-Agent": "Review-Agent-Operator/1.0",
+        }
+        if payload_value is not None:
+            headers["Content-Type"] = "application/json"
+        return self._request(
+            method,
+            path,
+            payload_value,
+            headers=headers,
+            max_response_bytes=_MAX_RESPONSE_BYTES,
+        )
+
+    def _request(
+        self,
+        method: Literal["GET", "POST"],
+        path: str,
+        payload_value: dict[str, object] | None,
+        *,
+        headers: dict[str, str],
+        max_response_bytes: int,
+    ) -> dict[str, object]:
+        payload = (
+            None
+            if payload_value is None
+            else json.dumps(payload_value, separators=(",", ":")).encode("utf-8")
+        )
+        request = urllib.request.Request(
+            f"{self._base_url}{path}",
+            data=payload,
+            method=method,
+            headers=headers,
         )
         try:
             with self._opener.open(

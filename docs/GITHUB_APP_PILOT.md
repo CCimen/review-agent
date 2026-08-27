@@ -4,7 +4,7 @@ slug: /github-app-pilot
 title: Set up the GitHub App
 description: Register, install, enable, and verify Review Agent on selected repositories.
 status: current
-last_verified: 2026-08-26
+last_verified: 2026-08-27
 ---
 
 # Set up the GitHub App
@@ -19,7 +19,16 @@ or repository that you are not authorized to change.
 
 ## 1. Register the App
 
-Open **GitHub Settings > Developer settings > GitHub Apps > New GitHub App**.
+From a source checkout with the Python requirements installed, generate a
+prefilled registration URL:
+
+```bash
+python3 tools/review_agent_admin.py github-app registration-url \
+  --owner CCimen --owner-type user \
+  --public-url https://review.example.org
+```
+
+Open the returned URL and verify these settings before creating the App:
 
 | Setting | Value |
 | --- | --- |
@@ -57,6 +66,17 @@ REVIEW_AGENT_GITHUB_APP_ID=<numeric App ID>
 REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=./secrets/github-app-private-key.pem
 ```
 
+Export the values from your deployment environment, then validate them on the
+host without network or database access:
+
+```bash
+python3 tools/review_agent_admin.py capabilities
+python3 tools/review_agent_admin.py preflight
+```
+
+Both commands return bounded JSON. Preflight reads the host-side key path and
+prints no credential values.
+
 The private-key value is a host path. Compose mounts the file read-only into the
 gateway. Validate and start the stack:
 
@@ -86,8 +106,7 @@ Reconcile the complete selected-repository inventory:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-database sync-github-app-installation \
-  --provider-installation-id <installation-id> \
+  review-agent-admin installations sync <installation-id> \
   --actor "github:<operator>" \
   --reason "initial GitHub App inventory"
 ```
@@ -97,8 +116,7 @@ repository ID:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-database enable-github-app-repository \
-  --provider-repository-id <repository-id> \
+  review-agent-admin repositories enable <repository-id> \
   --profile sundsvall-standard \
   --actor "github:<operator>" \
   --reason "approved review repository"
@@ -111,6 +129,16 @@ a different profile until an operator enables them for the new one.
 Reconcile again after changing the App's repository selection or repairing a
 missed lifecycle event. Reconciliation is atomic and never enables a repository.
 
+Before sending a review request, verify the live deployment and one open pull
+request without calling the model or writing to GitHub:
+
+```bash
+docker compose exec hermes-review review-agent-admin doctor
+docker compose exec hermes-review \
+  review-agent-admin smoke-test --dry-run \
+  --repository CCimen/review-agent --pr <number>
+```
+
 ## 4. Verify one review
 
 On a same-repository pull request, post a new top-level `/review` comment as a
@@ -120,7 +148,7 @@ Check:
 
 1. GitHub shows a successful `issue_comment` webhook delivery.
 2. `docker compose logs --since 10m review-github-app-worker` reports an accepted delivery.
-3. `review-agent-database jobs --limit 10` and `review-agent-memory runs` show one job and run.
+3. `review-agent-admin jobs list --limit 10` and `review-agent-memory runs` show one job and run.
 4. The private gateway logs source and publication traffic without exposing a token.
 5. The review comment appears on the same head SHA without duplicate parts.
 
@@ -131,8 +159,7 @@ delivery page to inspect or redeliver an event; the delivery ID is idempotent.
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-database disable-github-app-repository \
-  --provider-repository-id <repository-id> \
+  review-agent-admin repositories disable <repository-id> \
   --actor "github:<operator>" \
   --reason "pause automated reviews"
 ```

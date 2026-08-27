@@ -51,8 +51,8 @@ services:
         HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e}
     restart: "no"
     user: "10000:10000"
-    entrypoint: ["/usr/local/bin/review-agent-database"]
-    command: ["migrate"]
+    entrypoint: ["/usr/local/bin/review-agent-admin"]
+    command: ["database", "migrate"]
     depends_on:
       review-postgres:
         condition: service_healthy
@@ -93,6 +93,7 @@ services:
       REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS: "${REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS:-3}"
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
+      REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS: "${REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS:-100}"
       REVIEW_AGENT_FEEDBACK_ENABLED: "${REVIEW_AGENT_FEEDBACK_ENABLED:-false}"
       HERMES_DASHBOARD: "${HERMES_DASHBOARD:-0}"
       API_SERVER_ENABLED: "true"
@@ -263,9 +264,11 @@ services:
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_DATABASE_URL:?set REVIEW_AGENT_DATABASE_URL}"
       REVIEW_AGENT_GITHUB_APP_ID: "${REVIEW_AGENT_GITHUB_APP_ID:?set REVIEW_AGENT_GITHUB_APP_ID}"
       REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github-app-private-key.pem
+      API_SERVER_KEY: "${API_SERVER_KEY:?set API_SERVER_KEY}"
       # Eight worst-case changed-file responses stay within the 256 MiB service budget.
       REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS: "${REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS:-8}"
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-sundsvall-standard}"
+      REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS: "${REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS:-100}"
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
     expose:

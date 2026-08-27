@@ -24,6 +24,7 @@ from .postgres import decisions as postgres_decisions
 from .postgres import findings as postgres_findings
 from .postgres import github_app as postgres_github_app
 from .postgres import jobs as postgres_jobs
+from .postgres import publications as postgres_publications
 from .postgres import reporting as postgres_reporting
 from .postgres import review_runs as postgres_review_runs
 from .postgres.runtime import PostgreSQLRuntime
@@ -31,6 +32,43 @@ from .postgres.runtime import PostgreSQLRuntime
 
 class OperatorInputError(ValueError):
     """An operator request is ambiguous or unsafe to execute."""
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentHealth:
+    github_app: postgres_github_app.GitHubAppAccessHealth
+    review_queue: postgres_jobs.ReviewQueueHealth
+    publication_queue: postgres_publications.PublicationQueueHealth
+
+
+@dataclass(frozen=True, slots=True)
+class QueueHealth:
+    review_queue: postgres_jobs.ReviewQueueHealth
+    publication_queue: postgres_publications.PublicationQueueHealth
+
+
+def queue_health(runtime: PostgreSQLRuntime) -> QueueHealth:
+    """Read only review and publication queue health counters."""
+    with runtime.transaction() as connection:
+        return QueueHealth(
+            review_queue=postgres_jobs.queue_health(connection),
+            publication_queue=postgres_publications.queue_health(connection),
+        )
+
+
+def deployment_health(
+    runtime: PostgreSQLRuntime, *, profile: str
+) -> DeploymentHealth:
+    """Read one consistent, set-oriented operator health snapshot."""
+    with runtime.transaction() as connection:
+        return DeploymentHealth(
+            github_app=postgres_github_app.access_health(
+                connection,
+                profile_key=profile,
+            ),
+            review_queue=postgres_jobs.queue_health(connection),
+            publication_queue=postgres_publications.queue_health(connection),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +121,36 @@ ACTIVE_JOB_STATUSES = (
     postgres_jobs.ReviewJobStatus.QUEUED,
     postgres_jobs.ReviewJobStatus.LEASED,
 )
+
+
+def list_github_app_installations(
+    runtime: PostgreSQLRuntime,
+    *,
+    limit: int,
+    after_provider_installation_id: int = 0,
+) -> tuple[postgres_github_app.GitHubAppInstallation, ...]:
+    """Return one stable installation inventory page for operators."""
+    with runtime.transaction() as connection:
+        return postgres_github_app.list_installations(
+            connection,
+            limit=limit,
+            after_provider_installation_id=after_provider_installation_id,
+        )
+
+
+def list_github_app_repositories(
+    runtime: PostgreSQLRuntime,
+    *,
+    limit: int,
+    after_provider_repository_id: int = 0,
+) -> tuple[postgres_github_app.RepositoryAccessState, ...]:
+    """Return one stable repository access inventory page for operators."""
+    with runtime.transaction() as connection:
+        return postgres_github_app.list_repository_access(
+            connection,
+            limit=limit,
+            after_provider_repository_id=after_provider_repository_id,
+        )
 
 
 def sync_github_app_installation(

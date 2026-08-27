@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import cast
 import unittest
 import urllib.request
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +48,7 @@ from review_agent_tools.github.source import (  # noqa: E402
     read_review_pull,
 )
 from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
+from review_agent_tools.source_control import PullSnapshot  # noqa: E402
 
 
 class _Response:
@@ -671,6 +672,71 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
 
         self.assertEqual(authorize.call_count, 2)
         read.assert_called_once_with(github, scope)
+
+    def test_operator_smoke_reads_one_enabled_pull_and_proves_write_scope(self) -> None:
+        runtime = Mock()
+        tokens = Mock()
+        tokens.token_for.side_effect = (
+            SimpleNamespace(value="read-token"),
+            SimpleNamespace(value="publication-token"),
+        )
+        github = Mock()
+        factory = Mock(return_value=github)
+        service = ReviewGitHubGateway(
+            postgres=runtime,
+            tokens=tokens,
+            profile="sundsvall-standard",
+            github_factory=factory,
+        )
+        access = SimpleNamespace(
+            provider_repository_id=9001,
+            full_name="CCimen/review-agent",
+        )
+        snapshot = PullSnapshot(
+            repository_id=9001,
+            repository="CCimen/review-agent",
+            number=42,
+            state="open",
+            base_sha="b" * 40,
+            head_sha="a" * 40,
+            head_repository_id=9001,
+            head_repository="CCimen/review-agent",
+        )
+
+        with (
+            patch.object(
+                ReviewGitHubGateway,
+                "_require_operator_repository",
+                side_effect=(access, access),
+            ) as authorize,
+            patch.object(
+                gateway_module, "read_pull_snapshot", return_value=snapshot
+            ) as read,
+        ):
+            result = service.operator_smoke(
+                repository="CCimen/review-agent", pr_number=42
+            )
+
+        self.assertEqual(authorize.call_count, 2)
+        self.assertEqual(result.repository_id, 9001)
+        self.assertEqual(result.base_sha, "b" * 40)
+        self.assertEqual(result.head_sha, "a" * 40)
+        self.assertTrue(result.publication_permission)
+        self.assertEqual(
+            tokens.token_for.call_args_list,
+            [
+                call(9001),
+                call(9001, purpose="publication"),
+            ],
+        )
+        factory.assert_called_once_with("read-token")
+        read.assert_called_once_with(github, "CCimen/review-agent", 42)
+        for method in (
+            "create_issue_comment",
+            "create_pull_request_review",
+            "update_issue_comment",
+        ):
+            getattr(github, method).assert_not_called()
 
     def test_pull_source_preserves_stable_repository_identity(self) -> None:
         github = Mock()

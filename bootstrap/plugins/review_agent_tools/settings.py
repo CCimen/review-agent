@@ -37,7 +37,50 @@ class ReviewAgentSettings:
         value = self.environment.get("REVIEW_AGENT_GITHUB_GATEWAY_URL", "").strip()
         if not value:
             raise SettingsError("REVIEW_AGENT_GITHUB_GATEWAY_URL is required")
-        return value
+        try:
+            parsed = urlsplit(value)
+        except ValueError as exc:
+            raise SettingsError(
+                "REVIEW_AGENT_GITHUB_GATEWAY_URL must be one HTTP origin"
+            ) from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise SettingsError(
+                "REVIEW_AGENT_GITHUB_GATEWAY_URL must be one HTTP origin"
+            )
+        return value.rstrip("/")
+
+    @property
+    def hermes_health_url(self) -> str:
+        value = self.environment.get(
+            "REVIEW_AGENT_HERMES_CHAT_URL",
+            "http://127.0.0.1:8642/v1/chat/completions",
+        ).strip()
+        try:
+            parsed = urlsplit(value)
+        except ValueError as exc:
+            raise SettingsError(
+                "REVIEW_AGENT_HERMES_CHAT_URL must be one HTTP endpoint"
+            ) from exc
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise SettingsError(
+                "REVIEW_AGENT_HERMES_CHAT_URL must be one HTTP endpoint"
+            )
+        return f"{parsed.scheme}://{parsed.netloc}/health"
 
     @property
     def postgres_database_url(self) -> PostgresDatabaseUrl:
@@ -89,6 +132,38 @@ class ReviewAgentSettings:
         if value < 1:
             raise SettingsError(
                 "REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS must be positive"
+            )
+        return value
+
+    @property
+    def active_job_limit(self) -> int:
+        raw = self.environment.get("REVIEW_AGENT_ACTIVE_JOB_LIMIT", "100").strip()
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise SettingsError(
+                "REVIEW_AGENT_ACTIVE_JOB_LIMIT must be an integer"
+            ) from exc
+        if value < 1:
+            raise SettingsError(
+                "REVIEW_AGENT_ACTIVE_JOB_LIMIT must be positive"
+            )
+        return value
+
+    @property
+    def operator_page_max_items(self) -> int:
+        raw = self.environment.get(
+            "REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS", "100"
+        ).strip()
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise SettingsError(
+                "REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS must be an integer"
+            ) from exc
+        if value < 1:
+            raise SettingsError(
+                "REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS must be positive"
             )
         return value
 

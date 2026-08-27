@@ -1,0 +1,475 @@
+"""Secret-safe setup and readiness results for Review Agent operators."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+import re
+from typing import Literal
+from urllib.parse import quote, urlencode, urlsplit
+
+from . import operator_application, review_contract
+from .github import app_auth
+from .github.gateway import (
+    GitHubGatewayProtocolError,
+    GitHubGatewayRejected,
+    GitHubGatewayRetryable,
+    OperatorAppStatus,
+    OperatorSmokeResult,
+)
+from .github.gateway_client import ReviewGitHubGatewayClient
+from .postgres.runtime import PostgreSQLRuntime
+from .settings import ReviewAgentSettings
+
+
+CheckStatus = Literal["ready", "error"]
+OwnerType = Literal["user", "organization"]
+_PLACEHOLDER_RE = re.compile(r"(?:replace|change[-_ ]?me|example|todo)", re.IGNORECASE)
+_APP_NAME_RE = re.compile(r"[^a-z0-9]+")
+
+
+class OperatorCapacityUnavailable(RuntimeError):
+    """The deployment can retry a dry-run after active work drains."""
+
+
+@dataclass(frozen=True, slots=True)
+class Capabilities:
+    authentication: str = "github-app"
+    selected_repositories_only: bool = True
+    fork_pull_requests: bool = False
+    feedback: bool = True
+    repository_profiles: str = "deployment-profile-only"
+    advisory_only: bool = True
+    trigger_mode: str = "manual"
+
+    def to_json_obj(self) -> dict[str, object]:
+        return {
+            "advisory_only": self.advisory_only,
+            "authentication": self.authentication,
+            "feedback": self.feedback,
+            "fork_pull_requests": self.fork_pull_requests,
+            "repository_profiles": self.repository_profiles,
+            "selected_repositories_only": self.selected_repositories_only,
+            "trigger_mode": self.trigger_mode,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorCheck:
+    name: str
+    status: CheckStatus
+    detail: str
+
+    def to_json_obj(self) -> dict[str, str]:
+        return {"detail": self.detail, "name": self.name, "status": self.status}
+
+
+@dataclass(frozen=True, slots=True)
+class PreflightReport:
+    ready: bool
+    checks: tuple[OperatorCheck, ...]
+
+    def to_json_obj(self) -> dict[str, object]:
+        return {
+            "checks": [check.to_json_obj() for check in self.checks],
+            "ready": self.ready,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DryRunSmokeReport:
+    active_jobs: int
+    active_job_limit: int
+    result: OperatorSmokeResult
+
+    def to_json_obj(self) -> dict[str, object]:
+        return {
+            "active_job_limit": self.active_job_limit,
+            "active_jobs": self.active_jobs,
+            "dry_run": True,
+            **self.result.to_mapping(),
+        }
+
+
+def capabilities() -> Capabilities:
+    """Return the shipped product contract without consulting runtime state."""
+    return Capabilities()
+
+
+def _public_origin(value: str) -> str:
+    normalized = value.strip().rstrip("/")
+    try:
+        parsed = urlsplit(normalized)
+    except ValueError as exc:
+        raise ValueError("public_url must be one HTTPS origin") from exc
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("public_url must be one HTTPS origin")
+    return f"https://{parsed.netloc}"
+
+
+def _owner(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or len(normalized) > 100 or any(
+        character in normalized for character in "/?#"
+    ):
+        raise ValueError("owner must be a GitHub account name")
+    return normalized
+
+
+def _default_app_name(owner: str) -> str:
+    suffix = _APP_NAME_RE.sub("-", owner.casefold()).strip("-") or "owner"
+    return f"review-agent-{suffix}"[:34].rstrip("-")
+
+
+def github_app_registration_url(
+    *,
+    owner: str,
+    owner_type: OwnerType,
+    public_url: str,
+    app_name: str | None = None,
+) -> str:
+    """Build GitHub's prefilled App registration form without embedding secrets."""
+    resolved_owner = _owner(owner)
+    if owner_type not in {"user", "organization"}:
+        raise ValueError("owner_type must be user or organization")
+    origin = _public_origin(public_url)
+    name = (app_name or _default_app_name(resolved_owner)).strip()
+    if not name or len(name) > 34:
+        raise ValueError("app_name must contain 1 to 34 characters")
+    path = (
+        "/settings/apps/new"
+        if owner_type == "user"
+        else f"/organizations/{quote(resolved_owner, safe='')}/settings/apps/new"
+    )
+    query = urlencode(
+        (
+            ("name", name),
+            ("url", origin),
+            ("public", "false"),
+            ("request_oauth_on_install", "false"),
+            ("webhook_active", "true"),
+            ("webhook_url", f"{origin}/webhooks/github-app"),
+            ("permissions[contents]", "read"),
+            ("permissions[issues]", "write"),
+            ("permissions[pull_requests]", "write"),
+            ("events[]", "issue_comment"),
+        )
+    )
+    return f"https://github.com{path}?{query}"
+
+
+def _ready(name: str, detail: str) -> OperatorCheck:
+    return OperatorCheck(name=name, status="ready", detail=detail)
+
+
+def _error(name: str, detail: str) -> OperatorCheck:
+    return OperatorCheck(name=name, status="error", detail=detail)
+
+
+def _run_check(
+    name: str,
+    detail: str,
+    operation: Callable[[], object],
+) -> OperatorCheck:
+    try:
+        operation()
+    except (OSError, TypeError, ValueError) as exc:
+        return _error(name, str(exc))
+    return _ready(name, detail)
+
+
+def github_app_authenticator(
+    environment: Mapping[str, str],
+) -> app_auth.GitHubAppAuthenticator:
+    """Load locally validated App credentials without exposing their values."""
+    raw_app_id = environment.get("REVIEW_AGENT_GITHUB_APP_ID", "").strip()
+    try:
+        app_id = int(raw_app_id)
+    except ValueError as exc:
+        raise ValueError("REVIEW_AGENT_GITHUB_APP_ID must be a positive integer") from exc
+    if app_id < 1:
+        raise ValueError("REVIEW_AGENT_GITHUB_APP_ID must be a positive integer")
+    raw_path = (
+        environment.get("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE", "").strip()
+        or environment.get("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
+    )
+    if not raw_path:
+        raise ValueError("GitHub App private key path is required")
+    private_key = app_auth.load_private_key_file(raw_path)
+    return app_auth.GitHubAppAuthenticator(
+        app_id=app_id, private_key_pem=private_key
+    )
+
+
+def _webhook_configuration(environment: Mapping[str, str]) -> None:
+    value = environment.get("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET", "").strip()
+    if not value or _PLACEHOLDER_RE.search(value):
+        raise ValueError("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET is not configured")
+
+
+def _api_key_configuration(environment: Mapping[str, str]) -> None:
+    value = environment.get("API_SERVER_KEY", "").strip()
+    if not value or _PLACEHOLDER_RE.search(value):
+        raise ValueError("API_SERVER_KEY is not configured")
+
+
+def preflight(
+    environment: Mapping[str, str],
+    *,
+    bootstrap_source: Path = Path("/opt/review-agent-bootstrap"),
+) -> PreflightReport:
+    """Validate local configuration and packaged behavior without network or DB I/O."""
+    settings = ReviewAgentSettings(environment)
+    checks = (
+        _run_check(
+            "database_configuration",
+            "PostgreSQL URL is structurally valid",
+            lambda: settings.postgres_database_url,
+        ),
+        _run_check(
+            "github_app_configuration",
+            "App ID and private key are locally valid",
+            lambda: github_app_authenticator(environment),
+        ),
+        _run_check(
+            "profile_contract",
+            "Packaged review profile contract is valid",
+            lambda: review_contract.load_packaged_contract(
+                settings.profile,
+                source=bootstrap_source,
+                hermes_image=(
+                    environment.get("REVIEW_AGENT_HERMES_IMAGE", "").strip()
+                    or environment.get("HERMES_IMAGE", "").strip()
+                ),
+            ),
+        ),
+        _run_check(
+            "webhook_configuration",
+            "GitHub App webhook secret is configured",
+            lambda: _webhook_configuration(environment),
+        ),
+        _run_check(
+            "internal_api_configuration",
+            "Internal service authentication is configured",
+            lambda: _api_key_configuration(environment),
+        ),
+    )
+    return PreflightReport(
+        ready=all(check.status == "ready" for check in checks),
+        checks=checks,
+    )
+
+
+def _live_check(
+    name: str,
+    ready_detail: str,
+    failure_detail: str,
+    operation: Callable[[], object],
+) -> OperatorCheck:
+    try:
+        operation()
+    except Exception:
+        return _error(name, failure_detail)
+    return _ready(name, ready_detail)
+
+
+def _validate_app_status(
+    status: OperatorAppStatus,
+) -> None:
+    permissions = dict(status.permissions)
+    required = {
+        "contents": "read",
+        "issues": "write",
+        "pull_requests": "write",
+    }
+    allowed_names = {*required, "metadata"}
+    if any(permissions.get(name) != level for name, level in required.items()):
+        raise ValueError("GitHub App permissions do not match the product contract")
+    if set(permissions) - allowed_names:
+        raise ValueError("GitHub App has permissions outside the product contract")
+    if set(status.events) != {"issue_comment"}:
+        raise ValueError("GitHub App events do not match the product contract")
+
+
+def _validate_installations(
+    snapshot: operator_application.DeploymentHealth,
+) -> None:
+    access = snapshot.github_app
+    if access.active_installations < 1:
+        raise ValueError("no active GitHub App installation is reconciled")
+    if access.invalid_active_installations:
+        raise ValueError("an active installation is outside the product contract")
+
+
+def _validate_repositories(
+    snapshot: operator_application.DeploymentHealth,
+) -> None:
+    if snapshot.github_app.enabled_repositories < 1:
+        raise ValueError("no available repository is enabled for this profile")
+
+
+def _validate_queues(
+    snapshot: operator_application.DeploymentHealth,
+    active_job_limit: int,
+) -> None:
+    queue = snapshot.review_queue
+    if queue.active >= active_job_limit:
+        raise OperatorCapacityUnavailable(
+            "review queue has reached its active job limit"
+        )
+    if queue.expired_leases or queue.dead_letters:
+        raise ValueError("review queue requires operator recovery")
+    publication_queue = snapshot.publication_queue
+    if publication_queue.expired_recoverable or publication_queue.expired_exhausted:
+        raise ValueError("publication queue requires operator recovery")
+
+
+def doctor(
+    environment: Mapping[str, str],
+    *,
+    runtime: PostgreSQLRuntime,
+    gateway: ReviewGitHubGatewayClient,
+    hermes_probe: Callable[[], bool],
+    hermes_home: Path | None = None,
+) -> PreflightReport:
+    """Run bounded, secret-safe, read-only deployment checks."""
+    settings = ReviewAgentSettings(environment)
+    snapshot: operator_application.DeploymentHealth | None = None
+    try:
+        runtime.readiness()
+        snapshot = operator_application.deployment_health(
+            runtime,
+            profile=settings.profile,
+        )
+        database_check = _ready(
+            "database",
+            "PostgreSQL schema and operator health snapshot are readable",
+        )
+    except Exception:
+        database_check = _error("database", "PostgreSQL readiness check failed")
+
+    app_status: OperatorAppStatus | None = None
+    try:
+        app_status = gateway.operator_status()
+        _validate_app_status(app_status)
+        app_check = _ready(
+            "github_app",
+            f"GitHub App {app_status.slug} is authenticated with the required contract",
+        )
+    except GitHubGatewayRetryable:
+        app_check = _error(
+            "github_app",
+            "Private gateway or GitHub API is temporarily unavailable",
+        )
+    except GitHubGatewayRejected:
+        app_check = _error(
+            "github_app",
+            "GitHub rejected the configured App identity",
+        )
+    except GitHubGatewayProtocolError:
+        app_check = _error(
+            "github_app",
+            "Private gateway authentication or response validation failed",
+        )
+    except ValueError:
+        app_check = _error(
+            "github_app",
+            "GitHub App permissions or events do not match the product contract",
+        )
+    except Exception:
+        app_check = _error("github_app", "GitHub App status check failed")
+
+    checks: list[OperatorCheck] = [
+        database_check,
+        _live_check(
+            "installed_profile",
+            f"Installed profile {settings.profile} matches its signed receipt",
+            "Installed review profile validation failed",
+            lambda: review_contract.load_installed_contract(hermes_home),
+        ),
+        app_check,
+        _live_check(
+            "hermes",
+            "Hermes API is reachable",
+            "Hermes API health check failed",
+            lambda: _require_true(hermes_probe()),
+        ),
+    ]
+    if snapshot is None:
+        checks.extend(
+            _error(name, "PostgreSQL operator snapshot is unavailable")
+            for name in ("installations", "repositories", "queues")
+        )
+    else:
+        checks.extend(
+            (
+                _live_check(
+                    "installations",
+                    (
+                        f"{snapshot.github_app.active_installations} active "
+                        "installation(s) are reconciled"
+                    ),
+                    "GitHub App installation state needs attention",
+                    lambda: _validate_installations(snapshot),
+                ),
+                _live_check(
+                    "repositories",
+                    (
+                        f"{snapshot.github_app.enabled_repositories} "
+                        "repository(s) are enabled"
+                    ),
+                    "No repository is ready for this deployment profile",
+                    lambda: _validate_repositories(snapshot),
+                ),
+                _live_check(
+                    "queues",
+                    (
+                        f"Review queue has {snapshot.review_queue.active}/"
+                        f"{settings.active_job_limit} active jobs and no expired work"
+                    ),
+                    "Review or publication queues need recovery or capacity",
+                    lambda: _validate_queues(snapshot, settings.active_job_limit),
+                ),
+            )
+        )
+    return PreflightReport(
+        ready=all(check.status == "ready" for check in checks),
+        checks=tuple(checks),
+    )
+
+
+def smoke_test(
+    environment: Mapping[str, str],
+    *,
+    runtime: PostgreSQLRuntime,
+    gateway: ReviewGitHubGatewayClient,
+    repository: str,
+    pr_number: int,
+) -> DryRunSmokeReport:
+    """Prove dry-run capacity plus read and publication authority without writes."""
+    settings = ReviewAgentSettings(environment)
+    snapshot = operator_application.deployment_health(
+        runtime,
+        profile=settings.profile,
+    )
+    _validate_queues(snapshot, settings.active_job_limit)
+    result = gateway.operator_smoke(repository=repository, pr_number=pr_number)
+    return DryRunSmokeReport(
+        active_jobs=snapshot.review_queue.active,
+        active_job_limit=settings.active_job_limit,
+        result=result,
+    )
+
+
+def _require_true(value: bool) -> None:
+    if value is not True:
+        raise ValueError("probe was not ready")

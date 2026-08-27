@@ -397,7 +397,7 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
 
         self.assertNotIn("secret", str(raised.exception))
 
-    def test_bot_login_uses_app_identity_once_without_installation_token(self) -> None:
+    def test_app_identity_is_complete_and_bot_login_is_cached(self) -> None:
         requests: list[urllib.request.Request] = []
 
         def open_request(
@@ -405,17 +405,44 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
         ) -> _Response:
             self.assertEqual(timeout, 15)
             requests.append(request)
-            return _Response(b'{"slug":"review-agent"}')
+            return _Response(
+                json.dumps(
+                    {
+                        "id": 1234,
+                        "slug": "review-agent",
+                        "owner": {"login": "CCimen"},
+                        "permissions": {
+                            "contents": "read",
+                            "issues": "write",
+                            "pull_requests": "write",
+                        },
+                        "events": ["issue_comment"],
+                    }
+                ).encode()
+            )
 
         with patch.object(
             self.service._opener, "open", side_effect=open_request
         ):
+            identity = self.service.app_identity()
             first = self.service.app_bot_login()
             second = self.service.app_bot_login()
 
+        self.assertEqual(identity.provider_app_id, 1234)
+        self.assertEqual(identity.slug, "review-agent")
+        self.assertEqual(identity.owner_login, "CCimen")
+        self.assertEqual(
+            identity.permissions,
+            (
+                ("contents", "read"),
+                ("issues", "write"),
+                ("pull_requests", "write"),
+            ),
+        )
+        self.assertEqual(identity.events, ("issue_comment",))
         self.assertEqual(first, "review-agent[bot]")
         self.assertEqual(second, first)
-        self.assertEqual(len(requests), 1)
+        self.assertEqual(len(requests), 2)
         self.assertEqual(requests[0].full_url, "https://github.test/app")
         self.assertIsNone(requests[0].data)
 

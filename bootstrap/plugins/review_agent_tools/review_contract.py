@@ -290,6 +290,8 @@ def build_contract(
 def load_packaged_contract(
     profile: str,
     source: Path | None = None,
+    *,
+    hermes_image: str | None = None,
 ) -> ReviewContract:
     """Derive admission identity from the immutable reviewer files in its image."""
     if _PROFILE_KEY_RE.fullmatch(profile) is None:
@@ -301,7 +303,11 @@ def load_packaged_contract(
     return _build_contract(
         _packaged_files(resolved_source, profile, skills),
         profile=profile,
-        hermes_image=os.environ.get("REVIEW_AGENT_HERMES_IMAGE", ""),
+        hermes_image=(
+            hermes_image
+            if hermes_image is not None
+            else os.environ.get("REVIEW_AGENT_HERMES_IMAGE", "")
+        ),
         config=config,
     )
 

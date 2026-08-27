@@ -40,9 +40,10 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("'docs/GITHUB_APP_PILOT'", sidebar)
         self.assertIn('"docs/GITHUB_APP_PILOT.md"', public_documents)
         self.assertIn("Only select repositories", guide)
-        self.assertIn("sync-github-app-installation", guide)
-        self.assertIn("enable-github-app-repository", guide)
-        self.assertIn("disable-github-app-repository", guide)
+        self.assertIn("review-agent-admin installations sync", guide)
+        self.assertIn("review-agent-admin repositories enable", guide)
+        self.assertIn("review-agent-admin repositories disable", guide)
+        self.assertIn("review-agent-admin smoke-test --dry-run", guide)
         self.assertIn("fork_source_not_supported", guide)
         self.assertIn("short-lived installation", guide)
         self.assertIn("Contents | Read", guide)
@@ -89,9 +90,17 @@ class DocsContractTests(unittest.TestCase):
 
         document = mapping(yaml.safe_load(template))
         containers: dict[str, dict[str, object]] = {}
+        job_containers: dict[str, dict[str, object]] = {}
         pod_specs: dict[str, dict[str, object]] = {}
         for raw_object in sequence(document["objects"]):
             resource = mapping(raw_object)
+            if resource.get("kind") == "Job":
+                name = str(mapping(resource["metadata"])["name"])
+                spec = mapping(resource["spec"])
+                pod_template = mapping(spec["template"])
+                pod_spec = mapping(pod_template["spec"])
+                job_containers[name] = mapping(sequence(pod_spec["containers"])[0])
+                continue
             if resource.get("kind") != "Deployment":
                 continue
             name = str(mapping(resource["metadata"])["name"])
@@ -104,6 +113,16 @@ class DocsContractTests(unittest.TestCase):
 
         self.assertEqual(len(containers), 6)
         for name, container in containers.items():
+            resources = mapping(container["resources"])
+            for field in ("requests", "limits"):
+                values = mapping(resources[field])
+                self.assertIn("cpu", values, name)
+                self.assertIn("memory", values, name)
+        self.assertEqual(
+            set(job_containers),
+            {"review-agent-db-migrate", "review-agent-profile-install"},
+        )
+        for name, container in job_containers.items():
             resources = mapping(container["resources"])
             for field in ("requests", "limits"):
                 values = mapping(resources[field])
@@ -595,9 +614,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("REVIEW_AGENT_PROFILE", profile_section)
         self.assertIn("hermes_review_data:/opt/data", profile_section)
         self.assertIn(
-            'entrypoint: ["/usr/local/bin/review-agent-database"]', migration_section
+            'entrypoint: ["/usr/local/bin/review-agent-admin"]', migration_section
         )
-        self.assertIn('command: ["migrate"]', migration_section)
+        self.assertIn('command: ["database", "migrate"]', migration_section)
         self.assertIn("REVIEW_AGENT_DATABASE_URL", migration_section)
         self.assertIn("review-postgres:", migration_section)
         self.assertIn("condition: service_healthy", migration_section)
@@ -620,8 +639,8 @@ class DocsContractTests(unittest.TestCase):
             "Exited (0)",
             "Manual recovery only",
             "/opt/review-agent-bootstrap/install.sh",
-            "review-agent-database migrate",
-            "review-agent-database ready",
+            "review-agent-admin database migrate",
+            "review-agent-admin database ready",
         ]:
             with self.subTest(required=required):
                 self.assertIn(required, operations)
@@ -846,7 +865,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("review_postgres_data:/var/lib/postgresql/data", compose)
         self.assertIn("pg_dump", operations)
         self.assertIn("pg_restore --exit-on-error", operations)
-        self.assertIn("review-agent-database ready", operations)
+        self.assertIn("review-agent-admin database ready", operations)
         self.assertIn("name: HERMES_HOME\n                  value: /opt/data", openshift_worker)
         self.assertIn("mountPath: /opt/data\n                  readOnly: true", openshift_worker)
         self.assertIn("claimName: review-agent-hermes-data", openshift_worker)

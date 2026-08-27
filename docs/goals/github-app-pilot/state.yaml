@@ -35,7 +35,7 @@ continuity:
   last_handoff_at: null
   last_verified_revision: "343dace55be7947cba5ce4adac033bf7b906db9e"
 
-active_task: T031
+active_task: T032
 
 tasks:
   - id: T001
@@ -656,6 +656,7 @@ tasks:
     allowed_files:
       - ".env.example"
       - "Dockerfile"
+      - ".env.example"
       - "pyrightconfig.json"
       - "compose.yaml"
       - "bootstrap/plugins/review_agent_tools/github/app_processor.py"
@@ -1357,6 +1358,7 @@ tasks:
       model_adapter: "bootstrap/plugins/review_agent_tools/tools.py"
     allowed_files:
       - "bootstrap/plugins/review_agent_tools/github/source.py"
+      - "bootstrap/plugins/review_agent_tools/review_contract.py"
       - "bootstrap/plugins/review_agent_tools/github/gateway.py"
       - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
       - "bootstrap/plugins/review_agent_tools/postgres/review_runs.py"
@@ -1899,13 +1901,122 @@ tasks:
   - id: T031
     type: pm
     assignee: PM
-    status: active
+    status: done
     objective: "Add the minimum secret-safe capabilities, preflight, doctor, registration URL, inventory, and dry-run smoke operator experience required before deployment."
-    receipt: null
+    constraints:
+      - "Make review-agent-admin the single deployment and GitHub App operator interface; keep review-agent-memory focused on findings, learning, and coaching."
+      - "Delete the unreleased review-agent-database command instead of retaining a compatibility alias."
+      - "Reuse the existing GitHub App authentication, PostgreSQL lifecycle, profile contract, queue, publication, and source-read owners."
+      - "Every command intended for automation returns bounded JSON and never includes secret values, JWTs, installation tokens, database credentials, or private-key contents."
+      - "Preflight is local and non-mutating; doctor performs read-only live checks; smoke-test --dry-run performs no model call and no GitHub write."
+      - "Do not add an admin UI, generic command framework, GitHub manifest callback, metrics system, provider abstraction, broker, or deployment mutation."
+    expected_output:
+      - "Capabilities, preflight, doctor, registration URL, installation/repository inventory, enable/disable/sync, queue recovery inspection, and dry-run smoke commands behind one operator CLI."
+      - "Behavior-focused tests for secret safety, deterministic JSON, provider/database failure classification, and no-write dry-run behavior."
+      - "Compose and OpenShift operator commands use the canonical CLI and init Jobs have bounded resource requests suitable for quota-enforced clusters."
+    allowed_files:
+      - "Dockerfile"
+      - "compose.yaml"
+      - "examples/openshift/review-agent-template.yaml"
+      - "bootstrap/plugins/review_agent_tools/operator_application.py"
+      - "bootstrap/plugins/review_agent_tools/operator_setup.py"
+      - "bootstrap/plugins/review_agent_tools/review_contract.py"
+      - "bootstrap/plugins/review_agent_tools/settings.py"
+      - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+      - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+      - "bootstrap/plugins/review_agent_tools/github/source.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+      - "bootstrap/plugins/review_agent_tools/postgres/publications.py"
+      - "tools/review_agent_admin.py"
+      - "tools/review_agent_database.py"
+      - "tools/review_agent_github_gateway.py"
+      - "scripts/check_postgres_schema.sh"
+      - "tests/test_operator_admin.py"
+      - "tests/test_github_app_auth.py"
+      - "tests/test_github_app_inventory.py"
+      - "tests/test_github_gateway.py"
+      - "tests/test_github_gateway_entrypoint.py"
+      - "tests/test_settings.py"
+      - "tests/test_postgres_github_app.py"
+      - "tests/test_dockerfile_tools.py"
+      - "tests/test_docs_contract.py"
+      - "tests/test_ci_workflow.py"
+      - "docs/DEPLOYMENT.md"
+      - "docs/GITHUB_APP_PILOT.md"
+      - "docs/OPERATIONS.md"
+      - "docs/goals/github-app-pilot/state.yaml"
+    verify:
+      - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest -v tests.test_operator_admin tests.test_github_app_inventory tests.test_postgres_github_app tests.test_dockerfile_tools tests.test_docs_contract"
+      - "PATH=/tmp/review-agent-venv/bin:$PATH pyright -p ."
+      - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check bootstrap tools tests"
+      - "docker compose --env-file .env.example config --quiet"
+      - "./scripts/check_bundle.sh"
+    stop_if:
+      - "A command would need to expose the App key or an installation token outside the existing gateway container."
+      - "Dry-run proof would require a model call, a GitHub write, or fabricating durable review state."
+      - "The operator interface requires a new public listener or secret-bearing configuration file."
+      - "Implementation needs a generic plugin, provider, policy, or command framework."
+    receipt:
+      result: done
+      commit: "the commit containing this receipt"
+      summary: "Consolidated deployment and GitHub App administration into one secret-safe review-agent-admin interface. Operators can validate local configuration, inspect live health and bounded inventories, manage repository activation, inspect and recover durable queues, and prove one enabled pull request is readable and publishable without a model call or GitHub write. The unreleased database command was deleted, private App credentials remain gateway-only, and Compose/OpenShift now use the canonical CLI with bounded initialization resources."
+      commands:
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 ./scripts/check_bundle.sh"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 python -m unittest tests.test_operator_admin tests.test_github_gateway_entrypoint tests.test_docs_contract"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 pyright"
+        - "PATH=/tmp/review-agent-venv/bin:$PATH ruff check <all changed Python files>"
+        - "npm --prefix website run typecheck && npm --prefix website run build"
+        - "docker compose --env-file .env.example config"
+        - "node /Users/ccimen/.codex/skills/goal-maker/scripts/check-goal-state.mjs docs/goals/github-app-pilot/state.yaml"
+        - "git diff --check"
+      evidence:
+        - "Full bundle passed: Pyright 0 errors, 503 tests passed, 178 container-only tests skipped by design, and all YAML contracts parsed."
+        - "Final focused correction suite passed 54 tests; the broader changed behavior suite passed 98 tests."
+        - "Real PostgreSQL schema, concurrency, recovery, inventory pagination, and migration checks passed 178 tests before the final CLI-only corrections."
+        - "Docusaurus typecheck and production build, Compose rendering, changed-path Ruff, and goal-state validation passed."
+        - "Claude Opus high resumed quality gate returned green at score 8 with no T031 blockers in review-agent-operator-experience iteration 3."
+      changed_files:
+        - ".env.example"
+        - "Dockerfile"
+        - "bootstrap/plugins/review_agent_tools/github/app_auth.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway.py"
+        - "bootstrap/plugins/review_agent_tools/github/gateway_client.py"
+        - "bootstrap/plugins/review_agent_tools/operator_application.py"
+        - "bootstrap/plugins/review_agent_tools/operator_setup.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/github_app.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/jobs.py"
+        - "bootstrap/plugins/review_agent_tools/postgres/publications.py"
+        - "bootstrap/plugins/review_agent_tools/review_contract.py"
+        - "bootstrap/plugins/review_agent_tools/settings.py"
+        - "compose.yaml"
+        - "docs/DEPLOYMENT.md"
+        - "docs/GITHUB_APP_PILOT.md"
+        - "docs/OPERATIONS.md"
+        - "docs/goals/github-app-pilot/state.yaml"
+        - "examples/openshift/review-agent-template.yaml"
+        - "scripts/check_postgres_schema.sh"
+        - "tests/test_ci_workflow.py"
+        - "tests/test_dockerfile_tools.py"
+        - "tests/test_docs_contract.py"
+        - "tests/test_github_app_auth.py"
+        - "tests/test_github_app_inventory.py"
+        - "tests/test_github_gateway.py"
+        - "tests/test_github_gateway_entrypoint.py"
+        - "tests/test_operator_admin.py"
+        - "tests/test_postgres_github_app.py"
+        - "tests/test_settings.py"
+        - "tools/review_agent_admin.py"
+        - "tools/review_agent_database.py (deleted)"
+        - "tools/review_agent_github_gateway.py"
+      deferred:
+        - "Public LLM context and installation skill generation remain T032."
+        - "Candidate hygiene gate remains T033; no live deployment or GitHub mutation was made in this slice."
   - id: T032
     type: pm
     assignee: PM
-    status: queued
+    status: active
     objective: "Publish concise App-only documentation, generated public LLM context, validated non-secret installation configuration, and one canonical installation skill with required mirrors."
     receipt: null
   - id: T033

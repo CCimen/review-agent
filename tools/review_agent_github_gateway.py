@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hmac
 import json
 import logging
 import os
@@ -40,12 +41,15 @@ from review_agent_tools.github.gateway import (  # noqa: E402
     ACKNOWLEDGE_FEEDBACK_PATH,
     AUTHORIZE_FEEDBACK_DELIVERY_PATH,
     AUTHORIZE_REVIEW_DELIVERY_PATH,
+    OPERATOR_SMOKE_PATH,
+    OPERATOR_STATUS_PATH,
     READ_REVIEW_SOURCE_PATH,
     DeliveryLeaseIdentity,
     FeedbackAcknowledgementRequest,
     GitHubGatewayProtocolError,
     GitHubGatewayRejected,
     GitHubGatewayRetryable,
+    OperatorSmokeRequest,
     ReviewSourceRequest,
     ReviewGitHubGateway,
 )
@@ -98,6 +102,19 @@ def _private_key() -> str:
         raise GitHubGatewayConfigurationError(str(exc)) from exc
 
 
+def _operator_key() -> str:
+    value = os.environ.get("API_SERVER_KEY", "").strip()
+    if not value:
+        raise GitHubGatewayConfigurationError("API_SERVER_KEY is required")
+    try:
+        value.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise GitHubGatewayConfigurationError(
+            "API_SERVER_KEY must contain ASCII characters"
+        ) from exc
+    return value
+
+
 class GatewayRequestHandler(BaseHTTPRequestHandler):
     def setup(self) -> None:
         super().setup()
@@ -116,6 +133,12 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 return
             self._write(200, {"status": "ready"})
             return
+        if self.path == OPERATOR_STATUS_PATH:
+            if not self._operator_authorized(server):
+                self._write(401, {"reason": "operator_authentication_required"})
+                return
+            self._operator_status(server)
+            return
         self._write(404, {"reason": "not_found"})
 
     def do_POST(self) -> None:
@@ -126,8 +149,12 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             AUTHORIZE_REVIEW_DELIVERY_PATH,
             READ_REVIEW_SOURCE_PATH,
             EXECUTE_REVIEW_PUBLICATION_PATH,
+            OPERATOR_SMOKE_PATH,
         }:
             self._write(404, {"reason": "not_found"})
+            return
+        if self.path == OPERATOR_SMOKE_PATH and not self._operator_authorized(server):
+            self._write(401, {"reason": "operator_authentication_required"})
             return
         if not server.acquire_request_slot():
             self._write(503, {"reason": "github_gateway_busy"})
@@ -142,6 +169,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 self._acknowledge_feedback(server)
             elif self.path == READ_REVIEW_SOURCE_PATH:
                 self._read_source(server)
+            elif self.path == OPERATOR_SMOKE_PATH:
+                self._operator_smoke(server)
             else:
                 self._execute_publication(server)
         finally:
@@ -322,6 +351,69 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             return
         self._write(200, result_mapping(result))
 
+    def _operator_authorized(self, server: "GatewayServer") -> bool:
+        supplied = self.headers.get("Authorization", "")
+        return hmac.compare_digest(
+            supplied.encode("latin-1"),
+            f"Bearer {server.operator_key}".encode("ascii"),
+        )
+
+    def _operator_status(self, server: "GatewayServer") -> None:
+        try:
+            result = server.gateway.operator_status()
+        except GitHubGatewayRejected as exc:
+            self._write(409, {"reason": exc.reason})
+            return
+        except GitHubGatewayRetryable as exc:
+            self._write(503, {"reason": exc.reason})
+            return
+        except Exception as exc:
+            logger.error("GitHub gateway operator status failed: %s", type(exc).__name__)
+            self._write(500, {"reason": "github_gateway_internal_error"})
+            return
+        self._write(200, result.to_mapping())
+
+    def _operator_smoke(self, server: "GatewayServer") -> None:
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            self._write(411, {"reason": "missing_length"})
+            return
+        if length < 1:
+            self._write(411, {"reason": "missing_length"})
+            return
+        if length > _MAX_REQUEST_BYTES:
+            self._write(413, {"reason": "payload_too_large"})
+            return
+        try:
+            decoded = json.loads(self.rfile.read(length))
+            if not isinstance(decoded, dict):
+                raise GitHubGatewayProtocolError("gateway request must be an object")
+            request = OperatorSmokeRequest.from_mapping(
+                cast(Mapping[str, object], decoded)
+            )
+            result = server.gateway.operator_smoke(
+                repository=request.repository,
+                pr_number=request.pr_number,
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError, GitHubGatewayProtocolError):
+            self._write(400, {"reason": "invalid_gateway_request"})
+            return
+        except GitHubGatewayRejected as exc:
+            self._write(409, {"reason": exc.reason})
+            return
+        except GitHubGatewayRetryable as exc:
+            self._write(503, {"reason": exc.reason})
+            return
+        except (PostgreSQLRuntimeError, psycopg.Error):
+            self._write(503, {"reason": "github_gateway_database_unavailable"})
+            return
+        except Exception as exc:
+            logger.error("GitHub gateway operator smoke failed: %s", type(exc).__name__)
+            self._write(500, {"reason": "github_gateway_internal_error"})
+            return
+        self._write(200, result.to_mapping())
+
     def _server(self) -> "GatewayServer":
         return cast(GatewayServer, self.server)
 
@@ -348,11 +440,13 @@ class GatewayServer(ThreadingHTTPServer):
         publication_gateway: ReviewPublicationGateway,
         runtime: PostgreSQLRuntime,
         max_concurrent_requests: int,
+        operator_key: str,
     ) -> None:
         super().__init__(address, GatewayRequestHandler)
         self.gateway = gateway
         self.publication_gateway = publication_gateway
         self.runtime = runtime
+        self.operator_key = operator_key
         self._request_slots = threading.BoundedSemaphore(max_concurrent_requests)
 
     def acquire_request_slot(self) -> bool:
@@ -394,6 +488,7 @@ def serve(host: str, port: int) -> None:
             "REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS",
             _DEFAULT_MAX_CONCURRENT_REQUESTS,
         ),
+        operator_key=_operator_key(),
     )
 
     def request_stop(_signal: int, _frame: object) -> None:

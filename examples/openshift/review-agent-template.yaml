@@ -23,6 +23,7 @@ objects:
       REVIEW_AGENT_PROFILE: ${PROFILE}
       REVIEW_AGENT_POLICY_REVISION: policy-v1
       REVIEW_AGENT_ACTIVE_JOB_LIMIT: "100"
+      REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS: "100"
       REVIEW_AGENT_JOB_MAX_ATTEMPTS: "3"
       REVIEW_AGENT_JOB_PRIORITY: "0"
       REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS: "900"
@@ -89,6 +90,13 @@ objects:
                 allowPrivilegeEscalation: false
                 capabilities:
                   drop: [ALL]
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
               volumeMounts:
                 - name: data
                   mountPath: /opt/data
@@ -115,8 +123,8 @@ objects:
           containers:
             - name: migrate
               image: ${IMAGE}
-              command: [/usr/local/bin/review-agent-database]
-              args: [migrate]
+              command: [/usr/local/bin/review-agent-admin]
+              args: [database, migrate]
               envFrom:
                 - secretRef:
                     name: review-agent-database
@@ -125,6 +133,13 @@ objects:
                 capabilities:
                   drop: [ALL]
                 readOnlyRootFilesystem: true
+              resources:
+                requests:
+                  cpu: 25m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
@@ -359,6 +374,11 @@ objects:
                       key: REVIEW_AGENT_GITHUB_APP_ID
                 - name: REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE
                   value: /run/secrets/github-app-private-key.pem
+                - name: API_SERVER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: review-agent-hermes
+                      key: API_SERVER_KEY
               ports:
                 - name: http
                   containerPort: 8646

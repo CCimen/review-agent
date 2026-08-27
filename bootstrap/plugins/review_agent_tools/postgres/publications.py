@@ -88,6 +88,14 @@ class StoredPublication:
 
 
 @dataclass(frozen=True, slots=True)
+class PublicationQueueHealth:
+    pending: int
+    posting: int
+    expired_recoverable: int
+    expired_exhausted: int
+
+
+@dataclass(frozen=True, slots=True)
 class _RunScope:
     pull_request_id: PullRequestId
     status: str
@@ -823,6 +831,41 @@ def get_publication(
     if row is None:
         raise PublicationNotFound("publication does not exist")
     return _stored(connection, row)
+
+
+def queue_health(
+    connection: psycopg.Connection[TupleRow],
+) -> PublicationQueueHealth:
+    """Return set-oriented publication and abandoned-lease counts."""
+    _require_transaction(connection)
+    row = connection.execute(
+        """
+        SELECT
+            count(*) FILTER (
+                WHERE status IN ('generated', 'publish_failed')
+            ),
+            count(*) FILTER (WHERE status = 'posting'),
+            count(*) FILTER (
+                WHERE status = 'posting'
+                  AND delivery_lease_expires_at <= statement_timestamp()
+                  AND delivery_attempt_count < delivery_max_attempts
+            ),
+            count(*) FILTER (
+                WHERE status = 'posting'
+                  AND delivery_lease_expires_at <= statement_timestamp()
+                  AND delivery_attempt_count >= delivery_max_attempts
+            )
+        FROM review_agent.publications
+        """
+    ).fetchone()
+    if row is None or len(row) != 4 or any(type(value) is not int for value in row):
+        raise PublicationStoreError("publication queue health could not be read")
+    return PublicationQueueHealth(
+        pending=int(row[0]),
+        posting=int(row[1]),
+        expired_recoverable=int(row[2]),
+        expired_exhausted=int(row[3]),
+    )
 
 
 def publication_for_supersession(

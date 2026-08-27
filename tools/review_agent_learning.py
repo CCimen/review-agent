@@ -38,6 +38,8 @@ class LearningSignal:
     source_value: str
     signal_strength: str
     suggested_route: str
+    stable_key: str
+    target_owner: str
     title: str
     reason: str
     next_step: str
@@ -231,6 +233,7 @@ def build_learning_report(
         "Weak signals such as silence, merge-without-fix, thumbs-up, or a later "
         "code change are not treated as learning candidates.",
     ]
+    latest_triage_by_feedback = _latest_feedback_triage(state)
 
     for episode in _decision_episodes(state, provenance_by_observation_id):
         decision = required_string(episode.latest, "decision")
@@ -254,14 +257,30 @@ def build_learning_report(
 
     for row in rows(state, "review_quality_feedback"):
         category = required_string(row, "category")
+        feedback_id = row_id(row)
+        triage = (
+            latest_triage_by_feedback.get(feedback_id)
+            if feedback_id is not None
+            else None
+        )
         if repository is not None and required_string(row, "repository") != repository:
             continue
         if category in POSITIVE_FEEDBACK:
             positive_patterns.append(
-                _quality_signal(row, POSITIVE_FEEDBACK_POLICY)
+                _quality_signal(
+                    row,
+                    POSITIVE_FEEDBACK_POLICY,
+                    triage=triage,
+                )
             )
         elif category in QUALITY_POLICIES:
-            quality_signals.append(_quality_signal(row, QUALITY_POLICIES[category]))
+            quality_signals.append(
+                _quality_signal(
+                    row,
+                    QUALITY_POLICIES[category],
+                    triage=triage,
+                )
+            )
         else:
             unclassified_feedback.add(category)
 
@@ -429,6 +448,8 @@ def _decision_signal(
         source_value=decision,
         signal_strength=signal_strength,
         suggested_route=policy.suggested_route,
+        stable_key="",
+        target_owner="",
         title=_signal_title(decision, episode.provenance),
         reason=reason,
         next_step=policy.next_step,
@@ -447,22 +468,46 @@ def _decision_signal(
 def _quality_signal(
     row: Mapping[str, object],
     policy: SignalPolicy,
+    *,
+    triage: Mapping[str, object] | None,
 ) -> LearningSignal:
     category = required_string(row, "category")
     reason = optional_string(row, "reason")
-    promotion_eligible = bool(reason)
     feedback_id = row_id(row)
+    stable_key = ""
+    target_owner = ""
+    missing_evidence: tuple[str, ...] = () if reason else ("human reason",)
+    promotion_eligible = bool(reason)
+    source_id = (
+        f"feedback:{feedback_id}"
+        if feedback_id is not None
+        else "feedback:unidentified"
+    )
+    if category == "missed_issue":
+        status = optional_string(triage or {}, "status")
+        stable_key = optional_string(triage or {}, "stable_key")
+        target_owner = optional_string(triage or {}, "target_owner")
+        triage_id = row_id(triage or {})
+        if status != "actionable" or not stable_key or not target_owner:
+            promotion_eligible = False
+            missing_evidence = (*missing_evidence, "actionable triage")
+        elif triage_id is None:
+            raise ValueError("actionable missed-issue triage is missing id")
+        else:
+            source_id = f"triage:{triage_id}"
     return LearningSignal(
         source="review_quality_feedback",
-        source_id=f"feedback:{feedback_id}" if feedback_id is not None else "feedback:unidentified",
+        source_id=source_id,
         source_value=category,
         signal_strength=policy.signal_strength if promotion_eligible else "incomplete",
         suggested_route=policy.suggested_route,
+        stable_key=stable_key,
+        target_owner=target_owner,
         title=f"Review-quality feedback: {category.replace('_', ' ')}",
         reason=reason,
         next_step=policy.next_step,
         promotion_eligible=promotion_eligible,
-        missing_evidence=() if promotion_eligible else ("human reason",),
+        missing_evidence=missing_evidence,
         repository=required_string(row, "repository"),
         pr_number=optional_int(row, "pr_number"),
         fingerprint="",
@@ -473,6 +518,22 @@ def _quality_signal(
         else ("feedback:unidentified",),
         decision_chain=(),
     )
+
+
+def _latest_feedback_triage(
+    state: Mapping[str, object],
+) -> dict[int, Mapping[str, object]]:
+    latest: dict[int, Mapping[str, object]] = {}
+    latest_ids: dict[int, int] = {}
+    for item in rows(state, "review_quality_feedback_triage"):
+        feedback_id = optional_int(item, "feedback_id")
+        triage_id = row_id(item)
+        if feedback_id is None or triage_id is None:
+            raise ValueError("review quality feedback triage requires integer ids")
+        if triage_id > latest_ids.get(feedback_id, 0):
+            latest_ids[feedback_id] = triage_id
+            latest[feedback_id] = item
+    return latest
 
 
 def _signal_title(decision: str, provenance: DecisionProvenance | None) -> str:

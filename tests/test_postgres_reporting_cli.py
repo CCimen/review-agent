@@ -568,7 +568,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             row_limit=1,
             now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
         ).to_json_obj()
-        self.assertEqual(exported["schema_version"], 16)
+        self.assertEqual(exported["schema_version"], 17)
         self.assertEqual(exported["complete"], False)
         truncated = exported["truncated_tables"]
         self.assertIsInstance(truncated, list)

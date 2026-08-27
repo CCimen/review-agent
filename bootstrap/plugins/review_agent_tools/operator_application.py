@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from .domain.coaching import CoachCandidateInput, CoachRunInput, resolve_coach_run
-from .domain.feedback import resolve_positive_int, resolve_repository
+from .domain.feedback import (
+    resolve_feedback_triage,
+    resolve_positive_int,
+    resolve_repository,
+)
 from .domain.finding import (
     DecisionKind,
     FindingDecisionId,
@@ -26,6 +30,7 @@ from .postgres import findings as postgres_findings
 from .postgres import github_app as postgres_github_app
 from .postgres import jobs as postgres_jobs
 from .postgres import publications as postgres_publications
+from .postgres import quality_triage as postgres_quality_triage
 from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import reporting as postgres_reporting
 from .postgres import review_runs as postgres_review_runs
@@ -664,6 +669,42 @@ def coverage(
     normalized_run_id = ReviewRunId(_positive(run_id, field="run_id"))
     with runtime.transaction() as connection:
         return postgres_reporting.coverage_report(connection, run_id=normalized_run_id)
+
+
+def triage_review_feedback(
+    runtime: PostgreSQLRuntime,
+    *,
+    feedback_id: int,
+    status: str,
+    stable_key: str,
+    target_owner: str,
+    evidence_reference: str,
+    path: str,
+    category: str,
+    actor: str,
+    reason: str,
+    now: datetime | None = None,
+) -> postgres_quality_triage.QualityFeedbackTriage:
+    """Append one governed classification for missed-issue feedback."""
+    resolved_feedback_id = _positive(feedback_id, field="feedback_id")
+    definition = resolve_feedback_triage(
+        status=status,
+        stable_key=stable_key,
+        target_owner=target_owner,
+        evidence_reference=evidence_reference,
+        path=path,
+        category=category,
+        actor=actor,
+        reason=reason,
+    )
+    moment = _now(now)
+    with runtime.transaction() as connection:
+        return postgres_quality_triage.append_triage(
+            connection,
+            feedback_id=resolved_feedback_id,
+            definition=definition,
+            created_at=moment,
+        )
 
 
 def verification_export_source(

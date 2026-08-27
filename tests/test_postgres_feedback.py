@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+from review_agent_tools import operator_application  # noqa: E402
 from review_agent_tools import repository_decision_context  # noqa: E402
 from review_agent_tools import review_feedback_application  # noqa: E402
 from review_agent_tools import (  # noqa: E402
@@ -28,7 +29,9 @@ from review_agent_tools.domain.finding import (  # noqa: E402
 )
 from review_agent_tools.domain import repository_decisions as decision_domain  # noqa: E402
 from review_agent_tools.domain.feedback import (  # noqa: E402
+    FeedbackDomainError,
     FeedbackStatus,
+    resolve_feedback_triage,
 )
 from review_agent_tools.domain.publication import (  # noqa: E402
     PublicationFindingInput,
@@ -50,6 +53,40 @@ from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
+
+
+class FeedbackTriageDomainTests(unittest.TestCase):
+    def test_triage_rejects_invalid_governance_fields(self) -> None:
+        valid = {
+            "status": "actionable",
+            "stable_key": "deployment.missed-rollback-risk",
+            "target_owner": "coverage",
+            "evidence_reference": "https://github.test/issues/9",
+            "path": "deploy/release.py",
+            "category": "reliability",
+            "actor": "github:operator",
+            "reason": "A replay reproduces the missed issue.",
+        }
+        cases = (
+            ("triage status", {"status": "unknown"}),
+            (
+                "only actionable triage",
+                {"status": "resolved", "target_owner": "", "stable_key": "x"},
+            ),
+            ("lowercase stable_key", {"stable_key": "Bad_Key"}),
+            ("target_owner is invalid", {"target_owner": "reviewer"}),
+            ("HTTPS URL", {"evidence_reference": "http://github.test/issues/9"}),
+            ("normalized repository path", {"path": "../deploy/release.py"}),
+            ("lowercase identifier", {"category": "Reliability"}),
+            ("actor is required", {"actor": ""}),
+            ("reason is required", {"reason": ""}),
+        )
+
+        for message, overrides in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                FeedbackDomainError, message
+            ):
+                resolve_feedback_triage(**(valid | overrides))
 
 
 class PostgreSQLFeedbackAdmissionTests(unittest.TestCase):
@@ -540,6 +577,141 @@ on_change = ["Run the cross-scope authorization test."]
             row,
             ("missed_issue", "The review missed rollback risk.", None, "12345"),
         )
+
+    def test_operator_triage_is_append_only_and_actionable_is_explicit(self) -> None:
+        self.publish(with_finding=False)
+        feedback = self.feedback(
+            "@review feedback missed The review missed rollback risk."
+        )
+        assert feedback.feedback_id is not None
+
+        pending = operator_application.triage_review_feedback(
+            self.runtime,
+            feedback_id=feedback.feedback_id,
+            status="insufficient",
+            stable_key="",
+            target_owner="",
+            evidence_reference="",
+            path="",
+            category="",
+            actor="github:operator",
+            reason="No reproducible failure or incident reference was supplied.",
+        )
+        actionable = operator_application.triage_review_feedback(
+            self.runtime,
+            feedback_id=feedback.feedback_id,
+            status="actionable",
+            stable_key="deployment.missed-rollback-risk",
+            target_owner="coverage",
+            evidence_reference="https://github.com/example-org/example-repository/issues/9",
+            path="deploy/release.py",
+            category="reliability",
+            actor="github:operator",
+            reason="The rollback regression test reproduces the missed issue.",
+        )
+
+        self.assertEqual(pending.status, "insufficient")
+        self.assertEqual(actionable.status, "actionable")
+        self.assertEqual(actionable.stable_key, "deployment.missed-rollback-risk")
+        with self.runtime.transaction() as connection:
+            rows = connection.execute(
+                """
+                SELECT status, stable_key, target_owner, actor
+                FROM review_agent.review_quality_feedback_triage
+                ORDER BY id
+                """
+            ).fetchall()
+        self.assertEqual(
+            rows,
+            [
+                ("insufficient", None, None, "github:operator"),
+                (
+                    "actionable",
+                    "deployment.missed-rollback-risk",
+                    "coverage",
+                    "github:operator",
+                ),
+            ],
+        )
+        exported = operator_application.export_repository(
+            self.runtime,
+            repository="example-org/example-repository",
+            row_limit=100,
+        ).to_json_obj()
+        self.assertEqual(exported["schema_version"], 17)
+        triage_rows = exported["review_quality_feedback_triage"]
+        assert isinstance(triage_rows, list)
+        self.assertEqual(triage_rows[-1]["stable_key"], actionable.stable_key)
+
+    def test_triage_rejects_non_missed_feedback_and_invalid_raw_rows(self) -> None:
+        self.publish()
+        scope = self.feedback(
+            "@review feedback scope F1 This is outside the intended change.",
+            event_id="github:issue-comment:501",
+            source_comment_id=501,
+        )
+        missed = self.feedback(
+            "@review feedback missed The review missed rollback risk.",
+            event_id="github:issue-comment:502",
+            source_comment_id=502,
+        )
+        assert scope.feedback_id is not None
+        assert missed.feedback_id is not None
+
+        with self.assertRaisesRegex(ValueError, "only missed-issue"):
+            operator_application.triage_review_feedback(
+                self.runtime,
+                feedback_id=scope.feedback_id,
+                status="insufficient",
+                stable_key="",
+                target_owner="",
+                evidence_reference="",
+                path="",
+                category="",
+                actor="github:operator",
+                reason="Scope feedback is not triaged as a missed issue.",
+            )
+
+        invalid_rows = (
+            ("unknown", None, None, psycopg.errors.CheckViolation),
+            ("actionable", None, "coverage", psycopg.errors.CheckViolation),
+            ("resolved", "deployment.rollback", "coverage", psycopg.errors.CheckViolation),
+        )
+        for status, stable_key, target_owner, error in invalid_rows:
+            with self.subTest(status=status, stable_key=stable_key), self.assertRaises(error):
+                with psycopg.connect(DSN) as connection:
+                    connection.execute(
+                        """
+                        INSERT INTO review_agent.review_quality_feedback_triage (
+                            feedback_id, feedback_category, status, stable_key,
+                            target_owner, actor, reason, created_at
+                        ) VALUES (%s, 'missed_issue', %s, %s, %s, %s, %s, now())
+                        """,
+                        (
+                            missed.feedback_id,
+                            status,
+                            stable_key,
+                            target_owner,
+                            "github:operator",
+                            "Raw SQL invariant probe.",
+                        ),
+                    )
+
+        with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+            with psycopg.connect(DSN) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO review_agent.review_quality_feedback_triage (
+                        feedback_id, feedback_category, status, actor, reason,
+                        created_at
+                    ) VALUES (%s, 'missed_issue', 'insufficient', %s, %s, now())
+                    """,
+                    (
+                        scope.feedback_id,
+                        "github:operator",
+                        "Raw SQL category probe.",
+                    ),
+                )
 
     def test_scope_feedback_maps_to_the_exact_current_reference(self) -> None:
         publication = self.publish()

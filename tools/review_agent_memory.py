@@ -34,6 +34,7 @@ _plugin_parent()
 
 from review_agent_tools import operator_application  # noqa: E402
 from review_agent_tools.domain.coaching import CoachCandidateInput  # noqa: E402
+from review_agent_tools.domain.feedback import FeedbackTriageStatus  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
@@ -115,6 +116,23 @@ def _parser() -> argparse.ArgumentParser:
     decide.add_argument("--pr", type=int)
     decide.add_argument("--local-reference", default="")
     decide.add_argument("--latest", action="store_true")
+    triage = commands.add_parser(
+        "triage-feedback",
+        help="Append operator triage for one missed-issue signal.",
+    )
+    triage.add_argument("feedback_id", type=int)
+    triage.add_argument(
+        "--status",
+        required=True,
+        choices=tuple(item.value for item in FeedbackTriageStatus),
+    )
+    triage.add_argument("--stable-key", default="")
+    triage.add_argument("--target-owner", default="")
+    triage.add_argument("--evidence-reference", default="")
+    triage.add_argument("--path", default="")
+    triage.add_argument("--category", default="")
+    triage.add_argument("--actor", required=True)
+    triage.add_argument("--reason", required=True)
     export = commands.add_parser("export", help="Export one repository as JSON.")
     export.add_argument("--repo", required=True)
     export.add_argument("--row-limit", type=int, required=True)
@@ -155,6 +173,7 @@ def _parser() -> argparse.ArgumentParser:
     coach_export.add_argument("--repo")
     coach_export.add_argument("--after-decision-id", type=int, default=0)
     coach_export.add_argument("--after-feedback-id", type=int, default=0)
+    coach_export.add_argument("--after-triage-id", type=int, default=0)
     coach_export.add_argument("--include-incomplete", action="store_true")
     coach_export.add_argument("--output", required=True)
     propose = commands.add_parser("coach-propose", help="Build coach proposals.")
@@ -173,6 +192,7 @@ def _parser() -> argparse.ArgumentParser:
     coach_run.add_argument("--output-dir", required=True)
     coach_run.add_argument("--after-decision-id", type=int, default=0)
     coach_run.add_argument("--after-feedback-id", type=int, default=0)
+    coach_run.add_argument("--after-triage-id", type=int, default=0)
     coach_run.add_argument("--include-incomplete", action="store_true")
     coach_run.add_argument("--max-candidates", type=int, default=3)
     coach_run.add_argument("--min-independent-episodes", type=int, default=2)
@@ -201,6 +221,7 @@ def _offline_command(args: argparse.Namespace) -> int | None:
             repository=args.repo,
             after_decision_id=args.after_decision_id,
             after_feedback_id=args.after_feedback_id,
+            after_triage_id=args.after_triage_id,
             include_incomplete=args.include_incomplete,
         )
         _write_or_print(coach.dumps_coach_export(payload), args.output)
@@ -252,6 +273,19 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
                 local_reference=args.local_reference, latest=args.latest,
                 expires_days=args.expires_days, adr_id=args.adr_id,
             ),
+        )
+    elif args.command == "triage-feedback":
+        result = operator_application.triage_review_feedback(
+            runtime,
+            feedback_id=args.feedback_id,
+            status=args.status,
+            stable_key=args.stable_key,
+            target_owner=args.target_owner,
+            evidence_reference=args.evidence_reference,
+            path=args.path,
+            category=args.category,
+            actor=args.actor,
+            reason=args.reason,
         )
     elif args.command == "export":
         export = operator_application.export_repository(
@@ -308,6 +342,7 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             state=state, output_dir=Path(args.output_dir), repository=args.repo,
             after_decision_id=args.after_decision_id,
             after_feedback_id=args.after_feedback_id,
+            after_triage_id=args.after_triage_id,
             include_incomplete=args.include_incomplete,
             max_candidates=args.max_candidates,
             min_independent_episodes=args.min_independent_episodes,

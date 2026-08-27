@@ -40,7 +40,7 @@ from . import coverage as postgres_coverage
 from . import decisions as postgres_decisions
 
 
-EXPORT_SCHEMA_VERSION = 16
+EXPORT_SCHEMA_VERSION = 17
 VERIFICATION_SOURCE_SCHEMA_VERSION = 1
 
 
@@ -1527,6 +1527,23 @@ _EXPORT_QUERIES: tuple[tuple[str, str], ...] = (
            JOIN review_agent.repositories AS repository
              ON repository.id = pull_request.repository_id
            WHERE repository.id = %s ORDER BY feedback.id LIMIT %s""",
+    ),
+    (
+        "review_quality_feedback_triage",
+        """SELECT triage.id, triage.feedback_id,
+                  repository.full_name AS repository,
+                  pull_request.number AS pr_number, triage.status,
+                  triage.stable_key, triage.target_owner,
+                  triage.evidence_reference, triage.path, triage.category,
+                  triage.actor, triage.reason, triage.created_at
+           FROM review_agent.review_quality_feedback_triage AS triage
+           JOIN review_agent.review_quality_feedback AS feedback
+             ON feedback.id = triage.feedback_id
+           JOIN review_agent.pull_requests AS pull_request
+             ON pull_request.id = feedback.pull_request_id
+           JOIN review_agent.repositories AS repository
+             ON repository.id = pull_request.repository_id
+           WHERE repository.id = %s ORDER BY triage.id LIMIT %s""",
     ),
     (
         "review_runs",

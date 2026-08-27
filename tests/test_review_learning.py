@@ -27,6 +27,7 @@ def state_with(
     references: list[dict[str, object]] | None = None,
     decisions: list[dict[str, object]] | None = None,
     feedback: list[dict[str, object]] | None = None,
+    triage: list[dict[str, object]] | None = None,
     schema_version: int = 4,
 ) -> dict[str, object]:
     return {
@@ -36,6 +37,7 @@ def state_with(
         "pr_finding_references": references or [],
         "decisions": decisions or [],
         "review_quality_feedback": feedback or [],
+        "review_quality_feedback_triage": triage or [],
     }
 
 
@@ -156,6 +158,67 @@ class ReviewLearningReportTests(unittest.TestCase):
         self.assertIn("### D1:", markdown)
         self.assertIn("### Q1:", markdown)
         self.assertLess(markdown.index("### D1:"), markdown.index("### Q1:"))
+
+    def test_missed_issue_requires_latest_actionable_triage_for_promotion(self) -> None:
+        feedback = {
+            "id": 7,
+            "repository": "example-org/example-repository",
+            "pr_number": 17,
+            "local_reference": "",
+            "category": "missed_issue",
+            "reason": "The review missed rollback coupling.",
+        }
+        pending = build_learning_report(state_with(feedback=[feedback]))
+        actionable = build_learning_report(
+            state_with(
+                feedback=[feedback],
+                triage=[
+                    {
+                        "id": 1,
+                        "feedback_id": 7,
+                        "status": "insufficient",
+                        "stable_key": "",
+                        "target_owner": "",
+                    },
+                    {
+                        "id": 2,
+                        "feedback_id": 7,
+                        "status": "actionable",
+                        "stable_key": "deployment.missed-rollback-coupling",
+                        "target_owner": "coverage",
+                    },
+                ],
+            )
+        )
+        resolved = build_learning_report(
+            state_with(
+                feedback=[feedback],
+                triage=[
+                    {
+                        "id": 2,
+                        "feedback_id": 7,
+                        "status": "actionable",
+                        "stable_key": "deployment.missed-rollback-coupling",
+                        "target_owner": "coverage",
+                    },
+                    {
+                        "id": 3,
+                        "feedback_id": 7,
+                        "status": "resolved",
+                        "stable_key": "",
+                        "target_owner": "",
+                    },
+                ],
+            )
+        )
+
+        self.assertFalse(pending.quality_signals[0].promotion_eligible)
+        self.assertIn("actionable triage", pending.quality_signals[0].missing_evidence)
+        signal = actionable.quality_signals[0]
+        self.assertTrue(signal.promotion_eligible)
+        self.assertEqual(signal.stable_key, "deployment.missed-rollback-coupling")
+        self.assertEqual(signal.target_owner, "coverage")
+        self.assertFalse(resolved.quality_signals[0].promotion_eligible)
 
     def test_empty_export_does_not_fabricate_candidates(self) -> None:
         report = build_learning_report(state_with())

@@ -70,6 +70,15 @@ def state_with_signals(reason: str = "Human confirmed this was wrong.") -> dict[
                 "source_comment_url": "https://github.test/comment/7",
             }
         ],
+        "review_quality_feedback_triage": [
+            {
+                "id": 8,
+                "feedback_id": 7,
+                "status": "actionable",
+                "stable_key": "authorization.missed-boundary",
+                "target_owner": "review_rule",
+            }
+        ],
     }
 
 
@@ -89,7 +98,7 @@ class CoachExportTests(unittest.TestCase):
         self.assertEqual(decoded["cursor"]["max_feedback_id"], 7)
         self.assertEqual(
             {event["event_id"] for event in decoded["events"]},
-            {"decision:2", "feedback:7"},
+            {"decision:2", "triage:8"},
         )
         decision_event = next(
             event for event in decoded["events"] if event["event_id"] == "decision:2"
@@ -108,9 +117,27 @@ class CoachExportTests(unittest.TestCase):
             "Checked the selector, but not its caller arguments.",
         )
         self.assertIn("human_reason_untrusted", decision_event)
+        feedback_event = next(
+            event for event in decoded["events"] if event["event_id"] == "triage:8"
+        )
+        self.assertEqual(feedback_event["stable_key"], "authorization.missed-boundary")
+        self.assertEqual(feedback_event["target_owner"], "review_rule")
         self.assertNotIn("github:bob", rendered)
         self.assertNotIn("carol", rendered)
         self.assertNotIn("github.test", rendered)
+
+    def test_later_triage_reenters_after_feedback_cursor_advanced(self) -> None:
+        payload = build_coach_export(
+            state_with_signals(),
+            after_decision_id=2,
+            after_feedback_id=7,
+            after_triage_id=0,
+        )
+
+        self.assertEqual(
+            [event["event_id"] for event in payload["events"]],
+            ["triage:8"],
+        )
 
     def test_coach_export_bounds_untrusted_reason_and_hash_is_stable(self) -> None:
         payload = build_coach_export(state_with_signals("x" * 1400))
@@ -204,9 +231,16 @@ class CoachExportTests(unittest.TestCase):
 
     def test_incomplete_signals_are_excluded_by_default(self) -> None:
         state = state_with_signals("")
-        default_payload = build_coach_export(state, after_feedback_id=7)
+        default_payload = build_coach_export(
+            state,
+            after_feedback_id=7,
+            after_triage_id=8,
+        )
         inclusive_payload = build_coach_export(
-            state, after_feedback_id=7, include_incomplete=True
+            state,
+            after_feedback_id=7,
+            after_triage_id=8,
+            include_incomplete=True,
         )
 
         self.assertEqual(default_payload["events"], [])

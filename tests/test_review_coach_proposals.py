@@ -13,7 +13,9 @@ from typing import cast
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
+from review_agent_tools.domain.feedback import FeedbackTargetOwner
 from review_agent_coach import COACH_EVENT_GROUPS, COACH_SCHEMA_VERSION, build_coach_export
 from review_agent_coach_proposals import (
     POSITIVE_PATTERN_REASON,
@@ -181,8 +183,10 @@ def event(
     observation_id: int | None = 1,
     fingerprint: str = "abcdef1234567890",
     pr_number: int = 17,
+    stable_key: str = "",
+    target_owner: str = "",
 ) -> dict[str, object]:
-    return {
+    item: dict[str, object] = {
         "event_id": event_id,
         "event_group": group,
         "event_type": event_type,
@@ -204,6 +208,11 @@ def event(
             "local_reference": "F1",
         },
     }
+    if stable_key:
+        item["stable_key"] = stable_key
+    if target_owner:
+        item["target_owner"] = target_owner
+    return item
 
 
 class CoachProposalTests(unittest.TestCase):
@@ -386,6 +395,93 @@ class CoachProposalTests(unittest.TestCase):
             bundle["rejected_groups"][0]["reason"],
             REVIEW_QUALITY_PROVENANCE_REASON,
         )
+
+    def test_actionable_missed_issues_group_by_operator_stable_key(self) -> None:
+        bundle = proposal_json(
+            coach_export(
+                [
+                    event(
+                        "feedback:7",
+                        event_type="missed_issue",
+                        route="procedure_or_mechanical_gap",
+                        group="review_quality_signal",
+                        observation_id=None,
+                        fingerprint="",
+                        pr_number=17,
+                        stable_key="deployment.missed-rollback-coupling",
+                        target_owner="coverage",
+                    ),
+                    event(
+                        "feedback:8",
+                        event_type="missed_issue",
+                        route="procedure_or_mechanical_gap",
+                        group="review_quality_signal",
+                        observation_id=None,
+                        fingerprint="",
+                        pr_number=18,
+                        stable_key="deployment.missed-rollback-coupling",
+                        target_owner="coverage",
+                    ),
+                ]
+            )
+        )
+
+        self.assertEqual(bundle["decision"], "propose")
+        self.assertEqual(len(bundle["candidates"]), 1)
+        self.assertEqual(
+            bundle["candidates"][0]["stable_key"],
+            "deployment.missed-rollback-coupling",
+        )
+        self.assertEqual(bundle["candidates"][0]["target_owner"], "coverage")
+        self.assertEqual(bundle["candidates"][0]["independent_episode_count"], 2)
+
+    def test_actionable_missed_issues_from_one_pr_count_as_one_episode(self) -> None:
+        bundle = proposal_json(
+            coach_export(
+                [
+                    event(
+                        event_id,
+                        event_type="missed_issue",
+                        route="procedure_or_mechanical_gap",
+                        group="review_quality_signal",
+                        observation_id=None,
+                        fingerprint="",
+                        pr_number=17,
+                        stable_key="deployment.missed-rollback-coupling",
+                        target_owner="coverage",
+                    )
+                    for event_id in ("triage:7", "triage:8")
+                ]
+            )
+        )
+
+        self.assertEqual(bundle["decision"], "no_change")
+        self.assertEqual(bundle["candidates"], [])
+        self.assertEqual(bundle["rejected_groups"][0]["independent_episode_count"], 1)
+
+    def test_domain_target_owner_vocabulary_is_accepted_by_coach(self) -> None:
+        for owner in FeedbackTargetOwner:
+            with self.subTest(owner=owner.value):
+                bundle = proposal_json(
+                    coach_export(
+                        [
+                            event(
+                                f"triage:{index}",
+                                event_type="missed_issue",
+                                route="procedure_or_mechanical_gap",
+                                group="review_quality_signal",
+                                observation_id=None,
+                                fingerprint="",
+                                pr_number=index,
+                                stable_key=f"quality.{owner.value}",
+                                target_owner=owner.value,
+                            )
+                            for index in (17, 18)
+                        ]
+                    )
+                )
+                self.assertEqual(bundle["decision"], "propose")
+                self.assertEqual(bundle["candidates"][0]["target_owner"], owner.value)
 
     def test_positive_patterns_are_not_improvement_candidates_yet(self) -> None:
         bundle = proposal_json(

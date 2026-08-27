@@ -39,6 +39,7 @@ def build_coach_run_artifacts(
     repository: str | None = None,
     after_decision_id: int = 0,
     after_feedback_id: int = 0,
+    after_triage_id: int = 0,
     include_incomplete: bool = False,
     max_candidates: int = review_agent_coach_proposals.DEFAULT_MAX_CANDIDATES,
     min_independent_episodes: int = (
@@ -50,6 +51,7 @@ def build_coach_run_artifacts(
         repository=repository,
         after_decision_id=after_decision_id,
         after_feedback_id=after_feedback_id,
+        after_triage_id=after_triage_id,
         include_incomplete=include_incomplete,
     )
     bundle = review_agent_coach_proposals.build_proposal(

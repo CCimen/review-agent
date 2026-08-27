@@ -14,7 +14,7 @@ from review_agent_private_export import (
 )
 
 
-COACH_SCHEMA_VERSION: Final = 2
+COACH_SCHEMA_VERSION: Final = 3
 DECISION_CANDIDATE_GROUP: Final = "decision_candidate"
 REVIEW_QUALITY_SIGNAL_GROUP: Final = "review_quality_signal"
 POSITIVE_PATTERN_GROUP: Final = "positive_pattern"
@@ -36,6 +36,7 @@ def build_coach_export(
     repository: str | None = None,
     after_decision_id: int = 0,
     after_feedback_id: int = 0,
+    after_triage_id: int = 0,
     include_incomplete: bool = False,
 ) -> dict[str, object]:
     source_schema_version = schema_version(state)
@@ -56,16 +57,24 @@ def build_coach_export(
                 if decision_id is None or decision_id <= after_decision_id:
                     continue
             elif signal.source == "review_quality_feedback":
-                feedback_id = _source_numeric_id(signal)
-                if feedback_id is None or feedback_id <= after_feedback_id:
+                source_id = signal.source_id
+                source_value = _source_numeric_id(signal)
+                if source_value is None:
+                    continue
+                if source_id.startswith("triage:"):
+                    if source_value <= after_triage_id:
+                        continue
+                elif source_value <= after_feedback_id:
                     continue
             events.append(_signal_event(group, signal))
 
     cursor = {
         "after_decision_id": max(0, int(after_decision_id)),
         "after_feedback_id": max(0, int(after_feedback_id)),
+        "after_triage_id": max(0, int(after_triage_id)),
         "max_decision_id": _max_row_id(state, "decisions"),
         "max_feedback_id": _max_row_id(state, "review_quality_feedback"),
+        "max_triage_id": _max_row_id(state, "review_quality_feedback_triage"),
     }
     payload: dict[str, object] = {
         "schema_version": COACH_SCHEMA_VERSION,
@@ -111,6 +120,10 @@ def _signal_event(group: str, signal: LearningSignal) -> dict[str, object]:
         "related_event_ids": list(signal.related_event_ids),
         "related_event_ids_total": len(signal.related_event_ids),
     }
+    if signal.stable_key:
+        event["stable_key"] = bounded_text(signal.stable_key, MAX_SHORT_TEXT)
+    if signal.target_owner:
+        event["target_owner"] = bounded_text(signal.target_owner, MAX_SHORT_TEXT)
     if signal.decision_chain:
         event["decision_chain_total"] = len(signal.decision_chain)
         event["decision_chain"] = list(signal.decision_chain[-MAX_DECISION_CHAIN:])
@@ -162,6 +175,7 @@ def _event_set_id(payload: Mapping[str, object]) -> str:
         cursor_identity = {
             "after_decision_id": cursor_map.get("after_decision_id"),
             "after_feedback_id": cursor_map.get("after_feedback_id"),
+            "after_triage_id": cursor_map.get("after_triage_id"),
         }
     stable_payload = {
         "schema_version": payload.get("schema_version"),

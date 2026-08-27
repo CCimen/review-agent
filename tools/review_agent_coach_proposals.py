@@ -14,7 +14,7 @@ from review_agent_coach import COACH_EVENT_GROUPS, COACH_SCHEMA_VERSION
 from review_agent_learning import EMITTED_SIGNAL_STRENGTHS
 
 
-PROPOSAL_SCHEMA_VERSION: Final = 2
+PROPOSAL_SCHEMA_VERSION: Final = 3
 ProposalDecision = Literal["propose", "no_change"]
 DEFAULT_MAX_CANDIDATES: Final = 3
 DEFAULT_MIN_INDEPENDENT_EPISODES: Final = 2
@@ -22,7 +22,7 @@ MAX_EVIDENCE_EVENTS_PER_CANDIDATE: Final = 5
 MAX_SUMMARY_TEXT: Final = 500
 
 REVIEW_QUALITY_PROVENANCE_REASON: Final = (
-    "review-quality feedback needs exact publication or finding provenance"
+    "review-quality feedback needs exact finding provenance or actionable triage"
 )
 POSITIVE_PATTERN_REASON: Final = "positive patterns need an explicit regression-risk trigger"
 POLICY_CHANGE_GUARDRAIL: Final = (
@@ -67,6 +67,17 @@ _TARGET_BY_ROUTE: Final[dict[str, str]] = {
     "severity_calibration": "replay_then_skill",
     "stability_regression": "replay_then_skill",
 }
+_TRIAGE_TARGET_OWNERS: Final[frozenset[str]] = frozenset(
+    {
+        "source_tool",
+        "coverage",
+        "review_rule",
+        "profile",
+        "repository_decision",
+        "documentation",
+    }
+)
+_STABLE_KEY_RE = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 PROPOSAL_SUPPORTED_SUGGESTED_ROUTES: Final[frozenset[str]] = frozenset(
     _TARGET_BY_ROUTE
 ) | frozenset(_ROUTE_PRIORITY)
@@ -103,6 +114,8 @@ _COACH_EVENT_KEYS: Final[frozenset[str]] = frozenset(
         "decision_chain",
         "decision_chain_total",
         "source",
+        "stable_key",
+        "target_owner",
     }
 )
 _COACH_SOURCE_KEYS: Final[frozenset[str]] = frozenset(
@@ -144,6 +157,7 @@ _PROPOSAL_BUNDLE_KEYS: Final[frozenset[str]] = frozenset(
 _PROPOSAL_CANDIDATE_KEYS: Final[frozenset[str]] = frozenset(
     {
         "candidate_key",
+        "stable_key",
         "target_owner",
         "suggested_route",
         "event_type",
@@ -198,6 +212,8 @@ class CoachEvent:
     event_type: str
     signal_strength: str
     suggested_route: str
+    stable_key: str
+    target_owner: str
     promotion_eligible: bool
     missing_evidence: tuple[str, ...]
     title_untrusted: str
@@ -219,6 +235,8 @@ class CandidateGroup:
     event_group: str
     suggested_route: str
     event_type: str
+    stable_key: str
+    target_owner: str
     events: tuple[CoachEvent, ...]
     independent_episode_count: int
     independent_episode_keys: tuple[str, ...]
@@ -267,6 +285,7 @@ class EvidenceSummary:
 @dataclass(frozen=True)
 class CandidateProposal:
     candidate_key: str
+    stable_key: str
     target_owner: str
     suggested_route: str
     event_type: str
@@ -284,6 +303,7 @@ class CandidateProposal:
     def to_json_obj(self) -> dict[str, object]:
         return {
             "candidate_key": self.candidate_key,
+            "stable_key": self.stable_key,
             "target_owner": self.target_owner,
             "suggested_route": self.suggested_route,
             "event_type": self.event_type,
@@ -633,6 +653,7 @@ def _proposal_candidate(
     _reject_unknown_keys(item, _PROPOSAL_CANDIDATE_KEYS, context)
     return CandidateProposal(
         candidate_key=_required_string(item, "candidate_key", context),
+        stable_key=_validated_stable_key(item, context),
         target_owner=_required_string(item, "target_owner", context),
         suggested_route=_required_string(item, "suggested_route", context),
         event_type=_required_string(item, "event_type", context),
@@ -797,6 +818,8 @@ def _event(item: Mapping[str, object], index: int) -> CoachEvent:
         event_type=event_type,
         signal_strength=signal_strength,
         suggested_route=suggested_route,
+        stable_key=_validated_stable_key(item, context),
+        target_owner=_validated_target_owner(item, context),
         promotion_eligible=_required_bool(item, "promotion_eligible", index),
         missing_evidence=tuple(_string_list(item, "missing_evidence", index)),
         title_untrusted=_optional_string(
@@ -826,7 +849,7 @@ def _event(item: Mapping[str, object], index: int) -> CoachEvent:
 
 
 def _candidate_groups(events: Iterable[CoachEvent]) -> tuple[CandidateGroup, ...]:
-    grouped: dict[tuple[str, str, str, str], list[CoachEvent]] = {}
+    grouped: dict[tuple[str, str, str, str, str], list[CoachEvent]] = {}
     for event in events:
         if (
             not event.promotion_eligible
@@ -835,21 +858,38 @@ def _candidate_groups(events: Iterable[CoachEvent]) -> tuple[CandidateGroup, ...
         ):
             continue
         identity = _semantic_identity(event)
-        key = (event.event_group, event.suggested_route, event.event_type, identity)
+        key = (
+            event.event_group,
+            event.suggested_route,
+            event.event_type,
+            event.target_owner,
+            identity,
+        )
         grouped.setdefault(key, []).append(event)
 
     groups: list[CandidateGroup] = []
-    for (event_group, route, event_type, identity), raw_group_events in grouped.items():
+    for (
+        event_group,
+        route,
+        event_type,
+        target_owner,
+        identity,
+    ), raw_group_events in grouped.items():
         ordered_events = tuple(sorted(raw_group_events, key=lambda item: item.event_id))
         independent_episode_keys = tuple(
             sorted({_episode_key(event) for event in ordered_events})
         )
         groups.append(
             CandidateGroup(
-                key=_candidate_key(route, event_type, identity),
+                key=_candidate_key(route, event_type, target_owner, identity),
                 event_group=event_group,
                 suggested_route=route,
                 event_type=event_type,
+                stable_key=next(
+                    (event.stable_key for event in ordered_events if event.stable_key),
+                    "",
+                ),
+                target_owner=target_owner,
                 events=ordered_events,
                 independent_episode_count=len(independent_episode_keys),
                 independent_episode_keys=independent_episode_keys,
@@ -859,6 +899,8 @@ def _candidate_groups(events: Iterable[CoachEvent]) -> tuple[CandidateGroup, ...
 
 
 def _semantic_identity(event: CoachEvent) -> str:
+    if event.stable_key:
+        return f"triage:{event.stable_key}"
     if event.fingerprint:
         return f"fingerprint:{event.fingerprint}"
     if event.observation_id is not None:
@@ -869,13 +911,18 @@ def _semantic_identity(event: CoachEvent) -> str:
 def _episode_key(event: CoachEvent) -> str:
     if event.observation_id is not None:
         return f"observation:{event.observation_id}"
+    if event.stable_key and event.pr_number is not None:
+        return f"pull-request:{event.repository_untrusted}:{event.pr_number}"
     parts = [event.repository_untrusted, str(event.pr_number or ""), event.local_reference]
     scope = ":".join(part for part in parts if part)
     return f"event:{scope}:{event.event_id}" if scope else f"event:{event.event_id}"
 
 
 def _has_stable_identity(group: CandidateGroup) -> bool:
-    return any(event.fingerprint or event.observation_id is not None for event in group.events)
+    return any(
+        event.stable_key or event.fingerprint or event.observation_id is not None
+        for event in group.events
+    )
 
 
 def _candidate_payload(group: CandidateGroup) -> CandidateProposal:
@@ -883,7 +930,11 @@ def _candidate_payload(group: CandidateGroup) -> CandidateProposal:
     evidence_ids = tuple(event.event_id for event in evidence_events)
     return CandidateProposal(
         candidate_key=group.key,
-        target_owner=_TARGET_BY_ROUTE.get(group.suggested_route, "human_triage"),
+        stable_key=group.stable_key,
+        target_owner=(
+            group.target_owner
+            or _TARGET_BY_ROUTE.get(group.suggested_route, "human_triage")
+        ),
         suggested_route=group.suggested_route,
         event_type=group.event_type,
         independent_episode_count=group.independent_episode_count,
@@ -939,7 +990,10 @@ def _candidate_problem(group: CandidateGroup) -> str:
 
 
 def _proposed_change(group: CandidateGroup) -> str:
-    target = _TARGET_BY_ROUTE.get(group.suggested_route, "human_triage")
+    target = group.target_owner or _TARGET_BY_ROUTE.get(
+        group.suggested_route,
+        "human_triage",
+    )
     if group.event_type == "accepted_risk":
         return (
             "Review whether repeated accepted-risk decisions point to a missing ADR, checklist, "
@@ -988,10 +1042,33 @@ def _rejected_group(group: CandidateGroup, reason: str) -> RejectedGroup:
     )
 
 
-def _candidate_key(route: str, event_type: str, identity: str) -> str:
-    digest = hashlib.sha256(f"{route}:{event_type}:{identity}".encode("utf-8")).hexdigest()[:12]
+def _candidate_key(
+    route: str,
+    event_type: str,
+    target_owner: str,
+    identity: str,
+) -> str:
+    digest = hashlib.sha256(
+        f"{route}:{event_type}:{target_owner}:{identity}".encode("utf-8")
+    ).hexdigest()[:12]
     prefix = _slug(f"{route}-{event_type}")[:48].strip("-") or "candidate"
     return f"{prefix}-{digest}"
+
+
+def _validated_stable_key(item: Mapping[str, object], context: str) -> str:
+    stable_key = _optional_string(item, "stable_key", context)
+    if stable_key and not _STABLE_KEY_RE.fullmatch(stable_key):
+        raise ValueError(f"{context}.stable_key is invalid")
+    return stable_key
+
+
+def _validated_target_owner(item: Mapping[str, object], context: str) -> str:
+    target_owner = _optional_string(item, "target_owner", context)
+    if target_owner and target_owner not in _TRIAGE_TARGET_OWNERS:
+        raise ValueError(f"{context}.target_owner is invalid")
+    if bool(target_owner) != bool(_optional_string(item, "stable_key", context)):
+        raise ValueError(f"{context} requires stable_key and target_owner together")
+    return target_owner
 
 
 def _proposal_set_id(
@@ -1019,6 +1096,7 @@ def _render_candidate(index: int, candidate: CandidateProposal) -> list[str]:
     lines = [
         f"### C{index}: {candidate.candidate_key}",
         "",
+        f"- Stable key: `{candidate.stable_key or '(finding identity)'}`",
         f"- Target owner: `{candidate.target_owner}`",
         f"- Route: `{candidate.suggested_route}` / `{candidate.event_type}`",
         f"- Independent episodes: {candidate.independent_episode_count}",

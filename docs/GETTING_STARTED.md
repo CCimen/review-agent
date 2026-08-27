@@ -32,13 +32,18 @@ Install the GitHub App with **Only select repositories** and choose the
 repository. Then onboard it from the private gateway:
 
 ```bash
-review-agent-admin github-app onboard <owner/repository> \
+docker compose exec review-github-gateway \
+  review-agent-admin github-app onboard <owner/repository> \
   --actor "github:<operator>"
 ```
 
 The command reconciles GitHub access and records the operator's approval for the
 named repository. A blank enabled set denies all review requests. [GitHub App
 setup](./GITHUB_APP_PILOT.md) shows the container-specific command.
+
+The onboarding command replaces the lower-level installation-ID sync and
+repository-ID enable commands. Run it again after changing the App's selected
+repositories; it is safe to repeat.
 
 ## 2. Run the first review
 

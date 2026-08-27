@@ -47,6 +47,11 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("short-lived installation", guide)
         self.assertIn("Contents | Read", guide)
         self.assertIn("Pull requests | Write", guide)
+        self.assertIn("Callback URL | Leave blank", guide)
+        self.assertIn("Device Flow | Off", guide)
+        self.assertIn("Subscribe to **Issue comment**", guide)
+        self.assertIn("docker compose exec review-github-gateway", guide)
+        self.assertIn("including its `BEGIN` and `END` lines", words(guide))
         self.assertNotIn("GITHUB_READ_TOKEN", guide)
         self.assertNotIn("PUBLISH_GH_TOKEN", guide)
         self.assertNotIn("REVIEW_AGENT_FEEDBACK_GH_TOKEN", guide)
@@ -55,6 +60,7 @@ class DocsContractTests(unittest.TestCase):
     def test_direct_app_runtime_is_default_and_key_isolated(self):
         compose = read("compose.yaml")
         environment = read(".env.example")
+        deployment = read("docs/DEPLOYMENT.md")
 
         self.assertNotIn('profiles: ["github-app-pilot"]', compose)
         self.assertIn("REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET:?", compose)
@@ -82,6 +88,15 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("review-ingress", gateway)
         self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY=", compose)
         self.assertNotIn("REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY=", environment)
+        normalized_deployment = words(deployment)
+        self.assertIn(
+            "detach every service except `review-admission`",
+            normalized_deployment,
+        )
+        self.assertIn(
+            "Leave **Enable Isolated Deployment** off",
+            normalized_deployment,
+        )
 
     def test_openshift_runtime_matches_the_app_only_credential_boundary(self):
         template = read("examples/openshift/review-agent-template.yaml")

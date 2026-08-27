@@ -23,7 +23,8 @@ merge authority.
    then run one audited command in the private gateway:
 
    ```bash
-   review-agent-admin github-app onboard <owner/repository> \
+   docker compose exec review-github-gateway \
+     review-agent-admin github-app onboard <owner/repository> \
      --actor "github:<operator>"
    ```
 

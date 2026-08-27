@@ -115,6 +115,7 @@ def _parser() -> argparse.ArgumentParser:
         "--owner-type", choices=("user", "organization"), default="user"
     )
     registration.add_argument("--public-url", required=True)
+    registration.add_argument("--homepage-url", required=True)
     registration.add_argument("--name")
     registration.add_argument("--json", action="store_true")
     onboard = github_app_commands.add_parser(
@@ -684,12 +685,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "queues" and args.queue_command == "inspect":
         return _read_inventory(_queue_inventory)
     if args.command == "github-app" and args.github_app_command == "registration-url":
-        url = operator_setup.github_app_registration_url(
-            owner=args.owner,
-            owner_type=args.owner_type,
-            public_url=args.public_url,
-            app_name=args.name,
-        )
+        try:
+            url = operator_setup.github_app_registration_url(
+                owner=args.owner,
+                owner_type=args.owner_type,
+                public_url=args.public_url,
+                homepage_url=args.homepage_url,
+                app_name=args.name,
+            )
+        except ValueError:
+            _json_error(code="invalid_registration_input", retryable=False)
+            return 1
         if args.json:
             _json({"registration_url": url})
         else:

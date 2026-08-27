@@ -116,6 +116,24 @@ def _public_origin(value: str) -> str:
     return f"https://{parsed.netloc}"
 
 
+def _homepage_url(value: str) -> str:
+    normalized = value.strip()
+    try:
+        parsed = urlsplit(normalized)
+    except ValueError as exc:
+        raise ValueError("homepage_url must be one HTTPS URL") from exc
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("homepage_url must be one HTTPS URL")
+    return normalized
+
+
 def _owner(value: str) -> str:
     normalized = value.strip()
     if not normalized or len(normalized) > 100 or any(
@@ -135,6 +153,7 @@ def github_app_registration_url(
     owner: str,
     owner_type: OwnerType,
     public_url: str,
+    homepage_url: str,
     app_name: str | None = None,
 ) -> str:
     """Build GitHub's prefilled App registration form without embedding secrets."""
@@ -142,6 +161,7 @@ def github_app_registration_url(
     if owner_type not in {"user", "organization"}:
         raise ValueError("owner_type must be user or organization")
     origin = _public_origin(public_url)
+    homepage = _homepage_url(homepage_url)
     name = (app_name or _default_app_name(resolved_owner)).strip()
     if not name or len(name) > 34:
         raise ValueError("app_name must contain 1 to 34 characters")
@@ -153,7 +173,7 @@ def github_app_registration_url(
     query = urlencode(
         (
             ("name", name),
-            ("url", origin),
+            ("url", homepage),
             ("public", "false"),
             ("request_oauth_on_install", "false"),
             ("webhook_active", "true"),
@@ -225,10 +245,12 @@ def _api_key_configuration(environment: Mapping[str, str]) -> None:
 def preflight(
     environment: Mapping[str, str],
     *,
-    bootstrap_source: Path = Path("/opt/review-agent-bootstrap"),
+    bootstrap_source: Path | None = None,
 ) -> PreflightReport:
     """Validate local configuration and packaged behavior without network or DB I/O."""
     settings = ReviewAgentSettings(environment)
+    # operator_setup.py lives at bootstrap/plugins/review_agent_tools/.
+    contract_source = bootstrap_source or Path(__file__).resolve().parents[2]
     checks = (
         _run_check(
             "database_configuration",
@@ -245,7 +267,7 @@ def preflight(
             "Packaged review profile contract is valid",
             lambda: review_contract.load_packaged_contract(
                 settings.profile,
-                source=bootstrap_source,
+                source=contract_source,
                 hermes_image=(
                     environment.get("REVIEW_AGENT_HERMES_IMAGE", "").strip()
                     or environment.get("HERMES_IMAGE", "").strip()

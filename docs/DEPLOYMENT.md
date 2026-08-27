@@ -87,9 +87,9 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    PostgreSQL password and URL.
    Every other value is a documented tuning default you can keep.
 
-   On Dokploy, add the App PEM as a **File Mount** with file path
-   `github-app-private-key.pem`. Dokploy keeps Compose file mounts beside the
-   replaceable Git checkout, so set:
+   On Dokploy, add the App PEM as the file mount described in
+   [GitHub App setup](./GITHUB_APP_PILOT.md#2-configure-and-start-the-deployment),
+   then set:
 
    ```dotenv
    REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
@@ -97,7 +97,11 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 
    Do not paste the PEM into the environment. Compose reads that host-side file
    and mounts it read-only into the private GitHub gateway. If the file is
-   absent or unreadable, `review-github-gateway` will not become healthy.
+   absent or unreadable, Compose fails before it creates the gateway container.
+
+   Treat Dokploy project access as secret access because authorized UI and API
+   clients can read file-mount content. Rotate the key before broader use if
+   it has appeared in a terminal, log, screenshot, ticket, or model conversation.
 2. Create the external ingress network. Dokploy already provides
    `dokploy-network`; a plain Docker host can create its configured name:
 
@@ -137,6 +141,10 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    `review-github-gateway`, or `review-postgres`. Only admission belongs on the
    ingress network.
    :::
+   In Dokploy **Advanced > Networks**, detach every service except
+   `review-admission` from `dokploy-network`. Leave **Enable Isolated
+   Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
+   declares the private database, runtime, egress, and GitHub-control networks.
 5. Connect the Codex account and restart Hermes:
 
    ```bash
@@ -148,6 +156,17 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 Dokploy reads `compose.yaml` as a Compose application. Add one HTTPS domain to
 admission and keep the generated Traefik settings. The checked-in health checks
 cover admission, the private gateway, Hermes, and PostgreSQL.
+
+Use the matching container for operator commands:
+
+| Task | Container |
+| --- | --- |
+| Connect Codex, run `doctor`, or run `smoke-test` | `hermes-review` |
+| Onboard, disable, or reconcile repositories | `review-github-gateway` |
+| Inspect review execution | `review-github-app-worker`, `review-worker`, and `review-publisher` logs |
+
+The profile installer and database migrator exit with status `0` after a
+successful deployment. Do not open a shell in those completed containers.
 
 </TabItem>
 <TabItem value="coolify-portainer" label="Coolify / Portainer">
@@ -208,7 +227,6 @@ Codex inside Hermes once, then restart that deployment:
 ```bash
 oc rsh deployment/hermes-review hermes auth add openai-codex
 oc rollout restart deployment/hermes-review
-oc rsh deployment/hermes-review review-agent-admin doctor
 ```
 
 Only admission has a Route. The template mounts the App key into the private
@@ -226,6 +244,9 @@ Register the App, install it with **Only select repositories**, reconcile the
 installation, and explicitly enable each repository. The [GitHub App setup
 guide](./GITHUB_APP_PILOT.md) has the exact permissions and commands. No
 repository workflow or Actions secrets are required.
+
+After onboarding at least one repository, run `review-agent-admin doctor` in
+`hermes-review` (`docker compose exec` or `oc rsh`, depending on the platform).
 
 ## Scale and operate the queue
 

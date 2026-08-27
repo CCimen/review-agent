@@ -56,7 +56,8 @@ before planning. It returns the shipped behavior as bounded JSON.
    ```bash
    python3 tools/review_agent_admin.py github-app registration-url \
      --owner <account> --owner-type <user-or-organization> \
-     --public-url https://<review-agent-domain>
+     --public-url https://<review-agent-domain> \
+     --homepage-url https://<documentation-or-repository-url>
    ```
 
    Opening and submitting the GitHub form is an owner action.

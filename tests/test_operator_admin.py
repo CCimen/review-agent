@@ -79,6 +79,7 @@ class OperatorSetupTests(unittest.TestCase):
             owner="CCimen",
             owner_type="user",
             public_url="https://reviews.example.test/",
+            homepage_url="https://docs.example.test/review-agent/",
         )
         personal_url = urlsplit(personal)
         self.assertEqual(personal_url.netloc, "github.com")
@@ -93,7 +94,7 @@ class OperatorSetupTests(unittest.TestCase):
                 "permissions[pull_requests]": ["write"],
                 "public": ["false"],
                 "request_oauth_on_install": ["false"],
-                "url": ["https://reviews.example.test"],
+                "url": ["https://docs.example.test/review-agent/"],
                 "webhook_active": ["true"],
                 "webhook_url": [
                     "https://reviews.example.test/webhooks/github-app"
@@ -105,6 +106,7 @@ class OperatorSetupTests(unittest.TestCase):
             owner="Example Org",
             owner_type="organization",
             public_url="https://reviews.example.test",
+            homepage_url="https://github.com/example/review-agent",
             app_name="Example Review Agent",
         )
         organization_url = urlsplit(organization)
@@ -115,6 +117,22 @@ class OperatorSetupTests(unittest.TestCase):
         self.assertEqual(
             parse_qs(organization_url.query)["name"], ["Example Review Agent"]
         )
+
+    def test_registration_url_rejects_insecure_or_ambiguous_urls(self) -> None:
+        invalid_urls = (
+            ("http://reviews.example.test", "https://docs.example.test"),
+            ("https://reviews.example.test", "https://user:pw@docs.example.test"),
+            ("https://reviews.example.test", "https://docs.example.test/?x=1"),
+        )
+        for public_url, homepage_url in invalid_urls:
+            with self.subTest(public_url=public_url, homepage_url=homepage_url):
+                with self.assertRaises(ValueError):
+                    operator_setup.github_app_registration_url(
+                        owner="example",
+                        owner_type="user",
+                        public_url=public_url,
+                        homepage_url=homepage_url,
+                    )
 
     def test_preflight_is_local_deterministic_and_secret_safe(self) -> None:
         webhook_secret = "do-not-print-webhook-secret"
@@ -137,7 +155,6 @@ class OperatorSetupTests(unittest.TestCase):
                     "REVIEW_AGENT_HERMES_IMAGE": PINNED_HERMES_IMAGE,
                     "REVIEW_AGENT_PROFILE": "sundsvall-standard",
                 },
-                bootstrap_source=ROOT / "bootstrap",
             )
 
         payload = report.to_json_obj()
@@ -328,6 +345,36 @@ class OperatorAdminCliTests(unittest.TestCase):
         self.assertEqual(
             json.loads(stdout.getvalue()),
             operator_setup.capabilities().to_json_obj(),
+        )
+
+    def test_registration_url_reports_bounded_input_failure(self) -> None:
+        admin = _load_admin_cli()
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            status = admin.main(
+                [
+                    "github-app",
+                    "registration-url",
+                    "--owner",
+                    "example",
+                    "--owner-type",
+                    "user",
+                    "--public-url",
+                    "https://review.example.test",
+                    "--homepage-url",
+                    "http://docs.example.test",
+                ]
+            )
+
+        self.assertEqual(status, 1)
+        self.assertEqual(
+            json.loads(stderr.getvalue()),
+            {
+                "error": {
+                    "code": "invalid_registration_input",
+                    "retryable": False,
+                }
+            },
         )
 
     def test_inventory_commands_emit_bounded_stable_json(self) -> None:

@@ -91,6 +91,7 @@ class AiOnboardingContractTests(unittest.TestCase):
         combined = f"{setup}\n{skill}"
         self.assertIn("python3 tools/review_agent_admin.py capabilities", combined)
         self.assertIn("python3 tools/review_agent_admin.py preflight", combined)
+        self.assertIn("--homepage-url", combined)
         self.assertIn(
             "docker compose exec hermes-review review-agent-admin doctor", setup
         )
@@ -124,6 +125,8 @@ class AiOnboardingContractTests(unittest.TestCase):
                 "user",
                 "--public-url",
                 "https://review.example.org",
+                "--homepage-url",
+                "https://docs.example.org/review-agent/",
             ),
             (
                 "github-app",

@@ -66,8 +66,20 @@ REVIEW_AGENT_GITHUB_APP_ID=<numeric App ID>
 REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=./secrets/github-app-private-key.pem
 ```
 
-Export the values from your deployment environment, then validate them on the
-host without network or database access:
+For Dokploy, create a **File Mount** with file path
+`github-app-private-key.pem`, paste the PEM into that mount, and override the
+host path:
+
+```dotenv
+REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
+```
+
+Dokploy stores this file outside the Git checkout so redeploys preserve it.
+Compose still controls the container mount and exposes the key only to the
+private GitHub gateway.
+
+From the checkout root, export the values from your deployment environment,
+then validate them on the host without network or database access:
 
 ```bash
 python3 tools/review_agent_admin.py capabilities

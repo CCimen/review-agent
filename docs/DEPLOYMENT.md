@@ -86,6 +86,18 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    `replace-with...` placeholder: the GitHub App values, service secrets, and
    PostgreSQL password and URL.
    Every other value is a documented tuning default you can keep.
+
+   On Dokploy, add the App PEM as a **File Mount** with file path
+   `github-app-private-key.pem`. Dokploy keeps Compose file mounts beside the
+   replaceable Git checkout, so set:
+
+   ```dotenv
+   REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
+   ```
+
+   Do not paste the PEM into the environment. Compose reads that host-side file
+   and mounts it read-only into the private GitHub gateway. If the file is
+   absent or unreadable, `review-github-gateway` will not become healthy.
 2. Create the external ingress network. Dokploy already provides
    `dokploy-network`; a plain Docker host can create its configured name:
 

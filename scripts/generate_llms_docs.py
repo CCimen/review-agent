@@ -105,7 +105,7 @@ def generate() -> tuple[str, str]:
         "Authentication: GitHub App only; install it on explicitly selected repositories, then enable each repository separately.",
         "Trigger: an authorized maintainer posts a new top-level `/review` comment on an open same-repository pull request.",
         "Security boundary: the model has no shell, merge authority, App private key, installation token, or arbitrary GitHub write access.",
-        "Feedback when enabled: authorized maintainers use `/review false-positive`, `/review feedback scope`, and `/review feedback missed`.",
+        "Feedback when enabled: `/review false-positive` suppresses only the same finding in the same code context; `/review feedback scope` and `/review feedback missed` record evidence for gated improvement without silently changing live behavior.",
         "",
         "## Start here",
         "",

@@ -254,10 +254,13 @@ not reply inside an inline diff thread.
 /review feedback missed because <what concrete issue was missed and where>
 ```
 
-`false-positive` is a durable finding decision. `feedback scope` records
-author-intent or stacked-branch scope confusion without suppressing the finding.
-`feedback missed` records review-quality feedback for metrics, replay cases, and
-private reviewer-improvement analysis.
+`false-positive` is a durable finding decision. A later review suppresses the
+same stable finding only while its code-context hash still matches; changed code
+must be evaluated again. `feedback scope` records author-intent or stacked-branch
+scope confusion without suppressing the finding. `feedback missed` records
+review-quality feedback for metrics, replay cases, and private
+reviewer-improvement analysis. Neither quality-feedback command rewrites the
+live reviewer's prompts, skills, or policy.
 
 Successful feedback receives a `+1` reaction. Invalid, stale, not-current, or
 unsupported commands receive a `confused` reaction and one deterministic

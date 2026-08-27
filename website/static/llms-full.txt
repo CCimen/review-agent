@@ -1189,7 +1189,7 @@ Title: Frequently asked questions
 Canonical URL: https://ccimen.github.io/review-agent/docs/faq
 Source: https://github.com/CCimen/review-agent/blob/main/docs/FAQ.md
 Status: current
-Last verified: 2026-08-25
+Last verified: 2026-08-27
 Review Agent revision: main (unreleased; pin the exact commit you inspect)
 
 # Frequently asked questions
@@ -1228,11 +1228,16 @@ apply directly. The coding-agent brief groups coordinated changes that need
 broader reasoning, edits, or validation. Applying either path still requires CI
 and a fresh review round.
 
-## Does feedback automatically teach or suppress the reviewer?
+## Does feedback affect later reviews?
 
-No. Human feedback is stored as evidence. It cannot rewrite prompts, skills, or
-policy automatically, and the model cannot dismiss its own findings. Operators
-evaluate repeated evidence through private, reviewed learning workflows.
+Only an exact false-positive decision does so directly. `/review false-positive`
+suppresses the same stable finding while its code-context hash still matches. A
+changed finding or changed context must be reviewed again.
+
+`/review feedback scope` and `/review feedback missed` record quality evidence
+for metrics, replay cases, and private improvement analysis. They do not suppress
+findings or rewrite prompts, skills, or policy. Broader reviewer changes remain
+human-reviewed and replay-tested before deployment.
 
 ## What is stored in PostgreSQL?
 
@@ -1615,10 +1620,13 @@ not reply inside an inline diff thread.
 /review feedback missed because <what concrete issue was missed and where>
 ```
 
-`false-positive` is a durable finding decision. `feedback scope` records
-author-intent or stacked-branch scope confusion without suppressing the finding.
-`feedback missed` records review-quality feedback for metrics, replay cases, and
-private reviewer-improvement analysis.
+`false-positive` is a durable finding decision. A later review suppresses the
+same stable finding only while its code-context hash still matches; changed code
+must be evaluated again. `feedback scope` records author-intent or stacked-branch
+scope confusion without suppressing the finding. `feedback missed` records
+review-quality feedback for metrics, replay cases, and private
+reviewer-improvement analysis. Neither quality-feedback command rewrites the
+live reviewer's prompts, skills, or policy.
 
 Successful feedback receives a `+1` reaction. Invalid, stale, not-current, or
 unsupported commands receive a `confused` reaction and one deterministic

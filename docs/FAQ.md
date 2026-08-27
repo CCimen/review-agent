@@ -4,7 +4,7 @@ slug: /faq
 title: Frequently asked questions
 description: Practical answers about access, findings, feedback, storage, and failures.
 status: current
-last_verified: 2026-08-25
+last_verified: 2026-08-27
 ---
 
 # Frequently asked questions
@@ -43,11 +43,16 @@ apply directly. The coding-agent brief groups coordinated changes that need
 broader reasoning, edits, or validation. Applying either path still requires CI
 and a fresh review round.
 
-## Does feedback automatically teach or suppress the reviewer?
+## Does feedback affect later reviews?
 
-No. Human feedback is stored as evidence. It cannot rewrite prompts, skills, or
-policy automatically, and the model cannot dismiss its own findings. Operators
-evaluate repeated evidence through private, reviewed learning workflows.
+Only an exact false-positive decision does so directly. `/review false-positive`
+suppresses the same stable finding while its code-context hash still matches. A
+changed finding or changed context must be reviewed again.
+
+`/review feedback scope` and `/review feedback missed` record quality evidence
+for metrics, replay cases, and private improvement analysis. They do not suppress
+findings or rewrite prompts, skills, or policy. Broader reviewer changes remain
+human-reviewed and replay-tested before deployment.
 
 ## What is stored in PostgreSQL?
 

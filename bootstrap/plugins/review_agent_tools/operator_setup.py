@@ -432,6 +432,8 @@ def doctor(
             for name in ("installations", "repositories", "queues")
         )
     else:
+        dead_letter_count = snapshot.review_queue.dead_letters
+        dead_letter_noun = "record" if dead_letter_count == 1 else "records"
         checks.extend(
             (
                 _live_check(
@@ -457,7 +459,7 @@ def doctor(
                     (
                         f"Review queue has {snapshot.review_queue.active}/"
                         f"{settings.active_job_limit} active jobs, "
-                        f"{snapshot.review_queue.dead_letters} dead-letter record(s), "
+                        f"{dead_letter_count} dead-letter {dead_letter_noun}, "
                         "and no expired work"
                     ),
                     "Review or publication queues need recovery or capacity",

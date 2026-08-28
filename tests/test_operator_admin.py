@@ -208,7 +208,7 @@ class OperatorSetupTests(unittest.TestCase):
                 queued=1,
                 leased=1,
                 expired_leases=0,
-                dead_letters=2,
+                dead_letters=1,
             ),
             publication_queue=publications.PublicationQueueHealth(
                 pending=1,
@@ -268,6 +268,12 @@ class OperatorSetupTests(unittest.TestCase):
                 "queues",
                 "repositories",
             },
+        )
+        queue_check = next(check for check in report.checks if check.name == "queues")
+        self.assertEqual(
+            queue_check.detail,
+            "Review queue has 2/100 active jobs, 1 dead-letter record, and no "
+            "expired work",
         )
 
     def test_smoke_test_checks_capacity_then_uses_only_gateway_dry_run(self) -> None:

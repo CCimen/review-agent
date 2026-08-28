@@ -102,6 +102,7 @@ def generate() -> tuple[str, str]:
         "Self-hosted, advisory pull-request review with bounded model tools, deterministic authorization, PostgreSQL state, and GitHub App publication.",
         "",
         f"Release state: {REVISION}",
+        "License: EUPL-1.2 (Version 1.2 only). Third-party components retain their original licenses.",
         "Authentication: GitHub App only; install it on explicitly selected repositories, then enable each repository separately.",
         "Model policy: set REVIEW_AGENT_MODEL_PROVIDER, REVIEW_AGENT_MODEL, and REVIEW_AGENT_REASONING_EFFORT to a Hermes-supported route; the documented default uses Codex device-code OAuth.",
         "Trigger: an authorized maintainer posts a new top-level `/review` comment on an open same-repository pull request.",

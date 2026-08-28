@@ -4,9 +4,10 @@ Use a prerelease while multi-repository scale, backup recovery, arm64 runtime,
 and any claimed alternate model provider still need live proof. GitHub publishes
 the matching GHCR image only after you publish the GitHub release.
 
-## Before the first release
+## Before a release
 
-- Add the project license chosen by the repository owner.
+- Confirm `LICENSE`, `NOTICE.md`, `CONTRIBUTING.md`, `CITATION.cff`, and
+  `THIRD_PARTY_NOTICES.md` are current.
 - Confirm `main` is clean and the Python bundle passed on the exact commit.
 - Confirm the public docs, generated LLM files, and installation-skill mirrors
   are current.

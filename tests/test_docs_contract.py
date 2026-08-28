@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 import unittest
@@ -38,13 +39,39 @@ def sequence(value: object) -> list[object]:
 
 
 class DocsContractTests(unittest.TestCase):
+    def test_project_license_and_contribution_surfaces_are_consistent(self):
+        license_bytes = (ROOT / "LICENSE").read_bytes()
+        notice = read("NOTICE.md")
+        contributing = read("CONTRIBUTING.md")
+        citation = mapping(yaml.safe_load(read("CITATION.cff")))
+        readme = read("README.md")
+        releasing = read("RELEASING.md")
+        third_party = read("THIRD_PARTY_NOTICES.md")
+        llms = read("website/static/llms.txt")
+
+        self.assertEqual(
+            hashlib.sha256(license_bytes).hexdigest(),
+            "57fb42fbcd0b037ce528ed8f72f1ec095d67bc6825ecf1448ff39be1fe68a4b4",
+        )
+        self.assertIn("EUPL v. 1.2 only", notice)
+        self.assertIn("Copyright © 2026 Çağrı Çimen and contributors.", notice)
+        self.assertIn("git commit --signoff", contributing)
+        self.assertIn("`EUPL-1.2` (Version 1.2 only)", contributing)
+        self.assertIn("does not transfer copyright", contributing)
+        self.assertEqual(citation["license"], "EUPL-1.2")
+        self.assertIn("`EUPL-1.2` (Version 1.2 only)", readme)
+        self.assertIn("NOTICE.md", releasing)
+        self.assertIn("Hermes Agent", third_party)
+        self.assertIn("License: EUPL-1.2 (Version 1.2 only)", llms)
+        self.assertNotIn(
+            "EUPL-1.2-only", "\n".join((readme, contributing, notice, llms))
+        )
+
     def test_release_candidate_guidance_keeps_prerelease_claims_bounded(self):
         release = read("RELEASING.md")
         codeowners = read(".github/CODEOWNERS")
 
-        self.assertIn(
-            "Add the project license chosen by the repository owner", release
-        )
+        self.assertIn("Confirm `LICENSE`, `NOTICE.md`, `CONTRIBUTING.md`", release)
         self.assertIn("mark it **Pre-release**", release)
         self.assertIn("does not update `latest`", release)
         self.assertIn("Deploy the immutable digest", release)

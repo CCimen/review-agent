@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: >-
+  If you use Review Agent in research, public-sector documentation, or another
+  published work, cite it using this metadata.
+title: Review Agent
+type: software
+authors:
+  - family-names: Çimen
+    given-names: Çağrı
+    alias: CCimen
+repository-code: https://github.com/CCimen/review-agent
+url: https://ccimen.github.io/review-agent/
+license: EUPL-1.2

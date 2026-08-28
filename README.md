@@ -147,6 +147,12 @@ builds the container, and verifies the pinned Hermes contracts used by durable
 execution. It cannot live-test your deployed routes, GitHub token approval,
 ChatGPT OAuth state, or repository rules.
 
+## License
+
+Review Agent is licensed under `EUPL-1.2` (Version 1.2 only). Copyright © 2026
+Çağrı Çimen and contributors. Third-party components retain their original
+licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 Maintainers publish versioned images from GitHub releases. Follow
 [RELEASING.md](RELEASING.md) for the prerelease gate, GHCR verification, and
 rollback checks.

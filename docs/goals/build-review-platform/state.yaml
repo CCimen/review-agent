@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Release-polish candidate complete; await the owner's license choice before preparing the first prerelease tag, then collect multi-repository scale evidence."
+  tranche: "The owner selected EUPL-1.2, Version 1.2 only; finish its repository surfaces before preparing the first prerelease tag, then collect multi-repository scale evidence."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "f8af11c87655fb98995bd960fde663d12e6cef7d"
 
-active_task: T211
+active_task: T212
 
 tasks:
   - id: T001
@@ -3416,39 +3416,88 @@ tasks:
   - id: T211
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
-    objective: "Prepare the first prerelease only after the owner chooses a project license, then collect bounded multi-repository pilot evidence from repositories the owner explicitly adds to the GitHub App."
+    objective: "Apply the owner-selected EUPL-1.2 license, Version 1.2 only, with clear attribution, contribution, citation, third-party, and release surfaces before preparing the first prerelease."
     constraints:
-      - "Do not choose a license on the owner's behalf."
-      - "Do not add repositories to the GitHub App installation without explicit owner selection."
-      - "Do not claim multi-repository scale, arm64 runtime, recovery, or alternate-provider support before live evidence exists."
+      - "Use the unmodified official EUPL-1.2 English license text and identify it as Version 1.2 only in project guidance."
+      - "Name Çağrı Çimen as the current licensor; do not name Sundsvalls kommun without a documented ownership or licensing decision."
+      - "Keep third-party components under their existing licenses and point to their canonical notices."
+      - "Use DCO sign-off for inbound contributions and state that future relicensing may require contributor consent."
+      - "Do not add speculative governance, trademark, CLA, or dual-licensing machinery."
       - "Keep prerelease preparation separate from the already reviewed release-polish commit."
     allowed_files:
-      - LICENSE*
+      - LICENSE
+      - NOTICE.md
+      - CONTRIBUTING.md
+      - CITATION.cff
+      - THIRD_PARTY_NOTICES.md
+      - README.md
+      - RELEASING.md
+      - scripts/generate_llms_docs.py
+      - website/static/llms.txt
+      - website/static/llms-full.txt
+      - tests/test_docs_contract.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "The official EUPL-1.2 text is present and public surfaces identify Version 1.2 only consistently."
+      - "Attribution, DCO contribution terms, citation metadata, and third-party notices are concise and internally consistent."
+      - "Generated LLM files, documentation contracts, and the production docs build pass."
+      - "One stable peer quality gate confirms the license surfaces do not overstate ownership or relicensing rights."
+    stop_if:
+      - "Existing third-party or external contributions prevent the selected license from being applied."
+      - "The owner's identity or authority to license cannot be represented truthfully."
+    receipt:
+      result: done
+      decision: proceed
+      summary: "Licensed Review Agent under EUPL-1.2, Version 1.2 only, with Çağrı Çimen and contributors attribution, DCO contribution terms, citation metadata, bounded third-party notices, and synchronized public and LLM-facing guidance. The official license bytes are checksum-protected."
+      validation:
+        - "44 focused documentation, AI-onboarding, and CI contract tests passed."
+        - "App-only candidate gate, Ruff, strict Pyright, Docusaurus production build, route checks, generated-file checks, and git diff checks passed."
+        - "The Codex gate verified the identifier, SBOM, and board corrections; its remaining raw-byte test finding was fixed and locally regression-tested without another model pass at the owner's request."
+      next_allowed_task: "Prepare v0.1.0-rc.1 only after explicit owner authorization; collect multi-repository evidence only from repositories the owner explicitly selects."
+  - id: T212
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Prepare the first prerelease when the owner authorizes it, then collect bounded multi-repository pilot evidence from repositories the owner explicitly selects."
+    constraints:
+      - "Do not publish a tag or release without explicit owner authorization."
+      - "Do not add repositories to the GitHub App installation without explicit owner selection."
+      - "Do not claim multi-repository scale, recovery, arm64 runtime, or alternate-provider support before live evidence exists."
+      - "Keep the released source, generated revision, container digest, SBOM, provenance, and release notes tied to one verified commit."
+    allowed_files:
       - RELEASING.md
       - scripts/generate_llms_docs.py
       - website/static/llms.txt
       - website/static/llms-full.txt
       - docs/goals/build-review-platform/**
     verify:
-      - "The owner-selected license is present and linked from the public project surfaces."
       - "Generated release metadata equals the exact prerelease tag before tagging."
       - "The release workflow publishes the verified digest and the package remains a prerelease."
       - "Selected pilot repositories preserve repository isolation, profile assignment, queue fairness, and bounded publication rights."
     stop_if:
-      - "The license, pilot repository set, release authorization, or safe test pull requests have not been provided by the owner."
-    receipt: null
+      - "The owner has not authorized the release or selected the pilot repositories."
 
 checks:
-  dirty_fingerprint: "reviewed-release-polish-candidate-on-f8af11c"
+  dirty_fingerprint: "eupl-1.2-version-1.2-only-license-candidate-on-a993760"
   last_verification:
     result: pass
-    task: T210
+    task: T211
     commands:
-      - "575-test Python 3.14 unit bundle plus App-only candidate gate"
-      - "Strict Pyright, Ruff, YAML parsing, generated-file synchronization, and git diff checks"
-      - "Docusaurus typecheck, optimized build, and 13-route documentation contract"
-      - "Canonical installation-skill validation and packaging"
-      - "Claude Opus high and Codex gpt-5.6-sol xhigh green release gates"
-      - "Release source-SHA, SemVer, exact generated revision, GHCR metadata, SBOM, provenance, and attestation audit"
+      - "44 focused documentation, AI-onboarding, and CI contract tests"
+      - "App-only candidate gate, Ruff, strict Pyright, generated-file synchronization, and git diff checks"
+      - "Docusaurus optimized build and 13-route documentation contract"
+      - "Raw LICENSE SHA-256 and retired-identifier regression checks"
+      - "One resumable Codex gpt-5.6-sol xhigh gate; all findings fixed, with the final raw-byte assertion verified locally at the owner's request not to repeat the loop"
+    evidence:
+      - "LICENSE matches the official EUPL-1.2 text at SHA-256 57fb42fbcd0b037ce528ed8f72f1ec095d67bc6825ecf1448ff39be1fe68a4b4."
+      - "Public machine-readable surfaces use the SPDX identifier EUPL-1.2 and separately state Version 1.2 only."
+      - "NOTICE.md names Çağrı Çimen and contributors without claiming Sundsvalls kommun ownership or licensing authority."
+      - "CONTRIBUTING.md uses DCO sign-off and does not claim copyright transfer or automatic relicensing rights."
+    owner_gates:
+      - "Authorize the first prerelease before setting the generated REVISION and tagging."
+      - "Select any additional pilot repositories before multi-repository validation."
+    spawned_tasks:
+      - T212

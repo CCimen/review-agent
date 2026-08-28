@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "f8af11c87655fb98995bd960fde663d12e6cef7d"
 
-active_task: T212
+active_task: T214
 
 tasks:
   - id: T001
@@ -3459,7 +3459,7 @@ tasks:
   - id: T212
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Collect bounded multi-repository pilot evidence from the repositories the owner selected, fixing direct validation blockers before preparing a prerelease when the owner authorizes it."
     constraints:
@@ -3483,6 +3483,70 @@ tasks:
       - "Selected pilot repositories preserve repository isolation, profile assignment, queue fairness, and bounded publication rights."
     stop_if:
       - "The owner has not authorized the release or selected the pilot repositories."
+    receipt:
+      result: done
+      note: notes/T212-multi-repository-pilot.md
+      summary: "Validated one deployment across three selected repositories, including concurrent leases, clean and unsafe diffs, an untrusted repository SOUL, exact-head publication, supersession, and feedback reporting. Fixed the terminal dead-letter readiness blocker without deleting history."
+      validation:
+        - "Live doctor and two dry-run smoke checks passed after deploying 927d5f0."
+        - "Three simultaneous review requests reached active=3 and leased=3 with no queued work."
+        - "All three runs completed and published once; final review and publication queues drained without expired work."
+        - "Final c21d131 deployment reported ready with three enabled repositories and natural dead-letter history wording."
+      evidence_boundary: "The pilot does not claim measured 100-repository throughput, arm64 runtime, crash recovery, or alternate-provider execution."
+      next_allowed_task: T213
+  - id: T213
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: high
+    objective: "Audit the final prerelease candidate against the completed plan and live pilot, naming only evidence genuinely required before the owner authorizes the first prerelease."
+    constraints:
+      - "Do not publish a tag, release, or package without explicit owner authorization."
+      - "Do not convert a three-repository correctness pilot into a 100-repository capacity claim."
+      - "Treat the controlled pilot branches and pull requests as disposable external fixtures; do not merge or delete them without owner direction."
+      - "Prefer release blockers over optional polish and do not reopen completed architecture slices."
+    allowed_files:
+      - RELEASING.md
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Map every remaining release claim to a current test, CI result, deployment receipt, or explicit evidence gap."
+      - "Confirm the repository and deployment are clean, healthy, and tied to one pushed commit."
+    stop_if:
+      - "The audit requires publishing the prerelease or mutating pilot repositories."
+    receipt:
+      result: done
+      decision: "The candidate is ready to prepare a first prerelease after the owner selects and authorizes the tag; measured scale and platform gaps must remain explicit prerelease disclosures."
+      note: notes/T213-prerelease-audit.md
+      summary: "Mapped the exact release sequence and separated current implementation readiness from evidence required only for stable production claims."
+      evidence:
+        - "Python CI passed on c21d131f62e8c177215a44a6bd8b3dc18f01893b."
+        - "Documentation and Pages passed on 927d5f08e064cab3a4342e2be5c7113a98db0e7d; c21d131 changed no documentation."
+        - "Dokploy at c21d131 is ready with three enabled repositories and drained queues."
+        - "The release workflow owns tag validation, multi-architecture publication, SBOM, provenance, and digest attestation but has not run without a release."
+      next_allowed_task: T214
+  - id: T214
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Prepare and publish the first prerelease only after the owner explicitly authorizes its exact tag."
+    constraints:
+      - "Do not choose or publish the tag on the owner's behalf."
+      - "Use one exact verified commit for generated revision metadata, tag, release, image digest, SBOM, provenance, notes, and deployment."
+      - "Mark the GitHub release as Pre-release and do not update latest."
+      - "Disclose the remaining 100-repository, arm64 runtime, injected recovery, and alternate-provider evidence gaps."
+    allowed_files:
+      - RELEASING.md
+      - scripts/generate_llms_docs.py
+      - website/static/llms.txt
+      - website/static/llms-full.txt
+      - docs/goals/build-review-platform/**
+    verify:
+      - "The generated revision equals the authorized prerelease tag."
+      - "Python and documentation workflows pass on the exact tagged commit."
+      - "GHCR, SBOM, provenance, digest, and immutable pilot deployment match that commit."
+    stop_if:
+      - "The owner has not authorized an exact prerelease tag."
 
 checks:
   dirty_fingerprint: "eupl-1.2-version-1.2-only-license-candidate-on-a993760"

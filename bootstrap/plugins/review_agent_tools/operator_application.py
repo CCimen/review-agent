@@ -30,6 +30,7 @@ from .postgres import findings as postgres_findings
 from .postgres import github_app as postgres_github_app
 from .postgres import jobs as postgres_jobs
 from .postgres import publications as postgres_publications
+from .postgres import quality_reporting as postgres_quality_reporting
 from .postgres import quality_triage as postgres_quality_triage
 from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import reporting as postgres_reporting
@@ -571,6 +572,27 @@ def run_stats(
             stale_before=moment - timedelta(minutes=stale_minutes),
             window_days=window_days,
             now=moment,
+        )
+
+
+def quality_report(
+    runtime: PostgreSQLRuntime,
+    *,
+    repository: str | None,
+    days: int,
+    now: datetime | None = None,
+) -> postgres_quality_reporting.QualityReport:
+    """Build a bounded report from explicit review-quality signals."""
+    normalized_repository = _repository(repository)
+    window_days = _positive(days, field="days")
+    moment = _now(now)
+    with runtime.transaction() as connection:
+        return postgres_quality_reporting.build_report(
+            connection,
+            repository=normalized_repository,
+            window_started_at=moment - timedelta(days=window_days),
+            window_ended_at=moment,
+            window_days=window_days,
         )
 
 

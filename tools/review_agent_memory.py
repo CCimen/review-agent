@@ -39,6 +39,7 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
 )
+from review_agent_tools.postgres import quality_reporting  # noqa: E402
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
 
 
@@ -155,6 +156,22 @@ def _parser() -> argparse.ArgumentParser:
     publications.add_argument("--limit", type=int, default=50)
     coverage = commands.add_parser("coverage", help="Show run coverage.")
     coverage.add_argument("--run-id", type=int, required=True)
+    quality = commands.add_parser(
+        "quality", help="Report explicit review-quality signals."
+    )
+    quality.add_argument("--days", type=int, default=30)
+    quality.add_argument("--repo")
+    quality_format = quality.add_mutually_exclusive_group()
+    quality_format.add_argument(
+        "--json", dest="quality_format", action="store_const", const="json"
+    )
+    quality_format.add_argument(
+        "--markdown",
+        dest="quality_format",
+        action="store_const",
+        const="markdown",
+    )
+    quality.set_defaults(quality_format="markdown")
     verification = commands.add_parser(
         "verification-export", help="Write a private verification bundle."
     )
@@ -320,6 +337,17 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
         )
     elif args.command == "coverage":
         result = operator_application.coverage(runtime, run_id=args.run_id)
+    elif args.command == "quality":
+        report = operator_application.quality_report(
+            runtime,
+            repository=args.repo,
+            days=args.days,
+        )
+        if args.quality_format == "markdown":
+            print(quality_reporting.render_markdown(report), end="")
+        else:
+            print(_json(report, pretty=True))
+        return 0
     elif args.command == "verification-export":
         import review_agent_verification as verification
         source = operator_application.verification_export_source(

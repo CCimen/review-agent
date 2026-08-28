@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 7
+  completed_write_tasks_in_thread: 8
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "0d9acedea087d0ffef683b158026d3a3e1de9acb"
 
-active_task: T205
+active_task: T206
 
 tasks:
   - id: T001
@@ -3097,7 +3097,7 @@ tasks:
   - id: T205
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Add a bounded quality report with explicit denominators and stable repository/reviewer-contract cohorts, without claiming accuracy from silence."
     constraints:
@@ -3122,10 +3122,36 @@ tasks:
       - "A metric requires inferring correctness from missing feedback."
       - "A cohort value cannot be derived from persisted review-subject state without guessing."
       - "The report requires materialized aggregates, a new service, or files outside the declared owners."
+    receipt:
+      result: done
+      summary: "Added one honest PostgreSQL quality report with explicit denominators, current triage backlog, stable persisted cohorts, bounded rankings, and JSON or Markdown operator output."
+      files:
+        - bootstrap/plugins/review_agent_tools/operator_application.py
+        - bootstrap/plugins/review_agent_tools/postgres/quality_reporting.py
+        - tools/review_agent_memory.py
+        - tests/test_postgres_reporting_cli.py
+      commands:
+        - cmd: "tests.test_postgres_reporting_cli against real PostgreSQL"
+          status: pass
+          summary: "12 report, CLI, cohort, triage, suppression, coverage, and failure-contract tests passed."
+        - cmd: "scripts/check_bundle.sh"
+          status: pass
+          summary: "572 tests passed with 190 environment-gated skips; strict Pyright, app-only, replay, and YAML checks passed."
+        - cmd: "Ruff and git diff --check"
+          status: pass
+          summary: "All four implementation paths and the final patch were clean."
+        - cmd: "Claude Opus/high stable commit gate"
+          status: pass
+          summary: "Session review-agent-quality-report reached green at score 8 on iteration 2 after fixing unknown-repository silence, current backlog scope, suppression vocabulary, repeat semantics, duplicated triage SQL, and inaccurate labels."
+      evidence:
+        - "Registered repositories with no activity report explicit zero denominators; unknown repositories fail instead of looking healthy."
+        - "Current triage backlog includes older unresolved feedback while review-quality signals remain within the requested half-open window."
+        - "The report does not claim accuracy, precision, recall, or correctness from missing feedback."
+        - "A narrower active-suppression query remains a measured operator-path optimization for the canonical postgres/reporting.py owner, not a T205 correctness blocker."
   - id: T206
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: default
     objective: "Update the public docs, generated LLM guidance, and operator examples for triage and quality reporting, then deploy GitHub Pages."
     receipt: null
@@ -3138,13 +3164,12 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "goal-control-files-after-0d9acede"
+  dirty_fingerprint: "t205-quality-report-candidate"
   last_verification:
     result: pass
-    task: T204
+    task: T205
     commands:
-      - "Strict Pyright with zero diagnostics and 568-test bundle"
-      - "205-test PostgreSQL schema and recovery contract"
-      - "Focused negative domain, raw SQL, cursor, and independent-episode tests"
-      - "Claude Opus/high session review-agent-quality-triage green at score 8"
-      - "Source revision 0d9acedea087d0ffef683b158026d3a3e1de9acb"
+      - "Strict Pyright with zero diagnostics and 572-test bundle"
+      - "12 focused real-PostgreSQL reporting and CLI tests"
+      - "Ruff and git diff --check"
+      - "Claude Opus/high session review-agent-quality-report iteration 2 green at score 8"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 import unittest
 from dataclasses import replace
@@ -27,8 +29,14 @@ from review_agent_tools.domain.publication import (  # noqa: E402
     PublicationPartType,
     resolve_publication_plan,
 )
-from review_agent_tools.domain.review import ReviewPhase  # noqa: E402
-from review_agent_tools.postgres import publications, reporting, review_runs  # noqa: E402
+from review_agent_tools.domain.review import DiffState, ReviewPhase  # noqa: E402
+from review_agent_tools.postgres import (  # noqa: E402
+    publications,
+    quality_reporting,
+    registry,
+    reporting,
+    review_runs,
+)
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
@@ -50,6 +58,17 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.runtime = PostgreSQLRuntime(PostgresDatabaseUrl(DSN))
         self.runtime.open()
         self.addCleanup(self.runtime.close)
+
+    def register_repository(self) -> None:
+        with self.runtime.transaction() as connection:
+            registry.ensure_repository(
+                connection,
+                registry.RepositoryDefinition(
+                    provider="github",
+                    provider_repository_id=930,
+                    full_name=self.repository,
+                ),
+            )
 
     @staticmethod
     def finding(**overrides: object) -> FindingInput:
@@ -79,6 +98,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         request_suffix: str,
         head_sha: str | None = None,
         paths: tuple[str, ...] = ("src/flags.py",),
+        policy_revision: str = "profile@1",
+        resolved_config: dict[str, object] | None = None,
     ) -> review_runs.StartedRun:
         selected_head = head_sha or self.head_sha
         result = review_run_application.start_postgres_review(
@@ -90,9 +111,15 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 pr_number=pr_number,
                 base_sha="b" * 40,
                 head_sha=selected_head,
-                policy_revision="profile@1",
-                resolved_config_schema_version=1,
-                resolved_config={"profile": "sundsvall-standard"},
+                policy_revision=policy_revision,
+                resolved_config_schema_version=(
+                    2 if resolved_config is not None else 1
+                ),
+                resolved_config=(
+                    resolved_config
+                    if resolved_config is not None
+                    else {"profile": "sundsvall-standard"}
+                ),
                 request_key=f"github:issue-comment:{request_suffix}",
             ),
         )
@@ -116,22 +143,103 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         run: review_runs.StartedRun,
         *,
         findings: tuple[FindingInput, ...] | None = None,
+        context_hash: str = "c" * 40,
+        head_sha: str | None = None,
     ) -> review_finding_application.PostgresFindingBatch:
         selected = findings if findings is not None else (self.finding(),)
         return review_finding_application.record_postgres_findings(
             self.runtime,
             run_id=run.run.id,
-            head_sha=self.head_sha,
+            head_sha=head_sha or self.head_sha,
             findings=selected,
             changed_files=tuple(
                 review_finding_application.ChangedFile(
                     path=path,
-                    context_hash="c" * 40,
+                    context_hash=context_hash,
                     context_hash_source="blob",
                 )
                 for path in dict.fromkeys(item.path for item in selected)
             ),
         )
+
+    def publish_run(
+        self,
+        run: review_runs.StartedRun,
+        batch: review_finding_application.PostgresFindingBatch,
+        *,
+        key_character: str,
+    ) -> publications.Publication:
+        for phase in (
+            ReviewPhase.FETCHING_PR,
+            ReviewPhase.COLLECTING_DIFF,
+            ReviewPhase.REVIEWING,
+            ReviewPhase.RENDERING,
+        ):
+            with self.runtime.transaction() as connection:
+                review_runs.advance_phase(connection, run.run.id, phase)
+        publication_key = "sha256:" + (key_character * 64)
+        plan = resolve_publication_plan(
+            publication_key=publication_key,
+            rendered_markdown="## Review\n\nExact persisted review.\n",
+            rendered_blocks_schema_version=1,
+            rendered_blocks=(
+                {"kind": "header", "markdown": "## Review"},
+                {"kind": "finding", "markdown": "Exact persisted review."},
+            ),
+            parts=(
+                PublicationPartInput(
+                    part_type=PublicationPartType.SUMMARY,
+                    part_number=1,
+                    payload_schema_version=1,
+                    payload={
+                        "body": (
+                            "Exact persisted review.\n\n"
+                            "<!-- review-agent:canonical publication="
+                            + publication_key
+                            + " part=1/1 -->"
+                        )
+                    },
+                ),
+            ),
+            findings=tuple(
+                PublicationFindingInput(
+                    finding_id=int(item.finding_id),
+                    source_finding_occurrence_id=int(item.occurrence_id),
+                    source_review_run_id=int(batch.run_id),
+                    local_reference=item.local_reference,
+                    outcome=PublicationFindingOutcome.CURRENT,
+                )
+                for item in batch.items
+            ),
+        )
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run.run.id, plan=plan
+            )
+        with self.runtime.transaction() as connection:
+            claim = publications.claim_publication(connection, prepared.id)
+        assert claim.publication.posting_started_at is not None
+        with self.runtime.transaction() as connection:
+            publications.acknowledge_part(
+                connection,
+                publication_id=prepared.id,
+                part_type=PublicationPartType.SUMMARY,
+                part_number=1,
+                external_id=900 + int(run.run.id),
+                posting_started_at=claim.publication.posting_started_at,
+            )
+            posted = publications.complete_publication(
+                connection,
+                publication_id=prepared.id,
+                posting_started_at=claim.publication.posting_started_at,
+            )
+            review_runs.advance_phase(
+                connection, run.run.id, ReviewPhase.PUBLISHING
+            )
+            review_runs.complete_run(
+                connection, run.run.id, findings_count=len(batch.items)
+            )
+        return posted
 
     def test_live_context_filters_before_limit_and_resolves_repeat_suppression(
         self,
@@ -590,6 +698,300 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertEqual(stored.decision, "no_change")
         self.assertEqual(stored.repository, self.repository)
+
+    def test_quality_report_has_explicit_zero_denominators(self) -> None:
+        self.register_repository()
+        now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+
+        report = operator_application.quality_report(
+            self.runtime,
+            repository=self.repository,
+            days=30,
+            now=now,
+        )
+
+        self.assertEqual(report.repository, self.repository)
+        self.assertEqual(report.window_days, 30)
+        self.assertEqual(report.completed_reviews, 0)
+        self.assertEqual(report.published_findings, 0)
+        self.assertEqual(report.complete_coverage_reviews, 0)
+        self.assertEqual(report.false_positive_signals.count, 0)
+        self.assertEqual(report.false_positive_signals.denominator, 0)
+        self.assertEqual(
+            report.false_positive_signals.denominator_name,
+            "published_findings",
+        )
+        self.assertEqual(report.scope_confusion_signals.denominator, 0)
+        self.assertEqual(report.missed_issue_signals.denominator, 0)
+        self.assertIsNone(report.oldest_triage_backlog_seconds)
+        self.assertEqual(report.cohorts, ())
+        with self.assertRaises(reporting.RepositoryNotFound):
+            operator_application.quality_report(
+                self.runtime,
+                repository="example-org/not-registered",
+                days=30,
+                now=now,
+            )
+
+    def test_quality_cli_renders_json_and_markdown_without_accuracy_claims(
+        self,
+    ) -> None:
+        self.register_repository()
+        environment = {**os.environ, "REVIEW_AGENT_DATABASE_URL": DSN}
+        outputs: dict[str, str] = {}
+        for output_format in ("json", "markdown"):
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "review_agent_memory.py"),
+                    "quality",
+                    "--days",
+                    "30",
+                    "--repo",
+                    self.repository,
+                    f"--{output_format}",
+                ],
+                cwd=ROOT,
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            outputs[output_format] = completed.stdout
+
+        payload = json.loads(outputs["json"])
+        self.assertEqual(payload["completed_reviews"], 0)
+        self.assertEqual(
+            payload["false_positive_signals"]["denominator_name"],
+            "published_findings",
+        )
+        self.assertIn("# Review quality", outputs["markdown"])
+        self.assertIn("False-positive decisions", outputs["markdown"])
+        for forbidden in ("accuracy", "precision", "recall"):
+            self.assertNotIn(forbidden, outputs["markdown"].casefold())
+
+    def test_quality_report_uses_explicit_signals_and_stable_cohorts(self) -> None:
+        now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+        contract = {
+            "sha256": "4" * 64,
+            "model_provider": "openai-codex",
+            "model": "gpt-5.6-sol",
+        }
+        resolved_config: dict[str, object] = {
+            "profile": "sundsvall-standard",
+            "review_contract": contract,
+        }
+        first = self.start(
+            pr_number=71,
+            request_suffix="4501",
+            paths=("src/flags.py", "src/missing.py"),
+            resolved_config=resolved_config,
+        )
+        first_batch = self.record_finding(first)
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.finding_occurrences "
+                "SET observed_at = %s WHERE review_run_id = %s",
+                (now - timedelta(days=2), first.run.id),
+            )
+        review_run_application.record_postgres_diff_observation(
+            self.runtime,
+            run_id=first.run.id,
+            paths=("src/flags.py",),
+            state=DiffState.COMPLETE,
+        )
+        review_run_application.record_postgres_diff_observation(
+            self.runtime,
+            run_id=first.run.id,
+            paths=("src/missing.py",),
+            state=DiffState.UNAVAILABLE,
+            unavailable_reason="patch_unavailable",
+        )
+        first_publication = self.publish_run(
+            first, first_batch, key_character="5"
+        )
+        operator_application.decide_finding(
+            self.runtime,
+            operator_application.OperatorDecisionRequest(
+                repository=self.repository,
+                fingerprint=first_batch.items[0].fingerprint,
+                decision="false_positive",
+                reason="The exact context has a platform-owned guard.",
+                actor="github:operator",
+                occurrence_id=int(first_batch.items[0].occurrence_id),
+                expires_days=45,
+            ),
+            now=now - timedelta(days=1, hours=2),
+        )
+
+        second_findings = (
+            self.finding(),
+            self.finding(
+                rule_id="reliability.retry-contract",
+                path="src/retry.py",
+                anchor="retry contract",
+                title="Retry contract can lose a request",
+            ),
+        )
+        second = self.start(
+            pr_number=72,
+            request_suffix="4502",
+            head_sha="e" * 40,
+            paths=tuple(item.path for item in second_findings),
+            policy_revision="profile@2",
+            resolved_config=resolved_config,
+        )
+        second_batch = self.record_finding(
+            second,
+            findings=second_findings,
+            context_hash="e" * 40,
+            head_sha="e" * 40,
+        )
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.finding_occurrences "
+                "SET observed_at = %s WHERE review_run_id = %s",
+                (now - timedelta(hours=2), second.run.id),
+            )
+        review_run_application.record_postgres_diff_observation(
+            self.runtime,
+            run_id=second.run.id,
+            paths=tuple(item.path for item in second_findings),
+            state=DiffState.COMPLETE,
+        )
+        second_publication = self.publish_run(
+            second, second_batch, key_character="6"
+        )
+        operator_application.decide_finding(
+            self.runtime,
+            operator_application.OperatorDecisionRequest(
+                repository=self.repository,
+                fingerprint=second_batch.items[1].fingerprint,
+                decision="false_positive",
+                reason="The exact retry context is covered by the queue fence.",
+                actor="github:operator",
+                occurrence_id=int(second_batch.items[1].occurrence_id),
+                expires_days=45,
+            ),
+            now=now - timedelta(hours=1),
+        )
+
+        with self.runtime.transaction() as connection:
+            scope_feedback_id = int(
+                connection.execute(
+                    """
+                    INSERT INTO review_agent.review_quality_feedback (
+                        pull_request_id, publication_id, local_reference,
+                        category, reason, actor_user_id, created_at
+                    ) VALUES (%s, %s, %s, 'scope_confusion', %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        second.run.pull_request_id,
+                        second_publication.id,
+                        second_batch.items[0].local_reference,
+                        "This finding is outside the pull request scope.",
+                        "developer-1",
+                        now - timedelta(hours=4),
+                    ),
+                ).fetchone()[0]
+            )
+            missed_rows = connection.execute(
+                """
+                INSERT INTO review_agent.review_quality_feedback (
+                    pull_request_id, publication_id, category, reason,
+                    actor_user_id, created_at
+                ) VALUES
+                    (%s, %s, 'missed_issue', %s, %s, %s),
+                    (%s, %s, 'missed_issue', %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    first.run.pull_request_id,
+                    first_publication.id,
+                    "The review missed unavailable source coverage.",
+                    "developer-2",
+                    now - timedelta(days=45),
+                    second.run.pull_request_id,
+                    second_publication.id,
+                    "The review missed the repository decision.",
+                    "developer-3",
+                    now - timedelta(hours=3),
+                ),
+            ).fetchall()
+        self.assertGreater(scope_feedback_id, 0)
+        actionable_feedback_id = int(missed_rows[1][0])
+        operator_application.triage_review_feedback(
+            self.runtime,
+            feedback_id=actionable_feedback_id,
+            status="actionable",
+            stable_key="review.missed-repository-decision",
+            target_owner="repository_decision",
+            evidence_reference="https://github.com/example-org/example-repository/issues/9",
+            path="src/flags.py",
+            category="correctness",
+            actor="github:operator",
+            reason="A focused regression confirms the missing decision context.",
+            now=now - timedelta(hours=2),
+        )
+
+        report = operator_application.quality_report(
+            self.runtime,
+            repository=self.repository,
+            days=30,
+            now=now,
+        )
+
+        self.assertEqual(report.completed_reviews, 2)
+        self.assertEqual(report.published_findings, 3)
+        self.assertEqual(report.complete_coverage_reviews, 1)
+        self.assertEqual(report.false_positive_signals.count, 2)
+        self.assertEqual(report.false_positive_signals.denominator, 3)
+        self.assertEqual(report.scope_confusion_signals.count, 1)
+        self.assertEqual(report.scope_confusion_signals.denominator, 2)
+        self.assertEqual(report.missed_issue_signals.count, 1)
+        self.assertEqual(report.missed_issue_signals.denominator, 2)
+        self.assertEqual(report.triage_backlog, 1)
+        self.assertEqual(report.oldest_triage_backlog_seconds, 45 * 24 * 60 * 60)
+        self.assertEqual(
+            tuple(
+                (item.value, item.count)
+                for item in report.actionable_missed_issues_by_target_owner
+            ),
+            (("repository_decision", 1),),
+        )
+        self.assertEqual(report.active_suppressions, 1)
+        self.assertEqual(report.suppressions_invalidated_by_context, 1)
+        self.assertEqual(report.repeat_findings_after_suppressive_decision, 1)
+        self.assertEqual(
+            {(item.value, item.count) for item in report.noisy_rule_ids},
+            {
+                ("correctness.boolean-default", 1),
+                ("reliability.retry-contract", 1),
+            },
+        )
+        self.assertEqual(
+            tuple(
+                (item.value, item.count)
+                for item in report.coverage_failure_codes
+            ),
+            (("patch_unavailable", 1),),
+        )
+        self.assertEqual(len(report.cohorts), 2)
+        self.assertEqual(
+            {item.policy_revision for item in report.cohorts},
+            {"profile@1", "profile@2"},
+        )
+        self.assertTrue(
+            all(item.review_contract_hash == "4" * 64 for item in report.cohorts)
+        )
+        self.assertTrue(
+            all(item.model_provider == "openai-codex" for item in report.cohorts)
+        )
+        markdown = quality_reporting.render_markdown(report)
+        self.assertIn("3 published findings", markdown)
+        self.assertIn("profile@2", markdown)
+        self.assertIn("Current governed state", markdown)
 
     def test_publication_listing_and_verification_export_reuse_durable_plan(
         self,

@@ -32,7 +32,9 @@ missing owner decisions into one request. Never ask me to paste secrets into
 chat. Pause only when I must approve the GitHub App, repository access, secret
 placement, DNS, model login, deployment, or the first live /review. Finish with
 doctor, inventory, dry-run, and one approved live-review result. Report exact
-versions and stable IDs, and mark unknowns as incomplete instead of guessing.
+versions and stable IDs. On Dokploy, use Deploy when the source revision changes
+and verify the completed deployment commit. Mark unknowns as incomplete instead
+of guessing.
 ```
 
 Add the target platform, public hostname, GitHub owner and repositories, and
@@ -98,11 +100,13 @@ deployment plan and its approval gates rather than a second runtime config file.
 From the exact release or commit you intend to deploy, run:
 
 ```bash
-python3 tools/review_agent_admin.py capabilities
-python3 tools/review_agent_admin.py preflight
+python3 -m venv .venv
+.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+.venv/bin/python tools/review_agent_admin.py capabilities
+.venv/bin/python tools/review_agent_admin.py preflight
 ```
 
-Both commands return bounded JSON. Capabilities reports the current App-only
+The last two commands return bounded JSON. Capabilities reports the current App-only
 contract. Preflight checks local configuration and the App key file without a
 network call, database write, or credential output.
 
@@ -148,8 +152,8 @@ Run the live checks from the deployed containers:
 ```bash
 docker compose exec hermes-review review-agent-admin doctor
 docker compose exec hermes-review review-agent-admin queues inspect
-docker compose exec hermes-review review-agent-admin installations list
-docker compose exec hermes-review review-agent-admin repositories list
+docker compose exec review-github-gateway review-agent-admin installations list
+docker compose exec review-github-gateway review-agent-admin repositories list
 docker compose exec hermes-review review-agent-admin smoke-test --dry-run \
   --repository <owner/repository> --pr <number>
 ```

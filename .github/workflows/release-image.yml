@@ -15,6 +15,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
       - name: Check out release tag
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -22,12 +24,22 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
+      - name: Record verified source
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Validate release tag
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python3 scripts/validate_release_tag.py "$RELEASE_TAG"
+
+      - name: Confirm release documentation revision
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-            echo "Release tag must use vMAJOR.MINOR.PATCH or a SemVer prerelease." >&2
+          python3 scripts/generate_llms_docs.py --check
+          if ! grep -Fxq "Release state: ${RELEASE_TAG}" website/static/llms.txt; then
+            echo "Generated LLM documentation does not match the release tag." >&2
             exit 1
           fi
 
@@ -46,11 +58,20 @@ jobs:
       attestations: write
       id-token: write
     steps:
-      - name: Check out release tag
+      - name: Check out verified source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ needs.verify.outputs.source_sha }}
           persist-credentials: false
+
+      - name: Confirm release tag still targets verified source
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+        run: |
+          git fetch --force --no-tags origin \
+            "refs/tags/${RELEASE_TAG}:refs/tags/release-candidate"
+          test "$(git rev-list -n 1 refs/tags/release-candidate)" = "$SOURCE_SHA"
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"

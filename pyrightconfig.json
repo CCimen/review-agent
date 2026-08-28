@@ -1,6 +1,7 @@
 {
   "include": [
     "bootstrap/plugins/review_agent_tools",
+    "scripts/validate_release_tag.py",
     "tools/review_agent_private_io.py",
     "tools/review_agent_private_export.py",
     "tools/review_agent_export.py",

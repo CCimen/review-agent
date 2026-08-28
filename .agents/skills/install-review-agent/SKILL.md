@@ -41,8 +41,15 @@ Read only the material needed for the requested platform:
 - `docs/OPERATIONS.md` for updates, recovery, and backup checks;
 - `docs/SECURITY.md` for credential and network boundaries.
 
-Run `python3 tools/review_agent_admin.py capabilities` from the source checkout
-before planning. It returns the shipped behavior as bounded JSON.
+Prepare the source checkout once:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+.venv/bin/python tools/review_agent_admin.py capabilities
+```
+
+The last command returns the shipped behavior as bounded JSON.
 
 ## Safety boundaries
 
@@ -75,7 +82,7 @@ before planning. It returns the shipped behavior as bounded JSON.
 3. Generate the prefilled App registration URL with:
 
    ```bash
-   python3 tools/review_agent_admin.py github-app registration-url \
+   .venv/bin/python tools/review_agent_admin.py github-app registration-url \
      --owner <account> --owner-type <user-or-organization> \
      --public-url https://<review-agent-domain> \
      --homepage-url https://<documentation-or-repository-url>
@@ -91,7 +98,9 @@ before planning. It returns the shipped behavior as bounded JSON.
    `hermes model` for OAuth, API keys, and custom endpoints. Keep provider
    secrets in Hermes' persisted credential store or Hermes-owned `.env`. The
    deployment values, not the interactive wizard, are the source of truth.
-5. Run `python3 tools/review_agent_admin.py preflight` in the prepared host
+   Do not claim live validation for a non-default provider until its deployed
+   route passes the same dry-run and live acceptance gates.
+5. Run `.venv/bin/python tools/review_agent_admin.py preflight` in the prepared host
    environment. It is local and non-mutating.
 
 Before any external write, show the exact image or commit, services, public
@@ -106,8 +115,9 @@ into another template. Change only the named environment or project. Keep the
 GitHub gateway, PostgreSQL, Hermes API, workers, and publishers private; expose
 only the admission route.
 
-On Dokploy, use **Deploy** when the source revision changes and confirm the
-expected commit. A plain **Redeploy** may reuse the existing checkout. Preserve
+On Dokploy, use **Deploy** when the source revision changes. A plain
+**Redeploy** may reuse the existing checkout. Confirm the expected commit in
+the completed deployment before running acceptance checks. Preserve
 the Hermes data volume so normal deployments retain provider credentials.
 Request setup again only when that volume changed or authentication actually
 fails. Use `hermes model` for provider setup, then rerun the managed profile
@@ -129,14 +139,22 @@ commands with `oc exec` in the matching workload.
 
 1. Run `review-agent-admin doctor` and `review-agent-admin queues inspect` in
    `hermes-review`.
-2. Reconcile and enable each approved repository from the private gateway with
-   `review-agent-admin github-app onboard <owner/name>
-   --actor <audited-identity>` in `review-github-gateway`.
+2. Reconcile and enable each approved repository from the private gateway:
+
+   ```bash
+   review-agent-admin github-app onboard <owner/name> \
+     --actor <audited-identity>
+   ```
 3. List durable repositories and confirm that the command enabled only the
    approved names.
-4. Run `review-agent-admin smoke-test --dry-run --repository <owner/name> --pr
-   <number>` in `hermes-review`. This must complete without a model call or
-   GitHub write.
+4. Run this in `hermes-review`:
+
+   ```bash
+   review-agent-admin smoke-test --dry-run \
+     --repository <owner/name> --pr <number>
+   ```
+
+   It must complete without a model call or GitHub write.
 5. Confirm backups, the exact deployed digest or commit, schema readiness, App
    identity and permissions, selected repository access, and private-service
    isolation.

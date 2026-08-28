@@ -4,6 +4,7 @@ Self-hosted, advisory pull-request review with bounded model tools, deterministi
 
 Release state: main (unreleased; pin the exact commit you inspect)
 Authentication: GitHub App only; install it on explicitly selected repositories, then enable each repository separately.
+Model policy: set REVIEW_AGENT_MODEL_PROVIDER, REVIEW_AGENT_MODEL, and REVIEW_AGENT_REASONING_EFFORT to a Hermes-supported route; the documented default uses Codex device-code OAuth.
 Trigger: an authorized maintainer posts a new top-level `/review` comment on an open same-repository pull request.
 Security boundary: the model has no shell, merge authority, App private key, installation token, or arbitrary GitHub write access.
 Feedback when enabled: `/review false-positive` requires the same finding and code context; `/review intentional` also requires the same accepted ADR metadata in the current base snapshot. `/review feedback scope` and `/review feedback missed` record evidence for gated improvement without silently changing live behavior.
@@ -20,11 +21,11 @@ Feedback when enabled: `/review false-positive` requires the same finding and co
 
 ## Coding-agent handoff
 
-Use the repository's `skills/install-review-agent/SKILL.md`. Work from an exact release or commit, read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.
+Use the repository's `skills/install-review-agent/SKILL.md`. Work from an exact release or commit, read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.
 
 ## Operator interface
 
-From the source checkout, run `python3 tools/review_agent_admin.py capabilities` and `python3 tools/review_agent_admin.py preflight`. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.
+Source checkout prerequisite: create `.venv` and install `requirements.txt` with `.venv/bin/python`. Run `.venv/bin/python tools/review_agent_admin.py capabilities` and `.venv/bin/python tools/review_agent_admin.py preflight`. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.
 
 Quality reporting: run `review-agent-memory quality --days 30` globally or add `--repo owner/repository`. It reports explicit signals beside their denominators and keeps the current triage backlog visible. Missed-issue coach input requires explicit operator triage; a coding agent must not choose the status or target owner.
 

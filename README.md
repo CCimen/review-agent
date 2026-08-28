@@ -146,3 +146,7 @@ GitHub Actions runs the same bundle for pull requests and pushes to `main`,
 builds the container, and verifies the pinned Hermes contracts used by durable
 execution. It cannot live-test your deployed routes, GitHub token approval,
 ChatGPT OAuth state, or repository rules.
+
+Maintainers publish versioned images from GitHub releases. Follow
+[RELEASING.md](RELEASING.md) for the prerelease gate, GHCR verification, and
+rollback checks.

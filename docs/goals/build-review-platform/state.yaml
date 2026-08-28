@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Completed governed missed-issue triage, honest quality reporting, coach integration, documentation, deployment, and live validation."
-  status: done
+  tranche: "Release-polish candidate complete; await the owner's license choice before preparing the first prerelease tag, then collect multi-repository scale evidence."
+  status: active
 
 rules:
   pm_owns_state: true
@@ -36,9 +36,9 @@ continuity:
   completed_write_tasks_in_thread: 9
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "861a740b242980bfc00346c2b34da7da662be1bf"
+  last_verified_revision: "f8af11c87655fb98995bd960fde663d12e6cef7d"
 
-active_task: null
+active_task: T211
 
 tasks:
   - id: T001
@@ -3270,14 +3270,185 @@ tasks:
         - "No release or tag was created; release remains a separate deliberate owner action after the pilot is accepted."
       missing_findings: []
       next_allowed_task: null
+  - id: T208
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: high
+    objective: "Audit release readiness using the live pilot evidence, with emphasis on the installation skill, generated LLM guidance, deployment provenance, setup friction, repository hygiene, and prerelease workflow."
+    constraints:
+      - "Read source, docs, workflows, and public artifacts; only edit Goal Maker control files during this audit task."
+      - "Treat multi-repository scale and alternate-provider live tests as pending prerelease validation, not proven production behavior."
+      - "Reuse current canonical owners and generated mirrors; do not add a second setup path or speculative release machinery."
+      - "Correct the stale deployment receipt before using it as release evidence."
+    allowed_files:
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Check canonical installation skill and generated Codex/Claude mirrors."
+      - "Check llms.txt and llms-full.txt freshness and setup coverage."
+      - "Check release workflow, image metadata, version/provenance surfaces, and prerelease documentation."
+      - "Check tracked repository hygiene and public Pages content."
+      - "Record the corrected exact-source deployment and live ADR feedback evidence."
+    stop_if:
+      - "The audit requires printing or moving credentials."
+      - "A release action would publish a tag or package before the candidate passes its final gate."
+    receipt:
+      result: done
+      summary: "The canonical installation skill and generated LLM files are current and the live Pages copies match. The setup path now uses one repository onboarding command and configurable Hermes provider/model policy. Release polish should tighten agent handoff wording, fix one container-command inconsistency, add maintainer release guidance and CODEOWNERS, and leave the project license as an explicit owner gate."
+      commands:
+        - cmd: "scripts/generate_llms_docs.py --check and scripts/sync_install_skill.py --check"
+          status: pass
+          summary: "Generated LLM context and both agent skill mirrors match their canonical sources."
+        - cmd: "Focused onboarding, docs, workflow, and image-contract tests"
+          status: pass
+          summary: "49 focused tests passed."
+        - cmd: "Public Pages and workflow inspection"
+          status: pass
+          summary: "The live llms.txt and AI-assisted setup page are current, and the release-triggered GHCR workflow is active."
+        - cmd: "Repository and release-surface audit"
+          status: needs_owner
+          summary: "No project-level LICENSE or CODEOWNERS exists. The license cannot be chosen on the owner's behalf."
+      evidence:
+        - "Dokploy deployment QcSJxRQBzZ5t_2QkFONwp fetched and deployed exact source f8af11c; this supersedes T207's stale-checkout redeploy as source-provenance evidence."
+        - "Live pull request 3 loaded ADR-TEST-0001 from the exact base, published finding F1 after an explicit violation, recorded missed and intentional feedback, and suppressed F1 on the unchanged re-review."
+        - "The App-only release workflow validates SemVer tags, smoke-tests the image, publishes amd64 and arm64 images, emits SBOM and provenance, attests the digest, and reserves latest for stable releases."
+      spawned_tasks:
+        - T209
+  - id: T209
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: default
+    objective: "Apply the smallest release-candidate polish to the canonical setup skill, generated LLM handoff, AI-assisted setup commands, repository ownership, and maintainer release procedure."
+    constraints:
+      - "Keep one canonical installation skill and regenerate its Codex and Claude mirrors."
+      - "Do not add a license until the repository owner chooses it."
+      - "Do not publish a tag, GitHub release, package, or stable-production claim in this task."
+      - "Keep multi-repository scale and alternate-provider live validation as explicit prerelease follow-up evidence."
+      - "Prefer concise maintainer guidance over a release framework or changelog generator."
+    allowed_files:
+      - README.md
+      - RELEASING.md
+      - .gitignore
+      - .github/CODEOWNERS
+      - .github/workflows/release-image.yml
+      - pyrightconfig.json
+      - docs/AI_ASSISTED_SETUP.md
+      - docs/GITHUB_APP_PILOT.md
+      - skills/install-review-agent/SKILL.md
+      - .agents/skills/install-review-agent/SKILL.md
+      - .claude/skills/install-review-agent/SKILL.md
+      - scripts/generate_llms_docs.py
+      - scripts/validate_release_tag.py
+      - website/static/llms.txt
+      - website/static/llms-full.txt
+      - tests/test_ai_onboarding.py
+      - tests/test_docs_contract.py
+      - tests/test_ci_workflow.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Generated installation-skill mirrors and LLM files are current."
+      - "Focused onboarding, docs, and release-workflow contracts pass."
+      - "Docusaurus typecheck, production build, and exact public-route check pass."
+      - "Strict Pyright, Ruff, app-only candidate gate, and git diff checks pass."
+      - "One broad bundle and one stable peer quality gate pass before commit."
+    stop_if:
+      - "The polish needs a new service, dependency, release framework, compatibility path, or secret."
+      - "A project license, external ruleset, or release publication requires an unresolved owner decision."
+      - "A live deployment must change before the documentation can remain truthful."
+    receipt:
+      result: done
+      summary: "Prepared a bounded prerelease candidate with one canonical setup skill, synchronized Codex and Claude mirrors, current LLM handoff files, runnable source-checkout commands, repository ownership, concise maintainer release guidance, and release-image provenance guards. No tag, package, license, runtime deployment, or production-scale claim was added."
+      commands:
+        - cmd: "Focused onboarding, release-workflow, and documentation contracts"
+          status: pass
+          summary: "43 focused tests passed, including generated-file synchronization, runnable operator commands, exact release-source handoff, SemVer validation, and exact release-metadata checks."
+        - cmd: "Python 3.14 full unit bundle"
+          status: pass
+          summary: "575 tests passed and 190 live PostgreSQL/service tests were skipped by the local unit harness; the App-only candidate gate passed."
+        - cmd: "Ruff and strict Pyright"
+          status: pass
+          summary: "Ruff passed and Pyright reported zero errors, warnings, or informational diagnostics, including the new standard-library release-tag validator."
+        - cmd: "Docusaurus typecheck, production build, and route contract"
+          status: pass
+          summary: "TypeScript passed, the optimized documentation site built successfully, and all 13 declared public documents and routes were present."
+        - cmd: "Installation skill validation and packaging"
+          status: pass
+          summary: "The canonical skill validated and packaged successfully; both generated mirrors match it exactly."
+        - cmd: "Claude Opus high release gate"
+          status: pass
+          summary: "The resumed Claude release-polish gate returned green with score 8 after the bounded fixes."
+        - cmd: "Codex gpt-5.6-sol xhigh release gate"
+          status: pass
+          summary: "The resumed Codex gate returned GREEN_LIGHT yes with score 8 and no open P0-P3 findings after exact release-tag and generated-document checks were added."
+      evidence:
+        - "The release workflow builds only the verified tag SHA, rechecks the tag target before publication, validates SemVer, and requires generated LLM metadata to match the exact release tag."
+        - "The source-checkout path creates .venv, installs requirements, and invokes .venv/bin/python explicitly so separate agent shell calls remain reliable."
+        - "RELEASING.md keeps multi-repository scale, backup recovery, arm64 runtime, and alternate-provider validation as explicit prerelease evidence rather than proven production claims."
+      owner_gates:
+        - "Choose the project license before the first open-source prerelease."
+        - "Set the generated documentation REVISION to the exact release tag and commit it before tagging."
+      spawned_tasks:
+        - T210
+  - id: T210
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: high
+    objective: "Audit the frozen release-polish candidate and decide whether it is safe to commit and push without publishing a release."
+    constraints:
+      - "Do not invent the project license."
+      - "Do not publish a tag, release, or package."
+      - "Do not repeat peer-review cycles after one clean final gate."
+    allowed_files:
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Confirm every T209 file is present, generated artifacts are current, and no secret or local build artifact is tracked."
+      - "Confirm the validation and peer-review receipts satisfy the tranche acceptance criteria."
+    stop_if:
+      - "Any P0-P3 peer finding remains open or the release workflow can publish a different source than the reviewed tag."
+    receipt:
+      result: done
+      decision: proceed
+      summary: "Approved the release-polish commit and push. The candidate is technically ready for an owner-selected-license prerelease, while live multi-repository scale, recovery, arm64 runtime, and alternate-provider claims remain deliberately unproven."
+      missing_findings: []
+      next_allowed_task: "After the owner chooses a license, add it, set the exact prerelease revision, regenerate the LLM files, and publish one v0.1.0-rc.1 release from a separately verified commit."
+  - id: T211
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Prepare the first prerelease only after the owner chooses a project license, then collect bounded multi-repository pilot evidence from repositories the owner explicitly adds to the GitHub App."
+    constraints:
+      - "Do not choose a license on the owner's behalf."
+      - "Do not add repositories to the GitHub App installation without explicit owner selection."
+      - "Do not claim multi-repository scale, arm64 runtime, recovery, or alternate-provider support before live evidence exists."
+      - "Keep prerelease preparation separate from the already reviewed release-polish commit."
+    allowed_files:
+      - LICENSE*
+      - RELEASING.md
+      - scripts/generate_llms_docs.py
+      - website/static/llms.txt
+      - website/static/llms-full.txt
+      - docs/goals/build-review-platform/**
+    verify:
+      - "The owner-selected license is present and linked from the public project surfaces."
+      - "Generated release metadata equals the exact prerelease tag before tagging."
+      - "The release workflow publishes the verified digest and the package remains a prerelease."
+      - "Selected pilot repositories preserve repository isolation, profile assignment, queue fairness, and bounded publication rights."
+    stop_if:
+      - "The license, pilot repository set, release authorization, or safe test pull requests have not been provided by the owner."
+    receipt: null
 
 checks:
-  dirty_fingerprint: "clean-at-861a740"
+  dirty_fingerprint: "reviewed-release-polish-candidate-on-f8af11c"
   last_verification:
     result: pass
-    task: T207
+    task: T210
     commands:
-      - "App-only, documentation, generated LLM, install-skill, tracked-secret, and residual-authentication audit"
-      - "Python bundle run 33143185488 at revision 861a740"
-      - "Dokploy deployment gTrGYcN3hSg7vyFMAfbfF and post-deploy container/log inspection"
-      - "Live PR 2 request 5448636016 and published Review 3 comment 5448644133"
+      - "575-test Python 3.14 unit bundle plus App-only candidate gate"
+      - "Strict Pyright, Ruff, YAML parsing, generated-file synchronization, and git diff checks"
+      - "Docusaurus typecheck, optimized build, and 13-route documentation contract"
+      - "Canonical installation-skill validation and packaging"
+      - "Claude Opus high and Codex gpt-5.6-sol xhigh green release gates"
+      - "Release source-SHA, SemVer, exact generated revision, GHCR metadata, SBOM, provenance, and attestation audit"

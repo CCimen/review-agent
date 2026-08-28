@@ -38,6 +38,22 @@ def sequence(value: object) -> list[object]:
 
 
 class DocsContractTests(unittest.TestCase):
+    def test_release_candidate_guidance_keeps_prerelease_claims_bounded(self):
+        release = read("RELEASING.md")
+        codeowners = read(".github/CODEOWNERS")
+
+        self.assertIn(
+            "Add the project license chosen by the repository owner", release
+        )
+        self.assertIn("mark it **Pre-release**", release)
+        self.assertIn("does not update `latest`", release)
+        self.assertIn("Deploy the immutable digest", release)
+        self.assertIn("multi-repository scale", release)
+        self.assertIn("Update `REVISION`", release)
+        self.assertIn("arm64 runtime", release)
+        self.assertIn("Dispatch **Publish documentation**", words(release))
+        self.assertIn("* @CCimen", codeowners)
+
     def test_feedback_quality_docs_use_explicit_denominators_and_human_triage(self):
         feedback = read("docs/FEEDBACK_AND_DECISIONS.md")
         operations = read("docs/OPERATIONS.md")

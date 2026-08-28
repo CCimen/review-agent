@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -8,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release-image.yml"
+RELEASE_TAG_CHECK = ROOT / "scripts" / "validate_release_tag.py"
 IMAGE_CHECK = ROOT / "scripts" / "check_image.sh"
 POSTGRES_CHECK = ROOT / "scripts" / "check_postgres_schema.sh"
 ROADMAP = ROOT / "docs" / "ROADMAP.md"
@@ -113,16 +116,33 @@ permissions:
         self.assertEqual(source.count("packages: write"), 1)
         self.assertIn("group: release-image", source)
         self.assertIn("needs: verify", source)
+        self.assertIn("source_sha: ${{ steps.source.outputs.sha }}", source)
+        self.assertIn("ref: ${{ needs.verify.outputs.source_sha }}", source)
+        self.assertIn("python3 scripts/validate_release_tag.py", source)
+        self.assertIn("python3 scripts/generate_llms_docs.py --check", source)
+        self.assertIn(
+            'grep -Fxq "Release state: ${RELEASE_TAG}" website/static/llms.txt',
+            source,
+        )
+        self.assertIn(
+            "Generated LLM documentation does not match the release tag.",
+            source,
+        )
         self.assertEqual(source.count("persist-credentials: false"), 2)
         self.assertEqual(
-            source.count("ref: ${{ github.event.release.tag_name }}"), 2
+            source.count("ref: ${{ github.event.release.tag_name }}"), 1
         )
+        self.assertEqual(source.count("ref: ${{ needs.verify.outputs.source_sha }}"), 1)
+        self.assertIn("git rev-list -n 1 refs/tags/release-candidate", source)
         self.assertIn("docker build --tag review-agent:release-candidate .", source)
         self.assertIn(
             "bash ./scripts/check_image.sh review-agent:release-candidate", source
         )
         self.assertIn("RELEASE_TAG: ${{ github.event.release.tag_name }}", source)
-        self.assertIn("Release tag must use vMAJOR.MINOR.PATCH", source)
+        self.assertIn(
+            "Release tag must use vMAJOR.MINOR.PATCH",
+            RELEASE_TAG_CHECK.read_text(encoding="utf-8"),
+        )
         self.assertIn("platforms: linux/amd64,linux/arm64", source)
         self.assertIn("type=raw,value=${{ github.event.release.tag_name }}", source)
         self.assertIn(
@@ -152,6 +172,40 @@ permissions:
         )
         for action in actions:
             self.assertRegex(action, r"@[0-9a-f]{40}$")
+
+    def test_release_tag_validator_enforces_semver_prerelease_identifiers(self):
+        for tag in (
+            "v0.1.0",
+            "v0.1.0-rc.1",
+            "v1.2.3-alpha.beta-2",
+        ):
+            with self.subTest(tag=tag):
+                completed = subprocess.run(
+                    [sys.executable, str(RELEASE_TAG_CHECK), tag],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(0, completed.returncode, completed.stderr)
+
+        for tag in (
+            "0.1.0",
+            "v01.2.3",
+            "v1.02.3",
+            "v1.2.03",
+            "v0.1.0-01",
+            "v0.1.0-rc.01",
+            "v0.1",
+            "v0.1.0+build",
+        ):
+            with self.subTest(tag=tag):
+                completed = subprocess.run(
+                    [sys.executable, str(RELEASE_TAG_CHECK), tag],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(0, completed.returncode)
 
     def test_postgresql_contract_uses_pinned_loopback_only_databases(self):
         source = POSTGRES_CHECK.read_text(encoding="utf-8")

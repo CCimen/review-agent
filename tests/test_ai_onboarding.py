@@ -42,13 +42,14 @@ class AiOnboardingContractTests(unittest.TestCase):
         short = (ROOT / "website/static/llms.txt").read_text(encoding="utf-8")
         full = (ROOT / "website/static/llms-full.txt").read_text(encoding="utf-8")
         self.assertIn("Authentication: GitHub App only", short)
+        self.assertIn("REVIEW_AGENT_MODEL_PROVIDER", short)
+        self.assertIn("use Deploy when the source revision changes", short)
         self.assertIn("AI-assisted setup", short)
         self.assertIn("## Coding-agent handoff", short)
         self.assertIn("skills/install-review-agent/SKILL.md", short)
-        self.assertIn(
-            "python3 tools/review_agent_admin.py capabilities", short
-        )
-        self.assertIn("python3 tools/review_agent_admin.py preflight", short)
+        self.assertIn("install `requirements.txt`", short)
+        self.assertIn(".venv/bin/python tools/review_agent_admin.py capabilities", short)
+        self.assertIn(".venv/bin/python tools/review_agent_admin.py preflight", short)
         self.assertIn("review-agent-memory quality --days 30", short)
         self.assertIn("explicit operator triage", short)
         self.assertNotIn("`review-agent-admin capabilities`", short)
@@ -94,11 +95,24 @@ class AiOnboardingContractTests(unittest.TestCase):
         )
         combined = f"{setup}\n{skill}"
         self.assertIn("skills/install-review-agent/SKILL.md", setup)
-        self.assertIn("python3 tools/review_agent_admin.py capabilities", combined)
-        self.assertIn("python3 tools/review_agent_admin.py preflight", combined)
+        self.assertIn("python3 -m venv .venv", combined)
+        self.assertIn(
+            ".venv/bin/python tools/review_agent_admin.py capabilities", combined
+        )
+        self.assertIn(
+            ".venv/bin/python tools/review_agent_admin.py preflight", combined
+        )
         self.assertIn("--homepage-url", combined)
         self.assertIn(
             "docker compose exec hermes-review review-agent-admin doctor", setup
+        )
+        self.assertIn(
+            "docker compose exec review-github-gateway review-agent-admin installations list",
+            setup,
+        )
+        self.assertIn(
+            "docker compose exec review-github-gateway review-agent-admin repositories list",
+            setup,
         )
         self.assertIn(
             "docker compose exec review-github-gateway review-agent-admin",

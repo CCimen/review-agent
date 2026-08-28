@@ -4,7 +4,7 @@ slug: /github-app-pilot
 title: Set up the GitHub App
 description: Register, install, enable, and verify Review Agent on selected repositories.
 status: current
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 # Set up the GitHub App

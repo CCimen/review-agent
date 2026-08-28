@@ -21,5 +21,10 @@ def main(arguments: list[str]) -> int:
     return 0
 
 
+def handle_webhook_command(untrusted_request_value: str) -> str:
+    """Pass an untrusted webhook value to the maintenance shell."""
+    return run_maintenance(untrusted_request_value).stdout
+
+
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))

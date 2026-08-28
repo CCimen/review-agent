@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 ---
 
@@ -10,7 +10,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/overview
 Source: https://github.com/CCimen/review-agent/blob/main/docs/OVERVIEW.md
 Status: current
 Last verified: 2026-08-25
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Review Agent
 
@@ -205,7 +205,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/getting-started
 Source: https://github.com/CCimen/review-agent/blob/main/docs/GETTING_STARTED.md
 Status: current
 Last verified: 2026-08-26
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Getting started
 
@@ -298,7 +298,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/deployment
 Source: https://github.com/CCimen/review-agent/blob/main/docs/DEPLOYMENT.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Deploy Review Agent
 
@@ -622,7 +622,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/github-app-pilot
 Source: https://github.com/CCimen/review-agent/blob/main/docs/GITHUB_APP_PILOT.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Set up the GitHub App
 
@@ -829,7 +829,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/ai-assisted-setup
 Source: https://github.com/CCimen/review-agent/blob/main/docs/AI_ASSISTED_SETUP.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Set up with a coding agent
 
@@ -1039,7 +1039,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/how-reviews-work
 Source: https://github.com/CCimen/review-agent/blob/main/docs/HOW_REVIEWS_WORK.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # How reviews work
 
@@ -1137,7 +1137,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/behavior-ownership
 Source: https://github.com/CCimen/review-agent/blob/main/docs/BEHAVIOR_OWNERSHIP.md
 Status: current
 Last verified: 2026-08-24
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Behavior ownership
 
@@ -1228,7 +1228,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/faq
 Source: https://github.com/CCimen/review-agent/blob/main/docs/FAQ.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Frequently asked questions
 
@@ -1344,7 +1344,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/roadmap
 Source: https://github.com/CCimen/review-agent/blob/main/docs/ROADMAP.md
 Status: current
 Last verified: 2026-08-26
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Capabilities and boundaries
 
@@ -1415,7 +1415,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/operations
 Source: https://github.com/CCimen/review-agent/blob/main/docs/OPERATIONS.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Operations
 
@@ -1990,7 +1990,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
 Source: https://github.com/CCimen/review-agent/blob/main/docs/FEEDBACK_AND_DECISIONS.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Feedback and design decisions
 
@@ -2266,8 +2266,8 @@ Title: Security model
 Canonical URL: https://ccimen.github.io/review-agent/docs/security
 Source: https://github.com/CCimen/review-agent/blob/main/docs/SECURITY.md
 Status: current
-Last verified: 2026-08-26
-Review Agent revision: v0.1.0-rc.1
+Last verified: 2026-08-28
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Security model
 
@@ -2386,6 +2386,26 @@ The best integration is to let deterministic scanners produce their own results
 and, later, optionally let the reviewer summarize or prioritize those results.
 Do not make the model the source of truth for CVE/GHSA status.
 
+## Release inventories
+
+Releases built from this revision attach inventories generated from the
+published image digests, not from a source lockfile:
+
+- CycloneDX JSON, SPDX JSON, and a readable Syft table for `linux/amd64` and
+  `linux/arm64`;
+- a focused CycloneDX 1.7 inventory of the Python packages installed in the
+  shipped `linux/amd64` Hermes environment;
+- the scanned image digests and SHA-256 checksums for every inventory file.
+
+The image inventories describe the whole shipped container. The focused Python
+inventory makes application dependencies easier to inspect. BuildKit's
+registry SBOM and provenance, the image attestation, and the downloadable file
+attestation remain separate evidence tied to the same release.
+
+An inventory is evidence about what shipped, not a vulnerability verdict.
+Verify downloaded files with the checksums and GitHub attestation before using
+them in audit or scanner workflows.
+
 ## Human-governed suppressions
 
 Only a GitHub collaborator with current write or admin permission, or an
@@ -2442,7 +2462,7 @@ Canonical URL: https://ccimen.github.io/review-agent/docs/example-review
 Source: https://github.com/CCimen/review-agent/blob/main/examples/comments/example-review.md
 Status: current
 Last verified: 2026-08-21
-Review Agent revision: v0.1.0-rc.1
+Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
 
 # Example review
 

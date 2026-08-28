@@ -14,7 +14,7 @@ MANIFEST = ROOT / "website" / "public-documents.json"
 STATIC = ROOT / "website" / "static"
 BASE_URL = "https://ccimen.github.io/review-agent"
 SOURCE_BASE = "https://github.com/CCimen/review-agent/blob/main"
-REVISION = "v0.1.0-rc.1"
+REVISION = "main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)"
 FRONTMATTER = re.compile(r"\A---\n(?P<header>.*?)\n---\n", re.DOTALL)
 TAB_ITEM = re.compile(r'^<TabItem\b[^>]*\blabel="(?P<label>[^"]+)"[^>]*>$')
 DIRECTIVE = re.compile(r"^(?P<indent>\s*):::(?P<kind>[a-z]+)\[(?P<title>[^]]+)]$")

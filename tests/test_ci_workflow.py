@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -10,6 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release-image.yml"
+RELEASE_SBOM = ROOT / "scripts" / "generate_release_sbom.sh"
+PYTHON_RUNTIME_SBOM = ROOT / "scripts" / "generate_python_runtime_sbom.sh"
+RELEASE_SBOM_REQUIREMENTS = ROOT / "requirements-release-sbom.txt"
 RELEASE_TAG_CHECK = ROOT / "scripts" / "validate_release_tag.py"
 IMAGE_CHECK = ROOT / "scripts" / "check_image.sh"
 POSTGRES_CHECK = ROOT / "scripts" / "check_postgres_schema.sh"
@@ -128,11 +135,11 @@ permissions:
             "Generated LLM documentation does not match the release tag.",
             source,
         )
-        self.assertEqual(source.count("persist-credentials: false"), 2)
+        self.assertEqual(source.count("persist-credentials: false"), 3)
         self.assertEqual(
             source.count("ref: ${{ github.event.release.tag_name }}"), 1
         )
-        self.assertEqual(source.count("ref: ${{ needs.verify.outputs.source_sha }}"), 1)
+        self.assertEqual(source.count("ref: ${{ needs.verify.outputs.source_sha }}"), 2)
         self.assertIn("git rev-list -n 1 refs/tags/release-candidate", source)
         self.assertIn("docker build --tag review-agent:release-candidate .", source)
         self.assertIn(
@@ -160,13 +167,19 @@ permissions:
         self.assertEqual(
             actions,
             [
-                "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
-                "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+                "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+                "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
                 "docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130",
                 "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
                 "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9",
                 "docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051",
                 "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8",
+                "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+                "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+                "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+                "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9",
+                "anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610",
+                "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
                 "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
             ],
         )
@@ -206,6 +219,280 @@ permissions:
                     text=True,
                 )
                 self.assertNotEqual(0, completed.returncode)
+
+    def test_release_workflow_attaches_immutable_release_sboms(self):
+        source = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("needs: [verify, publish]", source)
+        self.assertIn("image_digest: ${{ steps.push.outputs.digest }}", source)
+        self.assertIn("contents: write", source)
+        self.assertIn("packages: read", source)
+        self.assertIn("artifact-metadata: write", source)
+        self.assertIn("scripts/generate_release_sbom.sh", source)
+        self.assertIn("EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}", source)
+        self.assertIn("subject-path: release-sbom/*", source)
+        self.assertIn("gh release upload", source)
+        self.assertIn("--clobber", source)
+
+        self.assertTrue(RELEASE_SBOM.is_file())
+        release_sbom = RELEASE_SBOM.read_text(encoding="utf-8")
+        for contract in (
+            "for architecture in amd64 arm64",
+            '--platform "linux/$architecture"',
+            "registry:$digest_ref",
+            "cyclonedx-json",
+            "spdx-json",
+            "syft-table",
+            "IMAGE-DIGESTS.txt",
+            "SBOM-SHA256SUMS.txt",
+            "EXPECTED_IMAGE_DIGEST",
+        ):
+            self.assertIn(contract, release_sbom)
+
+        self.assertTrue(PYTHON_RUNTIME_SBOM.is_file())
+        runtime_sbom = PYTHON_RUNTIME_SBOM.read_text(encoding="utf-8")
+        for contract in (
+            "/opt/hermes/.venv/bin/python",
+            "/cdx/requirements-release-sbom.txt",
+            "--require-hashes",
+            "--spec-version \"$CYCLONEDX_SPEC_VERSION\"",
+            "--output-reproducible",
+            "--validate",
+            "installed Python distributions",
+        ):
+            self.assertIn(contract, runtime_sbom)
+        tool_lock = RELEASE_SBOM_REQUIREMENTS.read_text(encoding="utf-8")
+        self.assertIn("cyclonedx-bom==7.3.1", tool_lock)
+        self.assertIn("--hash=sha256:", tool_lock)
+
+    def test_release_sbom_generation_uses_only_immutable_digests(self):
+        manifest_digest = "sha256:" + "c" * 64
+        amd64_digest = "sha256:" + "a" * 64
+        arm64_digest = "sha256:" + "b" * 64
+        manifest = {
+            "schemaVersion": 2,
+            "manifests": [
+                {
+                    "digest": amd64_digest,
+                    "platform": {"os": "linux", "architecture": "amd64"},
+                },
+                {
+                    "digest": arm64_digest,
+                    "platform": {"os": "linux", "architecture": "arm64"},
+                },
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            fake_bin = temporary / "bin"
+            output = temporary / "output"
+            calls = temporary / "calls.jsonl"
+            fake_bin.mkdir()
+
+            docker = fake_bin / "docker"
+            docker.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import json
+                    import os
+                    from pathlib import Path
+                    import sys
+
+                    arguments = sys.argv[1:]
+                    with open(os.environ["CALLS_LOG"], "a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(["docker", *arguments]) + "\\n")
+
+                    if arguments[:3] == ["buildx", "imagetools", "inspect"]:
+                        if arguments[-1] != "--raw":
+                            raise SystemExit("only the immutable raw manifest may be read")
+                        if arguments[3] != os.environ["EXPECTED_MANIFEST_REF"]:
+                            raise SystemExit("manifest was not selected by immutable digest")
+                        print(os.environ["RAW_MANIFEST"])
+                        raise SystemExit(0)
+
+                    if arguments[0] == "run":
+                        output_mount = next(
+                            value.split(":", 1)[0]
+                            for index, value in enumerate(arguments)
+                            if arguments[index - 1] == "-v" and value.endswith(":/out")
+                        )
+                        output_name = Path(arguments[-1]).name
+                        target = Path(output_mount) / output_name
+                        target.write_text(
+                            json.dumps(
+                                {
+                                    "bomFormat": "CycloneDX",
+                                    "specVersion": "1.7",
+                                    "components": [{"name": "runtime", "version": "1"}],
+                                }
+                            ),
+                            encoding="utf-8",
+                        )
+                        raise SystemExit(0)
+
+                    raise SystemExit("unexpected docker command")
+                    """
+                ),
+                encoding="utf-8",
+            )
+            docker.chmod(0o755)
+
+            syft = fake_bin / "syft"
+            syft.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env python3
+                    import json
+                    import os
+                    from pathlib import Path
+                    import sys
+
+                    arguments = sys.argv[1:]
+                    with open(os.environ["CALLS_LOG"], "a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(["syft", *arguments]) + "\\n")
+                    for index, argument in enumerate(arguments):
+                        if argument != "-o":
+                            continue
+                        output_format, output_path = arguments[index + 1].split("=", 1)
+                        if output_format == "cyclonedx-json":
+                            value = {
+                                "bomFormat": "CycloneDX",
+                                "components": [{"name": "image", "version": "1"}],
+                            }
+                        elif output_format == "spdx-json":
+                            value = {
+                                "spdxVersion": "SPDX-2.3",
+                                "packages": [{"name": "image"}],
+                            }
+                        else:
+                            Path(output_path).write_text("NAME VERSION\\nimage 1\\n", encoding="utf-8")
+                            continue
+                        Path(output_path).write_text(json.dumps(value), encoding="utf-8")
+                    """
+                ),
+                encoding="utf-8",
+            )
+            syft.chmod(0o755)
+
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "CALLS_LOG": str(calls),
+                    "CYCLONEDX_SPEC_VERSION": "1.7",
+                    "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "EXPECTED_MANIFEST_REF": (
+                        f"ghcr.io/example/review-agent@{manifest_digest}"
+                    ),
+                    "PATH": f"{fake_bin}{os.pathsep}{environment['PATH']}",
+                    "RAW_MANIFEST": json.dumps(manifest),
+                    "SYFT_CMD": str(syft),
+                }
+            )
+            completed = subprocess.run(
+                [
+                    str(RELEASE_SBOM),
+                    "ghcr.io/example/review-agent",
+                    "v1.2.3",
+                    str(output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+
+            recorded_calls = [
+                json.loads(line)
+                for line in calls.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                [
+                    "docker",
+                    "buildx",
+                    "imagetools",
+                    "inspect",
+                    f"ghcr.io/example/review-agent@{manifest_digest}",
+                    "--raw",
+                ],
+                recorded_calls[0],
+            )
+            syft_sources = [call[1] for call in recorded_calls if call[0] == "syft"]
+            self.assertEqual(
+                [
+                    f"registry:ghcr.io/example/review-agent@{amd64_digest}",
+                    f"registry:ghcr.io/example/review-agent@{arm64_digest}",
+                ],
+                syft_sources,
+            )
+            runtime_call = next(
+                call for call in recorded_calls if call[:2] == ["docker", "run"]
+            )
+            self.assertEqual(
+                f"ghcr.io/example/review-agent@{amd64_digest}", runtime_call[-3]
+            )
+            checksums = (output / "SBOM-SHA256SUMS.txt").read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(8, len(checksums.splitlines()))
+            checksum_check = subprocess.run(
+                ["sha256sum", "--check", "SBOM-SHA256SUMS.txt"],
+                cwd=output,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, checksum_check.returncode, checksum_check.stderr)
+
+    def test_release_sbom_requires_one_digest_for_each_platform(self):
+        manifest_digest = "sha256:" + "c" * 64
+        base_manifest = {
+            "schemaVersion": 2,
+            "manifests": [
+                {
+                    "digest": "sha256:" + "b" * 64,
+                    "platform": {"os": "linux", "architecture": "arm64"},
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            docker = temporary / "docker"
+            docker.write_text(
+                "#!/bin/sh\nprintf '%s\\n' \"$RAW_MANIFEST\"\n",
+                encoding="utf-8",
+            )
+            docker.chmod(0o755)
+            syft = temporary / "syft"
+            syft.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+            syft.chmod(0o755)
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "CYCLONEDX_SPEC_VERSION": "1.7",
+                    "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "PATH": f"{temporary}{os.pathsep}{environment['PATH']}",
+                    "RAW_MANIFEST": json.dumps(base_manifest),
+                    "SYFT_CMD": str(syft),
+                }
+            )
+            completed = subprocess.run(
+                [
+                    str(RELEASE_SBOM),
+                    "ghcr.io/example/review-agent",
+                    "v1.2.3",
+                    str(temporary / "output"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertNotEqual(0, completed.returncode)
+            self.assertIn("expected exactly one linux/amd64 image", completed.stderr)
 
     def test_postgresql_contract_uses_pinned_loopback_only_databases(self):
         source = POSTGRES_CHECK.read_text(encoding="utf-8")

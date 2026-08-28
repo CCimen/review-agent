@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "The owner selected EUPL-1.2, Version 1.2 only; finish its repository surfaces before preparing the first prerelease tag, then collect multi-repository scale evidence."
+  tranche: "The first prerelease is published; add downloadable, attested release SBOMs before the owner authorizes a later candidate and immutable pilot redeploy."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "f8af11c87655fb98995bd960fde663d12e6cef7d"
 
-active_task: T214
+active_task: T216
 
 tasks:
   - id: T001
@@ -3527,7 +3527,7 @@ tasks:
   - id: T214
     type: pm
     assignee: PM
-    status: active
+    status: blocked
     reasoning_hint: default
     objective: "Prepare and publish the first prerelease only after the owner explicitly authorizes its exact tag."
     constraints:
@@ -3547,6 +3547,102 @@ tasks:
       - "GHCR, SBOM, provenance, digest, and immutable pilot deployment match that commit."
     stop_if:
       - "The owner has not authorized an exact prerelease tag."
+    receipt:
+      result: blocked
+      summary: "Published v0.1.0-rc.1 from ded8d61544ed62a2a53a915ed4288b8a46e0c328 after exact Python and documentation CI passed. GHCR published a public amd64/arm64 index at sha256:b8c88d6fcf7023ae9016479e3c985822f7f2a2e32a9be441cd2288505a6114e5 with BuildKit SBOM, provenance, and GitHub attestation. The owner redirected the next slice to downloadable CycloneDX release assets before the immutable pilot redeploy, so that final deployment verification remains pending."
+      evidence:
+        - "GitHub prerelease: https://github.com/CCimen/review-agent/releases/tag/v0.1.0-rc.1"
+        - "Python bundle: https://github.com/CCimen/review-agent/actions/runs/33160610497"
+        - "Documentation: https://github.com/CCimen/review-agent/actions/runs/33160610489"
+        - "Image publication and attestation: https://github.com/CCimen/review-agent/actions/runs/33160902314"
+      next_allowed_task: T215
+  - id: T215
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: medium
+    objective: "Publish downloadable, attested CycloneDX and SPDX inventories for each released image platform, plus one focused Python runtime inventory generated from the shipped environment."
+    constraints:
+      - "Keep the existing BuildKit SBOM and provenance attestations; do not create a competing image-build or release path."
+      - "Scan immutable platform digests, never only a mutable tag or source requirements file."
+      - "Use CycloneDX 1.7 for the focused Python runtime inventory and validate that installed distributions are represented."
+      - "Keep the workflow bounded to the one Review Agent image and two published Linux platforms."
+      - "Do not alter or backfill the already-published v0.1.0-rc.1 from a different source commit."
+    allowed_files:
+      - .github/workflows/release-image.yml
+      - scripts/generate_release_sbom.sh
+      - scripts/generate_python_runtime_sbom.sh
+      - requirements-release-sbom.in
+      - requirements-release-sbom.txt
+      - tests/test_ci_workflow.py
+      - docs/SECURITY.md
+      - RELEASING.md
+      - scripts/generate_llms_docs.py
+      - website/static/llms.txt
+      - website/static/llms-full.txt
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Release workflow contract tests prove SBOM generation waits for the published immutable image and retains exact-source checks."
+      - "Generation tests prove one manifest and exactly one amd64 and arm64 digest are recorded, every machine-readable file is non-empty and valid, and checksums cover every release asset."
+      - "The Python runtime inventory is generated from /opt/hermes/.venv in the released image and validates installed distributions against CycloneDX 1.7 components."
+      - "The full Python bundle, generated documentation, and production documentation build pass."
+    stop_if:
+      - "Generating an accurate runtime inventory would require modifying the shipped image."
+      - "The registry does not expose both published platform digests."
+      - "The SBOM tool cannot validate CycloneDX 1.7 for the installed Python runtime."
+    receipt:
+      result: pass
+      summary: "Added one post-publish release job that scans only the immutable published manifest and its amd64/arm64 digests, attaches attested CycloneDX, SPDX, readable, digest, checksum, and focused Python-runtime inventories, and keeps the existing BuildKit SBOM and provenance path intact."
+      changed_files:
+        - .github/workflows/release-image.yml
+        - requirements-release-sbom.in
+        - requirements-release-sbom.txt
+        - scripts/generate_release_sbom.sh
+        - scripts/generate_python_runtime_sbom.sh
+        - tests/test_ci_workflow.py
+        - docs/SECURITY.md
+        - RELEASING.md
+        - scripts/generate_llms_docs.py
+        - website/static/llms.txt
+        - website/static/llms-full.txt
+        - docs/goals/build-review-platform/state.yaml
+      commands:
+        - cmd: "immutable SBOM generation against ghcr.io/ccimen/review-agent:v0.1.0-rc.1"
+          status: pass
+          summary: "Both platform inventories validated, the focused Python inventory matched all 139 installed distributions, and all eight checksums passed."
+        - cmd: "scripts/check_bundle.sh"
+          status: pass
+          summary: "Strict Pyright, the App-only gate, YAML validation, and 580 tests passed with 190 environment-dependent skips."
+        - cmd: "Docusaurus production build, 13-route docs contract, generated LLM and installation-skill checks"
+          status: pass
+          summary: "Public documentation and generated agent context are current."
+        - cmd: "Codex peer-loop session review-agent-release-sbom-t215"
+          status: pass
+          summary: "The resumable high-effort gate reached green at 9/10 after verified in-scope fixes."
+      evidence:
+        - "The generation scripts ran against public v0.1.0-rc.1 at manifest sha256:b8c88d6fcf7023ae9016479e3c985822f7f2a2e32a9be441cd2288505a6114e5; both platform inventories validated, all 139 installed Python distributions matched CycloneDX 1.7, and all eight checksums passed."
+        - "The CycloneDX generator and its dependency closure are hash-locked; the runtime inventory is collected before the separate tool environment is installed."
+        - "The full bundle passed with strict Pyright, the App-only gate, and 580 tests; the production documentation build and 13 public routes passed."
+        - "The one resumable Codex gate ended green at 9/10 after the immutable-digest race and two bounded reviewability findings were fixed."
+      next_allowed_task: T216
+  - id: T216
+    type: pm
+    assignee: PM
+    status: active
+    objective: "Choose the next exact prerelease only after owner authorization, verify its downloadable SBOM assets, then deploy its immutable digest to the pilot and complete the deferred release receipt."
+    constraints:
+      - "Do not invent or publish the next tag without owner authorization."
+      - "Do not change the live pilot until the new release workflow and assets pass."
+    allowed_files:
+      - RELEASING.md
+      - scripts/generate_llms_docs.py
+      - website/static/llms.txt
+      - website/static/llms-full.txt
+      - docs/goals/build-review-platform/**
+    verify:
+      - "The authorized tag, source commit, image digest, SBOM assets, provenance, deployment, and live doctor result agree."
+    stop_if:
+      - "The owner has not authorized an exact next tag."
 
 checks:
   dirty_fingerprint: "eupl-1.2-version-1.2-only-license-candidate-on-a993760"

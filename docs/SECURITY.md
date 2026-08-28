@@ -4,7 +4,7 @@ slug: /security
 title: Security model
 description: Trust boundaries, tool surface, prompt-injection posture, token scopes, and data handling.
 status: current
-last_verified: 2026-08-26
+last_verified: 2026-08-28
 ---
 
 # Security model
@@ -123,6 +123,26 @@ Keep deterministic dependency controls in CI:
 The best integration is to let deterministic scanners produce their own results
 and, later, optionally let the reviewer summarize or prioritize those results.
 Do not make the model the source of truth for CVE/GHSA status.
+
+## Release inventories
+
+Releases built from this revision attach inventories generated from the
+published image digests, not from a source lockfile:
+
+- CycloneDX JSON, SPDX JSON, and a readable Syft table for `linux/amd64` and
+  `linux/arm64`;
+- a focused CycloneDX 1.7 inventory of the Python packages installed in the
+  shipped `linux/amd64` Hermes environment;
+- the scanned image digests and SHA-256 checksums for every inventory file.
+
+The image inventories describe the whole shipped container. The focused Python
+inventory makes application dependencies easier to inspect. BuildKit's
+registry SBOM and provenance, the image attestation, and the downloadable file
+attestation remain separate evidence tied to the same release.
+
+An inventory is evidence about what shipped, not a vulnerability verdict.
+Verify downloaded files with the checksums and GitHub attestation before using
+them in audit or scanner workflows.
 
 ## Human-governed suppressions
 

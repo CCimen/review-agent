@@ -37,13 +37,24 @@ git diff --check
    `main` commit.
 2. Create a GitHub release, mark it **Pre-release**, and publish concise notes:
    shipped behavior, setup path, validation evidence, known gaps, and rollback.
-3. Wait for **Publish container image**. It smoke-tests the native image, publishes
-   `linux/amd64` and `linux/arm64`, creates an SBOM and provenance, and attests
-   the registry digest. A prerelease does not update `latest`.
-4. Confirm `ghcr.io/ccimen/review-agent:<tag>` resolves to the workflow digest.
+3. Wait for **Publish container image**. It smoke-tests the native image,
+   publishes `linux/amd64` and `linux/arm64`, creates registry SBOM and
+   provenance attestations, then scans the published platform digests. A
+   prerelease does not update `latest`.
+4. Confirm the release contains per-platform CycloneDX JSON, SPDX JSON, and
+   readable tables; the focused Python-runtime CycloneDX file;
+   `IMAGE-DIGESTS.txt`; and `SBOM-SHA256SUMS.txt`. Confirm
+   `ghcr.io/ccimen/review-agent:<tag>` resolves to the recorded workflow digest.
    Make the package public in GitHub Package settings if anonymous pulls are
    part of the release.
-5. Deploy the immutable digest to the pilot. Run `doctor`, queue inspection,
+5. Verify downloaded inventory files before using them:
+
+   ```bash
+   gh attestation verify ./SBOM-SHA256SUMS.txt --repo CCimen/review-agent
+   sha256sum --check SBOM-SHA256SUMS.txt
+   ```
+
+6. Deploy the immutable digest to the pilot. Run `doctor`, queue inspection,
    repository inventory, a dry-run smoke test, and one owner-approved `/review`.
 
 ## Roll back

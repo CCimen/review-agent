@@ -125,6 +125,8 @@ def generate() -> tuple[str, str]:
         "",
         "From the source checkout, run `python3 tools/review_agent_admin.py capabilities` and `python3 tools/review_agent_admin.py preflight`. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.",
         "",
+        "Quality reporting: run `review-agent-memory quality --days 30` globally or add `--repo owner/repository`. It reports explicit signals beside their denominators and keeps the current triage backlog visible. Missed-issue coach input requires explicit operator triage; a coding agent must not choose the status or target owner.",
+        "",
         f"Full public documentation: {BASE_URL}/llms-full.txt",
         "Source: https://github.com/CCimen/review-agent",
         "",

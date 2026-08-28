@@ -3154,6 +3154,35 @@ tasks:
     status: active
     reasoning_hint: default
     objective: "Update the public docs, generated LLM guidance, and operator examples for triage and quality reporting, then deploy GitHub Pages."
+    constraints:
+      - "Document the shipped PostgreSQL commands and human-governed workflow; do not imply automatic prompt, skill, profile, or policy changes."
+      - "Explain each signal beside its real denominator and distinguish the requested activity window from the current triage backlog."
+      - "Keep one canonical installation skill and regenerate its Codex and Claude mirrors; do not hand-copy skill bodies."
+      - "Keep the public setup concise and secret-safe. Operators must choose triage status and owner; coding agents may not invent classifications."
+    allowed_files:
+      - docs/AI_ASSISTED_SETUP.md
+      - docs/FEEDBACK_AND_DECISIONS.md
+      - docs/OPERATIONS.md
+      - skills/install-review-agent/SKILL.md
+      - .agents/skills/install-review-agent/SKILL.md
+      - .claude/skills/install-review-agent/SKILL.md
+      - scripts/generate_llms_docs.py
+      - website/static/llms.txt
+      - website/static/llms-full.txt
+      - tests/test_ai_onboarding.py
+      - tests/test_docs_contract.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Generated LLM context and installation-skill mirrors are current."
+      - "Documentation contracts cover quality denominators, current triage backlog, explicit human classification, and coach eligibility."
+      - "Docusaurus production build and local search index pass."
+      - "One broad bundle after focused documentation checks pass."
+      - "One stable Claude commit gate with score at least 8."
+      - "GitHub Pages workflow completes for the pushed documentation revision."
+    stop_if:
+      - "The docs require an operator command, triage transition, model-provider path, or deployment behavior that the current product does not ship."
+      - "The workflow would let missing feedback imply correctness or let a coding agent classify feedback without an explicit operator decision."
+      - "Generated LLM guidance requires a second hand-maintained skill or documentation owner."
     receipt: null
   - id: T207
     type: judge

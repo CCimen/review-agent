@@ -4,14 +4,15 @@ slug: /feedback-and-decisions
 title: Feedback and design decisions
 description: Use review feedback to improve reviewer quality and record repository decisions that later changes must respect.
 status: current
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 # Feedback and design decisions
 
-> **Current**: Feedback collection, statistics, private coaching, and typed
-> repository decisions are active. Intentional feedback is accepted only when
-> it matches the finding's exact stored base-commit ADR snapshot and path.
+> **Current**: Feedback collection, operator triage, denominator-based quality
+> reporting, private coaching, and typed repository decisions are active.
+> Intentional feedback is accepted only when it matches the finding's exact
+> stored base-commit ADR snapshot and path.
 
 Review feedback has two jobs. It corrects one finding when the code disproves it,
 and it gives operators evidence for later reviewer improvements. Teams should
@@ -34,26 +35,77 @@ The App reacts with `+1` after it stores valid feedback. It reacts with
 `confused` and posts one explanation for stale references or invalid commands.
 A changed code context requires a fresh review.
 
-## Review quality without self-modifying prompts
+## Measure review quality
 
-Review Agent keeps behavior changes behind human review. Use this operating
-rhythm before changing the profile or code.
+Run the quality report each week in the `hermes-review` container:
 
-### Each week
-
-Run global statistics in the operator container:
-
-```bash
-review-agent-memory runs --stats --days 30
-review-agent-memory stats
+```console
+review-agent-memory quality --days 30
+review-agent-memory quality --days 30 --repo <org>/<repo>
 ```
 
-Repeat both commands with `--repo <org>/<repo>` for repositories with failures,
-repeat findings, or quality feedback. The output contains counts, so compare it
-with review volume and coverage. A repository with more reviews will tend to
-produce more feedback.
+The default Markdown report keeps each signal beside its denominator:
 
-### Each month
+- false-positive decisions beside published findings;
+- scope-confusion and missed-issue feedback beside completed reviews.
+
+The activity table also shows how many completed reviews had complete coverage.
+
+Use `--json` for an internal reporting job. The report does not infer accuracy
+from missing feedback. A quiet repository may have no feedback or no reviews.
+The current triage backlog includes pending missed issues created before the
+requested activity window, so old unresolved work stays visible.
+
+The cohort table groups completed reviews by repository, profile, review
+contract, provider, model, and policy revision. Compare like-for-like cohorts
+before changing reviewer behavior. Do not rank developers or repositories from
+the counts.
+
+## Triage a missed issue
+
+Only an operator classifies missed-issue feedback. A coding agent may prepare
+the evidence and command, but it must not choose the status or target owner.
+
+An operator exports one repository and locates the missed-issue row under
+`review_quality_feedback`:
+
+```console
+review-agent-memory export \
+  --repo <org>/<repo> \
+  --row-limit <per-table-row-limit> \
+  --output /opt/data/private-review/export.json
+```
+
+Treat this as a private operator artifact. Do not give the export to a coding
+agent or paste it into model context. The operator supplies the selected
+feedback ID and evidence, runs the triage command, and removes the export after
+triage.
+
+Mark a confirmed issue actionable with a stable lowercase key and one owner:
+
+```console
+review-agent-memory triage-feedback <feedback-id> \
+  --status actionable \
+  --stable-key coverage.generated-files \
+  --target-owner coverage \
+  --path src/generated/client.py \
+  --category correctness \
+  --evidence-reference https://github.com/<org>/<repo>/issues/<number> \
+  --actor "github:<operator>" \
+  --reason "The review skipped generated code that changes the public client."
+```
+
+Target owners are `source_tool`, `coverage`, `review_rule`, `profile`,
+`repository_decision`, and `documentation`. Use `pending`, `duplicate`,
+`insufficient`, or `resolved` without `--stable-key` and `--target-owner` when
+the evidence does not call for a coach candidate.
+
+Triage is append-only. The latest triage state controls the current backlog and
+coach eligibility. Only the latest `actionable` state with a stable key and
+target owner can enter a coach proposal. A later `resolved`, `duplicate`, or
+`insufficient` state removes that eligibility without deleting the audit trail.
+
+## Review improvement
 
 Run the private coach for one repository with enough evidence:
 
@@ -78,9 +130,8 @@ change the canonical owner through a normal pull request. Do not run Hermes
 | Intentional design | Accepted ADR and affected paths | ADR mapping or a narrow design replay |
 | Accepted risk | Owner, expiry, and remediation plan | Governance record or planned engineering work |
 
-Do not rank developers or repositories from raw feedback counts. The coach
-exports omit actor identities, and teams should keep that privacy property when
-they build internal reports.
+Coach exports omit actor identities. Keep that privacy property in internal
+reports.
 
 ## Record an intentional design
 
@@ -220,6 +271,6 @@ The runtime now:
   ADR metadata hash still match;
 - continues the source review when GitHub or ADR parsing fails.
 
-The first release will not add a dashboard, repository instruction injection,
-directory listing, symbol graph, vector database, author inference, or automatic
-policy promotion.
+The runtime has no dashboard, repository instruction injection, directory
+listing, symbol graph, vector database, author inference, or automatic policy
+promotion.

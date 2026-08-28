@@ -49,6 +49,8 @@ class AiOnboardingContractTests(unittest.TestCase):
             "python3 tools/review_agent_admin.py capabilities", short
         )
         self.assertIn("python3 tools/review_agent_admin.py preflight", short)
+        self.assertIn("review-agent-memory quality --days 30", short)
+        self.assertIn("explicit operator triage", short)
         self.assertNotIn("`review-agent-admin capabilities`", short)
         self.assertNotIn("docs/goals/", full)
         self.assertNotIn("/Users/", full)
@@ -101,6 +103,12 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertIn(
             "docker compose exec review-github-gateway review-agent-admin",
             skill,
+        )
+        self.assertIn("review-agent-memory quality --days 30", skill)
+        self.assertIn("Do not classify feedback for the operator", skill)
+        self.assertIn(
+            "Never read, quote, or summarize the raw export",
+            " ".join(skill.split()),
         )
 
         parser = _admin_module()._parser()

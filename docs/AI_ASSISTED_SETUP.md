@@ -4,7 +4,7 @@ slug: /ai-assisted-setup
 title: Set up with a coding agent
 description: Give Codex, Claude Code, or another coding agent a safe, verifiable Review Agent installation contract.
 status: current
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 # Set up with a coding agent
@@ -173,6 +173,17 @@ request:
 Verify one accepted App delivery, one review run and durable job, and one
 terminal publication or deterministic failure status. Confirm that no duplicate
 publication appeared and that the result belongs to the expected head SHA.
+
+Record a baseline after the live test:
+
+```console
+docker compose exec hermes-review \
+  review-agent-memory quality --days 30 --repo <owner/repository>
+```
+
+The agent may explain the denominators and current backlog. It must not classify
+feedback, promote a coach proposal, or change the reviewer profile without an
+operator decision.
 
 Test feedback only when you want to validate the feedback path. The exact
 commands and recovery checks are in [Operations](./OPERATIONS.md).

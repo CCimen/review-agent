@@ -10,8 +10,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
+sys.path.insert(0, str(ROOT / "tools"))
 
 from review_agent_tools import review_contract  # noqa: E402
+from review_agent_tools.domain.feedback import FeedbackTargetOwner  # noqa: E402
+import review_agent_memory  # noqa: E402
 
 
 def read(relative: str) -> str:
@@ -35,6 +38,58 @@ def sequence(value: object) -> list[object]:
 
 
 class DocsContractTests(unittest.TestCase):
+    def test_feedback_quality_docs_use_explicit_denominators_and_human_triage(self):
+        feedback = read("docs/FEEDBACK_AND_DECISIONS.md")
+        operations = read("docs/OPERATIONS.md")
+        combined = words(f"{feedback}\n{operations}")
+
+        self.assertIn("review-agent-memory quality --days 30", combined)
+        self.assertIn("review-agent-memory triage-feedback", combined)
+        self.assertIn("published findings", combined)
+        self.assertIn("completed reviews", combined)
+        self.assertIn("current triage backlog", combined)
+        self.assertIn("does not infer accuracy from missing feedback", combined)
+        self.assertIn("Only an operator classifies", combined)
+        for owner in FeedbackTargetOwner:
+            self.assertIn(owner.value, combined)
+        self.assertIn("latest triage state", combined)
+        self.assertIn("Do not give the export to a coding agent", combined)
+
+        parser = review_agent_memory._parser()
+        commands = (
+            (
+                "quality",
+                "--days",
+                "30",
+                "--repo",
+                "owner/repository",
+                "--json",
+            ),
+            (
+                "triage-feedback",
+                "1",
+                "--status",
+                "actionable",
+                "--stable-key",
+                "coverage.generated-files",
+                "--target-owner",
+                "coverage",
+                "--path",
+                "src/generated/client.py",
+                "--category",
+                "correctness",
+                "--evidence-reference",
+                "https://github.com/owner/repository/issues/1",
+                "--actor",
+                "github:operator",
+                "--reason",
+                "The review skipped a changed public client.",
+            ),
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                parser.parse_args(command)
+
     def test_feedback_guide_separates_current_behavior_from_adr_extension(self):
         guide = read("docs/FEEDBACK_AND_DECISIONS.md")
         sidebar = read("website/sidebars.ts")

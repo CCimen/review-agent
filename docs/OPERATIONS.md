@@ -3,7 +3,7 @@ sidebar_label: Operations
 slug: /operations
 title: Operations
 status: current
-last_verified: 2026-08-27
+last_verified: 2026-08-28
 ---
 
 # Operations
@@ -348,6 +348,33 @@ through `accepted`, `fetching_pr`, `collecting_diff`, `reviewing`, `rendering`,
 `publishing`, and `posted`.
 
 ## Memory And Decisions
+
+Generate the weekly quality report:
+
+```console
+review-agent-memory quality --days 30
+review-agent-memory quality --days 30 --repo <org>/<repo> --json
+```
+
+The Markdown default shows explicit signal counts, denominators, current triage
+backlog, coverage, and persisted review-contract cohorts. It does not infer
+accuracy from missing feedback. The activity window does not hide an older
+current triage backlog.
+
+Only an operator classifies a missed issue. Export the repository to identify
+the feedback row, then append a triage state:
+
+```console
+review-agent-memory triage-feedback <feedback-id> \
+  --status actionable \
+  --stable-key review-rule.auth-boundary \
+  --target-owner review_rule \
+  --actor "github:<operator>" \
+  --reason "Two independent reviews missed the same authorization boundary."
+```
+
+See [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) for the owner
+vocabulary, private-export boundary, and state-to-coach rules.
 
 List findings:
 

@@ -1,6 +1,6 @@
 ---
 name: install-review-agent
-description: Plan, deploy, verify, upgrade, or recover the self-hosted Review Agent and connect its GitHub App to explicitly selected repositories. Use for Review Agent installation, organization onboarding, Dokploy or Compose deployment, OpenShift setup, repository activation, readiness checks, smoke tests, upgrades, and rollback. Do not use to change reviewer findings or bypass owner, secret, OAuth, DNS, deployment, or live-review approval gates.
+description: Plan, deploy, verify, upgrade, or recover the self-hosted Review Agent, connect its GitHub App to explicitly selected repositories, and establish the initial quality baseline. Use for Review Agent installation, organization onboarding, Dokploy or Compose deployment, OpenShift setup, repository activation, readiness checks, smoke tests, initial quality reporting, upgrades, and rollback. Do not use to classify reviewer feedback or bypass owner, secret, OAuth, DNS, deployment, or live-review approval gates.
 ---
 
 # Install Review Agent
@@ -159,6 +159,23 @@ no duplicate publication
 Read the published GitHub result and deployment state. Test feedback only when
 the user approves a real feedback comment. Do not claim success from webhook
 receipt, queue state, or container health alone.
+
+## Establish the quality baseline
+
+After the live acceptance check, run this in `hermes-review`:
+
+```bash
+review-agent-memory quality --days 30 --repo <owner/name>
+```
+
+Explain each signal beside its reported denominator and keep the current triage
+backlog separate from the activity window. Do not calculate an accuracy score
+from missing feedback. Do not classify feedback for the operator. If the
+operator requests triage, the operator must handle the private repository
+export and supply the selected feedback ID and evidence. Never read, quote, or
+summarize the raw export. Present the allowed states, wait for the operator to
+choose the status and target owner, and ask the operator to remove the export
+after triage.
 
 ## Report and recover
 

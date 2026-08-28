@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 8
+  completed_write_tasks_in_thread: 9
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "0d9acedea087d0ffef683b158026d3a3e1de9acb"
 
-active_task: T206
+active_task: T207
 
 tasks:
   - id: T001
@@ -3151,7 +3151,7 @@ tasks:
   - id: T206
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Update the public docs, generated LLM guidance, and operator examples for triage and quality reporting, then deploy GitHub Pages."
     constraints:
@@ -3183,22 +3183,69 @@ tasks:
       - "The docs require an operator command, triage transition, model-provider path, or deployment behavior that the current product does not ship."
       - "The workflow would let missing feedback imply correctness or let a coding agent classify feedback without an explicit operator decision."
       - "Generated LLM guidance requires a second hand-maintained skill or documentation owner."
-    receipt: null
+    receipt:
+      result: done
+      summary: "Published concise operator, feedback, quality, and AI-assisted setup guidance from one canonical installation skill, with explicit human triage and private raw-export boundaries."
+      files:
+        - docs/AI_ASSISTED_SETUP.md
+        - docs/FEEDBACK_AND_DECISIONS.md
+        - docs/OPERATIONS.md
+        - skills/install-review-agent/SKILL.md
+        - scripts/generate_llms_docs.py
+        - tests/test_ai_onboarding.py
+        - tests/test_docs_contract.py
+      commands:
+        - cmd: "Focused documentation and onboarding tests"
+          status: pass
+          summary: "37 contracts passed, including exact documented parser examples, canonical target-owner vocabulary, and private raw-export guidance."
+        - cmd: "Docusaurus typecheck, production build, and local search index"
+          status: pass
+          summary: "The site built successfully and indexed the quality and triage sections."
+        - cmd: "scripts/check_bundle.sh"
+          status: pass
+          summary: "573 tests passed with 190 environment-gated skips; strict Pyright and bundle contracts passed."
+        - cmd: "Claude Opus/high stable commit gate"
+          status: pass
+          summary: "Session review-agent-quality-docs reached green at score 8 on iteration 2 after closing the raw-export privacy contradiction and strengthening executable command contracts."
+        - cmd: "GitHub Pages and Python bundle workflows"
+          status: pass
+          summary: "Pages run 33142977247 and Python bundle run 33142977178 completed successfully for commit 8d042ed."
+      evidence:
+        - "Live Pages exposes the quality and triage guide, and llms.txt describes the App-only feedback workflow."
+        - "Operators choose status and target owner; coding agents receive only the selected feedback ID and evidence."
+        - "The canonical installation skill generates both agent mirrors and LLM guidance without a second hand-maintained setup path."
   - id: T207
     type: judge
     assignee: Judge
-    status: queued
+    status: active
     reasoning_hint: high
     objective: "Audit the complete feedback-quality tranche, deploy the reviewed candidate, and validate the live Review Agent behavior."
+    constraints:
+      - "Audit the exact pushed revision before deployment; do not widen the product scope or create a release."
+      - "Deploy only to the authorized Dokploy Sundsvall Utveckling compose service and validate only CCimen/review-agent."
+      - "Preserve the GitHub App-only and PostgreSQL-only product boundary, existing Hermes OAuth state, and unrelated repository files."
+      - "Treat deployment or live-test defects as blockers; document adjacent improvements instead of expanding the final slice."
+    allowed_files:
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Clean repository at origin/main with successful Pages and Python bundle workflows."
+      - "Final residual, secret, packaging, configuration, and documentation audit."
+      - "Dokploy deploys the exact reviewed revision and all long-running services become healthy."
+      - "Operator doctor, installation and repository inventory, dry-run smoke test, quality report, and live review behavior pass for CCimen/review-agent."
+    stop_if:
+      - "The deployment would target another tenant, organization, repository, or unreviewed revision."
+      - "A secret would be printed, copied into the repository, or exposed in command output."
+      - "A blocker requires production-code changes outside the declared final-audit owner; create a bounded repair task instead."
     receipt: null
 
 checks:
-  dirty_fingerprint: "t205-quality-report-candidate"
+  dirty_fingerprint: "t207-final-audit"
   last_verification:
     result: pass
-    task: T205
+    task: T206
     commands:
-      - "Strict Pyright with zero diagnostics and 572-test bundle"
-      - "12 focused real-PostgreSQL reporting and CLI tests"
-      - "Ruff and git diff --check"
-      - "Claude Opus/high session review-agent-quality-report iteration 2 green at score 8"
+      - "37 focused documentation and onboarding contracts"
+      - "Docusaurus typecheck, production build, and local search index"
+      - "573-test bundle with strict Pyright"
+      - "Claude Opus/high session review-agent-quality-docs iteration 2 green at score 8"
+      - "GitHub Pages run 33142977247 and Python bundle run 33142977178"

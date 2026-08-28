@@ -1698,9 +1698,11 @@ review-agent-admin jobs retry <id>
 review-agent-admin jobs cancel <id>
 ```
 
-`jobs retry` cannot revive failed or dead-letter work. Post a new `/review` after
-you correct a terminal failure. `cancel-job` fences a leased worker by failing
-the owning run and reconciling its job in one transaction.
+`jobs retry` cannot revive failed or dead-letter work. Dead letters remain in
+the queue report as terminal history, but they do not consume capacity or make
+`doctor` and dry-run smoke tests fail. Inspect the failure, correct its cause,
+and post a new `/review`. `cancel-job` fences a leased worker by failing the
+owning run and reconciling its job in one transaction.
 
 Inspect recent runs:
 

@@ -208,7 +208,7 @@ class OperatorSetupTests(unittest.TestCase):
                 queued=1,
                 leased=1,
                 expired_leases=0,
-                dead_letters=0,
+                dead_letters=2,
             ),
             publication_queue=publications.PublicationQueueHealth(
                 pending=1,
@@ -283,7 +283,7 @@ class OperatorSetupTests(unittest.TestCase):
                 queued=2,
                 leased=1,
                 expired_leases=0,
-                dead_letters=0,
+                dead_letters=2,
             ),
             publication_queue=publications.PublicationQueueHealth(
                 pending=0,
@@ -332,6 +332,60 @@ class OperatorSetupTests(unittest.TestCase):
                 "repository_id": 9001,
             },
         )
+
+    def test_queue_readiness_still_rejects_work_that_needs_recovery(self) -> None:
+        blocking_states = (
+            (100, 0, 0, operator_setup.OperatorCapacityUnavailable),
+            (0, 1, 0, ValueError),
+            (0, 0, 1, ValueError),
+        )
+
+        for active, expired_leases, expired_publications, error in blocking_states:
+            with self.subTest(
+                active=active,
+                expired_leases=expired_leases,
+                expired_publications=expired_publications,
+            ):
+                snapshot = operator_application.DeploymentHealth(
+                    github_app=github_app.GitHubAppAccessHealth(
+                        active_installations=1,
+                        invalid_active_installations=0,
+                        repositories=1,
+                        enabled_repositories=1,
+                    ),
+                    review_queue=jobs.ReviewQueueHealth(
+                        active=active,
+                        queued=0,
+                        leased=0,
+                        expired_leases=expired_leases,
+                        dead_letters=2,
+                    ),
+                    publication_queue=publications.PublicationQueueHealth(
+                        pending=0,
+                        posting=0,
+                        expired_recoverable=expired_publications,
+                        expired_exhausted=0,
+                    ),
+                )
+                gateway = Mock()
+
+                with (
+                    patch.object(
+                        operator_setup.operator_application,
+                        "deployment_health",
+                        return_value=snapshot,
+                    ),
+                    self.assertRaises(error),
+                ):
+                    operator_setup.smoke_test(
+                        {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": "100"},
+                        runtime=Mock(),
+                        gateway=gateway,
+                        repository="CCimen/review-agent",
+                        pr_number=42,
+                    )
+
+                gateway.operator_smoke.assert_not_called()
 
 
 class OperatorAdminCliTests(unittest.TestCase):

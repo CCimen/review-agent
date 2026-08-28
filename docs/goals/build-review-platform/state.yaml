@@ -3461,15 +3461,19 @@ tasks:
     assignee: PM
     status: active
     reasoning_hint: default
-    objective: "Prepare the first prerelease when the owner authorizes it, then collect bounded multi-repository pilot evidence from repositories the owner explicitly selects."
+    objective: "Collect bounded multi-repository pilot evidence from the repositories the owner selected, fixing direct validation blockers before preparing a prerelease when the owner authorizes it."
     constraints:
       - "Do not publish a tag or release without explicit owner authorization."
       - "Do not add repositories to the GitHub App installation without explicit owner selection."
       - "Do not claim multi-repository scale, recovery, arm64 runtime, or alternate-provider support before live evidence exists."
       - "Keep the released source, generated revision, container digest, SBOM, provenance, and release notes tied to one verified commit."
+      - "Preserve terminal queue history; fix readiness policy rather than deleting failed jobs."
     allowed_files:
       - RELEASING.md
+      - bootstrap/plugins/review_agent_tools/operator_setup.py
+      - docs/OPERATIONS.md
       - scripts/generate_llms_docs.py
+      - tests/test_operator_admin.py
       - website/static/llms.txt
       - website/static/llms-full.txt
       - docs/goals/build-review-platform/**

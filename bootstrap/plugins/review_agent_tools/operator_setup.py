@@ -348,7 +348,7 @@ def _validate_queues(
         raise OperatorCapacityUnavailable(
             "review queue has reached its active job limit"
         )
-    if queue.expired_leases or queue.dead_letters:
+    if queue.expired_leases:
         raise ValueError("review queue requires operator recovery")
     publication_queue = snapshot.publication_queue
     if publication_queue.expired_recoverable or publication_queue.expired_exhausted:
@@ -456,7 +456,9 @@ def doctor(
                     "queues",
                     (
                         f"Review queue has {snapshot.review_queue.active}/"
-                        f"{settings.active_job_limit} active jobs and no expired work"
+                        f"{settings.active_job_limit} active jobs, "
+                        f"{snapshot.review_queue.dead_letters} dead-letter record(s), "
+                        "and no expired work"
                     ),
                     "Review or publication queues need recovery or capacity",
                     lambda: _validate_queues(snapshot, settings.active_job_limit),

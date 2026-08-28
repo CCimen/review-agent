@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Complete governed missed-issue triage, honest quality reporting, coach integration, documentation, and final deployment validation."
-  status: active
+  tranche: "Completed governed missed-issue triage, honest quality reporting, coach integration, documentation, deployment, and live validation."
+  status: done
 
 rules:
   pm_owns_state: true
@@ -25,7 +25,7 @@ agents:
   judge: installed
 
 continuity:
-  rotate_threads: true
+  rotate_threads: false
   rotation_authorized_by: "Repository owner: continue without stopping and use read-only subagents where useful."
   rotate_after_completed_write_tasks: 4
   rotate_after_hours: 6
@@ -36,9 +36,9 @@ continuity:
   completed_write_tasks_in_thread: 9
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "0d9acedea087d0ffef683b158026d3a3e1de9acb"
+  last_verified_revision: "861a740b242980bfc00346c2b34da7da662be1bf"
 
-active_task: T207
+active_task: null
 
 tasks:
   - id: T001
@@ -3217,7 +3217,7 @@ tasks:
   - id: T207
     type: judge
     assignee: Judge
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the complete feedback-quality tranche, deploy the reviewed candidate, and validate the live Review Agent behavior."
     constraints:
@@ -3236,16 +3236,48 @@ tasks:
       - "The deployment would target another tenant, organization, repository, or unreviewed revision."
       - "A secret would be printed, copied into the repository, or exposed in command output."
       - "A blocker requires production-code changes outside the declared final-audit owner; create a bounded repair task instead."
-    receipt: null
+    receipt:
+      result: complete
+      decision: complete
+      summary: "Approved the complete tranche after a clean repository audit, successful CI and Pages publication, exact-source Dokploy deployment, healthy runtime inspection, and a fresh end-to-end GitHub App review."
+      verified_revision: "861a740b242980bfc00346c2b34da7da662be1bf"
+      commands:
+        - cmd: "App-only, docs, generated LLM, and installation-skill gates"
+          status: pass
+          summary: "The App-only candidate, 13 public documents, generated LLM context, and both generated skill mirrors are current."
+        - cmd: "Tracked-file, secret-path, and residual authentication audit"
+          status: pass
+          summary: "The worktree is clean; no private-key, credential, PAT, SQLite, or obsolete Actions review path is tracked. GitHub's workflow token remains only for release-triggered GHCR publication."
+        - cmd: "GitHub Actions"
+          status: pass
+          summary: "Python bundle run 33143185488 passed at the final pushed revision; Pages run 33142977247 and the preceding full candidate bundle also passed."
+        - cmd: "Dokploy deployment gTrGYcN3hSg7vyFMAfbfF"
+          status: pass
+          summary: "Sundsvall Utveckling deployed main after revision 861a740; PostgreSQL and all six long-running application services are running, health-checked services are healthy, and both one-shot jobs exited zero."
+        - cmd: "Post-deployment service-log audit"
+          status: pass
+          summary: "No error, exception, traceback, fatal, critical, or unhealthy line appeared in any running service. Hermes' generic local-terminal warning is contained by an internal runtime network with Traefik disabled."
+        - cmd: "Fresh live /review on CCimen/review-agent pull request 2"
+          status: pass
+          summary: "Request comment 5448636016 received the eyes acknowledgement; delivery 15 was accepted and Review 3 was published as bot comment 5448644133."
+        - cmd: "Operator doctor and dry-run smoke baseline"
+          status: pass
+          summary: "The operator's existing live checks reported database, signed profile, GitHub App, Hermes, installation, repository, and queue readiness; the new quality command is covered by the deployed 573-test candidate and focused real-PostgreSQL contracts."
+      evidence:
+        - "The live review exercised webhook verification, repository admission, PostgreSQL queues, GitHub App installation authentication, Hermes OAuth/model execution, deterministic publication, and acknowledgement reactions."
+        - "Bot-authored follow-up deliveries were ignored intentionally, preventing publication loops."
+        - "The public docs and llms.txt are live and describe the human-governed feedback and quality workflow."
+        - "No release or tag was created; release remains a separate deliberate owner action after the pilot is accepted."
+      missing_findings: []
+      next_allowed_task: null
 
 checks:
-  dirty_fingerprint: "t207-final-audit"
+  dirty_fingerprint: "clean-at-861a740"
   last_verification:
     result: pass
-    task: T206
+    task: T207
     commands:
-      - "37 focused documentation and onboarding contracts"
-      - "Docusaurus typecheck, production build, and local search index"
-      - "573-test bundle with strict Pyright"
-      - "Claude Opus/high session review-agent-quality-docs iteration 2 green at score 8"
-      - "GitHub Pages run 33142977247 and Python bundle run 33142977178"
+      - "App-only, documentation, generated LLM, install-skill, tracked-secret, and residual-authentication audit"
+      - "Python bundle run 33143185488 at revision 861a740"
+      - "Dokploy deployment gTrGYcN3hSg7vyFMAfbfF and post-deploy container/log inspection"
+      - "Live PR 2 request 5448636016 and published Review 3 comment 5448644133"

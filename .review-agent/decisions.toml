@@ -1,0 +1,6 @@
+version = 1
+
+[[decision]]
+id = "ADR-TEST-0001"
+adr_path = "docs/decisions/ADR-TEST-0001-trusted-maintenance-command.md"
+applies_to = ["examples/adr_feedback_validation.py"]

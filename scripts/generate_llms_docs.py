@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "website" / "public-documents.json"
 STATIC = ROOT / "website" / "static"
 BASE_URL = "https://ccimen.github.io/review-agent"
-SOURCE_BASE = "https://github.com/CCimen/review-agent/blob/main"
-REVISION = "main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)"
+REVISION = "v0.1.0-rc.2"
+SOURCE_BASE = f"https://github.com/CCimen/review-agent/blob/{REVISION}"
 FRONTMATTER = re.compile(r"\A---\n(?P<header>.*?)\n---\n", re.DOTALL)
 TAB_ITEM = re.compile(r'^<TabItem\b[^>]*\blabel="(?P<label>[^"]+)"[^>]*>$')
 DIRECTIVE = re.compile(r"^(?P<indent>\s*):::(?P<kind>[a-z]+)\[(?P<title>[^]]+)]$")
@@ -121,7 +121,7 @@ def generate() -> tuple[str, str]:
         "",
         "## Coding-agent handoff",
         "",
-        "Use the repository's `skills/install-review-agent/SKILL.md`. Work from an exact release or commit, read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.",
+        "If no source checkout was provided, clone this repository and check out the exact release named above. Then use the versioned repository-local `skills/install-review-agent/SKILL.md`; Codex and Claude Code mirrors are included, so do not install a floating global copy. Read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.",
         "",
         "## Operator interface",
         "",

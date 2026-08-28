@@ -10,31 +10,34 @@ last_verified: 2026-08-28
 # Set up with a coding agent
 
 > **TL;DR:** A coding agent can prepare, deploy, and verify Review Agent when it
-> has the source checkout, the non-secret installation plan, and access to your
-> deployment tools. You still approve the GitHub App, selected repositories,
-> secrets, model login, DNS, deployment, and first real `/review`.
+> has this page and access to your source and deployment tools. If no checkout
+> exists, the assignment below tells it how to fetch the exact release and use
+> the versioned installation skill. You still approve the GitHub App, selected
+> repositories, secrets, model login, DNS, deployment, and first real `/review`.
 
-Send the agent this page or the repository's
-[`llms.txt`](https://ccimen.github.io/review-agent/llms.txt). For the most
-predictable setup, also ask it to use
-[`install-review-agent`](https://github.com/CCimen/review-agent/tree/main/skills/install-review-agent)
-from the source checkout.
+Send the agent **this page** and the assignment below. That is enough as the
+human handoff: the agent follows the machine-readable index, checks out the
+declared release, and uses the repository-local installation skill. You do not
+need to install the skill globally or collect the linked guides yourself.
 
 ## Give this assignment to your agent
 
 ```text
-Set up Review Agent from this exact checkout or release. Use
-skills/install-review-agent/SKILL.md and website/static/llms.txt as your entry
-points. Read only the documentation for my deployment platform. Prepare and
-validate the non-secret installation plan, then show one concise mutation and
-rollback plan before external changes. Resolve facts you can inspect and group
-missing owner decisions into one request. Never ask me to paste secrets into
-chat. Pause only when I must approve the GitHub App, repository access, secret
-placement, DNS, model login, deployment, or the first live /review. Finish with
-doctor, inventory, dry-run, and one approved live-review result. Report exact
-versions and stable IDs. On Dokploy, use Deploy when the source revision changes
-and verify the completed deployment commit. Mark unknowns as incomplete instead
-of guessing.
+Set up Review Agent by following this page. If an exact source checkout was not
+provided, read https://ccimen.github.io/review-agent/llms.txt, clone the source
+repository, and check out the exact release declared there before doing any
+setup work. Use the repository-local skills/install-review-agent/SKILL.md; its
+Codex and Claude Code mirrors are already included in the checkout, so do not
+install a floating global copy. Read only the documentation needed for my
+deployment platform. Prepare and validate the non-secret installation plan,
+then show one concise mutation and rollback plan before external changes.
+Resolve facts you can inspect and group missing owner decisions into one
+request. Never ask me to paste secrets into chat. Pause only when I must approve
+the GitHub App, repository access, secret placement, DNS, model login,
+deployment, or the first live /review. Finish with doctor, inventory, dry-run,
+and one approved live-review result. Report exact versions and stable IDs. On
+Dokploy, use Deploy when the source revision changes and verify the completed
+deployment commit. Mark unknowns as incomplete instead of guessing.
 ```
 
 Add the target platform, public hostname, GitHub owner and repositories, and

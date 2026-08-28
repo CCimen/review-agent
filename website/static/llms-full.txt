@@ -1,16 +1,16 @@
 # Review Agent: full public documentation
 
 Generated from `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 ---
 
 Title: Repository overview
 Canonical URL: https://ccimen.github.io/review-agent/docs/overview
-Source: https://github.com/CCimen/review-agent/blob/main/docs/OVERVIEW.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/OVERVIEW.md
 Status: current
 Last verified: 2026-08-25
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Review Agent
 
@@ -202,10 +202,10 @@ GitHub token approval, ChatGPT OAuth state, or repository rules.
 
 Title: Getting started
 Canonical URL: https://ccimen.github.io/review-agent/docs/getting-started
-Source: https://github.com/CCimen/review-agent/blob/main/docs/GETTING_STARTED.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/GETTING_STARTED.md
 Status: current
 Last verified: 2026-08-26
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Getting started
 
@@ -295,10 +295,10 @@ result.
 
 Title: Deploy Review Agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/deployment
-Source: https://github.com/CCimen/review-agent/blob/main/docs/DEPLOYMENT.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/DEPLOYMENT.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Deploy Review Agent
 
@@ -619,10 +619,10 @@ checks the bounded ready queue at its configured poll interval.
 
 Title: Set up the GitHub App
 Canonical URL: https://ccimen.github.io/review-agent/docs/github-app-pilot
-Source: https://github.com/CCimen/review-agent/blob/main/docs/GITHUB_APP_PILOT.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/GITHUB_APP_PILOT.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Set up the GitHub App
 
@@ -826,39 +826,42 @@ Use [Operations](./OPERATIONS.md#runbook) for queue diagnostics and
 
 Title: Set up with a coding agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/ai-assisted-setup
-Source: https://github.com/CCimen/review-agent/blob/main/docs/AI_ASSISTED_SETUP.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/AI_ASSISTED_SETUP.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Set up with a coding agent
 
 > **TL;DR:** A coding agent can prepare, deploy, and verify Review Agent when it
-> has the source checkout, the non-secret installation plan, and access to your
-> deployment tools. You still approve the GitHub App, selected repositories,
-> secrets, model login, DNS, deployment, and first real `/review`.
+> has this page and access to your source and deployment tools. If no checkout
+> exists, the assignment below tells it how to fetch the exact release and use
+> the versioned installation skill. You still approve the GitHub App, selected
+> repositories, secrets, model login, DNS, deployment, and first real `/review`.
 
-Send the agent this page or the repository's
-[`llms.txt`](https://ccimen.github.io/review-agent/llms.txt). For the most
-predictable setup, also ask it to use
-[`install-review-agent`](https://github.com/CCimen/review-agent/tree/main/skills/install-review-agent)
-from the source checkout.
+Send the agent **this page** and the assignment below. That is enough as the
+human handoff: the agent follows the machine-readable index, checks out the
+declared release, and uses the repository-local installation skill. You do not
+need to install the skill globally or collect the linked guides yourself.
 
 ## Give this assignment to your agent
 
 ```text
-Set up Review Agent from this exact checkout or release. Use
-skills/install-review-agent/SKILL.md and website/static/llms.txt as your entry
-points. Read only the documentation for my deployment platform. Prepare and
-validate the non-secret installation plan, then show one concise mutation and
-rollback plan before external changes. Resolve facts you can inspect and group
-missing owner decisions into one request. Never ask me to paste secrets into
-chat. Pause only when I must approve the GitHub App, repository access, secret
-placement, DNS, model login, deployment, or the first live /review. Finish with
-doctor, inventory, dry-run, and one approved live-review result. Report exact
-versions and stable IDs. On Dokploy, use Deploy when the source revision changes
-and verify the completed deployment commit. Mark unknowns as incomplete instead
-of guessing.
+Set up Review Agent by following this page. If an exact source checkout was not
+provided, read https://ccimen.github.io/review-agent/llms.txt, clone the source
+repository, and check out the exact release declared there before doing any
+setup work. Use the repository-local skills/install-review-agent/SKILL.md; its
+Codex and Claude Code mirrors are already included in the checkout, so do not
+install a floating global copy. Read only the documentation needed for my
+deployment platform. Prepare and validate the non-secret installation plan,
+then show one concise mutation and rollback plan before external changes.
+Resolve facts you can inspect and group missing owner decisions into one
+request. Never ask me to paste secrets into chat. Pause only when I must approve
+the GitHub App, repository access, secret placement, DNS, model login,
+deployment, or the first live /review. Finish with doctor, inventory, dry-run,
+and one approved live-review result. Report exact versions and stable IDs. On
+Dokploy, use Deploy when the source revision changes and verify the completed
+deployment commit. Mark unknowns as incomplete instead of guessing.
 ```
 
 Add the target platform, public hostname, GitHub owner and repositories, and
@@ -1036,10 +1039,10 @@ If one of these is unknown, report the setup as incomplete instead of guessing.
 
 Title: How reviews work
 Canonical URL: https://ccimen.github.io/review-agent/docs/how-reviews-work
-Source: https://github.com/CCimen/review-agent/blob/main/docs/HOW_REVIEWS_WORK.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/HOW_REVIEWS_WORK.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # How reviews work
 
@@ -1134,10 +1137,10 @@ Read [Security](./SECURITY.md) for the trust boundaries and
 
 Title: Behavior ownership
 Canonical URL: https://ccimen.github.io/review-agent/docs/behavior-ownership
-Source: https://github.com/CCimen/review-agent/blob/main/docs/BEHAVIOR_OWNERSHIP.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/BEHAVIOR_OWNERSHIP.md
 Status: current
 Last verified: 2026-08-24
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Behavior ownership
 
@@ -1225,10 +1228,10 @@ engine branches.
 
 Title: Frequently asked questions
 Canonical URL: https://ccimen.github.io/review-agent/docs/faq
-Source: https://github.com/CCimen/review-agent/blob/main/docs/FAQ.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/FAQ.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Frequently asked questions
 
@@ -1341,10 +1344,10 @@ runtime owners.
 
 Title: Capabilities and boundaries
 Canonical URL: https://ccimen.github.io/review-agent/docs/roadmap
-Source: https://github.com/CCimen/review-agent/blob/main/docs/ROADMAP.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/ROADMAP.md
 Status: current
 Last verified: 2026-08-26
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Capabilities and boundaries
 
@@ -1412,10 +1415,10 @@ but it does not replace those controls or become the default merge owner.
 
 Title: Operations
 Canonical URL: https://ccimen.github.io/review-agent/docs/operations
-Source: https://github.com/CCimen/review-agent/blob/main/docs/OPERATIONS.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/OPERATIONS.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Operations
 
@@ -1987,10 +1990,10 @@ OAuth state, or repository rules.
 
 Title: Feedback and design decisions
 Canonical URL: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
-Source: https://github.com/CCimen/review-agent/blob/main/docs/FEEDBACK_AND_DECISIONS.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/FEEDBACK_AND_DECISIONS.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Feedback and design decisions
 
@@ -2264,10 +2267,10 @@ promotion.
 
 Title: Security model
 Canonical URL: https://ccimen.github.io/review-agent/docs/security
-Source: https://github.com/CCimen/review-agent/blob/main/docs/SECURITY.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/SECURITY.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Security model
 
@@ -2459,10 +2462,10 @@ failure modes.
 
 Title: Example review
 Canonical URL: https://ccimen.github.io/review-agent/docs/example-review
-Source: https://github.com/CCimen/review-agent/blob/main/examples/comments/example-review.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/examples/comments/example-review.md
 Status: current
 Last verified: 2026-08-21
-Review Agent revision: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Review Agent revision: v0.1.0-rc.2
 
 # Example review
 

@@ -11,6 +11,14 @@ Work from an exact release or commit. Treat the checked-out repository as the
 source of truth; do not infer shipped behavior from a roadmap, proposal, or old
 conversation.
 
+When the operator gives only the public setup page and no checkout, read
+`https://ccimen.github.io/review-agent/llms.txt`, clone its source repository,
+and check out the exact release declared there. Confirm the tag resolves to the
+checked-out commit before continuing. Use this versioned repository-local skill;
+do not install or prefer a floating global copy. Codex and Claude Code mirrors
+are already included at `.agents/skills/install-review-agent/SKILL.md` and
+`.claude/skills/install-review-agent/SKILL.md`.
+
 Follow five phases:
 
 1. Inspect the exact revision and shipped capabilities.

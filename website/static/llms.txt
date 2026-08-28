@@ -2,7 +2,7 @@
 
 Self-hosted, advisory pull-request review with bounded model tools, deterministic authorization, PostgreSQL state, and GitHub App publication.
 
-Release state: main after v0.1.0-rc.1 (unreleased; pin the exact commit you inspect)
+Release state: v0.1.0-rc.2
 License: EUPL-1.2 (Version 1.2 only). Third-party components retain their original licenses.
 Authentication: GitHub App only; install it on explicitly selected repositories, then enable each repository separately.
 Model policy: set REVIEW_AGENT_MODEL_PROVIDER, REVIEW_AGENT_MODEL, and REVIEW_AGENT_REASONING_EFFORT to a Hermes-supported route; the documented default uses Codex device-code OAuth.
@@ -22,7 +22,7 @@ Feedback when enabled: `/review false-positive` requires the same finding and co
 
 ## Coding-agent handoff
 
-Use the repository's `skills/install-review-agent/SKILL.md`. Work from an exact release or commit, read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.
+If no source checkout was provided, clone this repository and check out the exact release named above. Then use the versioned repository-local `skills/install-review-agent/SKILL.md`; Codex and Claude Code mirrors are included, so do not install a floating global copy. Read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.
 
 ## Operator interface
 

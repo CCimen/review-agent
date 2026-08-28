@@ -46,7 +46,9 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertIn("use Deploy when the source revision changes", short)
         self.assertIn("AI-assisted setup", short)
         self.assertIn("## Coding-agent handoff", short)
+        self.assertIn("check out the exact release named above", short)
         self.assertIn("skills/install-review-agent/SKILL.md", short)
+        self.assertIn("do not install a floating global copy", short)
         self.assertIn("install `requirements.txt`", short)
         self.assertIn(".venv/bin/python tools/review_agent_admin.py capabilities", short)
         self.assertIn(".venv/bin/python tools/review_agent_admin.py preflight", short)
@@ -95,6 +97,9 @@ class AiOnboardingContractTests(unittest.TestCase):
         )
         combined = f"{setup}\n{skill}"
         self.assertIn("skills/install-review-agent/SKILL.md", setup)
+        self.assertIn("https://ccimen.github.io/review-agent/llms.txt", combined)
+        self.assertIn(".claude/skills/install-review-agent/SKILL.md", skill)
+        self.assertIn(".agents/skills/install-review-agent/SKILL.md", skill)
         self.assertIn("python3 -m venv .venv", combined)
         self.assertIn(
             ".venv/bin/python tools/review_agent_admin.py capabilities", combined

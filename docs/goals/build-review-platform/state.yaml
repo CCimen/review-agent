@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Await owner authorization for an exact next prerelease before completing the deferred release and pilot-deployment receipt."
+  tranche: "CI and gateway protocol tranche complete; the next prerelease and pilot deployment await owner authorization."
   status: blocked
 
 rules:
@@ -33,10 +33,10 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 11
+  completed_write_tasks_in_thread: 12
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-29T18:17:22Z"
-  last_verified_revision: "50ac56f61ba49c7641d5b48bde7c9d39384cc3fc"
+  last_handoff_at: "2026-08-29T19:52:14Z"
+  last_verified_revision: "a5e3986b5b8cb8271b49b0359176d428a54ceebb"
 
 active_task: null
 
@@ -3738,23 +3738,105 @@ tasks:
         - "The 594-test canonical bundle passed with 190 expected PostgreSQL environment skips, plus YAML, documentation-contract, and bundle-integrity checks."
         - "The diff changes only the packaged AGENTS policy and Goal Maker state; runtime tools, schemas, commands, scoring, model policy, and visible output formatting are unchanged."
       next_allowed_task: T216
+  - id: T219
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: high
+    objective: "Restore the canonical PostgreSQL gate, terminalize closed GitHub gateway protocol failures, and split Python/PostgreSQL/image CI behind one stable required check."
+    constraints:
+      - "Use explicit publication-fake retryability and one PostgreSQL-derived quality-report clock; do not weaken production retry defaults or widen the report window."
+      - "Reuse the existing failed webhook-delivery state and exact lease fencing; do not add a schema, queue, service, or generic error framework."
+      - "Preserve pull-request, push-to-main, and manual CI triggers and add merge-group coverage."
+      - "Adopt only a pinned development Ruff dependency and a minimal correctness rule set; do not start a repository-wide style redesign."
+      - "Do not publish a release, deploy, mutate repository rulesets, add /security, or add skill-doctor to production."
+    allowed_files:
+      - .github/workflows/ci.yml
+      - CONTRIBUTING.md
+      - bootstrap/install.py
+      - bootstrap/plugins/review_agent_tools/github/app_processor.py
+      - bootstrap/plugins/review_agent_tools/github/publication.py
+      - bootstrap/plugins/review_agent_tools/postgres/webhook_deliveries.py
+      - pyrightconfig.json
+      - requirements-dev.txt
+      - ruff.toml
+      - scripts/check_bundle.sh
+      - tests/test_ci_workflow.py
+      - tests/test_github_app_processor.py
+      - tests/test_postgres_publications.py
+      - tests/test_postgres_reporting_cli.py
+      - tests/test_postgres_verification_coaching.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Focused publication, quality-report, App processor protocol, and workflow contract tests."
+      - "Ruff and strict Pyright across production entrypoints."
+      - "The full non-PostgreSQL bundle and digest-pinned PostgreSQL contract."
+      - "Documentation contract and git diff checks."
+      - "One stable skeptical peer gate before commit."
+      - "Commit and push the reviewed candidate, then verify the exact SHA workflow results."
+    stop_if:
+      - "The terminal failed state requires a schema or migration change."
+      - "Strict production typing requires broad ignores or an unrelated typing campaign."
+      - "The correction needs public review wording, release, deployment, or external repository-setting changes."
+    receipt:
+      result: done
+      summary: "Restored the PostgreSQL baseline, made closed gateway contract violations terminal before review or feedback admission, and split merge quality into Python, PostgreSQL, image, and stable aggregate checks."
+      implementation_revision: "a5e3986b5b8cb8271b49b0359176d428a54ceebb"
+      evidence:
+        - "Runtime revision e468b660db54219e6b9d28156909ba535034c4cd gives review and feedback authorization protocol failures one secret-safe, operator-visible failed transition; already-recorded feedback remains accepted when only its GitHub acknowledgement fails."
+        - "Ruff and strict Pyright passed; the canonical bundle passed 597 tests with 192 PostgreSQL environment skips; the digest-pinned PostgreSQL contract passed 210 tests at migration 11."
+        - "The documentation contract, Compose configuration, local container build, image inspection, and git diff checks passed."
+        - "One Claude Opus/xhigh commit gate identified three in-scope corrections; all were verified, corrected, and revalidated without a second review iteration."
+        - "GitHub Actions run 33271891994 passed Python fast, PostgreSQL contract, Image smoke, and CI / required on the exact implementation revision."
+      next_allowed_task: T220
+  - id: T220
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: high
+    objective: "Audit the completed CI and protocol-failure tranche against the supplied acceptance matrix and exact pushed workflow evidence."
+    constraints:
+      - "Read-only except for the Goal Maker receipt."
+      - "Do not extend into later release, ruleset, recovery, skill-doctor, or /security phases."
+    expected_output:
+      - "complete | not_complete"
+      - "Exact validation and workflow evidence"
+      - "Deferred later phases"
+    receipt:
+      result: done
+      decision: complete
+      summary: "The bounded CI and gateway protocol-failure tranche meets the supplied acceptance matrix and is green on the exact pushed implementation revision."
+      evidence:
+        - "Publication test doubles declare retryability explicitly and the quality-report fixture derives every relative timestamp from one PostgreSQL statement timestamp."
+        - "Review and feedback authorization contract violations finish once as failed with github_gateway_invalid_response; recorded feedback is not mislabeled when acknowledgement alone fails."
+        - "CI preserves pull request, push-to-main, and manual triggers, adds merge_group, uses read-only pinned actions, and exposes CI / required as the single aggregate check."
+        - "GitHub Actions run https://github.com/CCimen/review-agent/actions/runs/33271891994 completed successfully for a5e3986b5b8cb8271b49b0359176d428a54ceebb."
+      deferred:
+        - "Repository ruleset mutation remains an owner action; require CI / required when authorized."
+        - "Release, pilot deployment, recovery lifecycle refactoring, skill-doctor evaluation, module splitting, and /security remain outside this tranche."
+      next_allowed_task: T216
 
 checks:
-  dirty_fingerprint: "minimal-sufficient-review-policy-50ac56f"
+  dirty_fingerprint: "ci-gateway-protocol-a5e3986"
   last_verification:
     result: pass
-    task: T218
+    task: T220
     commands:
-      - "python -m unittest tests.test_profile_bundle tests.test_docs_contract"
+      - "ruff check bootstrap tools scripts tests"
+      - "pyright -p ."
       - "./scripts/check_bundle.sh"
+      - "./scripts/check_postgres_schema.sh"
+      - "python scripts/check_docs.py"
+      - "docker compose config; docker build; scripts/check_image.sh"
       - "git diff --check"
       - "Goal Maker state checker"
     evidence:
-      - "The packaged AGENTS policy now requires intent and non-goals, concrete execution-path evidence, one root cause, the smallest complete remediation, and proportional tests."
-      - "Model-selection, agent orchestration, irreversible-operation, branch, runtime, schema, scoring, and output-contract behavior were not changed."
-      - "The full bundle passed 594 tests with 190 expected PostgreSQL environment skips."
+      - "The full bundle passed 597 tests with 192 expected PostgreSQL environment skips; strict Pyright and minimal Ruff passed."
+      - "The digest-pinned PostgreSQL contract passed 210 tests and verified migration 11 readiness."
+      - "The exact pushed implementation revision passed all four jobs in GitHub Actions run 33271891994."
+      - "No schema, public review wording, release, deployment, repository setting, compatibility path, queue, service, or production skill-doctor behavior changed."
     owner_gates:
-      - "Authorize the first prerelease before setting the generated REVISION and tagging."
+      - "Authorize the next prerelease tag before setting the generated REVISION and tagging."
       - "Select any additional pilot repositories before multi-repository validation."
     spawned_tasks:
       - T212

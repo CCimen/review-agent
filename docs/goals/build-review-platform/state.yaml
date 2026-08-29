@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Implement the owner-authorized immutable coaching intervention-outcome ledger without changing live review behavior."
-  status: active
+  tranche: "The immutable coaching intervention-outcome ledger is complete and audited; the next prerelease remains owner-gated."
+  status: blocked
 
 rules:
   pm_owns_state: true
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 12
+  completed_write_tasks_in_thread: 13
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-29T19:52:14Z"
-  last_verified_revision: "a5e3986b5b8cb8271b49b0359176d428a54ceebb"
+  last_verified_revision: "75fb36d1d119674cfb464b57c459c010a7c51075"
 
-active_task: T222
+active_task: null
 
 tasks:
   - id: T001
@@ -3865,7 +3865,7 @@ tasks:
   - id: T222
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Audit the immutable coaching intervention-outcome ledger against the supplied contract and exact pushed workflow evidence."
     constraints:
@@ -3875,12 +3875,27 @@ tasks:
       - "complete | not_complete"
       - "Exact validation and workflow evidence"
       - "Deferred later phases"
+    receipt:
+      result: done
+      decision: complete
+      summary: "The governed coaching intervention-outcome ledger meets the supplied contract, remains isolated from live reviews, and is green on the exact pushed implementation revision."
+      implementation_revision: "75fb36d1d119674cfb464b57c459c010a7c51075"
+      evidence:
+        - "Domain validation, canonical candidate provenance, deterministic hashing, append-only application operations, bounded history, and private artifact-body exclusion match the approved contract."
+        - "The full local bundle passed 609 tests; the real PostgreSQL contract passed 215 tests at migration 12; Ruff, strict Pyright, docs, and diff checks passed."
+        - "Codex peer session coach-outcome-ledger-012 finished green at score 8 with no remaining blocker."
+        - "GitHub Actions run https://github.com/CCimen/review-agent/actions/runs/33274543022 passed Python fast, PostgreSQL contract, Image smoke, and CI / required for the exact implementation revision."
+      deferred:
+        - "History-aware proposals and generated pattern views remain gated by real outcome volume and are not implemented."
+        - "Private proposers, model evaluation matrices, active skill edits, releases, and deployments remain outside this tranche."
+        - "The next prerelease tag and pilot redeploy remain blocked on explicit owner authorization in T216."
+      next_allowed_task: T216
 
 checks:
   dirty_fingerprint: "coach-intervention-ledger-012"
   last_verification:
     result: pass
-    task: T221
+    task: T222
     commands:
       - "ruff check bootstrap tools scripts tests"
       - "pyright --pythonpath .venv/bin/python -p ."
@@ -3894,6 +3909,7 @@ checks:
       - "The digest-pinned PostgreSQL contract passed 215 tests and verified migration 12 readiness and recovery."
       - "The documentation contract passed for all 13 public documents; only private learning guidance changed."
       - "No live reviewer, profile, skill, proposal selection, publication, queue, deployment, release, service, or artifact-body persistence changed."
+      - "GitHub Actions run 33274543022 passed CI / required for 75fb36d1d119674cfb464b57c459c010a7c51075."
     owner_gates:
       - "Authorize the next prerelease tag before setting the generated REVISION and tagging."
       - "Select any additional pilot repositories before multi-repository validation."

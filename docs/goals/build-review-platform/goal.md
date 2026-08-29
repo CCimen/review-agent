@@ -14,13 +14,10 @@ weakening the proven review contract.
 
 ## Current Tranche
 
-Close the three pilot blockers verified against `v0.1.0-rc.2`: render the
-managed model/profile contract from one explicit environment mapping, prevent
-credentialed clients from following cross-origin redirects, and make GitHub
-source/publication retry classification reflect the actual provider failure.
-Keep the correction inside the existing configuration and transport owners;
-later release, migration, module-splitting, failure-cleanup, and command phases
-remain deferred.
+Add the repository owner's minimal-sufficient review discipline to the packaged
+review contract. Preserve the existing evidence gates and runtime invariants;
+do not copy coding-agent workflow, model-selection, branch, or irreversible
+operation rules into a reviewer that cannot execute them.
 
 ## Approved Sequencing Input
 

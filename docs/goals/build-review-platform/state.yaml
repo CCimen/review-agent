@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Close the reviewed pilot blockers: deterministic managed configuration, credential-safe redirects, and truthful GitHub retry classification."
+  tranche: "Add the owner's minimal-sufficient review discipline to the packaged reviewer policy without weakening evidence or runtime invariants."
   status: active
 
 rules:
@@ -36,9 +36,9 @@ continuity:
   completed_write_tasks_in_thread: 9
   handoff_note: notes/handoff.md
   last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "f8af11c87655fb98995bd960fde663d12e6cef7d"
+  last_verified_revision: "fa7cb79d0768a4c7808853d3597cadc98c29fa23"
 
-active_task: T217
+active_task: T218
 
 tasks:
   - id: T001
@@ -3653,7 +3653,7 @@ tasks:
   - id: T217
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: high
     objective: "Make managed configuration deterministic from one explicit environment mapping, prevent credential forwarding across origins, and classify GitHub provider failures truthfully."
     constraints:
@@ -3694,10 +3694,19 @@ tasks:
     stop_if:
       - "A required correction needs schema, migration, command, public wording, new dependency, or files outside the declared owners."
       - "A focused test fails twice for a non-mechanical reason or exposes an unresolved product choice."
+    receipt:
+      result: done
+      summary: "Made managed configuration deterministic from one explicit deployment mapping, denied credentialed cross-origin redirects, and gave GitHub source and publication failures one truthful retry classification owner."
+      implementation_revision: "fa7cb79d0768a4c7808853d3597cadc98c29fa23"
+      evidence:
+        - "Ruff and strict Pyright passed; 182 focused behavior tests and the 594-test canonical bundle passed with 190 expected PostgreSQL environment skips."
+        - "Same-origin query redirects retain credentials while cross-origin redirects perform no second credentialed request for GitHub source, App auth, publication, gateway, or Hermes clients."
+        - "Claude Opus/xhigh session review-agent-t217-reliability reached green at score 8 after the two verified contract asymmetries were corrected."
+      next_allowed_task: T218
   - id: T218
     type: pm
     assignee: PM
-    status: queued
+    status: active
     reasoning_hint: default
     objective: "Add the owner's minimal-sufficient review guidance to the canonical packaged AGENTS policy without copying coding-agent-only process rules into the reviewer."
     constraints:

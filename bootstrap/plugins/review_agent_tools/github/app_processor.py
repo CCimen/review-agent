@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 import logging
 from typing import Literal, cast
@@ -60,6 +60,7 @@ class ProcessorConfig:
     job_priority: int
     job_max_attempts: int
     active_job_limit: int
+    contract_environment: Mapping[str, str] = field(repr=False, compare=False)
     # Provider authorization and snapshot reads fit inside this lease.
     lease_duration: timedelta = timedelta(minutes=5)
     retry_delay: timedelta = timedelta(seconds=30)
@@ -369,7 +370,10 @@ class GitHubAppProcessor:
         except GitHubGatewayProtocolError as exc:
             raise _Retry("github_gateway_invalid_response") from exc
         try:
-            contract = review_contract.load_packaged_contract(self._config.profile)
+            contract = review_contract.load_packaged_contract(
+                self._config.profile,
+                environment=self._config.contract_environment,
+            )
         except review_contract.ReviewContractError as exc:
             raise _Retry("review_profile_unavailable") from exc
 

@@ -42,6 +42,30 @@ class ProfileBundleTests(unittest.TestCase):
     def setUp(self) -> None:
         self.install = load_installer()
 
+    def test_managed_config_uses_only_the_explicit_environment(self) -> None:
+        supplied = {
+            "REVIEW_AGENT_MODEL_PROVIDER": "anthropic",
+            "REVIEW_AGENT_MODEL": "vendor/claude-sonnet-4-6@review",
+            "REVIEW_AGENT_REASONING_EFFORT": "high",
+        }
+        conflicting = {
+            "REVIEW_AGENT_MODEL_PROVIDER": "ambient-provider",
+            "REVIEW_AGENT_MODEL": "ambient-model",
+            "REVIEW_AGENT_REASONING_EFFORT": "invalid",
+        }
+
+        with mock.patch.dict(os.environ, conflicting, clear=True):
+            config, _ = self.install.review_contract.render_managed_config(
+                self.install.SOURCE / "config.yaml",
+                environment=supplied,
+            )
+
+        self.assertEqual("anthropic", config["model"]["provider"])
+        self.assertEqual(
+            "vendor/claude-sonnet-4-6@review", config["model"]["default"]
+        )
+        self.assertEqual("high", config["agent"]["reasoning_effort"])
+
     def load_installed_contract(self, hermes_home: Path):
         with mock.patch.dict(
             os.environ,
@@ -130,7 +154,8 @@ class ProfileBundleTests(unittest.TestCase):
             installed_config_bytes = (hermes_home / "config.yaml").read_bytes()
             _, expected_config_bytes = (
                 self.install.review_contract.render_managed_config(
-                    self.install.SOURCE / "config.yaml"
+                    self.install.SOURCE / "config.yaml",
+                    environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
                 )
             )
             self.assertEqual(expected_config_bytes, installed_config_bytes)
@@ -203,6 +228,22 @@ class ProfileBundleTests(unittest.TestCase):
             ):
                 self.load_installed_contract(hermes_home)
 
+    def test_installed_contract_accepts_the_supported_image_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            hermes_home = Path(temp) / "hermes-home"
+            self.assertEqual(0, self.run_installer(hermes_home))
+
+            with mock.patch.dict(
+                os.environ,
+                {"HERMES_IMAGE": HERMES_IMAGE},
+                clear=True,
+            ):
+                contract = self.install.review_contract.load_installed_contract(
+                    hermes_home
+                )
+
+            self.assertEqual(HERMES_IMAGE, contract.hermes_image)
+
     def test_packaged_and_installed_files_resolve_to_the_same_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             hermes_home = Path(temp) / "hermes-home"
@@ -217,6 +258,7 @@ class ProfileBundleTests(unittest.TestCase):
                     self.install.review_contract.load_packaged_contract(
                         "sundsvall-standard",
                         self.install.SOURCE,
+                        environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
                     )
                 )
 
@@ -239,7 +281,10 @@ class ProfileBundleTests(unittest.TestCase):
                 packaged = self.install.review_contract.load_packaged_contract(
                     "sundsvall-standard",
                     self.install.SOURCE,
-                    hermes_image=HERMES_IMAGE,
+                    environment={
+                        "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
+                        **overrides,
+                    },
                 )
                 installed_contract = self.load_installed_contract(hermes_home)
 
@@ -267,7 +312,10 @@ class ProfileBundleTests(unittest.TestCase):
                 packaged = self.install.review_contract.load_packaged_contract(
                     "sundsvall-standard",
                     self.install.SOURCE,
-                    hermes_image=HERMES_IMAGE,
+                    environment={
+                        "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
+                        **overrides,
+                    },
                 )
 
             self.assertEqual(0, installed)

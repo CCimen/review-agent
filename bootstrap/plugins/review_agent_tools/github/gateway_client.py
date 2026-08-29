@@ -11,6 +11,7 @@ import urllib.parse
 import urllib.request
 
 from .. import capacity, changed_files
+from ..source_control import SameOriginHttpsRedirectHandler
 from .gateway import (
     ACKNOWLEDGE_FEEDBACK_PATH,
     ACKNOWLEDGE_REVIEW_PATH,
@@ -93,7 +94,9 @@ class ReviewGitHubGatewayClient:
         operator_key: str | None = None,
     ) -> None:
         self._base_url = _base_url(base_url)
-        self._opener = opener or urllib.request.build_opener()
+        self._opener = opener or urllib.request.build_opener(
+            SameOriginHttpsRedirectHandler()
+        )
         self._operator_key = operator_key.strip() if operator_key is not None else None
         if self._operator_key == "":
             raise GitHubGatewayProtocolError("operator key must not be empty")
@@ -497,6 +500,7 @@ class AuthorizedPublicationGateway:
             raise GitHubPublicationError(
                 "github_gateway_invalid_response",
                 operation=_provider_operation_name(operation),
+                retryable=False,
             ) from exc
 
     def current_user_login(self) -> str:

@@ -249,6 +249,7 @@ def preflight(
 ) -> PreflightReport:
     """Validate local configuration and packaged behavior without network or DB I/O."""
     settings = ReviewAgentSettings(environment)
+    contract_environment = review_contract.deployment_environment(environment)
     # operator_setup.py lives at bootstrap/plugins/review_agent_tools/.
     contract_source = bootstrap_source or Path(__file__).resolve().parents[2]
     checks = (
@@ -268,10 +269,7 @@ def preflight(
             lambda: review_contract.load_packaged_contract(
                 settings.profile,
                 source=contract_source,
-                hermes_image=(
-                    environment.get("REVIEW_AGENT_HERMES_IMAGE", "").strip()
-                    or environment.get("HERMES_IMAGE", "").strip()
-                ),
+                environment=contract_environment,
             ),
         ),
         _run_check(

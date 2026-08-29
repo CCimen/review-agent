@@ -24,6 +24,7 @@ from . import failure_codes, review_contract, review_run_application
 from .domain.review import JsonObject
 from .postgres import jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
+from .source_control import SameOriginHttpsRedirectHandler
 
 
 logger = logging.getLogger(__name__)
@@ -118,9 +119,17 @@ class HermesChatClient:
     installed review skill body as the ephemeral system message.
     """
 
-    def __init__(self, settings: HermesChatSettings) -> None:
+    def __init__(
+        self,
+        settings: HermesChatSettings,
+        *,
+        opener: request.OpenerDirector | None = None,
+    ) -> None:
         self._settings = settings
         self._system_instructions = _load_skill_instructions(settings.skill_path)
+        self._opener = opener or request.build_opener(
+            SameOriginHttpsRedirectHandler()
+        )
 
     def review(self, claimed: ClaimedReview, *, timeout: timedelta) -> None:
         session = jobs.WorkerLeaseSession(
@@ -165,7 +174,7 @@ class HermesChatClient:
             # Durable PostgreSQL state, not optional assistant prose, proves
             # whether the review completed. Close the response without
             # buffering an otherwise unbounded body.
-            with request.urlopen(call, timeout=timeout.total_seconds()):
+            with self._opener.open(call, timeout=timeout.total_seconds()):
                 pass
         except error.HTTPError as exc:
             retryable = (

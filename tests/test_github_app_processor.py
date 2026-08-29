@@ -235,6 +235,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 job_priority=0,
                 job_max_attempts=3,
                 active_job_limit=100,
+                contract_environment={},
                 retry_delay=timedelta(0),
             ),
         )
@@ -752,7 +753,13 @@ class GitHubAppProcessorTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 delivery_id = self.register("issue_comment", self.review_payload())
                 result = self.processor(
-                    _GitHub(request_error=GitHubReadError(kind, "provider failure"))
+                    _GitHub(
+                        request_error=GitHubReadError(
+                            kind,
+                            "provider failure",
+                            retryable=kind == "rate_limited",
+                        )
+                    )
                 ).process_next(lease_owner=f"worker-{kind}")
                 self.assertEqual(result.delivery_id if result else None, delivery_id)
                 self.assertEqual(result.status if result else None, expected_status)

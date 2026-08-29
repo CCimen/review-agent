@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from http.client import HTTPMessage
 import json
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Literal, cast
+from typing import IO, Literal, cast
 
 
 GitHubReadErrorKind = Literal[
@@ -26,7 +27,6 @@ GitHubReadErrorKind = Literal[
 ]
 
 _API_ROOT = "https://api.github.com"
-_RETRYABLE_STATUS = frozenset({502, 503, 504})
 _DEFAULT_MAX_ATTEMPTS = 3
 _DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
 _MAX_ERROR_RESPONSE_BYTES = 4_096
@@ -52,14 +52,73 @@ def is_github_rate_limit_error(exc: urllib.error.HTTPError) -> bool:
     return b"secondary rate limit" in raw.lower()
 
 
+def _credentialed_https_origin(url: str) -> tuple[str, str, int]:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port or 443
+    except ValueError as exc:
+        raise ValueError("redirect URL must use one HTTPS origin") from exc
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("redirect URL must use one HTTPS origin")
+    return parsed.scheme, parsed.hostname.lower(), port
+
+
+def https_api_origin(url: str) -> tuple[str, str, int]:
+    try:
+        origin = _credentialed_https_origin(url)
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError as exc:
+        raise ValueError("api_url must be an HTTPS API root") from exc
+    if parsed.query or parsed.fragment:
+        raise ValueError("api_url must be an HTTPS API root")
+    return origin
+
+
+class SameOriginHttpsRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow credentialed redirects only within one HTTPS origin."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        try:
+            same_origin = _credentialed_https_origin(
+                req.full_url
+            ) == _credentialed_https_origin(newurl)
+        except ValueError:
+            same_origin = False
+        if not same_origin:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class GitHubReadError(Exception):
     """A transport failure that the tool boundary translates into its public error."""
 
     kind: GitHubReadErrorKind
 
-    def __init__(self, kind: GitHubReadErrorKind, message: str) -> None:
+    def __init__(
+        self,
+        kind: GitHubReadErrorKind,
+        message: str,
+        *,
+        status: int | None = None,
+        retryable: bool = False,
+    ) -> None:
         super().__init__(message)
         self.kind = kind
+        self.status = status
+        self.retryable = retryable
 
 
 class GitHubReadClient:
@@ -71,6 +130,7 @@ class GitHubReadClient:
         *,
         request_timeout_seconds: float = _DEFAULT_REQUEST_TIMEOUT_SECONDS,
         max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+        opener: urllib.request.OpenerDirector | None = None,
     ) -> None:
         if request_timeout_seconds <= 0:
             raise ValueError("request_timeout_seconds must be positive")
@@ -79,6 +139,9 @@ class GitHubReadClient:
         self._token = token
         self._request_timeout_seconds = request_timeout_seconds
         self._max_attempts = max_attempts
+        self._opener = opener or urllib.request.build_opener(
+            SameOriginHttpsRedirectHandler()
+        )
 
     def request(
         self,
@@ -101,7 +164,7 @@ class GitHubReadClient:
         )
         for attempt in range(self._max_attempts):
             try:
-                with urllib.request.urlopen(
+                with self._opener.open(
                     request, timeout=self._request_timeout_seconds
                 ) as response:
                     data = response.read(max_bytes + 1)
@@ -115,40 +178,57 @@ class GitHubReadClient:
                     return data, truncated, response_headers
             except urllib.error.HTTPError as exc:
                 rate_limited = is_github_rate_limit_error(exc)
+                retryable = (
+                    rate_limited
+                    or exc.code in {408, 425, 429}
+                    or 500 <= exc.code <= 599
+                )
                 exc.close()
-                if (
-                    exc.code in _RETRYABLE_STATUS
-                    and attempt + 1 < self._max_attempts
-                ):
+                if retryable and not rate_limited and attempt + 1 < self._max_attempts:
                     time.sleep(0.5 * (attempt + 1))
                     continue
                 if exc.code == 401:
                     raise GitHubReadError(
-                        "unauthorized", "GitHub rejected the installation token"
+                        "unauthorized",
+                        "GitHub rejected the installation token",
+                        status=exc.code,
                     ) from exc
                 if rate_limited:
                     raise GitHubReadError(
-                        "rate_limited", "GitHub rate-limited the read request"
+                        "rate_limited",
+                        "GitHub rate-limited the read request",
+                        status=exc.code,
+                        retryable=True,
                     ) from exc
                 if exc.code == 403:
                     raise GitHubReadError(
-                        "forbidden", "GitHub denied the read request"
+                        "forbidden",
+                        "GitHub denied the read request",
+                        status=exc.code,
                     ) from exc
                 if exc.code == 404:
-                    raise GitHubReadError("not_found", "not found") from exc
+                    raise GitHubReadError(
+                        "not_found", "not found", status=exc.code
+                    ) from exc
                 if exc.code == 406:
                     raise GitHubReadError(
                         "diff_unavailable",
                         "GitHub could not render this diff; inspect smaller files instead",
+                        status=exc.code,
                     ) from exc
                 raise GitHubReadError(
-                    "http_error", f"GitHub read failed with HTTP {exc.code}"
+                    "http_error",
+                    f"GitHub read failed with HTTP {exc.code}",
+                    status=exc.code,
+                    retryable=retryable,
                 ) from exc
             except urllib.error.URLError as exc:
                 raise GitHubReadError(
-                    "unreachable", "GitHub could not be reached"
+                    "unreachable", "GitHub could not be reached", retryable=True
                 ) from exc
-        raise GitHubReadError("unreachable", "GitHub could not be reached")
+        raise GitHubReadError(
+            "unreachable", "GitHub could not be reached", retryable=True
+        )
 
     def request_json(self, endpoint: str, *, max_bytes: int = 2_000_000) -> object:
         raw, truncated, _ = self.request(endpoint, max_bytes=max_bytes)

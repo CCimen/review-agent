@@ -142,20 +142,25 @@ class OperatorSetupTests(unittest.TestCase):
             key_path = Path(temp) / "github-app.pem"
             key_path.write_text(private_key, encoding="utf-8")
             key_path.chmod(0o400)
-            report = operator_setup.preflight(
-                {
-                    "REVIEW_AGENT_DATABASE_URL": (
-                        "postgresql://review_agent:"
-                        f"{database_password}@review-postgres:5432/review_agent"
-                    ),
-                    "REVIEW_AGENT_GITHUB_APP_ID": "123456",
-                    "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": str(key_path),
-                    "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET": webhook_secret,
-                    "API_SERVER_KEY": "configured-internal-api-key",
-                    "REVIEW_AGENT_HERMES_IMAGE": PINNED_HERMES_IMAGE,
-                    "REVIEW_AGENT_PROFILE": "sundsvall-standard",
-                },
-            )
+            supplied_environment = {
+                "REVIEW_AGENT_DATABASE_URL": (
+                    "postgresql://review_agent:"
+                    f"{database_password}@review-postgres:5432/review_agent"
+                ),
+                "REVIEW_AGENT_GITHUB_APP_ID": "123456",
+                "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": str(key_path),
+                "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET": webhook_secret,
+                "API_SERVER_KEY": "configured-internal-api-key",
+                "REVIEW_AGENT_HERMES_IMAGE": PINNED_HERMES_IMAGE,
+                "REVIEW_AGENT_PROFILE": "sundsvall-standard",
+                "REVIEW_AGENT_REASONING_EFFORT": "high",
+            }
+            with patch.dict(
+                os.environ,
+                {"REVIEW_AGENT_REASONING_EFFORT": "invalid-ambient-value"},
+                clear=True,
+            ):
+                report = operator_setup.preflight(supplied_environment)
 
         payload = report.to_json_obj()
         rendered = json.dumps(payload, sort_keys=True)

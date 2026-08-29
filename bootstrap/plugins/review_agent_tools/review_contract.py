@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import hashlib
 import importlib
@@ -9,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+from types import MappingProxyType
 from typing import cast, Protocol
 
 
@@ -18,6 +20,13 @@ SCHEMA_VERSION = 2
 _PINNED_IMAGE_RE = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
 _PROFILE_KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_DEPLOYMENT_ENVIRONMENT_NAMES = (
+    "HERMES_IMAGE",
+    "REVIEW_AGENT_HERMES_IMAGE",
+    "REVIEW_AGENT_MODEL",
+    "REVIEW_AGENT_MODEL_PROVIDER",
+    "REVIEW_AGENT_REASONING_EFFORT",
+)
 # Hermes configuration reference, validated again by the installed runtime.
 REASONING_EFFORTS = frozenset(
     {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
@@ -115,14 +124,41 @@ def _load_config(path: Path) -> object:
         raise ReviewContractError("managed reviewer config is missing or invalid") from exc
 
 
-def _deployment_text(name: str, default: str) -> str:
-    value = os.environ.get(name, default).strip()
+def _deployment_text(
+    environment: Mapping[str, str], name: str, default: str
+) -> str:
+    value = environment.get(name, default).strip()
     if not value or not value.isprintable():
         raise ReviewContractError(f"{name} must be one non-empty printable value")
     return value
 
 
-def render_managed_config(path: Path) -> tuple[object, bytes]:
+def deployment_hermes_image(environment: Mapping[str, str]) -> str:
+    """Resolve the digest-pinned Hermes image from one deployment snapshot."""
+    return (
+        environment.get("REVIEW_AGENT_HERMES_IMAGE", "").strip()
+        or environment.get("HERMES_IMAGE", "").strip()
+    )
+
+
+def deployment_environment(
+    environment: Mapping[str, str],
+) -> Mapping[str, str]:
+    """Freeze only values that can change the installed review contract."""
+    return MappingProxyType(
+        {
+            name: environment[name]
+            for name in _DEPLOYMENT_ENVIRONMENT_NAMES
+            if name in environment
+        }
+    )
+
+
+def render_managed_config(
+    path: Path,
+    *,
+    environment: Mapping[str, str],
+) -> tuple[object, bytes]:
     """Apply operator-owned model settings to the managed config."""
     try:
         yaml_module = cast(_YamlModule, importlib.import_module("yaml"))
@@ -140,10 +176,14 @@ def render_managed_config(path: Path) -> tuple[object, bytes]:
     default_provider = _text(base, "model", "provider")
     default_model = _text(base, "model", "default")
     default_effort = _text(base, "agent", "reasoning_effort")
-    provider = _deployment_text("REVIEW_AGENT_MODEL_PROVIDER", default_provider)
-    model = _deployment_text("REVIEW_AGENT_MODEL", default_model)
+    provider = _deployment_text(
+        environment, "REVIEW_AGENT_MODEL_PROVIDER", default_provider
+    )
+    model = _deployment_text(environment, "REVIEW_AGENT_MODEL", default_model)
     effort = (
-        os.environ.get("REVIEW_AGENT_REASONING_EFFORT", default_effort).strip().lower()
+        environment.get("REVIEW_AGENT_REASONING_EFFORT", default_effort)
+        .strip()
+        .lower()
     )
     if effort not in REASONING_EFFORTS:
         choices = ", ".join(sorted(REASONING_EFFORTS))
@@ -362,7 +402,7 @@ def load_packaged_contract(
     profile: str,
     source: Path | None = None,
     *,
-    hermes_image: str | None = None,
+    environment: Mapping[str, str],
 ) -> ReviewContract:
     """Derive admission identity from the immutable reviewer files in its image."""
     if _PROFILE_KEY_RE.fullmatch(profile) is None:
@@ -370,7 +410,10 @@ def load_packaged_contract(
     resolved_source = (source or Path("/opt/review-agent-bootstrap")).resolve()
     profile_source = resolved_source / "profiles" / profile
     skills = _profile_skills(profile_source / "profile.json")
-    config, config_bytes = render_managed_config(resolved_source / "config.yaml")
+    config, config_bytes = render_managed_config(
+        resolved_source / "config.yaml",
+        environment=environment,
+    )
     return _build_contract(
         _packaged_files(
             resolved_source,
@@ -379,11 +422,7 @@ def load_packaged_contract(
             config_bytes=config_bytes,
         ),
         profile=profile,
-        hermes_image=(
-            hermes_image
-            if hermes_image is not None
-            else os.environ.get("REVIEW_AGENT_HERMES_IMAGE", "")
-        ),
+        hermes_image=deployment_hermes_image(environment),
         config=config,
     )
 
@@ -567,7 +606,7 @@ def load_installed_contract(home: Path | None = None) -> ReviewContract:
     expected = _build_contract(
         (profile_files, config_files, engine_files),
         profile=contract.profile,
-        hermes_image=os.environ.get("REVIEW_AGENT_HERMES_IMAGE", ""),
+        hermes_image=deployment_hermes_image(os.environ),
         config=_load_config(resolved_home / "config.yaml"),
     )
     if contract != expected:

@@ -7,7 +7,7 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "The first prerelease is published; add downloadable, attested release SBOMs before the owner authorizes a later candidate and immutable pilot redeploy."
+  tranche: "Close the reviewed pilot blockers: deterministic managed configuration, credential-safe redirects, and truthful GitHub retry classification."
   status: active
 
 rules:
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-25T07:20:28Z"
   last_verified_revision: "f8af11c87655fb98995bd960fde663d12e6cef7d"
 
-active_task: T216
+active_task: T217
 
 tasks:
   - id: T001
@@ -2707,6 +2707,7 @@ tasks:
     objective: "Freeze and enforce one immutable effective-review contract from admission through worker execution."
     allowed_files:
       - bootstrap/plugins/review_agent_tools/review_contract.py
+      - bootstrap/plugins/review_agent_tools/review_publication_application.py
       - bootstrap/config.yaml
       - bootstrap/install.py
       - bootstrap/plugins/review_agent_tools/admission.py
@@ -3628,7 +3629,7 @@ tasks:
   - id: T216
     type: pm
     assignee: PM
-    status: active
+    status: blocked
     objective: "Choose the next exact prerelease only after owner authorization, verify its downloadable SBOM assets, then deploy its immutable digest to the pilot and complete the deferred release receipt."
     constraints:
       - "Do not invent or publish the next tag without owner authorization."
@@ -3643,6 +3644,82 @@ tasks:
       - "The authorized tag, source commit, image digest, SBOM assets, provenance, deployment, and live doctor result agree."
     stop_if:
       - "The owner has not authorized an exact next tag."
+    receipt:
+      result: blocked
+      summary: "v0.1.0-rc.2 was published from eebc821, but the owner redirected work to the bounded production-readiness tranche before any later release or immutable pilot redeploy. Deployment receipt completion remains deferred until that tranche is green."
+      evidence:
+        - "origin/main and v0.1.0-rc.2 resolve to eebc82179c7e8a4ab8f19fd6b6d2e7c4f55878d7."
+      next_allowed_task: T217
+  - id: T217
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Make managed configuration deterministic from one explicit environment mapping, prevent credential forwarding across origins, and classify GitHub provider failures truthfully."
+    constraints:
+      - "Reuse and deepen the existing configuration and transport owners; do not add a generic HTTP framework, retry middleware, provider interface, config registry, or dependency."
+      - "Preserve current variable names/defaults, one 401 invalidation retry, bounded bodies, durable failure codes, secret-safe errors, and public review wording."
+      - "Do not change schema, migrations, command semantics, queues, failure-status cleanup, large-module ownership, PAT/SQLite removal boundaries, or add /security."
+      - "Classify GitHub rate limits before closing the bounded HTTP error body."
+    allowed_files:
+      - bootstrap/install.py
+      - bootstrap/plugins/review_agent_tools/admission.py
+      - bootstrap/plugins/review_agent_tools/operator_setup.py
+      - bootstrap/plugins/review_agent_tools/review_contract.py
+      - bootstrap/plugins/review_agent_tools/source_control.py
+      - bootstrap/plugins/review_agent_tools/worker.py
+      - bootstrap/plugins/review_agent_tools/github/app_auth.py
+      - bootstrap/plugins/review_agent_tools/github/app_processor.py
+      - bootstrap/plugins/review_agent_tools/github/gateway.py
+      - bootstrap/plugins/review_agent_tools/github/gateway_client.py
+      - bootstrap/plugins/review_agent_tools/github/publication.py
+      - bootstrap/plugins/review_agent_tools/github/publication_gateway.py
+      - tools/review_agent_github_app_worker.py
+      - tests/test_admission.py
+      - tests/test_github_app_auth.py
+      - tests/test_github_app_processor.py
+      - tests/test_github_gateway.py
+      - tests/test_github_gateway_entrypoint.py
+      - tests/test_operator_admin.py
+      - tests/test_profile_bundle.py
+      - tests/test_source_control.py
+      - tests/test_worker.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Focused red/green configuration, redirect, source, publication, gateway, and Hermes transport behavior tests."
+      - "Ruff on changed Python paths and strict Pyright with pyright -p ."
+      - "scripts/check_bundle.sh and git diff --check."
+      - "One Claude Opus/xhigh stable commit gate with score at least 8."
+      - "Commit and push the verified slice, then record the exact receipt."
+    stop_if:
+      - "A required correction needs schema, migration, command, public wording, new dependency, or files outside the declared owners."
+      - "A focused test fails twice for a non-mechanical reason or exposes an unresolved product choice."
+  - id: T218
+    type: pm
+    assignee: PM
+    status: queued
+    reasoning_hint: default
+    objective: "Add the owner's minimal-sufficient review guidance to the canonical packaged AGENTS policy without copying coding-agent-only process rules into the reviewer."
+    constraints:
+      - "Preserve the existing review target, evidence gates, security invariants, deterministic publication contract, and proportional coverage requirements."
+      - "Incorporate intent-first, minimal-sufficient, root-cause, no-speculation, and proportional-test guidance in concise reviewer language."
+      - "Do not copy model-selection, irreversible-operation, branch-switch, or implementation workflow rules that the read-only reviewer cannot execute."
+      - "Do not change SOUL.md, runtime tools, schemas, commands, scoring thresholds, or visible review formatting."
+    allowed_files:
+      - bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md
+      - tests/test_profile_bundle.py
+      - docs/BEHAVIOR_OWNERSHIP.md
+      - website/static/llms-full.txt
+      - scripts/generate_llms_docs.py
+      - tests/test_docs_contract.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Focused profile-bundle and reviewer-policy documentation contracts."
+      - "Generated documentation synchronization if the public behavior guide changes."
+      - "scripts/check_bundle.sh and git diff --check."
+    stop_if:
+      - "The requested text would weaken evidence, authorization, coverage honesty, or deterministic publication."
+      - "The change requires runtime, command, schema, scoring, or model-policy work."
 
 checks:
   dirty_fingerprint: "eupl-1.2-version-1.2-only-license-candidate-on-a993760"

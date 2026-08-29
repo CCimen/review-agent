@@ -3,13 +3,16 @@ from __future__ import annotations
 from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from http.client import HTTPMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import io
 from pathlib import Path
 import sys
 import tempfile
 import threading
 import unittest
+import urllib.request
 from typing import Any, cast
 from unittest.mock import Mock, patch
 
@@ -18,6 +21,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools import review_contract, review_run_application  # noqa: E402
+from review_agent_tools.source_control import SameOriginHttpsRedirectHandler  # noqa: E402
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
@@ -153,6 +157,40 @@ class WorkerBoundaryTests(unittest.TestCase):
                             self._claim(generation=1), timeout=self._timeout()
                         )
                     self.assertEqual(caught.exception.retryable, retryable)
+
+    def test_hermes_credentials_reject_cross_origin_redirects(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            skill_path = Path(directory) / "SKILL.md"
+            skill_path.write_text("Review safely.\n", encoding="utf-8")
+            client = HermesChatClient(
+                HermesChatSettings(
+                    endpoint="http://hermes-review:8642/v1/chat/completions",
+                    bearer_token="internal-secret",
+                    skill_path=skill_path,
+                )
+            )
+
+        self.assertTrue(
+            any(
+                type(handler) is SameOriginHttpsRedirectHandler
+                for handler in client._opener.handlers
+            )
+        )
+        handler = SameOriginHttpsRedirectHandler()
+        request = urllib.request.Request(
+            "http://hermes-review:8642/v1/chat/completions",
+            headers={"Authorization": "Bearer internal-secret"},
+        )
+        self.assertIsNone(
+            handler.redirect_request(
+                request,
+                io.BytesIO(),
+                307,
+                "temporary redirect",
+                HTTPMessage(),
+                "http://other-service:8642/v1/chat/completions",
+            )
+        )
 
     def test_worker_retries_after_a_transient_claim_failure(self) -> None:
         stop = threading.Event()

@@ -14,11 +14,13 @@ weakening the proven review contract.
 
 ## Current Tranche
 
-Complete the approved feedback-quality refinement without turning human signals
-into automatic policy. Add governed missed-issue triage, denominator-based
-quality reporting, and coach input from actionable triage only. Keep the
-existing PostgreSQL feedback, operator, reporting, and private-coach owners;
-finish with current public documentation and live deployment validation.
+Close the three pilot blockers verified against `v0.1.0-rc.2`: render the
+managed model/profile contract from one explicit environment mapping, prevent
+credentialed clients from following cross-origin redirects, and make GitHub
+source/publication retry classification reflect the actual provider failure.
+Keep the correction inside the existing configuration and transport owners;
+later release, migration, module-splitting, failure-cleanup, and command phases
+remain deferred.
 
 ## Approved Sequencing Input
 

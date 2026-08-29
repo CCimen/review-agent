@@ -11,13 +11,17 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, cast
 
+from ..source_control import (
+    SameOriginHttpsRedirectHandler,
+    is_github_rate_limit_error,
+)
+
 _API_ROOT = "https://api.github.com"
 _DEFAULT_MAX_ATTEMPTS = 3
 _DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
 PROVIDER_RESPONSE_MAX_BYTES = 2_000_000
 PUBLICATION_DEFAULT_MAX_PAGES = 3
 PUBLICATION_REQUEST_MAX_PAGES = 10
-_RETRYABLE_STATUS = frozenset({502, 503, 504})
 _RETRYABLE_METHODS = frozenset({"GET", "PATCH"})
 ReviewCommentSide = Literal["LEFT", "RIGHT"]
 IssueCommentReaction = Literal["+1", "confused", "eyes"]
@@ -127,7 +131,7 @@ class GitHubPublicationError(RuntimeError):
         *,
         status: int | None = None,
         operation: str = "",
-        retryable: bool | None = None,
+        retryable: bool = False,
     ) -> None:
         super().__init__(code)
         self.code = code
@@ -244,6 +248,7 @@ class GitHubIssueCommentGateway:
         *,
         request_timeout_seconds: float = _DEFAULT_REQUEST_TIMEOUT_SECONDS,
         max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+        opener: urllib.request.OpenerDirector | None = None,
     ) -> None:
         token = token.strip()
         if not token:
@@ -255,6 +260,9 @@ class GitHubIssueCommentGateway:
         self._token = token
         self._request_timeout_seconds = request_timeout_seconds
         self._max_attempts = max_attempts
+        self._opener = opener or urllib.request.build_opener(
+            SameOriginHttpsRedirectHandler()
+        )
 
     def _request_json(
         self,
@@ -302,16 +310,23 @@ class GitHubIssueCommentGateway:
         )
         for attempt in range(self._max_attempts):
             try:
-                with urllib.request.urlopen(
+                with self._opener.open(
                     request, timeout=self._request_timeout_seconds
                 ) as response:
                     data = response.read(max_bytes + 1)
                     status = int(getattr(response, "status", 200))
             except urllib.error.HTTPError as exc:
+                rate_limited = is_github_rate_limit_error(exc)
+                retryable = (
+                    rate_limited
+                    or exc.code in {408, 425, 429}
+                    or 500 <= exc.code <= 599
+                )
                 exc.close()
                 if (
                     method in _RETRYABLE_METHODS
-                    and exc.code in _RETRYABLE_STATUS
+                    and retryable
+                    and not rate_limited
                     and attempt + 1 < self._max_attempts
                 ):
                     time.sleep(0.5 * (attempt + 1))
@@ -320,14 +335,17 @@ class GitHubIssueCommentGateway:
                     _github_failure_code(exc.code, operation),
                     status=exc.code,
                     operation=operation,
+                    retryable=retryable,
                 ) from exc
             except (urllib.error.URLError, TimeoutError) as exc:
                 raise GitHubPublicationError(
-                    "github_unreachable", operation=operation
+                    "github_unreachable", operation=operation, retryable=True
                 ) from exc
             if len(data) > max_bytes:
                 raise GitHubPublicationError(
-                    "github_response_too_large", operation=operation
+                    "github_response_too_large",
+                    operation=operation,
+                    retryable=False,
                 )
             if method == "DELETE" and not data:
                 return {}, status
@@ -335,9 +353,11 @@ class GitHubIssueCommentGateway:
                 return json.loads(data.decode("utf-8")), status
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise GitHubPublicationError(
-                    "github_invalid_json", operation=operation
+                    "github_invalid_json", operation=operation, retryable=False
                 ) from exc
-        raise GitHubPublicationError("github_unreachable", operation=operation)
+        raise GitHubPublicationError(
+            "github_unreachable", operation=operation, retryable=True
+        )
 
     def get_pull_request(self, repository: str, pr_number: int) -> PullRequestState:
         root = _json_object(

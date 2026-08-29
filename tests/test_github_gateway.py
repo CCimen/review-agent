@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import email.message
+import io
 import json
 from contextlib import nullcontext
 from pathlib import Path
@@ -7,6 +9,7 @@ import sys
 from types import SimpleNamespace
 from typing import cast
 import unittest
+import urllib.error
 import urllib.request
 from unittest.mock import Mock, call, patch
 
@@ -50,7 +53,11 @@ from review_agent_tools.github.source import (  # noqa: E402
     read_review_pull,
 )
 from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
-from review_agent_tools.source_control import PullSnapshot  # noqa: E402
+from review_agent_tools.source_control import (  # noqa: E402
+    GitHubReadError,
+    PullSnapshot,
+    SameOriginHttpsRedirectHandler,
+)
 
 
 class _Response:
@@ -68,15 +75,47 @@ class _Response:
         return self._body if limit < 0 else self._body[:limit]
 
 
+class _RedirectResponse(io.BytesIO):
+    def __init__(self, url: str, location: str) -> None:
+        super().__init__(b"")
+        headers = email.message.Message()
+        headers["Location"] = location
+        self.code = 302
+        self.status = 302
+        self.msg = "Found"
+        self.headers = headers
+        self._url = url
+
+    def info(self) -> email.message.Message:
+        return self.headers
+
+    def geturl(self) -> str:
+        return self._url
+
+
+class _RedirectingHttpsTransport(urllib.request.HTTPSHandler):
+    def __init__(self, location: str) -> None:
+        super().__init__()
+        self.location = location
+        self.requests: list[urllib.request.Request] = []
+
+    def https_open(self, request: urllib.request.Request) -> _RedirectResponse:
+        self.requests.append(request)
+        if len(self.requests) > 1:
+            raise AssertionError("credentialed redirect performed a second request")
+        return _RedirectResponse(request.full_url, self.location)
+
+
 class _Opener:
-    def __init__(self, body: bytes) -> None:
+    def __init__(self, body: bytes, *, status: int = 200) -> None:
         self.body = body
+        self.status = status
         self.requests: list[object] = []
 
     def open(self, request: object, *, timeout: float) -> _Response:
         del timeout
         self.requests.append(request)
-        return _Response(self.body)
+        return _Response(self.body, status=self.status)
 
 
 class ReviewGitHubGatewayClientTests(unittest.TestCase):
@@ -297,35 +336,160 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
 
     def test_provider_rejects_comment_without_positive_id(self) -> None:
         response = _Response(b'[{"body":"text","user":{"login":"bot"}}]')
-        gateway = GitHubIssueCommentGateway("installation-token", max_attempts=1)
+        opener = Mock(spec=urllib.request.OpenerDirector)
+        opener.open.return_value = response
+        gateway = GitHubIssueCommentGateway(
+            "installation-token",
+            max_attempts=1,
+            opener=cast(urllib.request.OpenerDirector, opener),
+        )
 
-        with (
-            patch.object(
-                publication_module.urllib.request,
-                "urlopen",
-                return_value=response,
-            ),
-            self.assertRaisesRegex(
-                GitHubPublicationError, "github_bad_comments_response"
-            ),
+        with self.assertRaisesRegex(
+            GitHubPublicationError, "github_bad_comments_response"
         ):
             gateway.list_issue_comments("CCimen/review-agent", 42)
 
     def test_feedback_reaction_reports_only_new_creation(self) -> None:
-        gateway = GitHubIssueCommentGateway("installation-token", max_attempts=1)
         for status, expected in ((201, True), (200, False)):
-            with (
-                self.subTest(status=status),
-                patch.object(
-                    publication_module.urllib.request,
-                    "urlopen",
-                    return_value=_Response(b'{"id":1}', status=status),
-                ),
-            ):
+            opener = _Opener(b'{"id":1}', status=status)
+            gateway = GitHubIssueCommentGateway(
+                "installation-token",
+                max_attempts=1,
+                opener=cast(urllib.request.OpenerDirector, opener),
+            )
+            with self.subTest(status=status):
                 created = gateway.create_issue_comment_reaction(
                     "CCimen/review-agent", 6001, "confused"
                 )
                 self.assertEqual(created, expected)
+
+    def test_publication_transport_classifies_provider_failures(self) -> None:
+        cases = (
+            (400, {}, b"", False),
+            (403, {}, b"", False),
+            (403, {"Retry-After": "30"}, b"", True),
+            (403, {}, b'{"message":"secondary rate limit"}', True),
+            (408, {}, b"", True),
+            (425, {}, b"", True),
+            (429, {}, b"", True),
+            (409, {}, b"", False),
+            (422, {}, b"", False),
+            (500, {}, b"", True),
+        )
+        for status, raw_headers, body, expected_retryable in cases:
+            headers = email.message.Message()
+            for name, value in raw_headers.items():
+                headers[name] = value
+            provider_error = urllib.error.HTTPError(
+                "https://api.github.com/repos/example/project/pulls/1",
+                status,
+                "provider failure",
+                headers,
+                io.BytesIO(body),
+            )
+            opener = Mock(spec=urllib.request.OpenerDirector)
+            opener.open.side_effect = provider_error
+            gateway = GitHubIssueCommentGateway(
+                "installation-token",
+                max_attempts=1,
+                opener=cast(urllib.request.OpenerDirector, opener),
+            )
+
+            with self.subTest(status=status, headers=raw_headers, body=body):
+                with self.assertRaises(GitHubPublicationError) as raised:
+                    gateway.get_pull_request("example/project", 1)
+                self.assertEqual(raised.exception.retryable, expected_retryable)
+                self.assertEqual(opener.open.call_count, 1)
+                self.assertTrue(provider_error.closed)
+                self.assertNotIn("installation-token", str(raised.exception))
+
+    def test_publication_redirect_does_not_forward_the_token(self) -> None:
+        transport = _RedirectingHttpsTransport("https://redirect.test/pulls/1")
+        opener = urllib.request.build_opener(
+            SameOriginHttpsRedirectHandler(), transport
+        )
+        gateway = GitHubIssueCommentGateway(
+            "installation-token",
+            max_attempts=1,
+            opener=opener,
+        )
+
+        with self.assertRaises(GitHubPublicationError):
+            gateway.get_pull_request("example/project", 1)
+
+        self.assertEqual(len(transport.requests), 1)
+        self.assertEqual(
+            transport.requests[0].get_header("Authorization"),
+            "Bearer installation-token",
+        )
+
+    def test_publication_network_failure_is_retryable(self) -> None:
+        opener = Mock(spec=urllib.request.OpenerDirector)
+        opener.open.side_effect = urllib.error.URLError("offline")
+        gateway = GitHubIssueCommentGateway(
+            "installation-token",
+            max_attempts=1,
+            opener=cast(urllib.request.OpenerDirector, opener),
+        )
+
+        with self.assertRaises(GitHubPublicationError) as raised:
+            gateway.get_pull_request("example/project", 1)
+
+        self.assertTrue(raised.exception.retryable)
+
+    def test_publication_rate_limit_waits_for_the_durable_retry(self) -> None:
+        headers = email.message.Message()
+        headers["Retry-After"] = "30"
+        provider_error = urllib.error.HTTPError(
+            "https://api.github.com/repos/example/project/pulls/1",
+            403,
+            "rate limited",
+            headers,
+            io.BytesIO(b""),
+        )
+        opener = Mock(spec=urllib.request.OpenerDirector)
+        opener.open.side_effect = provider_error
+        gateway = GitHubIssueCommentGateway(
+            "installation-token",
+            max_attempts=3,
+            opener=cast(urllib.request.OpenerDirector, opener),
+        )
+
+        with self.assertRaises(GitHubPublicationError) as raised:
+            gateway.get_pull_request("example/project", 1)
+
+        self.assertTrue(raised.exception.retryable)
+        self.assertEqual(opener.open.call_count, 1)
+
+    def test_credentialed_clients_install_the_redirect_policy(self) -> None:
+        publication = GitHubIssueCommentGateway("installation-token")
+        gateway = ReviewGitHubGatewayClient(
+            "http://review-github-gateway:8646", operator_key="operator-secret"
+        )
+
+        for opener in (publication._opener, gateway._opener):
+            self.assertTrue(
+                any(
+                    type(handler) is SameOriginHttpsRedirectHandler
+                    for handler in opener.handlers
+                )
+            )
+
+        handler = SameOriginHttpsRedirectHandler()
+        request = urllib.request.Request(
+            "http://review-github-gateway:8646/v1/status",
+            headers={"Authorization": "Bearer operator-secret"},
+        )
+        self.assertIsNone(
+            handler.redirect_request(
+                request,
+                io.BytesIO(),
+                307,
+                "temporary redirect",
+                email.message.Message(),
+                "http://other-service:8646/v1/status",
+            )
+        )
 
     def test_failure_status_scan_stays_inside_the_gateway_page_contract(self) -> None:
         gateway = Mock()
@@ -581,7 +745,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             [IssueComment(7001, f"status\n\n{marker}", "review-agent[bot]")],
         )
         github.create_issue_comment.side_effect = GitHubPublicationError(
-            "github_unreachable", status=503
+            "github_unreachable", status=503, retryable=True
         )
         github.create_issue_comment_reaction.return_value = True
         service = ReviewGitHubGateway(
@@ -697,6 +861,102 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         github.create_issue_comment.assert_called_once_with(
             "CCimen/review-agent", 42, "published"
         )
+
+    def test_publication_retries_one_invalid_token_only_once(self) -> None:
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        github = Mock()
+        github.create_issue_comment.side_effect = (
+            GitHubPublicationError(
+                "github_401_create_issue_comment",
+                status=401,
+                retryable=False,
+            ),
+            GitHubPublicationError(
+                "github_401_create_issue_comment",
+                status=401,
+                retryable=False,
+            ),
+        )
+        service = ReviewPublicationGateway(
+            postgres=Mock(),
+            tokens=tokens,
+            profile="sundsvall-standard",
+            github_factory=Mock(return_value=github),
+        )
+        scope = SimpleNamespace(
+            provider_repository_id=9001,
+            repository="CCimen/review-agent",
+            pr_number=42,
+        )
+        request = PublicationGatewayRequest.from_mapping(
+            {
+                "scope_kind": "publication",
+                "scope_id": 71,
+                "lease_owner": "publisher-1",
+                "lease_generation": 3,
+                "operation": "create_issue_comment",
+                "body": "published",
+            }
+        )
+
+        with (
+            patch.object(
+                ReviewPublicationGateway, "_require_authority", return_value=scope
+            ),
+            self.assertRaises(GitHubGatewayRejected),
+        ):
+            service.execute(request)
+
+        self.assertEqual(tokens.token_for.call_count, 2)
+        tokens.invalidate.assert_called_once_with(9001, purpose="publication")
+
+    def test_publication_gateway_preserves_transport_retry_classification(self) -> None:
+        for retryable, expected in (
+            (True, GitHubGatewayRetryable),
+            (False, GitHubGatewayRejected),
+        ):
+            tokens = Mock()
+            tokens.token_for.return_value = SimpleNamespace(
+                value="installation-token"
+            )
+            github = Mock()
+            github.get_pull_request.side_effect = GitHubPublicationError(
+                "github_http_503_get_pull_request" if retryable else "github_http_422_get_pull_request",
+                status=503 if retryable else 422,
+                retryable=retryable,
+            )
+            service = ReviewPublicationGateway(
+                postgres=Mock(),
+                tokens=tokens,
+                profile="sundsvall-standard",
+                github_factory=Mock(return_value=github),
+            )
+            scope = SimpleNamespace(
+                provider_repository_id=9001,
+                repository="CCimen/review-agent",
+                pr_number=42,
+            )
+            request = PublicationGatewayRequest.from_mapping(
+                {
+                    "scope_kind": "publication",
+                    "scope_id": 71,
+                    "lease_owner": "publisher-1",
+                    "lease_generation": 3,
+                    "operation": "get_pull",
+                }
+            )
+
+            with (
+                self.subTest(retryable=retryable),
+                patch.object(
+                    ReviewPublicationGateway,
+                    "_require_authority",
+                    return_value=scope,
+                ),
+                self.assertRaises(expected),
+            ):
+                service.execute(request)
 
     def test_publication_provider_call_fits_inside_client_deadline(self) -> None:
         runtime = Mock()
@@ -829,6 +1089,88 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
 
         self.assertEqual(authorize.call_count, 2)
         read.assert_called_once_with(github, scope)
+
+    def test_source_gateway_preserves_transport_retry_classification(self) -> None:
+        request = ReviewSourceRequest.from_mapping(
+            {
+                "operation": "pull",
+                "run_id": 51,
+                "job_id": 61,
+                "lease_generation": 7,
+            }
+        )
+        for retryable, expected in (
+            (True, GitHubGatewayRetryable),
+            (False, GitHubGatewayRejected),
+        ):
+            tokens = Mock()
+            tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+            service = ReviewGitHubGateway(
+                postgres=Mock(),
+                tokens=tokens,
+                profile="sundsvall-standard",
+                github_factory=Mock(return_value=Mock()),
+            )
+
+            with (
+                self.subTest(retryable=retryable),
+                patch.object(
+                    ReviewGitHubGateway,
+                    "_require_source_authority",
+                    return_value=self._scope(),
+                ),
+                patch.object(
+                    gateway_module,
+                    "read_review_pull",
+                    side_effect=GitHubReadError(
+                        "http_error",
+                        "provider failure",
+                        status=503 if retryable else 422,
+                        retryable=retryable,
+                    ),
+                ),
+                self.assertRaises(expected),
+            ):
+                service.read_review_source(request)
+
+    def test_source_retries_one_invalid_token_only_once(self) -> None:
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        service = ReviewGitHubGateway(
+            postgres=Mock(),
+            tokens=tokens,
+            profile="sundsvall-standard",
+            github_factory=Mock(return_value=Mock()),
+        )
+        request = ReviewSourceRequest.from_mapping(
+            {
+                "operation": "pull",
+                "run_id": 51,
+                "job_id": 61,
+                "lease_generation": 7,
+            }
+        )
+
+        with (
+            patch.object(
+                ReviewGitHubGateway,
+                "_require_source_authority",
+                return_value=self._scope(),
+            ),
+            patch.object(
+                gateway_module,
+                "read_review_pull",
+                side_effect=(
+                    GitHubReadError("unauthorized", "invalid token", status=401),
+                    GitHubReadError("unauthorized", "invalid token", status=401),
+                ),
+            ),
+            self.assertRaises(GitHubGatewayRejected),
+        ):
+            service.read_review_source(request)
+
+        self.assertEqual(tokens.token_for.call_count, 2)
+        tokens.invalidate.assert_called_once_with(9001)
 
     def test_operator_smoke_reads_one_enabled_pull_and_proves_write_scope(self) -> None:
         runtime = Mock()

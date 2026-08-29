@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
 from review_agent_tools.domain.review import RepositoryId  # noqa: E402
+from review_agent_tools import source_control  # noqa: E402
 from review_agent_tools.github import app_auth  # noqa: E402
 from review_agent_tools.postgres import github_app  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
@@ -509,7 +510,7 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
     def test_cross_origin_redirect_is_rejected(self) -> None:
         self.assertTrue(
             any(
-                type(handler) is app_auth._SameOriginRedirectHandler
+                type(handler) is source_control.SameOriginHttpsRedirectHandler
                 for handler in self.service._opener.handlers
             )
         )
@@ -519,7 +520,7 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
                 for handler in self.service._opener.handlers
             )
         )
-        handler = app_auth._SameOriginRedirectHandler()
+        handler = source_control.SameOriginHttpsRedirectHandler()
         request = urllib.request.Request(
             "https://github.test/app/installations/7001/access_tokens",
             headers={"Authorization": "Bearer secret"},
@@ -535,6 +536,18 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
         )
 
         self.assertIsNone(redirected)
+
+        same_origin = handler.redirect_request(
+            request,
+            io.BytesIO(),
+            307,
+            "temporary redirect",
+            HTTPMessage(),
+            "https://github.test/access_tokens",
+        )
+        self.assertIsNotNone(same_origin)
+        assert same_origin is not None
+        self.assertEqual(same_origin.get_header("Authorization"), "Bearer secret")
 
     def test_rate_limit_403_is_retryable_and_closes_response(self) -> None:
         error = urllib.error.HTTPError(

@@ -165,15 +165,18 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    environment = dict(os.environ)
+    contract_environment = review_contract.deployment_environment(environment)
 
     try:
         managed, managed_bytes = review_contract.render_managed_config(
-            SOURCE / "config.yaml"
+            SOURCE / "config.yaml",
+            environment=contract_environment,
         )
         installed_profile, previous_skills = installed_profile_receipt()
         profile = load_profile(
             args.profile
-            or os.environ.get("REVIEW_AGENT_PROFILE")
+            or environment.get("REVIEW_AGENT_PROFILE")
             or installed_profile
             or DEFAULT_PROFILE,
             required_skills=REQUIRED_PROFILE_SKILLS,
@@ -230,7 +233,9 @@ def main() -> int:
             HERMES_HOME,
             profile=profile.key,
             skills=profile.skills,
-            hermes_image=os.environ.get("REVIEW_AGENT_HERMES_IMAGE", ""),
+            hermes_image=review_contract.deployment_hermes_image(
+                contract_environment
+            ),
             config=managed,
         )
     except review_contract.ReviewContractError as exc:

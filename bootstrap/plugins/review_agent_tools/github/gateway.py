@@ -926,7 +926,7 @@ class ReviewGitHubGateway:
                     self._tokens.invalidate(provider_repository_id)
                     attempt += 1
                     continue
-                if exc.kind in {"unreachable", "http_error", "rate_limited"}:
+                if exc.retryable:
                     raise GitHubGatewayRetryable("github_read_unavailable") from exc
                 if exc.kind in {"unauthorized", "forbidden"}:
                     raise GitHubGatewayRejected(
@@ -1003,15 +1003,7 @@ class ReviewGitHubGateway:
                     if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", exc.code)
                     else "github_feedback_failed"
                 )
-                if exc.status is not None and (
-                    exc.status == 429 or exc.status >= 500
-                ):
-                    raise GitHubGatewayRetryable(reason) from exc
-                if exc.code in {
-                    "github_unreachable",
-                    "github_response_too_large",
-                    "github_invalid_json",
-                }:
+                if exc.retryable:
                     raise GitHubGatewayRetryable(reason) from exc
                 raise GitHubGatewayRejected(reason) from exc
 

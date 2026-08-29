@@ -36,6 +36,7 @@ class AdmissionTests(unittest.TestCase):
             ),
             profile="sundsvall-standard",
             github_app_secret="app-webhook-secret",
+            contract_environment={},
             webhook_delivery_max_attempts=4,
         )
         self.runtime = MagicMock()
@@ -155,6 +156,10 @@ class AdmissionTests(unittest.TestCase):
         configured = admission.load_config(environment)
         self.assertEqual(configured.github_app_secret, "app-secret")
         self.assertEqual(configured.webhook_delivery_max_attempts, 5)
+        self.assertNotIn(
+            "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET",
+            configured.contract_environment,
+        )
 
         environment["REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET"] = ""
         with self.assertRaisesRegex(SettingsError, "is required"):
@@ -170,6 +175,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             ),
             profile="sundsvall-standard",
             github_app_secret="app-webhook-secret",
+            contract_environment={},
         )
         self.runtime = MagicMock()
         self.server = admission_entrypoint.AdmissionServer(

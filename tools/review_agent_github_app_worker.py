@@ -43,6 +43,7 @@ from review_agent_tools.github.gateway import (  # noqa: E402
 from review_agent_tools.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
+from review_agent_tools import review_contract  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
@@ -151,6 +152,9 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 active_job_limit=_positive_integer(
                     "REVIEW_AGENT_ACTIVE_JOB_LIMIT", "100"
+                ),
+                contract_environment=review_contract.deployment_environment(
+                    os.environ
                 ),
             ),
         )

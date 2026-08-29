@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import os
@@ -39,6 +39,7 @@ class AdmissionConfig:
     database_url: PostgresDatabaseUrl
     profile: str
     github_app_secret: str
+    contract_environment: Mapping[str, str] = field(repr=False, compare=False)
     webhook_delivery_max_attempts: int = 3
 
 
@@ -62,7 +63,7 @@ def _integer_setting(environment: Mapping[str, str], name: str, default: int) ->
 
 
 def load_config(environment: Mapping[str, str] | None = None) -> AdmissionConfig:
-    values = environment if environment is not None else os.environ
+    values = dict(environment if environment is not None else os.environ)
     settings = ReviewAgentSettings(values)
     github_app_secret = values.get(
         "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET", ""
@@ -73,6 +74,7 @@ def load_config(environment: Mapping[str, str] | None = None) -> AdmissionConfig
         database_url=settings.postgres_database_url,
         profile=settings.profile,
         github_app_secret=github_app_secret,
+        contract_environment=review_contract.deployment_environment(values),
         webhook_delivery_max_attempts=_integer_setting(
             values, "REVIEW_AGENT_WEBHOOK_DELIVERY_MAX_ATTEMPTS", 3
         ),
@@ -90,13 +92,18 @@ def ready_check(config: AdmissionConfig, runtime: PostgreSQLRuntime) -> dict[str
     if config.database_url != runtime.database_url:
         raise AdmissionError("admission runtime does not match its configured database")
     runtime.readiness()
-    _admission_contract(config.profile)
+    _admission_contract(config.profile, config.contract_environment)
     return {"status": "ready"}
 
 
-def _admission_contract(profile: str) -> review_contract.ReviewContract:
+def _admission_contract(
+    profile: str, environment: Mapping[str, str]
+) -> review_contract.ReviewContract:
     try:
-        contract = review_contract.load_packaged_contract(profile)
+        contract = review_contract.load_packaged_contract(
+            profile,
+            environment=environment,
+        )
     except review_contract.ReviewContractError as exc:
         raise AdmissionError(str(exc)) from exc
     if contract.profile != profile:

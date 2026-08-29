@@ -52,16 +52,6 @@ class SupersessionGateway(Protocol):
     ) -> IssueComment: ...
 
 
-def _retryable_publication_error(error: GitHubPublicationError) -> bool:
-    if error.retryable is not None:
-        return error.retryable
-    return (
-        error.status is None
-        or error.status in {408, 425, 429}
-        or error.status >= 500
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class PostgresPublishedPart:
     part_type: PublicationPartType
@@ -367,7 +357,7 @@ def publish_postgres_run_failure_status(
                 lease_generation=generation,
                 failure_code=exc.code,
                 retry_delay=retry_delay,
-                retryable=_retryable_publication_error(exc),
+                retryable=exc.retryable,
             )
         raise
     with runtime.transaction() as connection:
@@ -813,7 +803,7 @@ def publish_postgres_publication(
                 publication_id=resolved_id,
                 posting_started_at=posting_started_at,
                 failure_code=exc.code,
-                retryable=_retryable_publication_error(exc),
+                retryable=exc.retryable,
                 retry_delay=retry_delay,
                 lease_owner=resolved_lease_owner,
                 lease_generation=resolved_lease_generation,

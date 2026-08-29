@@ -11,10 +11,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from http.client import HTTPMessage
 from collections.abc import Mapping, Sequence
-from typing import IO, Final, Literal, cast
-from urllib.parse import urlsplit
+from typing import Final, Literal, cast
 from weakref import WeakValueDictionary
 
 import jwt
@@ -23,7 +21,11 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from ..postgres import github_app
 from ..postgres.runtime import PostgreSQLRuntime
-from ..source_control import is_github_rate_limit_error
+from ..source_control import (
+    SameOriginHttpsRedirectHandler,
+    https_api_origin,
+    is_github_rate_limit_error,
+)
 
 
 _TOKEN_REFRESH_MARGIN: Final = timedelta(minutes=5)
@@ -82,45 +84,6 @@ class GitHubAppIdentity:
 class _CachedToken:
     token: InstallationToken
     provider_installation_id: int
-
-
-def _https_origin(url: str) -> tuple[str, str, int]:
-    try:
-        parsed = urlsplit(url)
-        port = parsed.port or 443
-    except ValueError as exc:
-        raise ValueError("api_url must be an HTTPS API root") from exc
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname is None
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise ValueError("api_url must be an HTTPS API root")
-    return parsed.scheme, parsed.hostname.lower(), port
-
-
-class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Follow API redirects only when the App JWT stays on the same origin."""
-
-    def redirect_request(
-        self,
-        req: urllib.request.Request,
-        fp: IO[bytes],
-        code: int,
-        msg: str,
-        headers: HTTPMessage,
-        newurl: str,
-    ) -> urllib.request.Request | None:
-        try:
-            same_origin = _https_origin(req.full_url) == _https_origin(newurl)
-        except ValueError:
-            same_origin = False
-        if not same_origin:
-            return None
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def load_private_key_file(
@@ -193,12 +156,12 @@ class GitHubAppAuthenticator:
             )
         if isinstance(response_byte_limit, bool) or response_byte_limit < 1:
             raise ValueError("response_byte_limit must be positive")
-        _https_origin(api_url)
+        https_api_origin(api_url)
         self._app_id = app_id
         self._private_key = private_key
         self._api_url = api_url.rstrip("/")
         self._response_byte_limit = response_byte_limit
-        self._opener = urllib.request.build_opener(_SameOriginRedirectHandler())
+        self._opener = urllib.request.build_opener(SameOriginHttpsRedirectHandler())
 
     def app_json(self, path: str, *, now: datetime | None = None) -> object:
         """Read one App-authenticated GitHub JSON resource."""
@@ -356,7 +319,11 @@ class GitHubAppAuthenticator:
                     )
                 return json.loads(raw_result)
         except urllib.error.HTTPError as exc:
-            retryable = exc.code >= 500 or is_github_rate_limit_error(exc)
+            retryable = (
+                exc.code in {408, 425, 429}
+                or exc.code >= 500
+                or is_github_rate_limit_error(exc)
+            )
             exc.close()
             if retryable:
                 raise GitHubAppTokenRetryable(

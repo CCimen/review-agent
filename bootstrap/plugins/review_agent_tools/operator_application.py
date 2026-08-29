@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from .domain.coaching import CoachCandidateInput, CoachRunInput, resolve_coach_run
+from .domain.coaching import (
+    CoachCandidateInput,
+    CoachInterventionOutcome,
+    CoachInterventionOutcomeInput,
+    CoachRunInput,
+    resolve_coach_run,
+    resolve_intervention_outcome,
+)
 from .domain.feedback import (
     resolve_feedback_triage,
     resolve_positive_int,
@@ -40,6 +47,9 @@ from .postgres.runtime import PostgreSQLRuntime
 
 class OperatorInputError(ValueError):
     """An operator request is ambiguous or unsafe to execute."""
+
+
+MAX_COACH_INTERVENTION_HISTORY_ITEMS = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +122,21 @@ class OperatorDecisionResult:
     adr_id: str | None
     created_at: datetime
     expires_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class CoachInterventionOutcomeRequest:
+    repository: str
+    proposal_set_id: str
+    candidate_key: str
+    target_owner: str
+    proposal_content_hash: str
+    base_contract_hash: str
+    diff_hash: str
+    validation_receipt_hash: str
+    outcome: CoachInterventionOutcome
+    reason: str
+    actor: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -773,4 +798,62 @@ def record_coach_run(
             connection,
             repository_id=repository_id,
             definition=definition,
+        )
+
+
+def record_coach_intervention(
+    runtime: PostgreSQLRuntime,
+    request: CoachInterventionOutcomeRequest,
+) -> postgres_coaching.CoachInterventionOutcomeRecord:
+    """Append one evaluated intervention for an exact verified coach candidate."""
+    repository = resolve_repository(request.repository)
+    with runtime.transaction() as connection:
+        candidate = postgres_coaching.resolve_intervention_candidate(
+            connection,
+            repository=repository,
+            proposal_set_id=request.proposal_set_id,
+            candidate_key=request.candidate_key,
+            target_owner=request.target_owner,
+        )
+        definition = resolve_intervention_outcome(
+            CoachInterventionOutcomeInput(
+                coach_candidate_id=int(candidate.id),
+                candidate_key=candidate.candidate_key,
+                target_owner=candidate.target_owner,
+                proposal_content_hash=request.proposal_content_hash,
+                base_contract_hash=request.base_contract_hash,
+                diff_hash=request.diff_hash,
+                validation_receipt_hash=request.validation_receipt_hash,
+                outcome=request.outcome,
+                reason=request.reason,
+                actor=request.actor,
+            )
+        )
+        return postgres_coaching.record_intervention_outcome(connection, definition)
+
+
+def coach_intervention_history(
+    runtime: PostgreSQLRuntime,
+    *,
+    repository: str,
+    candidate_key: str,
+    limit: int,
+) -> postgres_coaching.CoachInterventionHistory:
+    """Read one explicitly bounded private intervention history."""
+    normalized_repository = resolve_repository(repository)
+    normalized_candidate_key = " ".join(candidate_key.strip().split())
+    if not normalized_candidate_key or len(normalized_candidate_key) > 160:
+        raise OperatorInputError("candidate_key must be 1 to 160 characters")
+    row_limit = _positive(limit, field="limit")
+    if row_limit > MAX_COACH_INTERVENTION_HISTORY_ITEMS:
+        raise OperatorInputError(
+            "limit must not exceed "
+            f"{MAX_COACH_INTERVENTION_HISTORY_ITEMS} intervention outcomes"
+        )
+    with runtime.transaction() as connection:
+        return postgres_coaching.intervention_history(
+            connection,
+            repository=normalized_repository,
+            candidate_key=normalized_candidate_key,
+            limit=row_limit,
         )

@@ -7,6 +7,7 @@ import argparse
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ import sys
 from typing import NoReturn, cast
 
 from review_agent_coach_run import build_coach_run_artifacts
+from review_agent_coach_proposals import CandidateProposal, ProposalBundle
 from review_agent_private_io import write_private_file
 
 
@@ -33,7 +35,11 @@ def _plugin_parent() -> Path:
 _plugin_parent()
 
 from review_agent_tools import operator_application  # noqa: E402
-from review_agent_tools.domain.coaching import CoachCandidateInput  # noqa: E402
+from review_agent_tools.domain.coaching import (  # noqa: E402
+    COACH_INTERVENTION_OUTCOMES,
+    CoachCandidateInput,
+    CoachInterventionOutcome,
+)
 from review_agent_tools.domain.feedback import FeedbackTriageStatus  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
@@ -213,6 +219,27 @@ def _parser() -> argparse.ArgumentParser:
     coach_run.add_argument("--include-incomplete", action="store_true")
     coach_run.add_argument("--max-candidates", type=int, default=3)
     coach_run.add_argument("--min-independent-episodes", type=int, default=2)
+    coach_record = commands.add_parser(
+        "coach-record-outcome",
+        help="Record one final evaluated coach intervention.",
+    )
+    coach_record.add_argument("--proposal", required=True)
+    coach_record.add_argument("--candidate-key", required=True)
+    coach_record.add_argument("--base-contract-sha256", required=True)
+    coach_record.add_argument("--diff", default="")
+    coach_record.add_argument("--validation-receipt", default="")
+    coach_record.add_argument(
+        "--outcome", required=True, choices=tuple(sorted(COACH_INTERVENTION_OUTCOMES))
+    )
+    coach_record.add_argument("--actor", required=True)
+    coach_record.add_argument("--reason", required=True)
+    coach_history = commands.add_parser(
+        "coach-history",
+        help="List bounded intervention outcomes for one coach candidate.",
+    )
+    coach_history.add_argument("--repo", required=True)
+    coach_history.add_argument("--candidate-key", required=True)
+    coach_history.add_argument("--limit", type=int, required=True)
     return parser
 
 
@@ -267,6 +294,51 @@ def _offline_command(args: argparse.Namespace) -> int | None:
 
 def _fatal(exc: Exception) -> NoReturn:
     raise SystemExit(str(exc)) from exc
+
+
+def _sha256_file(raw_path: str) -> str:
+    if not raw_path:
+        return ""
+    path = Path(raw_path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("intervention artifact must be a regular file")
+    with path.open("rb") as handle:
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+    return f"sha256:{digest}"
+
+
+def _proposal_intervention(
+    proposal_path: str,
+    candidate_key: str,
+) -> tuple[ProposalBundle, CandidateProposal, str]:
+    import review_agent_coach_proposals as proposals
+
+    bundle = proposals.load_proposal_bundle(Path(proposal_path))
+    candidates = tuple(
+        candidate
+        for candidate in bundle.candidates
+        if candidate.candidate_key == candidate_key
+    )
+    if len(candidates) != 1:
+        raise ValueError(
+            "verified proposal must contain exactly one matching candidate key"
+        )
+    candidate = candidates[0]
+    canonical = json.dumps(
+        {
+            "schema_version": bundle.schema_version,
+            "proposal_set_id": bundle.proposal_set_id,
+            "candidate_key": candidate.candidate_key,
+            "target_owner": candidate.target_owner,
+            "proposed_change": candidate.proposed_change,
+            "required_validation": list(candidate.required_validation),
+            "risk": candidate.risk,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return bundle, candidate, "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
 def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
@@ -393,6 +465,33 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             artifact_dir=str(artifacts.paths.output_dir), candidates=candidates,
         )
         result = {"run": run, "artifacts": artifacts.paths.to_json_obj()}
+    elif args.command == "coach-record-outcome":
+        bundle, candidate, proposal_content_hash = _proposal_intervention(
+            args.proposal, args.candidate_key
+        )
+        result = operator_application.record_coach_intervention(
+            runtime,
+            operator_application.CoachInterventionOutcomeRequest(
+                repository=bundle.repository_untrusted,
+                proposal_set_id=bundle.proposal_set_id,
+                candidate_key=candidate.candidate_key,
+                target_owner=candidate.target_owner,
+                proposal_content_hash=proposal_content_hash,
+                base_contract_hash=args.base_contract_sha256,
+                diff_hash=_sha256_file(args.diff),
+                validation_receipt_hash=_sha256_file(args.validation_receipt),
+                outcome=cast(CoachInterventionOutcome, args.outcome),
+                reason=args.reason,
+                actor=args.actor,
+            ),
+        )
+    elif args.command == "coach-history":
+        result = operator_application.coach_intervention_history(
+            runtime,
+            repository=args.repo,
+            candidate_key=args.candidate_key,
+            limit=args.limit,
+        )
     else:
         raise SystemExit(f"unsupported command: {args.command}")
     print(_json(result, pretty=True))

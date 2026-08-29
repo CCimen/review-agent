@@ -27,8 +27,13 @@ review-agent-memory coach-run \
 reviewer’s original claim and disproof checks with the maintainer’s
 counter-evidence. If fewer than two independent episodes support the same stable
 finding identity, the correct result is `no_change`.
-Coach/proposal schema v1 artifacts are not migrated; regenerate them from the
-current PostgreSQL evidence.
+Coach-event schema v5 and proposal schema v3 artifacts are not migrated;
+regenerate older artifacts from the current PostgreSQL evidence.
+
+A finding identity connects the same issue across reviews. An occurrence pins
+one observation to its exact repository, pull request, head commit, and local
+reference. Coaching counts independent occurrences as evidence; it does not
+mistake repeated decisions about one occurrence for independent episodes.
 
 Use the lower-level export commands below only for historical snapshots or
 diagnosis; the normal coach path does not need a raw database export on disk.
@@ -109,6 +114,42 @@ not treated as evidence that reviewer behavior should change.
 
 Review-quality feedback that lacks exact publication or finding provenance is
 shown as not promoted until the feedback writer records that provenance.
+
+After a human evaluates one exact candidate change, record the result against
+the verified proposal and reviewer contract:
+
+```bash
+review-agent-memory coach-record-outcome \
+  --proposal /opt/data/review-memory/coach-run/proposal.json \
+  --candidate-key <candidate-key> \
+  --base-contract-sha256 sha256:<64-lowercase-hex> \
+  --diff /opt/data/review-memory/candidate.patch \
+  --validation-receipt /opt/data/review-memory/evaluation.json \
+  --outcome accepted \
+  --actor github:<maintainer> \
+  --reason "Replay and holdout cases passed."
+```
+
+Pass `sha256:<contract.sha256>` from the evaluated reviewer's verified
+`.review-agent-profile.json` receipt as `--base-contract-sha256`.
+
+Accepted, regression, and no-improvement outcomes require both evaluated files.
+For `rejected_insufficient_evidence`, `rejected_wrong_owner`, or `withdrawn`,
+omit either file when it was never produced. PostgreSQL stores only hashes,
+the final outcome, and bounded audit text—not proposal, diff, validation,
+source, or transcript bodies.
+
+Inspect one candidate's private history with an explicit limit (maximum 100):
+
+```bash
+review-agent-memory coach-history \
+  --repo example-org/example-repository \
+  --candidate-key <candidate-key> \
+  --limit 20
+```
+
+This history is for operators and private proposal tooling. It is not imported
+or supplied to the live pull-request reviewer.
 
 Validate replay fixtures before relying on them:
 

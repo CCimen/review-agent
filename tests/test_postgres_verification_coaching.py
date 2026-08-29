@@ -17,13 +17,17 @@ PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools import (  # noqa: E402
+    operator_application,
     review_finding_application,
     review_run_application,
 )
 from review_agent_tools.domain.coaching import (  # noqa: E402
     CoachCandidateInput,
+    CoachInterventionOutcome,
+    CoachInterventionOutcomeInput,
     CoachRunInput,
     resolve_coach_run,
+    resolve_intervention_outcome,
 )
 from review_agent_tools.domain.finding import FindingInput  # noqa: E402
 from review_agent_tools.domain.review import RepositoryId  # noqa: E402
@@ -474,6 +478,204 @@ class PostgreSQLVerificationCoachingTests(unittest.TestCase):
                 "(SELECT count(*) FROM review_agent.coach_candidates)"
             ).fetchone()
         self.assertEqual(counts, (3, 2))
+
+    def intervention_candidate(self) -> postgres_coaching.CoachCandidate:
+        review = self.start(41)
+        with self.runtime.transaction() as connection:
+            repository_id = RepositoryId(
+                int(
+                    connection.execute(
+                        "SELECT repository_id FROM review_agent.pull_requests "
+                        "WHERE id = %s",
+                        (review.run.pull_request_id,),
+                    ).fetchone()[0]
+                )
+            )
+            run = postgres_coaching.record_run(
+                connection,
+                repository_id=repository_id,
+                definition=resolve_coach_run(self.coach_input(route="profile")),
+            )
+        return run.candidates[0]
+
+    @staticmethod
+    def intervention_definition(
+        candidate: postgres_coaching.CoachCandidate,
+        *,
+        outcome: CoachInterventionOutcome = "accepted",
+        base_character: str = "2",
+        include_evaluation: bool = True,
+    ):
+        return resolve_intervention_outcome(
+            CoachInterventionOutcomeInput(
+                coach_candidate_id=int(candidate.id),
+                candidate_key=candidate.candidate_key,
+                target_owner=candidate.target_owner,
+                proposal_content_hash=sha256_id("1"),
+                base_contract_hash=sha256_id(base_character),
+                diff_hash=sha256_id("3") if include_evaluation else "",
+                validation_receipt_hash=(
+                    sha256_id("4") if include_evaluation else ""
+                ),
+                outcome=outcome,
+                reason="Focused replay evaluated the exact intervention.",
+                actor="github:maintainer",
+            )
+        )
+
+    def test_intervention_outcomes_persist_evaluated_and_weak_results(self) -> None:
+        candidate = self.intervention_candidate()
+        accepted = self.intervention_definition(candidate)
+        regression = self.intervention_definition(
+            candidate,
+            outcome="rejected_regression",
+            base_character="5",
+        )
+        insufficient = self.intervention_definition(
+            candidate,
+            outcome="rejected_insufficient_evidence",
+            base_character="6",
+            include_evaluation=False,
+        )
+
+        with self.runtime.transaction() as connection:
+            stored = tuple(
+                postgres_coaching.record_intervention_outcome(connection, item)
+                for item in (accepted, regression, insufficient)
+            )
+
+        self.assertEqual(
+            tuple(item.outcome for item in stored),
+            ("accepted", "rejected_regression", "rejected_insufficient_evidence"),
+        )
+        self.assertIsNone(stored[2].diff_hash)
+        self.assertIsNone(stored[2].validation_receipt_hash)
+
+    def test_duplicate_intervention_key_is_rejected(self) -> None:
+        candidate = self.intervention_candidate()
+        definition = self.intervention_definition(candidate)
+
+        with self.runtime.transaction() as connection:
+            postgres_coaching.record_intervention_outcome(connection, definition)
+        with self.assertRaises(postgres_coaching.CoachInterventionConflict):
+            with self.runtime.transaction() as connection:
+                postgres_coaching.record_intervention_outcome(connection, definition)
+
+    def test_operator_records_and_reads_one_private_intervention(self) -> None:
+        candidate = self.intervention_candidate()
+        stored = operator_application.record_coach_intervention(
+            self.runtime,
+            operator_application.CoachInterventionOutcomeRequest(
+                repository="example-org/example-repository",
+                proposal_set_id=sha256_id("d"),
+                candidate_key=candidate.candidate_key,
+                target_owner=candidate.target_owner,
+                proposal_content_hash=sha256_id("1"),
+                base_contract_hash=sha256_id("2"),
+                diff_hash=sha256_id("3"),
+                validation_receipt_hash=sha256_id("4"),
+                outcome="accepted",
+                reason="Focused replay evaluated the exact intervention.",
+                actor="github:maintainer",
+            ),
+        )
+        history = operator_application.coach_intervention_history(
+            self.runtime,
+            repository="example-org/example-repository",
+            candidate_key=candidate.candidate_key,
+            limit=1,
+        )
+
+        self.assertEqual(history.interventions, (stored,))
+        with self.assertRaisesRegex(
+            operator_application.OperatorInputError, "must not exceed 100"
+        ):
+            operator_application.coach_intervention_history(
+                self.runtime,
+                repository="example-org/example-repository",
+                candidate_key=candidate.candidate_key,
+                limit=101,
+            )
+
+    def test_candidate_resolution_requires_exact_repository_and_candidate(self) -> None:
+        candidate = self.intervention_candidate()
+        with self.runtime.transaction() as connection:
+            resolved = postgres_coaching.resolve_intervention_candidate(
+                connection,
+                repository="example-org/example-repository",
+                proposal_set_id=sha256_id("d"),
+                candidate_key=candidate.candidate_key,
+                target_owner="profile",
+            )
+        self.assertEqual(resolved.id, candidate.id)
+
+        with self.runtime.transaction() as connection:
+            original_run = postgres_coaching.load_run(
+                connection, run_id=candidate.coach_run_id
+            )
+            assert original_run.repository_id is not None
+            duplicate = postgres_coaching.record_run(
+                connection,
+                repository_id=original_run.repository_id,
+                definition=resolve_coach_run(self.coach_input(route="profile")),
+            )
+            resolved_after_replay = postgres_coaching.resolve_intervention_candidate(
+                connection,
+                repository="example-org/example-repository",
+                proposal_set_id=sha256_id("d"),
+                candidate_key=candidate.candidate_key,
+                target_owner="profile",
+            )
+        self.assertNotEqual(duplicate.candidates[0].id, candidate.id)
+        self.assertEqual(resolved_after_replay.id, candidate.id)
+
+        with self.assertRaises(postgres_coaching.CoachCandidateNotFound):
+            with self.runtime.transaction() as connection:
+                postgres_coaching.resolve_intervention_candidate(
+                    connection,
+                    repository="example-org/example-repository",
+                    proposal_set_id=sha256_id("d"),
+                    candidate_key="unknown-candidate",
+                    target_owner="profile",
+                )
+        with self.assertRaises(postgres_coaching.CoachCandidateProvenanceMismatch):
+            with self.runtime.transaction() as connection:
+                postgres_coaching.resolve_intervention_candidate(
+                    connection,
+                    repository="another-org/another-repository",
+                    proposal_set_id=sha256_id("d"),
+                    candidate_key=candidate.candidate_key,
+                    target_owner="profile",
+                )
+
+    def test_intervention_history_is_bounded_and_newest_first(self) -> None:
+        candidate = self.intervention_candidate()
+        definitions = tuple(
+            self.intervention_definition(candidate, base_character=character)
+            for character in ("7", "8", "9")
+        )
+        with self.runtime.transaction() as connection:
+            stored = tuple(
+                postgres_coaching.record_intervention_outcome(connection, item)
+                for item in definitions
+            )
+        with self.runtime.transaction() as connection:
+            history = postgres_coaching.intervention_history(
+                connection,
+                repository="example-org/example-repository",
+                candidate_key=candidate.candidate_key,
+                limit=2,
+            )
+
+        self.assertEqual(history.repository, "example-org/example-repository")
+        self.assertEqual(history.candidate_key, candidate.candidate_key)
+        self.assertEqual(history.target_owners, ("profile",))
+        self.assertEqual(history.coach_run_count, 1)
+        self.assertEqual(history.maximum_independent_episodes, 2)
+        self.assertEqual(
+            tuple(item.id for item in history.interventions),
+            (stored[2].id, stored[1].id),
+        )
 
 
 if __name__ == "__main__":

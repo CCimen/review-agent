@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "CI and gateway protocol tranche complete; the next prerelease and pilot deployment await owner authorization."
-  status: blocked
+  tranche: "Implement the owner-authorized immutable coaching intervention-outcome ledger without changing live review behavior."
+  status: active
 
 rules:
   pm_owns_state: true
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-29T19:52:14Z"
   last_verified_revision: "a5e3986b5b8cb8271b49b0359176d428a54ceebb"
 
-active_task: null
+active_task: T222
 
 tasks:
   - id: T001
@@ -988,6 +988,7 @@ tasks:
       - scripts/check_postgres_schema.sh
       - tests/test_settings.py
       - tests/test_postgres_runtime.py
+      - tests/test_docs_contract.py
       - tests/test_postgres_migrations.py
       - tests/test_ci_workflow.py
       - tests/test_dockerfile_tools.py
@@ -3815,26 +3816,84 @@ tasks:
         - "Repository ruleset mutation remains an owner action; require CI / required when authorized."
         - "Release, pilot deployment, recovery lifecycle refactoring, skill-doctor evaluation, module splitting, and /security remain outside this tranche."
       next_allowed_task: T216
+  - id: T221
+    type: pm
+    assignee: PM
+    status: done
+    reasoning_hint: high
+    objective: "Record and inspect immutable, human-governed outcomes for exact interventions derived from existing coach candidates."
+    constraints:
+      - "Deepen the existing coaching domain, PostgreSQL, operator-application, and memory-CLI owners; do not add another service, store, generic repository, or dependency-injection layer."
+      - "Store only bounded identities, hashes, outcome, rationale, actor, and time; never persist proposal, diff, validation, source, or transcript bodies."
+      - "Keep the live reviewer, active profiles and skills, candidate selection, publication, queues, deployment, release, and proposal-history behavior unchanged."
+      - "Keep migrations 001 through 011 immutable and add only migration 012 for the append-only ledger."
+      - "Use the verified proposal loader, exact candidate provenance, deterministic canonical hashing, closed outcomes, typed rows, and short explicit transactions."
+    allowed_files:
+      - bootstrap/plugins/review_agent_tools/domain/coaching.py
+      - bootstrap/plugins/review_agent_tools/postgres/coaching.py
+      - bootstrap/plugins/review_agent_tools/operator_application.py
+      - bootstrap/plugins/review_agent_tools/postgres_migrations/012_coach_intervention_outcomes.sql
+      - tools/review_agent_memory.py
+      - review-learning/README.md
+      - tests/test_review_coach_proposals.py
+      - tests/test_postgres_verification_coaching.py
+      - tests/test_postgres_schema.py
+      - tests/test_review_coach_run.py
+      - tests/test_review_coaching_domain.py
+      - tests/test_profile_bundle.py
+      - tests/test_postgres_migrations.py
+      - tests/test_postgres_runtime.py
+      - docs/goals/build-review-platform/**
+    verify:
+      - "Focused coaching-domain, real-PostgreSQL coaching, operator, and CLI behavior tests."
+      - "Ruff on changed Python paths and strict Pyright with pyright -p ."
+      - "The full Python fast gate, full PostgreSQL contract, documentation contract, and git diff checks."
+      - "One stable peer review gate before committing the complete candidate."
+      - "Commit and push the verified candidate, then verify CI / required on the exact SHA."
+    stop_if:
+      - "A second store or service, live-reviewer import, complete private artifact storage, ambiguous candidate provenance, arbitrary plugin-defined outcomes, or proposal-history/pattern generation becomes necessary."
+      - "The current exact main or its canonical CI is not green."
+    receipt:
+      result: done
+      summary: "Added a private append-only intervention-outcome ledger that binds one verified coach candidate to exact contract, proposal, diff, validation, outcome, and audit hashes without exposing artifact bodies to the live reviewer."
+      evidence:
+        - "Migration 012 adds one hash-only outcome table with closed outcomes, required evidence for evaluated results, bounded audit text, and deterministic newest-first access."
+        - "The operator CLI verifies proposal artifacts, hashes files outside the transaction, resolves a stable canonical candidate across repeated equivalent coach runs, and returns bounded JSON receipts."
+        - "Ruff and strict Pyright passed; the full fast bundle passed 609 tests and the real PostgreSQL contract passed 215 tests at migration 12."
+        - "Codex peer session coach-outcome-ledger-012 converged to green at score 8 after one verified duplicate-run correction and no scope expansion."
+      next_allowed_task: T222
+  - id: T222
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: high
+    objective: "Audit the immutable coaching intervention-outcome ledger against the supplied contract and exact pushed workflow evidence."
+    constraints:
+      - "Read-only except for the Goal Maker receipt."
+      - "Do not extend into history-aware proposals, pattern views, model evaluation matrices, private proposers, releases, or deployments."
+    expected_output:
+      - "complete | not_complete"
+      - "Exact validation and workflow evidence"
+      - "Deferred later phases"
 
 checks:
-  dirty_fingerprint: "ci-gateway-protocol-a5e3986"
+  dirty_fingerprint: "coach-intervention-ledger-012"
   last_verification:
     result: pass
-    task: T220
+    task: T221
     commands:
       - "ruff check bootstrap tools scripts tests"
-      - "pyright -p ."
+      - "pyright --pythonpath .venv/bin/python -p ."
       - "./scripts/check_bundle.sh"
       - "./scripts/check_postgres_schema.sh"
       - "python scripts/check_docs.py"
-      - "docker compose config; docker build; scripts/check_image.sh"
       - "git diff --check"
       - "Goal Maker state checker"
     evidence:
-      - "The full bundle passed 597 tests with 192 expected PostgreSQL environment skips; strict Pyright and minimal Ruff passed."
-      - "The digest-pinned PostgreSQL contract passed 210 tests and verified migration 11 readiness."
-      - "The exact pushed implementation revision passed all four jobs in GitHub Actions run 33271891994."
-      - "No schema, public review wording, release, deployment, repository setting, compatibility path, queue, service, or production skill-doctor behavior changed."
+      - "The full bundle passed 609 tests with 197 expected PostgreSQL environment skips; strict Pyright and Ruff passed."
+      - "The digest-pinned PostgreSQL contract passed 215 tests and verified migration 12 readiness and recovery."
+      - "The documentation contract passed for all 13 public documents; only private learning guidance changed."
+      - "No live reviewer, profile, skill, proposal selection, publication, queue, deployment, release, service, or artifact-body persistence changed."
     owner_gates:
       - "Authorize the next prerelease tag before setting the generated REVISION and tagging."
       - "Select any additional pilot repositories before multi-repository validation."

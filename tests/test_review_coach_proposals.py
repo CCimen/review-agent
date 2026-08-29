@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+import hashlib
+import io
 import json
 import os
 import re
@@ -10,6 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -36,6 +40,7 @@ from review_agent_learning import (
     EMITTED_SIGNAL_STRENGTHS,
     EMITTED_SUGGESTED_ROUTES,
 )
+import review_agent_memory as memory
 
 
 def coach_export(events: list[dict[str, object]]) -> dict[str, object]:
@@ -897,6 +902,68 @@ class CoachProposalTests(unittest.TestCase):
                 path = output_dir / name
                 self.assertTrue(path.exists())
                 self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
+
+    def test_cli_hashes_intervention_files_without_printing_their_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            proposal = root / "proposal.json"
+            diff = root / "candidate.patch"
+            validation = root / "evaluation.json"
+            proposal.write_text(
+                dumps_proposal_bundle(maximal_proposal_bundle()), encoding="utf-8"
+            )
+            diff_content = b"private diff content\n"
+            validation_content = b'{"private":"validation content"}\n'
+            diff.write_bytes(diff_content)
+            validation.write_bytes(validation_content)
+            runtime = Mock()
+            output = io.StringIO()
+
+            with (
+                patch.object(memory, "_runtime", return_value=runtime),
+                patch.object(
+                    memory.operator_application,
+                    "record_coach_intervention",
+                    return_value={"intervention_key": "sha256:" + ("9" * 64)},
+                ) as record,
+                redirect_stdout(output),
+            ):
+                result = memory.main(
+                    [
+                        "coach-record-outcome",
+                        "--proposal",
+                        str(proposal),
+                        "--candidate-key",
+                        maximal_proposal_bundle().candidates[0].candidate_key,
+                        "--base-contract-sha256",
+                        "sha256:" + ("8" * 64),
+                        "--diff",
+                        str(diff),
+                        "--validation-receipt",
+                        str(validation),
+                        "--outcome",
+                        "accepted",
+                        "--actor",
+                        "github:maintainer",
+                        "--reason",
+                        "Replay and holdout cases passed.",
+                    ]
+                )
+
+        self.assertEqual(result, 0)
+        request = record.call_args.args[1]
+        self.assertEqual(
+            request.diff_hash,
+            "sha256:" + hashlib.sha256(diff_content).hexdigest(),
+        )
+        self.assertEqual(
+            request.validation_receipt_hash,
+            "sha256:" + hashlib.sha256(validation_content).hexdigest(),
+        )
+        self.assertRegex(request.proposal_content_hash, r"^sha256:[0-9a-f]{64}$")
+        self.assertNotIn(diff_content.decode().strip(), output.getvalue())
+        self.assertNotIn("validation content", output.getvalue())
+        runtime.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

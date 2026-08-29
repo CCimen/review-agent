@@ -36,7 +36,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
         with psycopg.connect(DSN) as connection:
             self.assertEqual(
                 runner.apply_migrations(connection),
-                (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+                (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
             )
             self.assertEqual(runner.apply_migrations(connection), ())
             rows = connection.execute(
@@ -56,7 +56,8 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                 "to_regclass('review_agent.github_webhook_deliveries')::text, "
                 "to_regclass('review_agent.review_decision_snapshots')::text, "
                 "to_regclass('review_agent.intentional_design_evidence')::text, "
-                "to_regclass('review_agent.review_quality_feedback_triage')::text"
+                "to_regclass('review_agent.review_quality_feedback_triage')::text, "
+                "to_regclass('review_agent.coach_intervention_outcomes')::text"
             ).fetchone()
 
         self.assertEqual(
@@ -80,6 +81,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     (9, "009_repository_decision_context.sql"),
                     (10, "010_intentional_design_evidence.sql"),
                     (11, "011_review_quality_feedback_triage.sql"),
+                    (12, "012_coach_intervention_outcomes.sql"),
                 )
             ],
         )
@@ -96,6 +98,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                 "review_agent.review_decision_snapshots",
                 "review_agent.intentional_design_evidence",
                 "review_agent.review_quality_feedback_triage",
+                "review_agent.coach_intervention_outcomes",
             ),
         )
 
@@ -121,7 +124,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (11,))
+        self.assertEqual(count, (12,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

@@ -2,12 +2,36 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Final, Literal
 
 
 CoachRunDecision = Literal["propose", "no_change"]
+CoachInterventionOutcome = Literal[
+    "accepted",
+    "rejected_regression",
+    "rejected_no_improvement",
+    "rejected_insufficient_evidence",
+    "rejected_wrong_owner",
+    "withdrawn",
+]
+COACH_INTERVENTION_OUTCOMES: Final[frozenset[str]] = frozenset(
+    {
+        "accepted",
+        "rejected_regression",
+        "rejected_no_improvement",
+        "rejected_insufficient_evidence",
+        "rejected_wrong_owner",
+        "withdrawn",
+    }
+)
+_EVALUATED_INTERVENTION_OUTCOMES: Final[frozenset[str]] = frozenset(
+    {"accepted", "rejected_regression", "rejected_no_improvement"}
+)
+_INTERVENTION_SCHEMA_VERSION: Final = 1
 _SHA256_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REPOSITORY_RE = re.compile(r"^[a-z0-9_.-]+/[a-z0-9_.-]+$")
 
@@ -49,6 +73,33 @@ class CoachRunDefinition:
     events_considered: int
     artifact_dir: str | None
     candidates: tuple[CoachCandidateInput, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CoachInterventionOutcomeInput:
+    coach_candidate_id: int
+    candidate_key: str
+    target_owner: str
+    proposal_content_hash: str
+    base_contract_hash: str
+    diff_hash: str
+    validation_receipt_hash: str
+    outcome: CoachInterventionOutcome
+    reason: str
+    actor: str
+
+
+@dataclass(frozen=True, slots=True)
+class CoachInterventionOutcomeDefinition:
+    coach_candidate_id: int
+    intervention_key: str
+    proposal_content_hash: str
+    base_contract_hash: str
+    diff_hash: str | None
+    validation_receipt_hash: str | None
+    outcome: CoachInterventionOutcome
+    reason: str
+    actor: str
 
 
 def _single_line(
@@ -171,4 +222,64 @@ def resolve_coach_run(item: CoachRunInput) -> CoachRunDefinition:
             required=False,
         ),
         candidates=candidates,
+    )
+
+
+def resolve_intervention_outcome(
+    item: CoachInterventionOutcomeInput,
+) -> CoachInterventionOutcomeDefinition:
+    """Validate and identify one final evaluation of an exact intervention."""
+    if isinstance(item.coach_candidate_id, bool) or item.coach_candidate_id < 1:
+        raise CoachingDomainError("coach_candidate_id must be positive")
+    if item.outcome not in COACH_INTERVENTION_OUTCOMES:
+        raise CoachingDomainError("unsupported coach intervention outcome")
+    candidate_key = _single_line(
+        item.candidate_key, field="candidate_key", maximum=160
+    ) or ""
+    target_owner = _single_line(
+        item.target_owner, field="target_owner", maximum=120
+    ) or ""
+    proposal_content_hash = _sha256_id(
+        item.proposal_content_hash, field="proposal_content_hash"
+    ) or ""
+    base_contract_hash = _sha256_id(
+        item.base_contract_hash, field="base_contract_hash"
+    ) or ""
+    diff_hash = _sha256_id(item.diff_hash, field="diff_hash", required=False)
+    validation_receipt_hash = _sha256_id(
+        item.validation_receipt_hash,
+        field="validation_receipt_hash",
+        required=False,
+    )
+    if item.outcome in _EVALUATED_INTERVENTION_OUTCOMES and (
+        diff_hash is None or validation_receipt_hash is None
+    ):
+        raise CoachingDomainError(
+            f"{item.outcome} requires diff_hash and validation_receipt_hash"
+        )
+    reason = _single_line(item.reason, field="reason", maximum=2_000) or ""
+    actor = _single_line(item.actor, field="actor", maximum=200) or ""
+    identity = {
+        "schema_version": _INTERVENTION_SCHEMA_VERSION,
+        "coach_candidate_id": item.coach_candidate_id,
+        "candidate_key": candidate_key,
+        "target_owner": target_owner,
+        "base_contract_hash": base_contract_hash,
+        "proposal_content_hash": proposal_content_hash,
+        "diff_hash": diff_hash or "",
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    intervention_key = "sha256:" + hashlib.sha256(
+        canonical.encode("utf-8")
+    ).hexdigest()
+    return CoachInterventionOutcomeDefinition(
+        coach_candidate_id=item.coach_candidate_id,
+        intervention_key=intervention_key,
+        proposal_content_hash=proposal_content_hash,
+        base_contract_hash=base_contract_hash,
+        diff_hash=diff_hash,
+        validation_receipt_hash=validation_receipt_hash,
+        outcome=item.outcome,
+        reason=reason,
+        actor=actor,
     )

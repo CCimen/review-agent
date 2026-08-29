@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "The immutable coaching intervention-outcome ledger is complete and audited; the next prerelease remains owner-gated."
-  status: blocked
+  tranche: "Publish and verify the owner-authorized v0.1.0-rc.3 prerelease, multi-platform image, SBOMs, and provenance."
+  status: active
 
 rules:
   pm_owns_state: true
@@ -38,7 +38,7 @@ continuity:
   last_handoff_at: "2026-08-29T19:52:14Z"
   last_verified_revision: "75fb36d1d119674cfb464b57c459c010a7c51075"
 
-active_task: null
+active_task: T216
 
 tasks:
   - id: T001
@@ -3630,7 +3630,7 @@ tasks:
   - id: T216
     type: pm
     assignee: PM
-    status: blocked
+    status: active
     objective: "Choose the next exact prerelease only after owner authorization, verify its downloadable SBOM assets, then deploy its immutable digest to the pilot and complete the deferred release receipt."
     constraints:
       - "Do not invent or publish the next tag without owner authorization."
@@ -3645,12 +3645,6 @@ tasks:
       - "The authorized tag, source commit, image digest, SBOM assets, provenance, deployment, and live doctor result agree."
     stop_if:
       - "The owner has not authorized an exact next tag."
-    receipt:
-      result: blocked
-      summary: "v0.1.0-rc.2 was published from eebc821, but the owner redirected work to the bounded production-readiness tranche before any later release or immutable pilot redeploy. Deployment receipt completion remains deferred until that tranche is green."
-      evidence:
-        - "origin/main and v0.1.0-rc.2 resolve to eebc82179c7e8a4ab8f19fd6b6d2e7c4f55878d7."
-      next_allowed_task: T217
   - id: T217
     type: pm
     assignee: PM

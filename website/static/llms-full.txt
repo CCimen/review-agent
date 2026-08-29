@@ -1,16 +1,16 @@
 # Review Agent: full public documentation
 
 Generated from `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 ---
 
 Title: Repository overview
 Canonical URL: https://ccimen.github.io/review-agent/docs/overview
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/OVERVIEW.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/OVERVIEW.md
 Status: current
 Last verified: 2026-08-25
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Review Agent
 
@@ -202,10 +202,10 @@ GitHub token approval, ChatGPT OAuth state, or repository rules.
 
 Title: Getting started
 Canonical URL: https://ccimen.github.io/review-agent/docs/getting-started
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/GETTING_STARTED.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/GETTING_STARTED.md
 Status: current
 Last verified: 2026-08-26
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Getting started
 
@@ -295,10 +295,10 @@ result.
 
 Title: Deploy Review Agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/deployment
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/DEPLOYMENT.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/DEPLOYMENT.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Deploy Review Agent
 
@@ -619,10 +619,10 @@ checks the bounded ready queue at its configured poll interval.
 
 Title: Set up the GitHub App
 Canonical URL: https://ccimen.github.io/review-agent/docs/github-app-pilot
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/GITHUB_APP_PILOT.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/GITHUB_APP_PILOT.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Set up the GitHub App
 
@@ -826,10 +826,10 @@ Use [Operations](./OPERATIONS.md#runbook) for queue diagnostics and
 
 Title: Set up with a coding agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/ai-assisted-setup
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/AI_ASSISTED_SETUP.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/AI_ASSISTED_SETUP.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Set up with a coding agent
 
@@ -1039,10 +1039,10 @@ If one of these is unknown, report the setup as incomplete instead of guessing.
 
 Title: How reviews work
 Canonical URL: https://ccimen.github.io/review-agent/docs/how-reviews-work
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/HOW_REVIEWS_WORK.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/HOW_REVIEWS_WORK.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # How reviews work
 
@@ -1137,10 +1137,10 @@ Read [Security](./SECURITY.md) for the trust boundaries and
 
 Title: Behavior ownership
 Canonical URL: https://ccimen.github.io/review-agent/docs/behavior-ownership
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/BEHAVIOR_OWNERSHIP.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/BEHAVIOR_OWNERSHIP.md
 Status: current
 Last verified: 2026-08-24
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Behavior ownership
 
@@ -1228,10 +1228,10 @@ engine branches.
 
 Title: Frequently asked questions
 Canonical URL: https://ccimen.github.io/review-agent/docs/faq
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/FAQ.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/FAQ.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Frequently asked questions
 
@@ -1344,10 +1344,10 @@ runtime owners.
 
 Title: Capabilities and boundaries
 Canonical URL: https://ccimen.github.io/review-agent/docs/roadmap
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/ROADMAP.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/ROADMAP.md
 Status: current
 Last verified: 2026-08-26
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Capabilities and boundaries
 
@@ -1415,10 +1415,10 @@ but it does not replace those controls or become the default merge owner.
 
 Title: Operations
 Canonical URL: https://ccimen.github.io/review-agent/docs/operations
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/OPERATIONS.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/OPERATIONS.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Operations
 
@@ -1990,10 +1990,10 @@ OAuth state, or repository rules.
 
 Title: Feedback and design decisions
 Canonical URL: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/FEEDBACK_AND_DECISIONS.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/FEEDBACK_AND_DECISIONS.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Feedback and design decisions
 
@@ -2267,10 +2267,10 @@ promotion.
 
 Title: Security model
 Canonical URL: https://ccimen.github.io/review-agent/docs/security
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/docs/SECURITY.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/SECURITY.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Security model
 
@@ -2462,10 +2462,10 @@ failure modes.
 
 Title: Example review
 Canonical URL: https://ccimen.github.io/review-agent/docs/example-review
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.2/examples/comments/example-review.md
+Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/examples/comments/example-review.md
 Status: current
 Last verified: 2026-08-21
-Review Agent revision: v0.1.0-rc.2
+Review Agent revision: v0.1.0-rc.3
 
 # Example review
 

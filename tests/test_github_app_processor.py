@@ -167,6 +167,11 @@ class _ProtocolFailureGateway:
         raise GitHubGatewayProtocolError("invalid response")
 
 
+class _FeedbackAuthorizationProtocolFailureGateway:
+    def authorize_feedback_delivery(self, **_values: object) -> object:
+        raise GitHubGatewayProtocolError("invalid response")
+
+
 class _AcknowledgementFailureGateway:
     def __init__(self, delegate: ReviewGitHubGateway) -> None:
         self._delegate = delegate
@@ -176,6 +181,17 @@ class _AcknowledgementFailureGateway:
 
     def acknowledge_review(self, **_values: object) -> bool:
         raise GitHubGatewayRetryable("github_unreachable")
+
+
+class _FeedbackAcknowledgementProtocolFailureGateway:
+    def __init__(self, delegate: ReviewGitHubGateway) -> None:
+        self._delegate = delegate
+
+    def authorize_feedback_delivery(self, **values: object) -> object:
+        return self._delegate.authorize_feedback_delivery(**values)
+
+    def acknowledge_feedback(self, **_values: object) -> bool:
+        raise GitHubGatewayProtocolError("invalid response")
 
 
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
@@ -209,6 +225,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         gateway: object | None = None,
         *,
         acknowledgement_failure: bool = False,
+        feedback_acknowledgement_protocol_failure: bool = False,
     ) -> app_processor.GitHubAppProcessor:
         client = github or _GitHub()
         gateway_service = ReviewGitHubGateway(
@@ -223,6 +240,10 @@ class GitHubAppProcessorTests(unittest.TestCase):
         selected_gateway: object = gateway if gateway is not None else gateway_service
         if acknowledgement_failure:
             selected_gateway = _AcknowledgementFailureGateway(gateway_service)
+        if feedback_acknowledgement_protocol_failure:
+            selected_gateway = _FeedbackAcknowledgementProtocolFailureGateway(
+                gateway_service
+            )
         return app_processor.GitHubAppProcessor(
             postgres=self.runtime,
             gateway=cast(
@@ -703,25 +724,106 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(delivery.status, webhook_deliveries.DeliveryStatus.PROCESSING)
         self.assertEqual(counts, (0, 0))
 
-    def test_invalid_gateway_response_retries_without_admitting(self) -> None:
+    def test_review_gateway_protocol_failure_terminalizes_without_admitting(
+        self,
+    ) -> None:
         self.enable_repository()
         delivery_id = self.register("issue_comment", self.review_payload())
 
-        result = self.processor(gateway=_ProtocolFailureGateway()).process_next(
-            lease_owner="worker-1"
-        )
+        with self.assertLogs(app_processor.logger.name, level="WARNING") as logs:
+            result = self.processor(gateway=_ProtocolFailureGateway()).process_next(
+                lease_owner="worker-1"
+            )
 
         self.assertEqual(result.delivery_id if result else None, delivery_id)
-        self.assertEqual(result.status if result else None, "received")
+        self.assertEqual(result.status if result else None, "failed")
         self.assertEqual(
             result.reason if result else None, "github_gateway_invalid_response"
         )
         with self.runtime.transaction() as connection:
+            delivery = webhook_deliveries.get_delivery(connection, delivery_id)
             counts = connection.execute(
                 "SELECT (SELECT count(*) FROM review_agent.review_runs), "
                 "(SELECT count(*) FROM review_agent.review_jobs)"
             ).fetchone()
+        self.assertEqual(delivery.attempt_count, 1)
+        self.assertEqual(delivery.failure_code, "github_gateway_invalid_response")
+        self.assertIsNone(delivery.normalized_payload)
         self.assertEqual(counts, (0, 0))
+        self.assertIn(
+            f"GitHub gateway protocol failure for delivery {delivery_id}: "
+            "GitHubGatewayProtocolError",
+            "\n".join(logs.output),
+        )
+
+    def test_feedback_gateway_protocol_failure_terminalizes_before_recording(
+        self,
+    ) -> None:
+        self.enable_repository()
+        payload = self.review_payload()
+        comment = payload["comment"]
+        assert isinstance(comment, dict)
+        comment["body"] = (
+            "/review false-positive F2 because Existing validation covers it."
+        )
+        delivery_id = self.register("issue_comment", payload)
+
+        result = self.processor(
+            gateway=_FeedbackAuthorizationProtocolFailureGateway()
+        ).process_next(lease_owner="worker-feedback-protocol")
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "failed")
+        self.assertEqual(
+            result.reason if result else None, "github_gateway_invalid_response"
+        )
+        with self.runtime.transaction() as connection:
+            delivery = webhook_deliveries.get_delivery(connection, delivery_id)
+            feedback_count = connection.execute(
+                "SELECT count(*) FROM review_agent.processed_feedback_events"
+            ).fetchone()
+        self.assertEqual(delivery.attempt_count, 1)
+        self.assertEqual(delivery.failure_code, "github_gateway_invalid_response")
+        self.assertIsNone(delivery.normalized_payload)
+        self.assertEqual(feedback_count, (0,))
+
+    def test_feedback_acknowledgement_protocol_failure_accepts_recorded_feedback(
+        self,
+    ) -> None:
+        self.enable_repository()
+        payload = self.review_payload()
+        comment = payload["comment"]
+        assert isinstance(comment, dict)
+        comment["body"] = (
+            "/review false-positive F2 because Existing validation covers it."
+        )
+        delivery_id = self.register("issue_comment", payload)
+
+        with self.assertLogs(app_processor.logger.name, level="WARNING") as logs:
+            result = self.processor(
+                feedback_acknowledgement_protocol_failure=True
+            ).process_next(lease_owner="worker-feedback-ack-protocol")
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "accepted")
+        self.assertIsNone(result.reason if result else None)
+        self.assertIsNone(
+            self.processor().process_next(lease_owner="worker-feedback-retry")
+        )
+        with self.runtime.transaction() as connection:
+            delivery = webhook_deliveries.get_delivery(connection, delivery_id)
+            feedback_count = connection.execute(
+                "SELECT count(*) FROM review_agent.processed_feedback_events"
+            ).fetchone()
+        self.assertEqual(delivery.attempt_count, 1)
+        self.assertIsNone(delivery.failure_code)
+        self.assertIsNone(delivery.normalized_payload)
+        self.assertEqual(feedback_count, (1,))
+        self.assertIn(
+            f"Feedback for delivery {delivery_id} was recorded without a "
+            "GitHub acknowledgement: GitHubGatewayProtocolError",
+            "\n".join(logs.output),
+        )
 
     def test_mismatched_sender_and_cross_repository_head_reject(self) -> None:
         self.enable_repository()

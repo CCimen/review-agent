@@ -196,6 +196,19 @@ class GitHubAppProcessor:
             if delivery.command_category is webhook_deliveries.CommandCategory.FEEDBACK:
                 return self._process_feedback(delivery, lease_owner, actor)
             return self._process_without_github(delivery, lease_owner, actor)
+        except GitHubGatewayProtocolError as exc:
+            logger.warning(
+                "GitHub gateway protocol failure for delivery %s: %s",
+                delivery.id,
+                type(exc).__name__,
+            )
+            return self._finish(
+                delivery,
+                lease_owner,
+                actor,
+                webhook_deliveries.TerminalStatus.FAILED,
+                "github_gateway_invalid_response",
+            )
         except _Retry as exc:
             return self._retry(delivery, lease_owner, actor, exc.reason)
         except _Reject as exc:
@@ -367,8 +380,6 @@ class GitHubAppProcessor:
             if exc.reason == "delivery_lease_lost":
                 return ProcessingResult(delivery.id, delivery.status, exc.reason)
             raise _Reject(exc.reason) from exc
-        except GitHubGatewayProtocolError as exc:
-            raise _Retry("github_gateway_invalid_response") from exc
         try:
             contract = review_contract.load_packaged_contract(
                 self._config.profile,
@@ -456,9 +467,6 @@ class GitHubAppProcessor:
             if exc.reason == "delivery_lease_lost":
                 return ProcessingResult(delivery.id, delivery.status, exc.reason)
             raise _Reject(exc.reason) from exc
-        except GitHubGatewayProtocolError as exc:
-            raise _Retry("github_gateway_invalid_response") from exc
-
         payload = _payload(delivery)
         invalid_command = payload.get("reason") == "invalid_command"
         has_command = "command" in payload
@@ -530,7 +538,14 @@ class GitHubAppProcessor:
                 raise _Retry("feedback_acknowledgement_rejected") from exc
             raise _Reject(exc.reason) from exc
         except GitHubGatewayProtocolError as exc:
-            raise _Retry("github_gateway_invalid_response") from exc
+            if result_status is None:
+                raise
+            logger.warning(
+                "Feedback for delivery %s was recorded without a GitHub "
+                "acknowledgement: %s",
+                delivery.id,
+                type(exc).__name__,
+            )
 
         if result_status is None:
             return self._finish(

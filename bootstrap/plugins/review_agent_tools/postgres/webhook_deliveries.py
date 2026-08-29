@@ -76,6 +76,7 @@ class TerminalStatus(StrEnum):
     ACCEPTED = "accepted"
     IGNORED = "ignored"
     REJECTED = "rejected"
+    FAILED = "failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -619,7 +620,7 @@ def finish_delivery(
     else:
         if failure_code is None:
             raise WebhookDeliveryError(
-                "ignored and rejected deliveries require a failure_code"
+                "non-accepted deliveries require a failure_code"
             )
         code = _failure_code(failure_code)
 

@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Add the owner's minimal-sufficient review discipline to the packaged reviewer policy without weakening evidence or runtime invariants."
-  status: active
+  tranche: "Await owner authorization for an exact next prerelease before completing the deferred release and pilot-deployment receipt."
+  status: blocked
 
 rules:
   pm_owns_state: true
@@ -33,12 +33,12 @@ continuity:
   current_thread_id: "01a02545-f56f-7833-9bf2-7d2e93bbf482"
   previous_thread_id: "01a023e2-c60a-77b3-9857-23bb2fc3d6f4"
   rotation_count: 3
-  completed_write_tasks_in_thread: 9
+  completed_write_tasks_in_thread: 11
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-25T07:20:28Z"
-  last_verified_revision: "fa7cb79d0768a4c7808853d3597cadc98c29fa23"
+  last_handoff_at: "2026-08-29T18:17:22Z"
+  last_verified_revision: "50ac56f61ba49c7641d5b48bde7c9d39384cc3fc"
 
-active_task: T218
+active_task: null
 
 tasks:
   - id: T001
@@ -3706,7 +3706,7 @@ tasks:
   - id: T218
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Add the owner's minimal-sufficient review guidance to the canonical packaged AGENTS policy without copying coding-agent-only process rules into the reviewer."
     constraints:
@@ -3729,23 +3729,30 @@ tasks:
     stop_if:
       - "The requested text would weaken evidence, authorization, coverage honesty, or deterministic publication."
       - "The change requires runtime, command, schema, scoring, or model-policy work."
+    receipt:
+      result: done
+      summary: "Added concise intent-first, root-cause, minimal-sufficient, no-speculation, and proportional-validation guidance to the canonical packaged reviewer contract without importing coding-agent-only workflow."
+      implementation_revision: "50ac56f61ba49c7641d5b48bde7c9d39384cc3fc"
+      evidence:
+        - "The existing 48 profile-bundle and reviewer-policy documentation contracts passed; no new test was needed because the packaged profile is already verified byte for byte."
+        - "The 594-test canonical bundle passed with 190 expected PostgreSQL environment skips, plus YAML, documentation-contract, and bundle-integrity checks."
+        - "The diff changes only the packaged AGENTS policy and Goal Maker state; runtime tools, schemas, commands, scoring, model policy, and visible output formatting are unchanged."
+      next_allowed_task: T216
 
 checks:
-  dirty_fingerprint: "eupl-1.2-version-1.2-only-license-candidate-on-a993760"
+  dirty_fingerprint: "minimal-sufficient-review-policy-50ac56f"
   last_verification:
     result: pass
-    task: T211
+    task: T218
     commands:
-      - "44 focused documentation, AI-onboarding, and CI contract tests"
-      - "App-only candidate gate, Ruff, strict Pyright, generated-file synchronization, and git diff checks"
-      - "Docusaurus optimized build and 13-route documentation contract"
-      - "Raw LICENSE SHA-256 and retired-identifier regression checks"
-      - "One resumable Codex gpt-5.6-sol xhigh gate; all findings fixed, with the final raw-byte assertion verified locally at the owner's request not to repeat the loop"
+      - "python -m unittest tests.test_profile_bundle tests.test_docs_contract"
+      - "./scripts/check_bundle.sh"
+      - "git diff --check"
+      - "Goal Maker state checker"
     evidence:
-      - "LICENSE matches the official EUPL-1.2 text at SHA-256 57fb42fbcd0b037ce528ed8f72f1ec095d67bc6825ecf1448ff39be1fe68a4b4."
-      - "Public machine-readable surfaces use the SPDX identifier EUPL-1.2 and separately state Version 1.2 only."
-      - "NOTICE.md names Çağrı Çimen and contributors without claiming Sundsvalls kommun ownership or licensing authority."
-      - "CONTRIBUTING.md uses DCO sign-off and does not claim copyright transfer or automatic relicensing rights."
+      - "The packaged AGENTS policy now requires intent and non-goals, concrete execution-path evidence, one root cause, the smallest complete remediation, and proportional tests."
+      - "Model-selection, agent orchestration, irreversible-operation, branch, runtime, schema, scoring, and output-contract behavior were not changed."
+      - "The full bundle passed 594 tests with 190 expected PostgreSQL environment skips."
     owner_gates:
       - "Authorize the first prerelease before setting the generated REVISION and tagging."
       - "Select any additional pilot repositories before multi-repository validation."

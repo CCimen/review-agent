@@ -14,10 +14,9 @@ weakening the proven review contract.
 
 ## Current Tranche
 
-Add the repository owner's minimal-sufficient review discipline to the packaged
-review contract. Preserve the existing evidence gates and runtime invariants;
-do not copy coding-agent workflow, model-selection, branch, or irreversible
-operation rules into a reviewer that cannot execute them.
+No implementation tranche is active. The reviewed source is ready; completing
+the deferred release and pilot-deployment receipt requires the repository owner
+to authorize an exact next prerelease.
 
 ## Approved Sequencing Input
 

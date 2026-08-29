@@ -1,12 +1,17 @@
 # Goal Maker Handoff
 
-`state.yaml` is authoritative. The approved build and feedback-quality plan is
-complete.
+`state.yaml` is authoritative. The requested runtime-reliability and reviewer-
+policy slices are complete.
 
 ## Completed candidate
 
-- Final audited source: `861a740b242980bfc00346c2b34da7da662be1bf` on
+- Latest verified source: `50ac56f61ba49c7641d5b48bde7c9d39384cc3fc` on
   `CCimen/review-agent` `main`.
+- Managed profile rendering now uses one explicit deployment mapping,
+  credentialed clients reject cross-origin redirects, and GitHub source and
+  publication failures expose explicit retryability.
+- The packaged reviewer now requires intent-first, root-cause,
+  minimal-sufficient, and proportional-validation discipline.
 - GitHub App and PostgreSQL are the only production authentication and
   persistence paths.
 - Dokploy Sundsvall Utveckling deployment `gTrGYcN3hSg7vyFMAfbfF` completed and
@@ -18,9 +23,10 @@ complete.
 
 ## Next owner decision
 
-No implementation task remains on this board. Do not create a tag or release
-implicitly. The next deliberate product action is pilot acceptance and, if the
-owner approves it, one prerelease that triggers the existing GHCR workflow.
+No implementation task is active. T216 remains blocked. Do not create a tag,
+release, or pilot redeploy implicitly. The next deliberate product action is an
+owner-authorized prerelease, followed by immutable image, SBOM, deployment, and
+live doctor verification.
 
 Preserve the user-owned `refactor-plan1.md` and the two open disposable pilot
 pull requests until the owner decides whether to close them.

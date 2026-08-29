@@ -7,8 +7,8 @@ goal:
   title: "Build the Review Agent platform"
   slug: "build-review-platform"
   kind: open_ended
-  tranche: "Publish and verify the owner-authorized v0.1.0-rc.3 prerelease, multi-platform image, SBOMs, and provenance."
-  status: active
+  tranche: "v0.1.0-rc.3 is published and verified; immutable pilot deployment remains separately owner-gated."
+  status: blocked
 
 rules:
   pm_owns_state: true
@@ -35,10 +35,10 @@ continuity:
   rotation_count: 3
   completed_write_tasks_in_thread: 13
   handoff_note: notes/handoff.md
-  last_handoff_at: "2026-08-29T19:52:14Z"
-  last_verified_revision: "75fb36d1d119674cfb464b57c459c010a7c51075"
+  last_handoff_at: "2026-08-29T21:10:54Z"
+  last_verified_revision: "95ea49b0998e2a1e1c3e4905f18dc1ad7e8a63cf"
 
-active_task: T216
+active_task: null
 
 tasks:
   - id: T001
@@ -3630,7 +3630,7 @@ tasks:
   - id: T216
     type: pm
     assignee: PM
-    status: active
+    status: blocked
     objective: "Choose the next exact prerelease only after owner authorization, verify its downloadable SBOM assets, then deploy its immutable digest to the pilot and complete the deferred release receipt."
     constraints:
       - "Do not invent or publish the next tag without owner authorization."
@@ -3645,6 +3645,16 @@ tasks:
       - "The authorized tag, source commit, image digest, SBOM assets, provenance, deployment, and live doctor result agree."
     stop_if:
       - "The owner has not authorized an exact next tag."
+    receipt:
+      result: blocked
+      summary: "Published and verified the owner-authorized v0.1.0-rc.3 prerelease from 95ea49b0998e2a1e1c3e4905f18dc1ad7e8a63cf. The public amd64/arm64 GHCR index, downloadable SBOMs, checksums, and attestations agree at manifest sha256:d3221a8997f0eaeb6d5f0259515d48937adfc75b5c601009fbd600be88feec16. The release request did not authorize changing the live Dokploy pilot, so immutable deployment and a live doctor receipt remain pending."
+      evidence:
+        - "GitHub prerelease: https://github.com/CCimen/review-agent/releases/tag/v0.1.0-rc.3"
+        - "Exact Python, PostgreSQL, and image CI gate: https://github.com/CCimen/review-agent/actions/runs/33274908321"
+        - "Exact documentation deployment: https://github.com/CCimen/review-agent/actions/runs/33274908287"
+        - "Image, SBOM, checksum, and attestation workflow: https://github.com/CCimen/review-agent/actions/runs/33275036095"
+        - "Anonymous registry pull resolved the v0.1.0-rc.3 tag to sha256:d3221a8997f0eaeb6d5f0259515d48937adfc75b5c601009fbd600be88feec16."
+      next_allowed_task: T216
   - id: T217
     type: pm
     assignee: PM

@@ -20,13 +20,17 @@ RELEASE_SBOM_REQUIREMENTS = ROOT / "requirements-release-sbom.txt"
 RELEASE_TAG_CHECK = ROOT / "scripts" / "validate_release_tag.py"
 IMAGE_CHECK = ROOT / "scripts" / "check_image.sh"
 POSTGRES_CHECK = ROOT / "scripts" / "check_postgres_schema.sh"
+PYTHON_CHECK = ROOT / "scripts" / "check_bundle.sh"
+PYRIGHT_CONFIG = ROOT / "pyrightconfig.json"
+RUFF_CONFIG = ROOT / "ruff.toml"
+DEVELOPMENT_REQUIREMENTS = ROOT / "requirements-dev.txt"
 ROADMAP = ROOT / "docs" / "ROADMAP.md"
 HOMEPAGE = ROOT / "website" / "src" / "pages" / "index.tsx"
 README = ROOT / "README.md"
 
 
 class PythonBundleWorkflowTests(unittest.TestCase):
-    def test_full_bundle_runs_through_one_read_only_pinned_workflow(self):
+    def test_required_quality_gates_run_independently_in_read_only_ci(self):
         self.assertTrue(WORKFLOW.is_file(), "full Python bundle CI is missing")
         source = WORKFLOW.read_text(encoding="utf-8")
 
@@ -34,6 +38,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
 
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
   workflow_dispatch:
@@ -42,11 +47,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: python-bundle-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 """
         self.assertTrue(source.startswith(expected_header))
         self.assertNotIn("pull_request_target", source)
+        self.assertNotIn("secrets.", source)
         self.assertEqual(source.count("permissions:"), 1)
         self.assertNotRegex(source, r"(?m)^\s+[^:#]+:\s*write\b")
 
@@ -54,6 +60,9 @@ concurrency:
             "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
             "actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c",
             "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444",
+            "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+            "actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c",
+            "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         ]
         actions = re.findall(r"(?m)^\s+uses: ([^\s]+)$", source)
         self.assertEqual(actions, expected_actions)
@@ -68,20 +77,32 @@ concurrency:
             r"        with:\n"
             r"          persist-credentials: false$"
         )
-        self.assertEqual(len(checkout_stanza.findall(source)), 1)
-        self.assertEqual(source.count("persist-credentials: false"), 1)
+        self.assertEqual(len(checkout_stanza.findall(source)), 3)
+        self.assertEqual(source.count("persist-credentials: false"), 3)
+        for job_id, job_name in (
+            ("python-fast", "Python fast"),
+            ("postgres-contract", "PostgreSQL contract"),
+            ("image-smoke", "Image smoke"),
+            ("required", "CI / required"),
+        ):
+            self.assertRegex(
+                source,
+                rf"(?m)^  {re.escape(job_id)}:\n    name: {re.escape(job_name)}$",
+            )
+        self.assertIn("needs: [python-fast, postgres-contract, image-smoke]", source)
+        self.assertIn("if: ${{ always() }}", source)
+        self.assertIn("PYTHON_FAST_RESULT: ${{ needs.python-fast.result }}", source)
+        self.assertIn("POSTGRES_RESULT: ${{ needs.postgres-contract.result }}", source)
+        self.assertIn("IMAGE_RESULT: ${{ needs.image-smoke.result }}", source)
+        self.assertEqual(source.count("cache: pip"), 2)
         self.assertIn("npm install --global pyright@1.1.408", source)
-        run_commands = re.findall(r"(?m)^\s+run: (.+)$", source)
-        self.assertEqual(
-            run_commands,
-            [
-                "python3 -m pip install --disable-pip-version-check --requirement requirements.txt",
-                "npm install --global pyright@1.1.408",
-                "./scripts/check_postgres_schema.sh",
-                "./scripts/check_bundle.sh",
-                "|",
-            ],
+        self.assertIn(
+            "python3 -m pip install --disable-pip-version-check "
+            "--requirement requirements.txt --requirement requirements-dev.txt",
+            source,
         )
+        self.assertIn("./scripts/check_bundle.sh", source)
+        self.assertIn("./scripts/check_postgres_schema.sh", source)
         self.assertIn("docker build --tag review-agent:ci .", source)
         self.assertIn("bash ./scripts/check_image.sh review-agent:ci", source)
         image_check = IMAGE_CHECK.read_text(encoding="utf-8")
@@ -104,6 +125,23 @@ concurrency:
             "validate-replay",
         ):
             self.assertNotIn(duplicated_command, source)
+
+    def test_fast_quality_tools_are_pinned_and_cover_production_entrypoints(self):
+        self.assertEqual(
+            DEVELOPMENT_REQUIREMENTS.read_text(encoding="utf-8"),
+            "ruff==0.14.4\n",
+        )
+        ruff = RUFF_CONFIG.read_text(encoding="utf-8")
+        self.assertIn('target-version = "py311"', ruff)
+        self.assertIn('select = ["E4", "E7", "E9", "F"]', ruff)
+        self.assertNotIn("ignore = [\"F", ruff)
+        self.assertIn("ruff check", PYTHON_CHECK.read_text(encoding="utf-8"))
+
+        pyright = json.loads(PYRIGHT_CONFIG.read_text(encoding="utf-8"))
+        includes = set(pyright["include"])
+        self.assertIn("bootstrap/install.py", includes)
+        self.assertIn("bootstrap/plugins/review_agent_tools", includes)
+        self.assertIn("tools", includes)
 
     def test_release_workflow_publishes_only_versioned_release_images(self):
         source = RELEASE_WORKFLOW.read_text(encoding="utf-8")

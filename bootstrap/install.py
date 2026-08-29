@@ -11,7 +11,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import NamedTuple, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "plugins"))
 from review_agent_tools import review_contract  # noqa: E402
@@ -46,6 +46,15 @@ def _profile_key(value: object, *, label: str) -> str:
     return value
 
 
+def _object_mapping(value: object, *, label: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ProfileError(f"{label} must be an object with text keys")
+    mapping = cast(dict[object, object], value)
+    if not all(isinstance(key, str) for key in mapping):
+        raise ProfileError(f"{label} must be an object with text keys")
+    return cast(dict[str, object], mapping)
+
+
 def load_profile(
     key: str, *, required_skills: tuple[str, ...]
 ) -> DeploymentProfile:
@@ -62,10 +71,13 @@ def load_profile(
         suffix = f" Available profiles: {available}." if available else ""
         raise ProfileError(f"unknown review profile: {resolved_key}.{suffix}")
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_value: object = json.loads(
+            manifest_path.read_text(encoding="utf-8")
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise ProfileError(f"profile {resolved_key} has an invalid profile.json") from exc
-    if not isinstance(manifest, dict) or set(manifest) != {"schema_version", "skills"}:
+    manifest = _object_mapping(manifest_value, label=f"profile {resolved_key}")
+    if set(manifest) != {"schema_version", "skills"}:
         raise ProfileError(
             f"profile {resolved_key} may define only schema_version and skills"
         )
@@ -74,7 +86,9 @@ def load_profile(
     raw_skills = manifest["skills"]
     if not isinstance(raw_skills, list) or not raw_skills:
         raise ProfileError(f"profile {resolved_key} must list at least one reviewed skill")
-    skills = tuple(_profile_key(value, label="skill") for value in raw_skills)
+    skills = tuple(
+        _profile_key(value, label="skill") for value in cast(list[object], raw_skills)
+    )
     if len(set(skills)) != len(skills):
         raise ProfileError(f"profile {resolved_key} lists a skill more than once")
     missing_skills = [skill for skill in required_skills if skill not in skills]
@@ -97,23 +111,24 @@ def installed_profile_receipt() -> tuple[str | None, tuple[str, ...]]:
     if not path.is_file():
         return None, ()
     try:
-        receipt = json.loads(path.read_text(encoding="utf-8"))
+        receipt_value: object = json.loads(path.read_text(encoding="utf-8"))
+        receipt = _object_mapping(receipt_value, label="installed receipt")
         if (
-            not isinstance(receipt, dict)
-            or set(receipt) != {"contract", "files", "schema_version", "skills"}
+            set(receipt) != {"contract", "files", "schema_version", "skills"}
             or type(receipt["schema_version"]) is not int
             or receipt["schema_version"] != review_contract.SCHEMA_VERSION
         ):
             raise ProfileError("receipt shape or schema is invalid")
-        contract = receipt.get("contract")
-        if not isinstance(contract, dict):
-            raise ProfileError("installed contract must be an object")
+        contract = _object_mapping(
+            receipt.get("contract"), label="installed contract"
+        )
         profile = _profile_key(contract.get("profile"), label="installed profile")
         raw_skills = receipt.get("skills")
         if not isinstance(raw_skills, list):
             raise ProfileError("installed skills must be a list")
         skills = tuple(
-            _profile_key(value, label="installed skill") for value in raw_skills
+            _profile_key(value, label="installed skill")
+            for value in cast(list[object], raw_skills)
         )
         if len(set(skills)) != len(skills):
             raise ProfileError("installed skills contain duplicates")
@@ -127,11 +142,11 @@ def installed_profile_receipt() -> tuple[str | None, tuple[str, ...]]:
         return None, ()
 
 
-def load_yaml(path: Path) -> dict[str, Any]:
+def load_yaml(path: Path) -> dict[str, object]:
     if not path.exists():
         return {}
-    value = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return value if isinstance(value, dict) else {}
+    value: object = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return cast(dict[str, object], value) if isinstance(value, dict) else {}
 
 
 def atomic_write(path: Path, content: bytes) -> None:

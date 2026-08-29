@@ -771,7 +771,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             self.assertNotIn(forbidden, outputs["markdown"].casefold())
 
     def test_quality_report_uses_explicit_signals_and_stable_cohorts(self) -> None:
-        now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+        with self.runtime.transaction() as connection:
+            clock = connection.execute("SELECT statement_timestamp()").fetchone()
+        assert clock is not None and isinstance(clock[0], datetime)
+        now = clock[0] + timedelta(minutes=1)
         contract = {
             "sha256": "4" * 64,
             "model_provider": "openai-codex",

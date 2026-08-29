@@ -156,7 +156,11 @@ class FakePostgresPublicationGitHub:
         self._outside_transaction()
         self.list_issue_comments_calls += 1
         if self.fail_on_list_call == self.list_issue_comments_calls:
-            raise GitHubPublicationError("github_unreachable")
+            raise GitHubPublicationError(
+                "github_unreachable",
+                operation="list_issue_comments",
+                retryable=True,
+            )
         self.issue_comments_newest_first = (
             self.issue_comments_newest_first or newest_first
         )
@@ -171,7 +175,11 @@ class FakePostgresPublicationGitHub:
         if self.create_error is not None:
             raise self.create_error
         if self.fail_on_create_call == self.create_calls:
-            raise GitHubPublicationError("github_unreachable")
+            raise GitHubPublicationError(
+                "github_unreachable",
+                operation="create_issue_comment",
+                retryable=True,
+            )
         comment = IssueComment(
             comment_id=self.next_comment_id,
             body=body,
@@ -198,7 +206,11 @@ class FakePostgresPublicationGitHub:
             )
             self.comments[index] = updated
             return updated
-        raise GitHubPublicationError("comment_not_found")
+        raise GitHubPublicationError(
+            "comment_not_found",
+            operation="update_issue_comment",
+            retryable=False,
+        )
 
     def delete_issue_comment(self, repository: str, comment_id: int) -> None:
         self._outside_transaction()
@@ -217,7 +229,11 @@ class FakePostgresPublicationGitHub:
     ) -> PullRequestReview:
         self._outside_transaction()
         if self.fail_on_review_create:
-            raise GitHubPublicationError("github_unreachable")
+            raise GitHubPublicationError(
+                "github_unreachable",
+                operation="create_pull_request_review",
+                retryable=True,
+            )
         review_id = self.next_review_id
         self.next_review_id += 1
         for index, comment in enumerate(comments, start=1):
@@ -1416,7 +1432,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
         github = FakePostgresPublicationGitHub(self.runtime)
         github.create_error = GitHubPublicationError(
-            "repository_not_authorized", retryable=False
+            "repository_not_authorized",
+            operation="create_issue_comment",
+            retryable=False,
         )
 
         result = review_publication_application.publish_postgres_publication(

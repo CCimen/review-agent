@@ -194,7 +194,7 @@ class PostgreSQLVerificationCoachingTests(unittest.TestCase):
         first = self.start(31)
         second = self.start(32)
         first_batch = self.record_occurrence(first)
-        second_batch = self.record_occurrence(second)
+        self.record_occurrence(second)
         with self.runtime.transaction() as connection:
             other_verification = postgres_verification.record_run(
                 connection,

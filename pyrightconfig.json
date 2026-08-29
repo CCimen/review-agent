@@ -1,17 +1,9 @@
 {
   "include": [
     "bootstrap/plugins/review_agent_tools",
+    "bootstrap/install.py",
     "scripts/validate_release_tag.py",
-    "tools/review_agent_private_io.py",
-    "tools/review_agent_private_export.py",
-    "tools/review_agent_export.py",
-    "tools/review_agent_learning.py",
-    "tools/review_agent_coach.py",
-    "tools/review_agent_coach_proposals.py",
-    "tools/review_agent_coach_run.py",
-    "tools/review_agent_memory.py",
-    "tools/review_agent_replay.py",
-    "tools/review_agent_verification.py"
+    "tools"
   ],
   "exclude": [
     "**/__pycache__",

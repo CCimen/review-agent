@@ -1,12 +1,24 @@
 # Contributing to Review Agent
 
-Issues and pull requests are welcome. Keep changes focused, do not include
-credentials or personal data, and run the checks relevant to your change. Use
-the full bundle before proposing a release:
+Issues and pull requests are welcome. Keep changes focused and do not include
+credentials or personal data. Install the pinned development tools alongside
+the runtime dependencies:
+
+```bash
+python3 -m pip install --requirement requirements.txt --requirement requirements-dev.txt
+npm install --global pyright@1.1.408
+```
+
+Run the fast bundle for every change. Run the PostgreSQL contract when Docker
+is available, and always when database or durable workflow behavior changes:
 
 ```bash
 ./scripts/check_bundle.sh
+./scripts/check_postgres_schema.sh
 ```
+
+Repository rulesets should require the stable `CI / required` check. That check
+passes only after the Python, PostgreSQL, and container-image jobs succeed.
 
 ## Sign off commits
 

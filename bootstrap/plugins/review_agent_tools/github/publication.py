@@ -99,10 +99,6 @@ class GitHubPublicationGateway(Protocol):
         self, repository: str, issue_number: int, body: str
     ) -> IssueComment: ...
 
-    def create_issue_comment_reaction(
-        self, repository: str, comment_id: int, content: IssueCommentReaction
-    ) -> bool: ...
-
     def delete_issue_comment(self, repository: str, comment_id: int) -> None: ...
 
     def create_pull_request_review(

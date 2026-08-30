@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.1.0-rc.3
+Runtime release selected by `llms.txt`: v0.1.0-rc.4
 
 ---
 

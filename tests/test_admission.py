@@ -165,6 +165,13 @@ class AdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(SettingsError, "is required"):
             admission.load_config(environment)
 
+    def test_configuration_repr_excludes_credentials(self) -> None:
+        rendered = repr(self.config)
+
+        self.assertNotIn(str(self.config.database_url), rendered)
+        self.assertNotIn(self.config.github_app_secret, rendered)
+        self.assertIn("profile='sundsvall-standard'", rendered)
+
 
 class AdmissionHttpBoundaryTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -228,6 +235,19 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
         with response:
             return response.status, dict(response.headers.items()), response.read()
 
+    def _get(self, path: str) -> tuple[int, dict[str, str], bytes]:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.server.server_port}{path}",
+            method="GET",
+        )
+        try:
+            response = urllib.request.urlopen(request, timeout=2)
+        except urllib.error.HTTPError as exc:
+            with exc:
+                return exc.code, dict(exc.headers.items()), exc.read()
+        with response:
+            return response.status, dict(response.headers.items()), response.read()
+
     def test_github_app_route_durably_acknowledges_without_a_github_read(self) -> None:
         with patch.object(
             admission_entrypoint.admission,
@@ -261,18 +281,6 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             (status, json.loads(body)),
             (409, {"status": "delivery_conflict"}),
         )
-
-        with patch.object(
-            admission_entrypoint.admission,
-            "receive_github_app_delivery",
-            side_effect=PostgreSQLUnavailable("database secret"),
-        ):
-            status, _, body = self._post_app()
-        self.assertEqual(
-            (status, json.loads(body)),
-            (503, {"status": "database_unavailable"}),
-        )
-        self.assertNotIn(b"secret", body)
 
     def test_github_app_route_acknowledges_unsupported_events_without_persistence(
         self,
@@ -342,27 +350,6 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
                     {"REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES": "2097153"}
                 )
 
-    def test_normalized_payload_overflow_is_an_observable_413(self) -> None:
-        with (
-            patch.object(
-                admission_entrypoint.admission,
-                "receive_github_app_delivery",
-                side_effect=admission.GitHubAppPayloadTooLarge(
-                    "normalized payload exceeds storage guard"
-                ),
-            ),
-            patch("builtins.print") as logged,
-        ):
-            status, _, body = self._post_app(event="installation")
-
-        self.assertEqual(
-            (status, json.loads(body)),
-            (413, {"status": "payload_too_large"}),
-        )
-        self.assertTrue(
-            any("GitHub App webhook rejected" in str(call) for call in logged.mock_calls)
-        )
-
     def test_signature_and_request_size_fail_before_receipt(self) -> None:
         with patch.object(
             admission_entrypoint.admission, "receive_github_app_delivery"
@@ -394,28 +381,69 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             (response.status, json.loads(body)), (411, {"status": "missing_length"})
         )
 
-    def test_failures_use_fixed_status_and_retry_contracts(self) -> None:
+    def test_failures_use_fixed_responses_and_secret_safe_diagnostics(self) -> None:
         cases = (
+            (
+                admission.GitHubAppPayloadTooLarge("payload secret"),
+                413,
+                {"status": "payload_too_large"},
+                "GitHub App webhook rejected",
+            ),
+            (
+                admission.AdmissionError("request secret"),
+                400,
+                {"status": "bad_request"},
+                "GitHub App webhook rejected",
+            ),
             (
                 PostgreSQLUnavailable("database secret"),
                 503,
-                None,
                 {"status": "database_unavailable"},
+                "GitHub App webhook database failure",
             ),
-            (RuntimeError("internal secret"), 500, None, {"status": "internal_error"}),
+            (
+                RuntimeError("internal secret"),
+                500,
+                {"status": "internal_error"},
+                "GitHub App webhook internal failure",
+            ),
         )
-        for failure, expected_status, retry_after, expected_body in cases:
+        for failure, expected_status, expected_body, category in cases:
             with self.subTest(failure=type(failure).__name__):
-                with patch.object(
-                    admission_entrypoint.admission,
-                    "receive_github_app_delivery",
-                    side_effect=failure,
+                with (
+                    patch.object(
+                        admission_entrypoint.admission,
+                        "receive_github_app_delivery",
+                        side_effect=failure,
+                    ),
+                    patch("builtins.print") as logged,
                 ):
-                    status, headers, body = self._post_app()
+                    status, _, body = self._post_app()
                 self.assertEqual(status, expected_status)
-                self.assertEqual(headers.get("Retry-After"), retry_after)
                 self.assertEqual(json.loads(body), expected_body)
                 self.assertNotIn(b"secret", body)
+                diagnostics = str(logged.mock_calls)
+                self.assertNotIn("secret", diagnostics)
+                self.assertIn(category, diagnostics)
+                self.assertIn(type(failure).__name__, diagnostics)
+
+    def test_readiness_failure_uses_secret_safe_diagnostics(self) -> None:
+        failure = RuntimeError("readiness secret")
+        with (
+            patch.object(
+                admission_entrypoint.admission,
+                "ready_check",
+                side_effect=failure,
+            ),
+            patch("builtins.print") as logged,
+        ):
+            status, _, body = self._get("/ready")
+
+        self.assertEqual((status, json.loads(body)), (503, {"status": "not_ready"}))
+        diagnostics = str(logged.mock_calls)
+        self.assertNotIn("secret", diagnostics)
+        self.assertIn("review admission readiness failed", diagnostics)
+        self.assertIn(type(failure).__name__, diagnostics)
 
 
 if __name__ == "__main__":

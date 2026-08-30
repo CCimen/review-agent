@@ -113,7 +113,11 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
                 )
                 self._write(200, body)
             except Exception as exc:
-                print(f"review admission readiness failed: {exc}", file=sys.stderr)
+                print(
+                    "review admission readiness failed: "
+                    f"{type(exc).__name__}",
+                    file=sys.stderr,
+                )
                 self._write(503, admission.response_body("not_ready"))
             return
         self._write(404, admission.response_body("not_found"))
@@ -169,16 +173,28 @@ class AdmissionRequestHandler(BaseHTTPRequestHandler):
         except admission.GitHubAppDeliveryConflict:
             self._write(409, admission.response_body("delivery_conflict"))
         except admission.GitHubAppPayloadTooLarge as exc:
-            print(f"GitHub App webhook rejected: {exc}", file=sys.stderr)
+            print(
+                f"GitHub App webhook rejected: {type(exc).__name__}",
+                file=sys.stderr,
+            )
             self._write(413, admission.response_body("payload_too_large"))
         except (admission.AdmissionError, SettingsError) as exc:
-            print(f"GitHub App webhook rejected: {exc}", file=sys.stderr)
+            print(
+                f"GitHub App webhook rejected: {type(exc).__name__}",
+                file=sys.stderr,
+            )
             self._write(400, admission.response_body("bad_request"))
         except (PostgreSQLRuntimeError, psycopg.Error) as exc:
-            print(f"GitHub App webhook database failure: {exc}", file=sys.stderr)
+            print(
+                f"GitHub App webhook database failure: {type(exc).__name__}",
+                file=sys.stderr,
+            )
             self._write(503, admission.response_body("database_unavailable"))
         except Exception as exc:
-            print(f"GitHub App webhook internal failure: {exc}", file=sys.stderr)
+            print(
+                f"GitHub App webhook internal failure: {type(exc).__name__}",
+                file=sys.stderr,
+            )
             self._write(500, admission.response_body("internal_error"))
 
     def _server(self) -> "AdmissionServer":

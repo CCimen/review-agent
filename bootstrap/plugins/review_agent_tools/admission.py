@@ -36,9 +36,9 @@ class GitHubAppPayloadTooLarge(AdmissionError):
 
 @dataclass(frozen=True, slots=True)
 class AdmissionConfig:
-    database_url: PostgresDatabaseUrl
+    database_url: PostgresDatabaseUrl = field(repr=False)
     profile: str
-    github_app_secret: str
+    github_app_secret: str = field(repr=False)
     contract_environment: Mapping[str, str] = field(repr=False, compare=False)
     webhook_delivery_max_attempts: int = 3
 
@@ -181,8 +181,7 @@ def receive_github_app_delivery(
     return WebhookReceiptResponse(status)
 
 
-def response_body(status: str, message: str = "") -> bytes:
-    value = {"status": status}
-    if message:
-        value["message"] = message
-    return json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+def response_body(status: str) -> bytes:
+    return json.dumps(
+        {"status": status}, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")

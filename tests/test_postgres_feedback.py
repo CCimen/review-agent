@@ -45,6 +45,7 @@ from review_agent_tools.feedback_commands import (  # noqa: E402
     parse_review_feedback_command,
 )
 from review_agent_tools.postgres import feedback as postgres_feedback  # noqa: E402
+from review_agent_tools.postgres import quality_triage as postgres_quality_triage  # noqa: E402
 from review_agent_tools.postgres import repository_decisions  # noqa: E402
 from review_agent_tools.postgres import publications, reporting, review_runs  # noqa: E402
 from review_agent_tools.postgres import decisions as postgres_decisions  # noqa: E402
@@ -658,7 +659,23 @@ on_change = ["Run the cross-scope authorization test."]
         assert scope.feedback_id is not None
         assert missed.feedback_id is not None
 
-        with self.assertRaisesRegex(ValueError, "only missed-issue"):
+        with self.assertRaises(postgres_quality_triage.QualityFeedbackNotFound):
+            operator_application.triage_review_feedback(
+                self.runtime,
+                feedback_id=2_147_483_647,
+                status="insufficient",
+                stable_key="",
+                target_owner="",
+                evidence_reference="",
+                path="",
+                category="",
+                actor="github:operator",
+                reason="The requested feedback record does not exist.",
+            )
+
+        with self.assertRaises(
+            postgres_quality_triage.QualityFeedbackNotTriageable
+        ):
             operator_application.triage_review_feedback(
                 self.runtime,
                 feedback_id=scope.feedback_id,

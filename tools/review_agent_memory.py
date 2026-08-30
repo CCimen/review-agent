@@ -12,7 +12,9 @@ import json
 import os
 from pathlib import Path
 import sys
-from typing import NoReturn, cast
+from typing import cast
+
+import psycopg
 
 from review_agent_coach_run import build_coach_run_artifacts
 from review_agent_coach_proposals import CandidateProposal, ProposalBundle
@@ -38,16 +40,68 @@ _plugin_parent()
 from review_agent_tools import operator_application  # noqa: E402
 from review_agent_tools.domain.coaching import (  # noqa: E402
     COACH_INTERVENTION_OUTCOMES,
+    CoachingDomainError,
     CoachCandidateInput,
     CoachInterventionOutcome,
 )
-from review_agent_tools.domain.feedback import FeedbackTriageStatus  # noqa: E402
+from review_agent_tools.domain.feedback import (  # noqa: E402
+    FeedbackDomainError,
+    FeedbackTriageStatus,
+)
+from review_agent_tools.domain.finding import FindingDomainError  # noqa: E402
+from review_agent_tools.postgres import (  # noqa: E402
+    coaching as postgres_coaching,
+    findings as postgres_findings,
+    quality_reporting,
+    quality_triage,
+    reporting as postgres_reporting,
+    review_runs as postgres_review_runs,
+)
 from review_agent_tools.postgres.runtime import (  # noqa: E402
+    PostgreSQLNotReady,
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
+    PostgreSQLUnavailable,
 )
-from review_agent_tools.postgres import quality_reporting  # noqa: E402
-from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent_tools.settings import (  # noqa: E402
+    ReviewAgentSettings,
+    SettingsError,
+)
+
+
+class _MemoryCommandError(ValueError):
+    """One local command or artifact failed a stable operator contract."""
+
+    def __init__(self, code: str, *, exit_code: int = os.EX_DATAERR) -> None:
+        self.code = code
+        self.exit_code = exit_code
+        super().__init__(code)
+
+
+_EXPECTED_COMMAND_ERRORS = (
+    operator_application.OperatorInputError,
+    CoachingDomainError,
+    FeedbackDomainError,
+    FindingDomainError,
+    postgres_coaching.CoachRepositoryMismatch,
+    postgres_coaching.CoachCandidateNotFound,
+    postgres_coaching.CoachCandidateProvenanceMismatch,
+    postgres_coaching.CoachInterventionConflict,
+    postgres_findings.FingerprintNotFound,
+    postgres_findings.AmbiguousFingerprint,
+    quality_triage.QualityFeedbackNotFound,
+    quality_triage.QualityFeedbackNotTriageable,
+    postgres_reporting.RepositoryNotFound,
+    postgres_reporting.FindingNotFound,
+    postgres_reporting.VerificationExportUnavailable,
+    postgres_review_runs.ReviewRunNotFound,
+)
+
+_DATABASE_BUSY_ERRORS = (
+    psycopg.errors.DeadlockDetected,
+    psycopg.errors.QueryCanceled,
+    psycopg.errors.LockNotAvailable,
+)
 
 
 def _json_default(value: object) -> object:
@@ -96,31 +150,35 @@ def _complete_export(
 ) -> dict[str, object]:
     value = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(value, dict):
-        raise SystemExit("export must contain a JSON object")
+        raise _MemoryCommandError("export_invalid")
     state = cast(dict[str, object], value)
     if state.get("complete") is not True:
-        raise SystemExit(
-            "export is incomplete; rerun with a larger --row-limit before learning "
-            f"or coaching (truncated_tables={state.get('truncated_tables', [])})"
-        )
+        raise _MemoryCommandError("export_incomplete")
     if repository is not None:
         try:
             requested = repository_key(repository)
         except ValueError as exc:
-            raise SystemExit(str(exc)) from exc
+            raise _MemoryCommandError("repository_scope_invalid") from exc
         exported_repository = state.get("repository")
         if not isinstance(exported_repository, str):
-            raise SystemExit("repository-scoped export is missing repository")
+            raise _MemoryCommandError("export_repository_missing")
         try:
             exported = repository_key(exported_repository)
         except ValueError as exc:
-            raise SystemExit("export repository is invalid") from exc
+            raise _MemoryCommandError("export_repository_invalid") from exc
         if exported != requested:
-            raise SystemExit(
-                "export repository does not match --repo; export the requested "
-                "repository and retry"
-            )
+            raise _MemoryCommandError("export_repository_mismatch")
     return state
+
+
+def _positive_argument(value: str) -> int:
+    try:
+        resolved = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if resolved < 1:
+        raise argparse.ArgumentTypeError("must be positive")
+    return resolved
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -128,7 +186,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     listing = commands.add_parser("list", help="List recent findings.")
     listing.add_argument("--repo")
-    listing.add_argument("--limit", type=int, default=50)
+    listing.add_argument("--limit", type=_positive_argument, default=50)
     listing.add_argument("--open-only", action="store_true")
     show = commands.add_parser("show", help="Show one finding and its decisions.")
     show.add_argument("fingerprint")
@@ -164,7 +222,7 @@ def _parser() -> argparse.ArgumentParser:
     triage.add_argument("--reason", required=True)
     export = commands.add_parser("export", help="Export one repository as JSON.")
     export.add_argument("--repo", required=True)
-    export.add_argument("--row-limit", type=int, required=True)
+    export.add_argument("--row-limit", type=_positive_argument, required=True)
     export.add_argument("--output")
     stats = commands.add_parser("stats", help="Summarize finding state.")
     stats.add_argument("--repo")
@@ -172,7 +230,7 @@ def _parser() -> argparse.ArgumentParser:
     runs = commands.add_parser("runs", help="Inspect or recover review runs.")
     runs.add_argument("--repo")
     runs.add_argument("--pr", type=int)
-    runs.add_argument("--limit", type=int, default=50)
+    runs.add_argument("--limit", type=_positive_argument, default=50)
     runs.add_argument("--failed", action="store_true")
     runs.add_argument("--stats", action="store_true")
     runs.add_argument("--days", type=int, default=30)
@@ -181,7 +239,7 @@ def _parser() -> argparse.ArgumentParser:
     publications = commands.add_parser("publications", help="List publications.")
     publications.add_argument("--repo")
     publications.add_argument("--pr", type=int)
-    publications.add_argument("--limit", type=int, default=50)
+    publications.add_argument("--limit", type=_positive_argument, default=50)
     coverage = commands.add_parser("coverage", help="Show run coverage.")
     coverage.add_argument("--run-id", type=int, required=True)
     quality = commands.add_parser(
@@ -233,7 +291,7 @@ def _parser() -> argparse.ArgumentParser:
     coach_run = commands.add_parser("coach-run", help="Run and record the coach.")
     coach_run.add_argument("--export")
     coach_run.add_argument("--repo", required=True)
-    coach_run.add_argument("--row-limit", type=int, default=10_000)
+    coach_run.add_argument("--row-limit", type=_positive_argument, default=10_000)
     coach_run.add_argument("--output-dir", required=True)
     coach_run.add_argument("--after-decision-id", type=int, default=0)
     coach_run.add_argument("--after-feedback-id", type=int, default=0)
@@ -261,8 +319,41 @@ def _parser() -> argparse.ArgumentParser:
     )
     coach_history.add_argument("--repo", required=True)
     coach_history.add_argument("--candidate-key", required=True)
-    coach_history.add_argument("--limit", type=int, required=True)
+    coach_history.add_argument("--limit", type=_positive_argument, required=True)
     return parser
+
+
+def _validate_high_cost_limits(args: argparse.Namespace) -> None:
+    settings = ReviewAgentSettings.from_environment()
+    uses_page_limit = args.command in {"list", "publications"} or (
+        args.command == "runs" and not args.stats and not args.mark_stalled
+    )
+    if uses_page_limit:
+        if args.limit > settings.operator_page_max_items:
+            raise _MemoryCommandError(
+                "invalid_command_input",
+                exit_code=os.EX_USAGE,
+            )
+        return
+    if args.command == "coach-history":
+        maximum = min(
+            settings.operator_page_max_items,
+            operator_application.MAX_COACH_INTERVENTION_HISTORY_ITEMS,
+        )
+        if args.limit > maximum:
+            raise _MemoryCommandError(
+                "invalid_command_input",
+                exit_code=os.EX_USAGE,
+            )
+        return
+    requires_export = args.command == "export" or (
+        args.command == "coach-run" and not args.export
+    )
+    if requires_export and args.row_limit > settings.operator_export_max_rows:
+        raise _MemoryCommandError(
+            "invalid_command_input",
+            exit_code=os.EX_USAGE,
+        )
 
 
 def _offline_command(args: argparse.Namespace) -> int | None:
@@ -315,8 +406,60 @@ def _offline_command(args: argparse.Namespace) -> int | None:
     return None
 
 
-def _fatal(exc: Exception) -> NoReturn:
-    raise SystemExit(str(exc)) from exc
+def _json_error(
+    *,
+    code: str,
+    retryable: bool,
+    exception_type: str = "",
+) -> None:
+    error: dict[str, object] = {"code": code, "retryable": retryable}
+    if exception_type:
+        error["exception_type"] = exception_type[:120]
+    print(
+        json.dumps(
+            {"error": error},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+
+
+def _failure_exit(exc: Exception) -> int:
+    if isinstance(exc, _MemoryCommandError):
+        _json_error(code=exc.code, retryable=False)
+        return exc.exit_code
+    if isinstance(exc, SettingsError):
+        _json_error(code="invalid_configuration", retryable=False)
+        return os.EX_CONFIG
+    if isinstance(exc, PostgreSQLNotReady):
+        _json_error(code="database_not_ready", retryable=False)
+        return os.EX_CONFIG
+    if isinstance(exc, _DATABASE_BUSY_ERRORS):
+        _json_error(code="database_busy", retryable=True)
+        return os.EX_TEMPFAIL
+    if isinstance(exc, (PostgreSQLUnavailable, psycopg.OperationalError)):
+        _json_error(code="database_unavailable", retryable=True)
+        return os.EX_TEMPFAIL
+    if isinstance(exc, json.JSONDecodeError):
+        _json_error(code="artifact_invalid", retryable=False)
+        return os.EX_DATAERR
+    if isinstance(exc, OSError):
+        _json_error(code="artifact_io_failed", retryable=False)
+        return os.EX_IOERR
+    if isinstance(exc, _EXPECTED_COMMAND_ERRORS):
+        _json_error(code="command_rejected", retryable=False)
+        return os.EX_DATAERR
+    if isinstance(exc, psycopg.Error):
+        _json_error(code="database_operation_failed", retryable=False)
+        return os.EX_DATAERR
+    _json_error(
+        code="internal_error",
+        retryable=False,
+        exception_type=type(exc).__name__,
+    )
+    return os.EX_SOFTWARE
 
 
 def _sha256_file(raw_path: str) -> str:
@@ -324,7 +467,7 @@ def _sha256_file(raw_path: str) -> str:
         return ""
     path = Path(raw_path)
     if path.is_symlink() or not path.is_file():
-        raise ValueError("intervention artifact must be a regular file")
+        raise _MemoryCommandError("intervention_artifact_invalid")
     with path.open("rb") as handle:
         digest = hashlib.file_digest(handle, "sha256").hexdigest()
     return f"sha256:{digest}"
@@ -343,9 +486,7 @@ def _proposal_intervention(
         if candidate.candidate_key == candidate_key
     )
     if len(candidates) != 1:
-        raise ValueError(
-            "verified proposal must contain exactly one matching candidate key"
-        )
+        raise _MemoryCommandError("coach_candidate_not_found")
     candidate = candidates[0]
     canonical = json.dumps(
         {
@@ -460,7 +601,7 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             )
             state = cast(dict[str, object], export.to_json_obj())
             if state.get("complete") is not True:
-                raise SystemExit("live coach export is incomplete; increase --row-limit")
+                raise _MemoryCommandError("coach_export_incomplete")
         artifacts = build_coach_run_artifacts(
             state=state, output_dir=Path(args.output_dir), repository=args.repo,
             after_decision_id=args.after_decision_id,
@@ -516,26 +657,36 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             limit=args.limit,
         )
     else:
-        raise SystemExit(f"unsupported command: {args.command}")
+        raise RuntimeError("parser accepted an unsupported command")
     print(_json(result, pretty=True))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    offline = _offline_command(args)
+    try:
+        _validate_high_cost_limits(args)
+        offline = _offline_command(args)
+    except Exception as exc:
+        return _failure_exit(exc)
     if offline is not None:
         return offline
     try:
         runtime = _runtime()
     except Exception as exc:
-        _fatal(exc)
+        return _failure_exit(exc)
     try:
         return _run_live(args, runtime)
     except Exception as exc:
-        _fatal(exc)
+        return _failure_exit(exc)
     finally:
-        runtime.close()
+        # The command transaction has already committed or rolled back, and some
+        # commands emit their receipt before returning. Pool shutdown is local
+        # process cleanup and must not replace that authoritative outcome.
+        try:
+            runtime.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

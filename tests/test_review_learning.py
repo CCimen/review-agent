@@ -183,7 +183,15 @@ class ReviewLearningReportTests(unittest.TestCase):
             )
 
         self.assertNotEqual(completed.returncode, 0)
-        self.assertIn("does not match --repo", completed.stderr)
+        self.assertEqual(
+            json.loads(completed.stderr),
+            {
+                "error": {
+                    "code": "export_repository_mismatch",
+                    "retryable": False,
+                }
+            },
+        )
 
     def test_cli_accepts_a_matching_repository_with_no_history(self) -> None:
         state = state_with()

@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 DEFAULT_PROFILE = "sundsvall-standard"
 DEFAULT_POLICY_REVISION = "policy-v1"
 DEFAULT_PUBLISH_MAX_BYTES = 60_000
+DEFAULT_OPERATOR_EXPORT_MAX_ROWS = 10_000
 MIN_PUBLISH_MAX_BYTES = 1_000
 MAX_PUBLISH_MAX_BYTES = 65_000
 PostgresDatabaseUrl = NewType("PostgresDatabaseUrl", str)
@@ -164,6 +165,24 @@ class ReviewAgentSettings:
         if value < 1:
             raise SettingsError(
                 "REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS must be positive"
+            )
+        return value
+
+    @property
+    def operator_export_max_rows(self) -> int:
+        raw = self.environment.get(
+            "REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS",
+            str(DEFAULT_OPERATOR_EXPORT_MAX_ROWS),
+        ).strip()
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise SettingsError(
+                "REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS must be an integer"
+            ) from exc
+        if value < 1:
+            raise SettingsError(
+                "REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS must be positive"
             )
         return value
 

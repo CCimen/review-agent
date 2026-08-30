@@ -1725,6 +1725,9 @@ All values are optional and have deployable defaults:
 - `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS`: default `100`. This bounds one JSON
   inventory or job page. Use `--after-id` to read the next installation or
   repository page.
+- `REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS`: default `10000`. This bounds rows
+  from each table in one private operator export; raise it when a repository's
+  history is larger, rather than treating it as a review-depth limit.
 - `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` — default `8`. Concurrent
   signed admission requests per process.
 - `REVIEW_AGENT_PUBLISH_MAX_BYTES` — default `60000`. Bytes per GitHub comment
@@ -2108,6 +2111,20 @@ imports another database backend.
 [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) gives the shorter
 weekly and monthly operating flow. Use the commands below for private exports,
 diagnosis, and proposal details.
+
+After argument parsing succeeds, `review-agent-memory` writes successful
+receipts to standard output and one bounded JSON error to standard error on
+failure. It never includes the original exception message. Argument parsing
+errors retain standard argparse usage output and exit `2`.
+
+| Error code | Retry? | Exit | Operator action |
+| --- | --- | ---: | --- |
+| `invalid_command_input` | no | 64 | Correct the requested limit or argument. |
+| `command_rejected`, `database_operation_failed`, or a specific `export_*` / artifact code | no | 65 | Correct the requested scope or artifact; inspect application health for a database operation failure. |
+| `internal_error` | no | 70 | Report the included exception type; no exception message is emitted. |
+| `artifact_io_failed` | no | 74 | Repair the private file path or permissions. |
+| `database_unavailable` or `database_busy` | yes | 75 | Retry after PostgreSQL connectivity or contention recovers. |
+| `invalid_configuration` or `database_not_ready` | no | 78 | Correct configuration or complete the documented database migration/readiness steps. |
 
 Export the registry:
 

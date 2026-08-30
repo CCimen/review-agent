@@ -766,6 +766,21 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("coach-run", operations)
         self.assertIn("/skills diff", operations)
 
+    def test_memory_operator_errors_are_bounded_and_actionable(self):
+        operations = words(read("docs/OPERATIONS.md"))
+
+        for contract_value in (
+            "writes successful receipts to standard output",
+            "never includes the original exception message",
+            "Argument parsing errors retain standard argparse usage output",
+            "invalid_command_input",
+            "database_not_ready",
+            "database_busy",
+            "internal_error",
+        ):
+            with self.subTest(contract_value=contract_value):
+                self.assertIn(contract_value, operations)
+
     def test_app_runtime_uses_least_privilege_deployment(self):
         compose = read("compose.yaml")
         profile_section = compose.split("  review-profile-install:", 1)[1].split(

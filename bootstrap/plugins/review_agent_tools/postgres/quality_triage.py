@@ -20,6 +20,14 @@ class QualityTriageStoreError(ValueError):
     """A quality-triage operation violates its durable feedback scope."""
 
 
+class QualityFeedbackNotFound(QualityTriageStoreError):
+    """The requested feedback record does not exist."""
+
+
+class QualityFeedbackNotTriageable(QualityTriageStoreError):
+    """The requested feedback category cannot receive missed-issue triage."""
+
+
 @dataclass(frozen=True, slots=True)
 class QualityFeedbackTriage:
     id: int
@@ -107,9 +115,11 @@ def append_triage(
         (feedback_id,),
     ).fetchone()
     if feedback is None:
-        raise QualityTriageStoreError("review quality feedback does not exist")
+        raise QualityFeedbackNotFound("review quality feedback does not exist")
     if feedback != ("missed_issue",):
-        raise QualityTriageStoreError("only missed-issue feedback can be triaged")
+        raise QualityFeedbackNotTriageable(
+            "only missed-issue feedback can be triaged"
+        )
     with connection.cursor(row_factory=class_row(_TriageRow)) as cursor:
         row = cursor.execute(
             f"""

@@ -81,6 +81,7 @@ class ReviewAgentSettingsTests(unittest.TestCase):
             {
                 "REVIEW_AGENT_ACTIVE_JOB_LIMIT": "250",
                 "REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS": "500",
+                "REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS": "20000",
                 "REVIEW_AGENT_HERMES_CHAT_URL": (
                     "http://hermes-review:8642/v1/chat/completions"
                 ),
@@ -89,18 +90,24 @@ class ReviewAgentSettingsTests(unittest.TestCase):
 
         self.assertEqual(settings.active_job_limit, 250)
         self.assertEqual(settings.operator_page_max_items, 500)
+        self.assertEqual(settings.operator_export_max_rows, 20_000)
         self.assertEqual(
             settings.hermes_health_url,
             "http://hermes-review:8642/health",
         )
         self.assertEqual(ReviewAgentSettings({}).active_job_limit, 100)
         self.assertEqual(ReviewAgentSettings({}).operator_page_max_items, 100)
+        self.assertEqual(ReviewAgentSettings({}).operator_export_max_rows, 10_000)
         for invalid in ("0", "many"):
             with self.subTest(invalid=invalid):
                 with self.assertRaises(SettingsError):
                     ReviewAgentSettings(
                         {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": invalid}
                     ).active_job_limit
+                with self.assertRaises(SettingsError):
+                    ReviewAgentSettings(
+                        {"REVIEW_AGENT_OPERATOR_EXPORT_MAX_ROWS": invalid}
+                    ).operator_export_max_rows
 
     def test_publish_byte_limit_preserves_default_clamp_and_error(self) -> None:
         self.assertEqual(ReviewAgentSettings({}).publish_max_bytes, 60_000)

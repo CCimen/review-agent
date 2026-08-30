@@ -8,7 +8,8 @@ the matching GHCR image only after you publish the GitHub release.
 
 - Confirm `LICENSE`, `NOTICE.md`, `CONTRIBUTING.md`, `CITATION.cff`, and
   `THIRD_PARTY_NOTICES.md` are current.
-- Confirm `main` is clean and the Python bundle passed on the exact commit.
+- Confirm `main` is clean and `CI / required` passed on the exact commit. This
+  check covers the Python bundle, PostgreSQL contract, and image smoke test.
 - Confirm the public docs, generated LLM files, and installation-skill mirrors
   are current.
 - Update `REVISION` in `scripts/generate_llms_docs.py`, regenerate both LLM
@@ -20,7 +21,9 @@ the matching GHCR image only after you publish the GitHub release.
 - Keep known validation gaps in the release notes. A prerelease must not claim
   production scale that the pilot did not exercise.
 
-Run the local candidate gate once:
+Run the local candidate checks once. These supplement, but do not replace, the
+canonical quality gate that the release workflow reruns against the exact
+tagged commit:
 
 ```bash
 ./scripts/check_bundle.sh
@@ -37,8 +40,10 @@ git diff --check
    `main` commit.
 2. Create a GitHub release, mark it **Pre-release**, and publish concise notes:
    shipped behavior, setup path, validation evidence, known gaps, and rollback.
-3. Wait for **Publish container image**. It smoke-tests the native image,
-   publishes `linux/amd64` and `linux/arm64`, creates registry SBOM and
+3. Wait for **Publish container image**. It verifies the tag and generated
+   release documentation, runs `CI / required` against that exact source, then
+   publishes `linux/amd64` and `linux/arm64`. A failed Python, PostgreSQL, or
+   image check blocks publication. The workflow creates registry SBOM and
    provenance attestations, then scans the published platform digests. A
    prerelease does not update `latest`.
 4. Confirm the release contains per-platform CycloneDX JSON, SPDX JSON, and

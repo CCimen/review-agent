@@ -26,7 +26,10 @@ jobs:
 
       - name: Record verified source
         id: source
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
 
       - name: Validate release tag
         env:
@@ -43,13 +46,15 @@ jobs:
             exit 1
           fi
 
-      - name: Build and smoke-test release image
-        run: |
-          docker build --tag review-agent:release-candidate .
-          bash ./scripts/check_image.sh review-agent:release-candidate
+  quality:
+    name: Canonical quality
+    needs: verify
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
 
   publish:
-    needs: verify
+    needs: [verify, quality]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:

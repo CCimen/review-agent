@@ -9,6 +9,9 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from typing import cast
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,72 +32,116 @@ HOMEPAGE = ROOT / "website" / "src" / "pages" / "index.tsx"
 README = ROOT / "README.md"
 
 
+def mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise AssertionError("expected a mapping")
+    return cast(dict[str, object], value)
+
+
+def sequence(value: object) -> list[object]:
+    if not isinstance(value, list):
+        raise AssertionError("expected a sequence")
+    return cast(list[object], value)
+
+
+def workflow(path: Path) -> dict[str, object]:
+    document: object = yaml.load(
+        path.read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    return mapping(document)
+
+
+def uses_entries(value: object) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    if isinstance(value, dict):
+        item = cast(dict[str, object], value)
+        if isinstance(item.get("uses"), str):
+            entries.append(item)
+        for child in item.values():
+            entries.extend(uses_entries(child))
+    elif isinstance(value, list):
+        for child in cast(list[object], value):
+            entries.extend(uses_entries(child))
+    return entries
+
+
+def needs(job: dict[str, object]) -> set[str]:
+    value = job.get("needs")
+    if isinstance(value, str):
+        return {value}
+    return {str(item) for item in sequence(value)}
+
+
+def named_step(job: dict[str, object], name: str) -> dict[str, object]:
+    for value in sequence(job["steps"]):
+        step = mapping(value)
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f"missing workflow step: {name}")
+
+
 class PythonBundleWorkflowTests(unittest.TestCase):
     def test_required_quality_gates_run_independently_in_read_only_ci(self):
         self.assertTrue(WORKFLOW.is_file(), "full Python bundle CI is missing")
         source = WORKFLOW.read_text(encoding="utf-8")
-
-        expected_header = """name: Python bundle
-
-on:
-  pull_request:
-  merge_group:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-"""
-        self.assertTrue(source.startswith(expected_header))
+        document = workflow(WORKFLOW)
+        events = mapping(document["on"])
+        self.assertEqual(
+            {
+                "pull_request",
+                "merge_group",
+                "push",
+                "workflow_dispatch",
+                "workflow_call",
+            },
+            set(events),
+        )
+        self.assertEqual(["main"], sequence(mapping(events["push"])["branches"]))
+        self.assertEqual({"contents": "read"}, mapping(document["permissions"]))
         self.assertNotIn("pull_request_target", source)
         self.assertNotIn("secrets.", source)
-        self.assertEqual(source.count("permissions:"), 1)
         self.assertNotRegex(source, r"(?m)^\s+[^:#]+:\s*write\b")
 
-        expected_actions = [
-            "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
-            "actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c",
-            "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444",
-            "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
-            "actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c",
-            "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+        action_entries = uses_entries(document)
+        external_actions = [
+            str(entry["uses"])
+            for entry in action_entries
+            if not str(entry["uses"]).startswith("./")
         ]
-        actions = re.findall(r"(?m)^\s+uses: ([^\s]+)$", source)
-        self.assertEqual(actions, expected_actions)
-        for action in actions:
-            self.assertRegex(action, r"@[0-9a-f]{40}$")
+        self.assertTrue(external_actions)
+        for action in external_actions:
+            self.assertRegex(action, r"^[^@\s]+@[0-9a-f]{40}$")
 
         self.assertIn("python-version: '3.11'", source)
-        checkout_stanza = re.compile(
-            r"(?m)^      - name: Check out repository\n"
-            r"        uses: actions/checkout@"
-            r"d23441a48e516b6c34aea4fa41551a30e30af803\n"
-            r"        with:\n"
-            r"          persist-credentials: false$"
-        )
-        self.assertEqual(len(checkout_stanza.findall(source)), 3)
-        self.assertEqual(source.count("persist-credentials: false"), 3)
+        checkout_entries = [
+            entry
+            for entry in action_entries
+            if str(entry["uses"]).startswith("actions/checkout@")
+        ]
+        self.assertTrue(checkout_entries)
+        for checkout in checkout_entries:
+            inputs = mapping(checkout["with"])
+            self.assertEqual("false", inputs.get("persist-credentials"))
+            self.assertEqual("${{ github.sha }}", inputs.get("ref"))
+
+        jobs = mapping(document["jobs"])
         for job_id, job_name in (
             ("python-fast", "Python fast"),
             ("postgres-contract", "PostgreSQL contract"),
             ("image-smoke", "Image smoke"),
             ("required", "CI / required"),
         ):
-            self.assertRegex(
-                source,
-                rf"(?m)^  {re.escape(job_id)}:\n    name: {re.escape(job_name)}$",
-            )
-        self.assertIn("needs: [python-fast, postgres-contract, image-smoke]", source)
-        self.assertIn("if: ${{ always() }}", source)
+            self.assertEqual(job_name, mapping(jobs[job_id])["name"])
+        required = mapping(jobs["required"])
+        self.assertEqual(
+            {"python-fast", "postgres-contract", "image-smoke"},
+            needs(required),
+        )
+        self.assertEqual("${{ always() }}", required["if"])
         self.assertIn("PYTHON_FAST_RESULT: ${{ needs.python-fast.result }}", source)
         self.assertIn("POSTGRES_RESULT: ${{ needs.postgres-contract.result }}", source)
         self.assertIn("IMAGE_RESULT: ${{ needs.image-smoke.result }}", source)
-        self.assertEqual(source.count("cache: pip"), 2)
         self.assertIn("npm install --global pyright@1.1.408", source)
         self.assertIn(
             "python3 -m pip install --disable-pip-version-check "
@@ -145,24 +192,60 @@ concurrency:
 
     def test_release_workflow_publishes_only_versioned_release_images(self):
         source = RELEASE_WORKFLOW.read_text(encoding="utf-8")
-
-        expected_header = """name: Publish container image
-
-on:
-  release:
-    types: [published]
-
-permissions:
-  contents: read
-"""
-        self.assertTrue(source.startswith(expected_header))
+        document = workflow(RELEASE_WORKFLOW)
+        events = mapping(document["on"])
+        self.assertEqual({"release"}, set(events))
+        self.assertEqual(
+            ["published"],
+            sequence(mapping(events["release"])["types"]),
+        )
+        self.assertEqual({"contents": "read"}, mapping(document["permissions"]))
+        self.assertEqual(
+            {"group": "release-image", "cancel-in-progress": "false"},
+            mapping(document["concurrency"]),
+        )
         self.assertNotIn("pull_request_target", source)
         self.assertNotIn("workflow_dispatch", source)
-        self.assertEqual(source.count("packages: write"), 1)
-        self.assertIn("group: release-image", source)
-        self.assertIn("needs: verify", source)
+        jobs = mapping(document["jobs"])
+        verify = mapping(jobs["verify"])
+        quality = mapping(jobs["quality"])
+        publish = mapping(jobs["publish"])
+        sbom = mapping(jobs["sbom"])
+
+        self.assertEqual({"verify"}, needs(quality))
+        self.assertEqual("./.github/workflows/ci.yml", quality["uses"])
+        self.assertEqual({"contents": "read"}, mapping(quality["permissions"]))
+        self.assertNotIn("secrets", quality)
+        self.assertEqual({"verify", "quality"}, needs(publish))
+        self.assertNotIn("if", publish)
+        self.assertEqual({"verify", "publish"}, needs(sbom))
+
+        self.assertEqual(
+            {
+                "contents": "read",
+                "packages": "write",
+                "attestations": "write",
+                "id-token": "write",
+            },
+            mapping(publish["permissions"]),
+        )
+        self.assertEqual(
+            {
+                "contents": "write",
+                "packages": "read",
+                "attestations": "write",
+                "artifact-metadata": "write",
+                "id-token": "write",
+            },
+            mapping(sbom["permissions"]),
+        )
+        for job_id, value in jobs.items():
+            job = mapping(value)
+            job_permissions = mapping(job["permissions"]) if "permissions" in job else {}
+            if any(level == "write" for level in job_permissions.values()):
+                self.assertIn(job_id, {"publish", "sbom"})
+
         self.assertIn("source_sha: ${{ steps.source.outputs.sha }}", source)
-        self.assertIn("ref: ${{ needs.verify.outputs.source_sha }}", source)
         self.assertIn("python3 scripts/validate_release_tag.py", source)
         self.assertIn("python3 scripts/generate_llms_docs.py --check", source)
         self.assertIn(
@@ -173,16 +256,58 @@ permissions:
             "Generated LLM documentation does not match the release tag.",
             source,
         )
-        self.assertEqual(source.count("persist-credentials: false"), 3)
+        source_step = named_step(verify, "Record verified source")
+        self.assertIn('test "$source_sha" = "$GITHUB_SHA"', str(source_step["run"]))
         self.assertEqual(
-            source.count("ref: ${{ github.event.release.tag_name }}"), 1
+            "${{ github.event.release.tag_name }}",
+            mapping(named_step(verify, "Check out release tag")["with"])["ref"],
         )
-        self.assertEqual(source.count("ref: ${{ needs.verify.outputs.source_sha }}"), 2)
-        self.assertIn("git rev-list -n 1 refs/tags/release-candidate", source)
-        self.assertIn("docker build --tag review-agent:release-candidate .", source)
+        for job, step_name in (
+            (publish, "Check out verified source"),
+            (sbom, "Check out verified source"),
+        ):
+            self.assertEqual(
+                "${{ needs.verify.outputs.source_sha }}",
+                mapping(named_step(job, step_name)["with"])["ref"],
+            )
+
+        publish_step_names = [
+            mapping(value).get("name") for value in sequence(publish["steps"])
+        ]
+        self.assertLess(
+            publish_step_names.index(
+                "Confirm release tag still targets verified source"
+            ),
+            publish_step_names.index("Build and publish image"),
+        )
         self.assertIn(
-            "bash ./scripts/check_image.sh review-agent:release-candidate", source
+            'test "$(git rev-list -n 1 refs/tags/release-candidate)" = "$SOURCE_SHA"',
+            str(
+                named_step(
+                    publish,
+                    "Confirm release tag still targets verified source",
+                )["run"]
+            ),
         )
+        self.assertNotIn("docker build --tag review-agent:release-candidate .", source)
+
+        action_entries = uses_entries(document)
+        checkout_entries = [
+            entry
+            for entry in action_entries
+            if str(entry["uses"]).startswith("actions/checkout@")
+        ]
+        self.assertTrue(checkout_entries)
+        for checkout in checkout_entries:
+            self.assertEqual(
+                "false", mapping(checkout["with"]).get("persist-credentials")
+            )
+        for entry in action_entries:
+            action = str(entry["uses"])
+            if action.startswith("./"):
+                continue
+            self.assertRegex(action, r"^[^@\s]+@[0-9a-f]{40}$")
+
         self.assertIn("RELEASE_TAG: ${{ github.event.release.tag_name }}", source)
         self.assertIn(
             "Release tag must use vMAJOR.MINOR.PATCH",
@@ -200,29 +325,6 @@ permissions:
         self.assertIn("subject-name: ${{ env.IMAGE_NAME }}", source)
         self.assertIn("subject-digest: ${{ steps.push.outputs.digest }}", source)
         self.assertIn("push-to-registry: true", source)
-
-        actions = re.findall(r"(?m)^\s+uses: ([^\s]+)$", source)
-        self.assertEqual(
-            actions,
-            [
-                "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
-                "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
-                "docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130",
-                "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
-                "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9",
-                "docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051",
-                "docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8",
-                "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
-                "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
-                "docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
-                "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9",
-                "anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610",
-                "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
-                "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
-            ],
-        )
-        for action in actions:
-            self.assertRegex(action, r"@[0-9a-f]{40}$")
 
     def test_release_tag_validator_enforces_semver_prerelease_identifiers(self):
         for tag in (
@@ -260,8 +362,9 @@ permissions:
 
     def test_release_workflow_attaches_immutable_release_sboms(self):
         source = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        jobs = mapping(workflow(RELEASE_WORKFLOW)["jobs"])
 
-        self.assertIn("needs: [verify, publish]", source)
+        self.assertEqual({"verify", "publish"}, needs(mapping(jobs["sbom"])))
         self.assertIn("image_digest: ${{ steps.push.outputs.digest }}", source)
         self.assertIn("contents: write", source)
         self.assertIn("packages: read", source)

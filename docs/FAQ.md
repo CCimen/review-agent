@@ -4,7 +4,7 @@ slug: /faq
 title: Frequently asked questions
 description: Practical answers about access, findings, feedback, storage, and failures.
 status: current
-last_verified: 2026-08-27
+last_verified: 2026-08-30
 ---
 
 # Frequently asked questions
@@ -68,9 +68,10 @@ operator data.
 
 ## Does it scan dependencies for CVEs?
 
-No. It may reason about dependency changes in a PR, but it does not query a
-vulnerability database or replace deterministic CI scanners. Scanner and Codex
-Security integrations are deferred.
+The live reviewer does not query a vulnerability database. Repository CI scans
+the Python requirements and both npm lockfiles with Trivy, while release CI
+scans each exact published platform digest. The model may still discuss a risky
+dependency change, but the deterministic scanner owns the CVE verdict.
 
 ## Why did a review fail or stop?
 

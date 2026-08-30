@@ -28,6 +28,7 @@ PYTHON_CHECK = ROOT / "scripts" / "check_bundle.sh"
 PYRIGHT_CONFIG = ROOT / "pyrightconfig.json"
 RUFF_CONFIG = ROOT / "ruff.toml"
 DEVELOPMENT_REQUIREMENTS = ROOT / "requirements-dev.txt"
+TRIVY_CONFIG = ROOT / "trivy.yaml"
 ROADMAP = ROOT / "docs" / "ROADMAP.md"
 HOMEPAGE = ROOT / "website" / "src" / "pages" / "index.tsx"
 README = ROOT / "README.md"
@@ -131,18 +132,28 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             ("python-fast", "Python fast"),
             ("postgres-contract", "PostgreSQL contract"),
             ("image-smoke", "Image smoke"),
+            ("dependency-scan", "Dependency vulnerabilities"),
             ("required", "CI / required"),
         ):
             self.assertEqual(job_name, mapping(jobs[job_id])["name"])
         required = mapping(jobs["required"])
         self.assertEqual(
-            {"python-fast", "postgres-contract", "image-smoke"},
+            {
+                "python-fast",
+                "postgres-contract",
+                "image-smoke",
+                "dependency-scan",
+            },
             needs(required),
         )
         self.assertEqual("${{ always() }}", required["if"])
         self.assertIn("PYTHON_FAST_RESULT: ${{ needs.python-fast.result }}", source)
         self.assertIn("POSTGRES_RESULT: ${{ needs.postgres-contract.result }}", source)
         self.assertIn("IMAGE_RESULT: ${{ needs.image-smoke.result }}", source)
+        self.assertIn(
+            "DEPENDENCY_SCAN_RESULT: ${{ needs.dependency-scan.result }}",
+            source,
+        )
         self.assertIn("npm install --global pyright@1.1.408", source)
         self.assertIn(
             "python3 -m pip install --disable-pip-version-check "
@@ -173,6 +184,57 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "validate-replay",
         ):
             self.assertNotIn(duplicated_command, source)
+
+    def test_dependency_vulnerability_gate_covers_every_shipped_lock(self):
+        document = workflow(WORKFLOW)
+        jobs = mapping(document["jobs"])
+        scan = mapping(jobs["dependency-scan"])
+        self.assertEqual("Dependency vulnerabilities", scan["name"])
+
+        scan_step = named_step(scan, "Scan dependency vulnerabilities")
+        self.assertRegex(
+            str(scan_step["uses"]),
+            r"^aquasecurity/trivy-action@[0-9a-f]{40}$",
+        )
+        scan_inputs = mapping(scan_step["with"])
+        self.assertEqual("fs", scan_inputs["scan-type"])
+        self.assertEqual(".", scan_inputs["scan-ref"])
+        self.assertEqual("trivy.yaml", scan_inputs["trivy-config"])
+        self.assertEqual("dependency-vulnerabilities.json", scan_inputs["output"])
+        self.assertEqual("v0.74.0", scan_inputs["version"])
+        self.assertEqual("true", scan_step["continue-on-error"])
+
+        upload = named_step(scan, "Retain dependency vulnerability report")
+        self.assertEqual("${{ always() }}", upload["if"])
+        self.assertEqual(
+            "dependency-vulnerabilities.json",
+            mapping(upload["with"])["path"],
+        )
+        enforce = named_step(scan, "Enforce dependency vulnerability policy")
+        self.assertEqual("${{ always() }}", enforce["if"])
+        self.assertIn("SCAN_OUTCOME", mapping(enforce["env"]))
+        enforce_command = str(enforce["run"])
+        self.assertIn("scripts/check_trivy_report.py", enforce_command)
+        for manifest in (
+            "requirements.txt",
+            "install/package-lock.json",
+            "website/package-lock.json",
+        ):
+            self.assertIn(f'--require-target "{manifest}"', enforce_command)
+
+        required = mapping(jobs["required"])
+        self.assertIn("dependency-scan", needs(required))
+        self.assertIn("needs.dependency-scan.result", str(required))
+
+        policy = mapping(yaml.safe_load(TRIVY_CONFIG.read_text(encoding="utf-8")))
+        self.assertEqual(0, policy["exit-code"])
+        self.assertEqual("json", policy["format"])
+        self.assertEqual(["HIGH", "CRITICAL"], policy["severity"])
+        self.assertEqual("/dev/null", policy["ignorefile"])
+        self.assertNotIn("list-all-pkgs", policy)
+        self.assertEqual(["vuln"], mapping(policy["scan"])["scanners"])
+        self.assertEqual(True, mapping(policy["pkg"])["include-dev-deps"])
+        self.assertEqual(False, mapping(policy["vulnerability"])["ignore-unfixed"])
 
     def test_fast_quality_tools_are_pinned_and_cover_production_entrypoints(self):
         self.assertEqual(
@@ -211,6 +273,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         includes = set(pyright["include"])
         self.assertIn("bootstrap/install.py", includes)
         self.assertIn("bootstrap/plugins/review_agent_tools", includes)
+        self.assertIn("scripts/check_trivy_report.py", includes)
         self.assertIn("tools", includes)
 
     def test_release_workflow_publishes_only_versioned_release_images(self):
@@ -428,6 +491,118 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         tool_lock = RELEASE_SBOM_REQUIREMENTS.read_text(encoding="utf-8")
         self.assertIn("cyclonedx-bom==7.3.1", tool_lock)
         self.assertIn("--hash=sha256:", tool_lock)
+
+    def test_release_vulnerability_gate_scans_each_exact_platform_digest(self):
+        jobs = mapping(workflow(RELEASE_WORKFLOW)["jobs"])
+        sbom = mapping(jobs["sbom"])
+        steps = [mapping(step) for step in sequence(sbom["steps"])]
+        step_names = [str(step.get("name", "")) for step in steps]
+
+        record = named_step(sbom, "Record release platform digests")
+        record_command = str(record["run"])
+        self.assertIn("release-sbom/IMAGE-DIGESTS.txt", record_command)
+        self.assertIn("linux/amd64", record_command)
+        self.assertIn("linux/arm64", record_command)
+        amd64_digest = "sha256:" + "a" * 64
+        arm64_digest = "sha256:" + "b" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            release_evidence = temporary / "release-sbom"
+            release_evidence.mkdir()
+            (release_evidence / "IMAGE-DIGESTS.txt").write_text(
+                textwrap.dedent(
+                    f"""\
+                    review-agent manifest ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@sha256:{'c' * 64}
+                    review-agent linux/amd64 ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@{amd64_digest}
+                    review-agent linux/arm64 ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@{arm64_digest}
+                    """
+                ),
+                encoding="utf-8",
+            )
+            github_environment = temporary / "github-env"
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "GITHUB_ENV": str(github_environment),
+                    "IMAGE_NAME": "ghcr.io/example/review-agent",
+                }
+            )
+            completed = subprocess.run(
+                ["bash", "-c", f"set -euo pipefail\n{record_command}"],
+                cwd=temporary,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual(
+                [
+                    "AMD64_IMAGE=ghcr.io/example/review-agent@" + amd64_digest,
+                    "ARM64_IMAGE=ghcr.io/example/review-agent@" + arm64_digest,
+                ],
+                github_environment.read_text(encoding="utf-8").splitlines(),
+            )
+
+        scans = (
+            (
+                "Scan linux/amd64 image vulnerabilities",
+                "${{ env.AMD64_IMAGE }}",
+                "vulnerability-reports/vulnerability-linux-amd64.json",
+            ),
+            (
+                "Scan linux/arm64 image vulnerabilities",
+                "${{ env.ARM64_IMAGE }}",
+                "vulnerability-reports/vulnerability-linux-arm64.json",
+            ),
+        )
+        for name, image_ref, report in scans:
+            scan = named_step(sbom, name)
+            self.assertRegex(
+                str(scan["uses"]),
+                r"^aquasecurity/trivy-action@[0-9a-f]{40}$",
+            )
+            self.assertEqual("true", scan["continue-on-error"])
+            inputs = mapping(scan["with"])
+            self.assertEqual("image", inputs["scan-type"])
+            self.assertEqual(image_ref, inputs["image-ref"])
+            self.assertEqual("trivy.yaml", inputs["trivy-config"])
+            self.assertEqual(report, inputs["output"])
+            self.assertEqual("v0.74.0", inputs["version"])
+
+        retain = named_step(sbom, "Retain image vulnerability reports")
+        self.assertEqual("${{ always() }}", retain["if"])
+        self.assertEqual(
+            "vulnerability-reports/*.json",
+            mapping(retain["with"])["path"],
+        )
+        enforce = named_step(sbom, "Enforce image vulnerability policy")
+        self.assertEqual("${{ always() }}", enforce["if"])
+        self.assertEqual(
+            {"AMD64_SCAN_OUTCOME", "ARM64_SCAN_OUTCOME"},
+            set(mapping(enforce["env"])),
+        )
+        enforce_command = str(enforce["run"])
+        self.assertIn("scripts/check_trivy_report.py", enforce_command)
+        self.assertIn(
+            "vulnerability-reports/vulnerability-linux-amd64.json",
+            enforce_command,
+        )
+        self.assertIn(
+            "vulnerability-reports/vulnerability-linux-arm64.json",
+            enforce_command,
+        )
+        evidence = str(named_step(sbom, "Add scan reports to release evidence")["run"])
+        self.assertIn("SBOM-SHA256SUMS.txt", evidence)
+
+        self.assertLess(
+            step_names.index("Generate release inventories"),
+            step_names.index("Record release platform digests"),
+        )
+        self.assertLess(
+            step_names.index("Enforce image vulnerability policy"),
+            step_names.index("Attest release inventories"),
+        )
 
     def test_release_sbom_generation_uses_only_immutable_digests(self):
         manifest_digest = "sha256:" + "c" * 64

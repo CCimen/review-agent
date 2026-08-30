@@ -9,7 +9,8 @@ the matching GHCR image only after you publish the GitHub release.
 - Confirm `LICENSE`, `NOTICE.md`, `CONTRIBUTING.md`, `CITATION.cff`, and
   `THIRD_PARTY_NOTICES.md` are current.
 - Confirm `main` is clean and `CI / required` passed on the exact commit. This
-  check covers the Python bundle, PostgreSQL contract, and image smoke test.
+  check covers the Python bundle, PostgreSQL contract, image smoke test, and
+  dependency vulnerability policy.
 - Confirm the public docs, generated LLM files, and installation-skill mirrors
   are current.
 - Update `REVISION` in `scripts/generate_llms_docs.py`, regenerate both LLM
@@ -47,13 +48,16 @@ git diff --check
    shipped behavior, setup path, validation evidence, known gaps, and rollback.
 3. Wait for **Publish container image**. It verifies the tag and generated
    release documentation, runs `CI / required` against that exact source, then
-   publishes `linux/amd64` and `linux/arm64`. A failed Python, PostgreSQL, or
-   image check blocks publication. The workflow creates registry SBOM and
-   provenance attestations, then scans the published platform digests. A
+   publishes `linux/amd64` and `linux/arm64`. A failed Python, PostgreSQL, image
+   smoke, or dependency check blocks publication. The workflow
+   creates registry SBOM and provenance attestations, then scans both exact
+   published platform digests. A failed platform scan fails the release workflow;
+   retain its reports for triage and do not deploy the affected digest. A
    prerelease does not update `latest`.
 4. Confirm the release contains per-platform CycloneDX JSON, SPDX JSON, and
-   readable tables; the focused Python-runtime CycloneDX file;
-   `IMAGE-DIGESTS.txt`; and `SBOM-SHA256SUMS.txt`. Confirm
+   readable tables; the focused Python-runtime CycloneDX file; both
+   `vulnerability-linux-*.json` reports; `IMAGE-DIGESTS.txt`; and
+   `SBOM-SHA256SUMS.txt`. Confirm
    `ghcr.io/ccimen/review-agent:<tag>` resolves to the recorded workflow digest.
    Make the package public in GitHub Package settings if anonymous pulls are
    part of the release.

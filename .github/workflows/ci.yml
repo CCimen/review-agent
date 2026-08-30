@@ -91,10 +91,53 @@ jobs:
           docker build --tag review-agent:ci .
           bash ./scripts/check_image.sh review-agent:ci
 
+  dependency-scan:
+    name: Dependency vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Scan dependency vulnerabilities
+        id: dependency-scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          trivy-config: trivy.yaml
+          output: dependency-vulnerabilities.json
+          version: v0.74.0
+
+      - name: Retain dependency vulnerability report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dependency-vulnerabilities-${{ github.sha }}
+          path: dependency-vulnerabilities.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce dependency vulnerability policy
+        if: ${{ always() }}
+        env:
+          SCAN_OUTCOME: ${{ steps.dependency-scan.outcome }}
+        run: |
+          test "$SCAN_OUTCOME" = success
+          python3 scripts/check_trivy_report.py \
+            --require-target "requirements.txt" \
+            --require-target "install/package-lock.json" \
+            --require-target "website/package-lock.json" \
+            dependency-vulnerabilities.json
+
   required:
     name: CI / required
     if: ${{ always() }}
-    needs: [python-fast, postgres-contract, image-smoke]
+    needs: [python-fast, postgres-contract, image-smoke, dependency-scan]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -103,7 +146,9 @@ jobs:
           PYTHON_FAST_RESULT: ${{ needs.python-fast.result }}
           POSTGRES_RESULT: ${{ needs.postgres-contract.result }}
           IMAGE_RESULT: ${{ needs.image-smoke.result }}
+          DEPENDENCY_SCAN_RESULT: ${{ needs.dependency-scan.result }}
         run: |
           test "$PYTHON_FAST_RESULT" = success
           test "$POSTGRES_RESULT" = success
           test "$IMAGE_RESULT" = success
+          test "$DEPENDENCY_SCAN_RESULT" = success

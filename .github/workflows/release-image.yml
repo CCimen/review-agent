@@ -170,6 +170,70 @@ jobs:
           scripts/generate_release_sbom.sh \
             "$IMAGE_NAME" "$RELEASE_TAG" release-sbom
 
+      - name: Record release platform digests
+        run: |
+          mkdir -p vulnerability-reports
+          amd64_image="$(awk '$2 == "linux/amd64" {print $4}' \
+            release-sbom/IMAGE-DIGESTS.txt)"
+          arm64_image="$(awk '$2 == "linux/arm64" {print $4}' \
+            release-sbom/IMAGE-DIGESTS.txt)"
+          test -n "$amd64_image"
+          test -n "$arm64_image"
+          echo "AMD64_IMAGE=${amd64_image}" >> "$GITHUB_ENV"
+          echo "ARM64_IMAGE=${arm64_image}" >> "$GITHUB_ENV"
+
+      - name: Scan linux/amd64 image vulnerabilities
+        id: scan-amd64
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: ${{ env.AMD64_IMAGE }}
+          trivy-config: trivy.yaml
+          output: vulnerability-reports/vulnerability-linux-amd64.json
+          version: v0.74.0
+
+      - name: Scan linux/arm64 image vulnerabilities
+        id: scan-arm64
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: ${{ env.ARM64_IMAGE }}
+          trivy-config: trivy.yaml
+          output: vulnerability-reports/vulnerability-linux-arm64.json
+          version: v0.74.0
+          skip-setup-trivy: true
+
+      - name: Retain image vulnerability reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-vulnerabilities-${{ github.event.release.tag_name }}
+          path: vulnerability-reports/*.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce image vulnerability policy
+        if: ${{ always() }}
+        env:
+          AMD64_SCAN_OUTCOME: ${{ steps.scan-amd64.outcome }}
+          ARM64_SCAN_OUTCOME: ${{ steps.scan-arm64.outcome }}
+        run: |
+          test "$AMD64_SCAN_OUTCOME" = success
+          test "$ARM64_SCAN_OUTCOME" = success
+          python3 scripts/check_trivy_report.py \
+            vulnerability-reports/vulnerability-linux-amd64.json \
+            vulnerability-reports/vulnerability-linux-arm64.json
+
+      - name: Add scan reports to release evidence
+        run: |
+          cp vulnerability-reports/*.json release-sbom/
+          (
+            cd release-sbom
+            sha256sum -- vulnerability-*.json >> SBOM-SHA256SUMS.txt
+          )
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

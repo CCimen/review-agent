@@ -70,9 +70,10 @@ search and task-based navigation. Key pages:
 | Assess trust boundaries | [Security](docs/SECURITY.md) |
 | See capabilities and boundaries | [Capabilities](docs/ROADMAP.md) |
 
-Published releases include attested `linux/amd64` and `linux/arm64` container
-images in GitHub Container Registry. Compose can either build locally or use an
-immutable release tag through `REVIEW_AGENT_IMAGE`; see
+Successful container release workflows publish attested `linux/amd64` and
+`linux/arm64` images, SBOMs, and per-platform vulnerability reports. Compose can
+either build locally or use an immutable release tag through
+`REVIEW_AGENT_IMAGE`; see
 [Deployment](docs/DEPLOYMENT.md#choose-an-image).
 
 ## What it does

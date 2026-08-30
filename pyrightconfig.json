@@ -2,6 +2,7 @@
   "include": [
     "bootstrap/plugins/review_agent_tools",
     "bootstrap/install.py",
+    "scripts/check_trivy_report.py",
     "scripts/validate_release_tag.py",
     "tools"
   ],

@@ -1,0 +1,18 @@
+exit-code: 0
+format: json
+ignorefile: /dev/null
+pkg:
+  include-dev-deps: true
+scan:
+  disable-telemetry: true
+  scanners:
+    - vuln
+  skip-dirs:
+    - "**/node_modules"
+  skip-version-check: true
+severity:
+  - HIGH
+  - CRITICAL
+timeout: 10m0s
+vulnerability:
+  ignore-unfixed: false

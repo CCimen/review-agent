@@ -4,7 +4,7 @@ slug: /security
 title: Security model
 description: Trust boundaries, tool surface, prompt-injection posture, token scopes, and data handling.
 status: current
-last_verified: 2026-08-28
+last_verified: 2026-08-30
 ---
 
 # Security model
@@ -106,6 +106,8 @@ advisory; a developer chooses whether GitHub should apply one.
 ## Dependency vulnerability scanning
 
 The reviewer does not currently perform full dependency vulnerability scanning.
+The live model never queries a vulnerability database or decides whether a CVE
+passes CI.
 
 It reviews code and security risks introduced or worsened by the PR. If a PR
 changes dependency manifests or lockfiles, it may reason about obvious risks such
@@ -113,12 +115,35 @@ as unpinned packages, suspicious dependency additions, removed lockfile
 discipline, or a dangerous version change. That is still LLM review, not a CVE
 database lookup.
 
-Keep deterministic dependency controls in CI:
+Repository CI runs one pinned Trivy policy against `requirements.txt`,
+`install/package-lock.json`, and `website/package-lock.json`. Release CI runs the
+same policy against the exact published `linux/amd64` and `linux/arm64` digests.
+Every JSON report the scanner produces is retained.
+
+The policy is intentionally small:
+
+- every critical vulnerability blocks;
+- a high vulnerability blocks when the scanner reports an available fixed
+  version;
+- an unfixed high vulnerability remains visible in the report but does not make
+  an otherwise unremediable build fail;
+- scanner suppressions are disabled. An exception requires a separate reviewed
+  policy change, not an inline ignore entry.
+
+Source reports remain available as workflow artifacts for 30 days. Successful
+release reports are checksummed, attested, and attached to the GitHub release;
+failed platform scans retain any reports they produced as workflow artifacts.
+If setup or transport fails before a report exists, the gate still fails and the
+diagnostic remains in the workflow log. A report records the vulnerability data
+available at scan time, so reruns can change as the database is updated.
+
+Other deterministic controls can remain independent where the organization uses
+them:
 
 - GitHub Dependency Review;
 - Dependabot alerts;
 - CodeQL or SARIF code scanning;
-- OSV, Snyk, Trivy, `npm audit`, `pip-audit`, or equivalent scanners.
+- OSV, Snyk, `npm audit`, `pip-audit`, or equivalent scanners.
 
 The best integration is to let deterministic scanners produce their own results
 and, later, optionally let the reviewer summarize or prioritize those results.
@@ -133,16 +158,17 @@ published image digests, not from a source lockfile:
   `linux/arm64`;
 - a focused CycloneDX 1.7 inventory of the Python packages installed in the
   shipped `linux/amd64` Hermes environment;
-- the scanned image digests and SHA-256 checksums for every inventory file.
+- the image digests, per-platform Trivy reports, and SHA-256 checksums for every
+  attached evidence file.
 
 The image inventories describe the whole shipped container. The focused Python
 inventory makes application dependencies easier to inspect. BuildKit's
 registry SBOM and provenance, the image attestation, and the downloadable file
 attestation remain separate evidence tied to the same release.
 
-An inventory is evidence about what shipped, not a vulnerability verdict.
-Verify downloaded files with the checksums and GitHub attestation before using
-them in audit or scanner workflows.
+An SBOM is evidence about what shipped, not a vulnerability verdict. The Trivy
+JSON files record the separate vulnerability verdict. Verify downloaded files
+with the checksums and GitHub attestation before using them in audit workflows.
 
 ## Human-governed suppressions
 

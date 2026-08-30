@@ -145,10 +145,15 @@ function Home(): ReactNode {
             <div className={styles.setup}>
               <div className={styles.setupDeploy}>
                 <Tabs groupId="deployment-platform">
-                  <TabItem value="compose" label="Compose / Dokploy" default>
+                  <TabItem value="compose" label="Local Compose build" default>
                     <CodeBlock language="bash">
                       {'docker compose config --quiet\ndocker compose up -d --build\ndocker compose ps'}
                     </CodeBlock>
+                    <p className={styles.setupNote}>
+                      Use this only to evaluate an exact reviewed checkout. For
+                      Dokploy or production, deploy the attested release image
+                      pinned to the manifest digest in <code>IMAGE-DIGESTS.txt</code>.
+                    </p>
                   </TabItem>
                   <TabItem value="coolify-portainer" label="Coolify / Portainer">
                     <p className={styles.setupNote}>

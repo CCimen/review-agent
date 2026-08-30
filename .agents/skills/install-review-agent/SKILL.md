@@ -142,8 +142,10 @@ After deployment:
 Use `docker compose exec hermes-review review-agent-admin ...` for health,
 queue, and smoke-test commands. Use
 `docker compose exec review-github-gateway review-agent-admin ...` for
-installation inventory and repository activation. On OpenShift, run the same
-commands with `oc exec` in the matching workload.
+installation inventory and repository activation. On OpenShift, use
+`oc rsh deployment/hermes-review review-agent-admin ...` and
+`oc rsh deployment/review-agent-github-gateway review-agent-admin ...`,
+respectively.
 
 1. Run `review-agent-admin doctor` and `review-agent-admin queues inspect` in
    `hermes-review`.
@@ -166,6 +168,12 @@ commands with `oc exec` in the matching workload.
 5. Confirm backups, the exact deployed digest or commit, schema readiness, App
    identity and permissions, selected repository access, and private-service
    isolation.
+
+If a repository was removed and later reselected in the App, rerun
+`github-app onboard` for that exact repository. If `REVIEW_AGENT_PROFILE`
+changed, first deploy and verify the managed profile, then rerun onboarding for
+each repository the owner explicitly approves. App access alone never restores
+Review Agent enablement.
 
 The operator commands already return JSON unless the command documents a
 different default. Do not add decorative `--json` flags.

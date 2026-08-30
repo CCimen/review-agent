@@ -8,13 +8,14 @@ import json
 from pathlib import Path
 import re
 
+from validate_release_tag import is_release_tag
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "website" / "public-documents.json"
 STATIC = ROOT / "website" / "static"
 BASE_URL = "https://ccimen.github.io/review-agent"
 REVISION = "v0.1.0-rc.3"
-SOURCE_BASE = f"https://github.com/CCimen/review-agent/blob/{REVISION}"
 FRONTMATTER = re.compile(r"\A---\n(?P<header>.*?)\n---\n", re.DOTALL)
 TAB_ITEM = re.compile(r'^<TabItem\b[^>]*\blabel="(?P<label>[^"]+)"[^>]*>$')
 DIRECTIVE = re.compile(r"^(?P<indent>\s*):::(?P<kind>[a-z]+)\[(?P<title>[^]]+)]$")
@@ -85,7 +86,9 @@ def _plain_text(body: str) -> str:
     return "\n".join(lines).strip()
 
 
-def generate() -> tuple[str, str]:
+def generate(*, revision: str = REVISION) -> tuple[str, str]:
+    if not is_release_tag(revision):
+        raise GenerationError(f"invalid runtime release tag: {revision}")
     raw = json.loads(MANIFEST.read_text(encoding="utf-8"))
     if (
         not isinstance(raw, list)
@@ -94,14 +97,14 @@ def generate() -> tuple[str, str]:
         or len(raw) != len(set(raw))
     ):
         raise GenerationError("public-documents.json must be a unique string array")
-    documents = [(path, *_metadata(path)) for path in raw]
+    documents = [_metadata(path) for path in raw]
 
     short = [
         "# Review Agent",
         "",
         "Self-hosted, advisory pull-request review with bounded model tools, deterministic authorization, PostgreSQL state, and GitHub App publication.",
         "",
-        f"Release state: {REVISION}",
+        f"Release state: {revision}",
         "License: EUPL-1.2 (Version 1.2 only). Third-party components retain their original licenses.",
         "Authentication: GitHub App only; install it on explicitly selected repositories, then enable each repository separately.",
         "Model policy: set REVIEW_AGENT_MODEL_PROVIDER, REVIEW_AGENT_MODEL, and REVIEW_AGENT_REASONING_EFFORT to a Hermes-supported route; the documented default uses Codex device-code OAuth.",
@@ -121,7 +124,7 @@ def generate() -> tuple[str, str]:
         "",
         "## Coding-agent handoff",
         "",
-        "If no source checkout was provided, clone this repository and check out the exact release named above. Then use the versioned repository-local `skills/install-review-agent/SKILL.md`; Codex and Claude Code mirrors are included, so do not install a floating global copy. Read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.",
+        "If no source checkout was provided, clone this repository and check out the exact runtime release named above. Then use the versioned repository-local `skills/install-review-agent/SKILL.md`; Codex and Claude Code mirrors are included, so do not install a floating global copy. Read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.",
         "",
         "## Operator interface",
         "",
@@ -137,21 +140,19 @@ def generate() -> tuple[str, str]:
     full = [
         "# Review Agent: full public documentation",
         "",
-        "Generated from `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.",
-        f"Review Agent revision: {REVISION}",
+        "Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.",
+        f"Runtime release selected by `llms.txt`: {revision}",
         "",
     ]
-    for relative_path, metadata, body in documents:
+    for metadata, body in documents:
         full.extend(
             [
                 "---",
                 "",
                 f"Title: {metadata['title']}",
                 f"Canonical URL: {_url(metadata)}",
-                f"Source: {SOURCE_BASE}/{relative_path}",
                 f"Status: {metadata['status']}",
                 f"Last verified: {metadata['last_verified']}",
-                f"Review Agent revision: {REVISION}",
                 "",
                 _plain_text(body),
                 "",

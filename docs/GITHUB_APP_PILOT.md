@@ -4,7 +4,7 @@ slug: /github-app-pilot
 title: Set up the GitHub App
 description: Register, install, enable, and verify Review Agent on selected repositories.
 status: current
-last_verified: 2026-08-28
+last_verified: 2026-08-30
 ---
 
 # Set up the GitHub App
@@ -16,6 +16,12 @@ last_verified: 2026-08-28
 
 Start with a test repository you own. Do not install the App on an organization
 or repository that you are not authorized to change.
+
+Examples use Compose and Dokploy. On OpenShift, use
+`oc rsh deployment/review-agent-github-gateway` wherever an example uses
+`docker compose exec review-github-gateway`, and use
+`oc rsh deployment/hermes-review` in place of
+`docker compose exec hermes-review`. Command arguments are otherwise identical.
 
 ## 1. Register the App
 
@@ -121,6 +127,10 @@ Open the App's **Install App** page, choose **Only select repositories**, and
 select the test repository. The current runtime rejects **All repositories** so
 new repositories cannot become available implicitly.
 
+Selecting a repository grants the App access; it does not authorize Review
+Agent to review it. The next command creates that separate, audited enablement
+decision for one repository.
+
 Run one command in the private gateway. Replace the operator placeholder with
 your GitHub login:
 
@@ -143,8 +153,9 @@ GitHub App access and review enablement remain separate audited decisions. The
 onboarding command performs both steps in order for one named repository. It
 never enables the rest of the installation.
 
-Changing the deployment profile intentionally revokes repositories enabled for
-a different profile until an operator enables them for the new one.
+Changing the deployment profile leaves the previous audited decision intact,
+but that decision is not eligible under the new profile. An operator must
+approve the repository again for the deployed profile.
 
 Run the onboarding command again after adding the repository to the App or when
 the service missed an installation webhook. The operation is safe to repeat.
@@ -189,6 +200,36 @@ Disabling blocks new admission and invalidates current source and publication
 authorization. Use the `repository_id` returned by `github-app onboard`.
 Preserve audit rows when diagnosing an incident.
 
+## Recover access after a repository or profile change
+
+If the App was uninstalled, reinstall it with **Only select repositories**. If
+one repository was removed from the App, add only that repository again. If the
+deployment profile changed, deploy the reviewed profile first and confirm that
+`review-profile-install` completed successfully. Then rerun onboarding for
+every repository the owner approves under the current profile:
+
+```bash
+docker compose exec review-github-gateway \
+  review-agent-admin github-app onboard <owner/repository> \
+  --actor "github:<operator>" \
+  --reason "restore approved access for the deployed profile"
+docker compose exec hermes-review review-agent-admin doctor
+```
+
+On OpenShift, use the matching workloads:
+
+```bash
+oc rsh deployment/review-agent-github-gateway \
+  review-agent-admin github-app onboard <owner/repository> \
+  --actor "github:<operator>" \
+  --reason "restore approved access for the deployed profile"
+oc rsh deployment/hermes-review review-agent-admin doctor
+```
+
+Onboarding reconciles the current installation and is safe to repeat. It still
+enables only the named repository; restoring App access never enables the rest
+of the installation.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -197,6 +238,7 @@ Preserve audit rows when diagnosing an incident.
 | Sync rejects the installation | Confirm **Only select repositories** and all four permissions above. |
 | `repository_onboarding_failed` | Run `doctor`, confirm the App is installed on the named repository with **Only select repositories**, and verify the App key and permissions. |
 | `repository_not_authorized` | Confirm the App selection, then rerun `github-app onboard` for the named repository. |
+| `doctor` reports no repository ready for this profile | Confirm the reviewed profile installation completed, then rerun `github-app onboard` for each approved repository. |
 | `sender_not_authorized` | The commenter needs current `write` or `admin` permission. |
 | `fork_source_not_supported` | Test with a branch in the selected base repository. |
 | `provider_authorization_denied` | Confirm the App is installed, active, and still includes the repository. |

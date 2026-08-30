@@ -1,16 +1,14 @@
 # Review Agent: full public documentation
 
-Generated from `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Review Agent revision: v0.1.0-rc.3
+Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
+Runtime release selected by `llms.txt`: v0.1.0-rc.3
 
 ---
 
 Title: Repository overview
 Canonical URL: https://ccimen.github.io/review-agent/docs/overview
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/OVERVIEW.md
 Status: current
 Last verified: 2026-08-25
-Review Agent revision: v0.1.0-rc.3
 
 # Review Agent
 
@@ -202,10 +200,8 @@ GitHub token approval, ChatGPT OAuth state, or repository rules.
 
 Title: Getting started
 Canonical URL: https://ccimen.github.io/review-agent/docs/getting-started
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/GETTING_STARTED.md
 Status: current
 Last verified: 2026-08-26
-Review Agent revision: v0.1.0-rc.3
 
 # Getting started
 
@@ -295,10 +291,8 @@ result.
 
 Title: Deploy Review Agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/deployment
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/DEPLOYMENT.md
 Status: current
-Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.3
+Last verified: 2026-08-30
 
 # Deploy Review Agent
 
@@ -346,22 +340,37 @@ secret as a GitHub token or database password.
 
 For local development, keep `REVIEW_AGENT_IMAGE=review-agent:local` and start
 Compose with `--build`. Each published release also creates one attested
-`linux/amd64` and `linux/arm64` image in GitHub Container Registry. Use the exact
-release tag in deployments:
+`linux/amd64` and `linux/arm64` image in GitHub Container Registry. Production
+deployments must use the manifest digest from the release's
+`IMAGE-DIGESTS.txt`, not a tag:
 
 ```bash
-export REVIEW_AGENT_IMAGE=ghcr.io/ccimen/review-agent:vX.Y.Z
+export REVIEW_AGENT_IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
 docker compose pull
-docker compose up -d --no-build
 ```
 
-`--no-build` prevents a missing pull from being replaced by a locally tagged
-working-tree build.
-
 Prereleases receive only their exact version tag. Stable releases also update
-`latest`; production deployments should still pin the exact version. GitHub
-creates the first package as private even for a public repository. After the
-first release, open **Packages > review-agent > Package settings > Change
+`latest`; production deployments should still pin the digest. Pin PostgreSQL as
+well. For a Compose deployment, resolve the selected PostgreSQL tag once and
+store the resulting repository digest as `POSTGRES_IMAGE`:
+
+```bash
+docker pull postgres:17-alpine
+export POSTGRES_IMAGE="$(
+  docker image inspect postgres:17-alpine \
+    --format '{{index .RepoDigests 0}}'
+)"
+printf 'Review Agent: %s\nPostgreSQL: %s\n' \
+  "$REVIEW_AGENT_IMAGE" "$POSTGRES_IMAGE"
+```
+
+Record both exact references with the deployment. The OpenShift template uses
+an external database, so its operator must pin and record that database image
+separately. Do not combine a PostgreSQL major-version change with a Review Agent
+upgrade.
+
+GitHub creates the first package as private even for a public repository. After
+the first release, open **Packages > review-agent > Package settings > Change
 visibility** to make anonymous pulls available. Public visibility cannot be
 reversed. See GitHub's guides to
 [publishing container images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)
@@ -438,6 +447,9 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    docker compose up -d --no-build
    ```
 
+   `--no-build` prevents a missing pull from being replaced by a locally tagged
+   working-tree build.
+
    Confirm the services started:
 
    ```bash
@@ -447,6 +459,13 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    In Dokploy, use **Deploy** after a source commit changes so the platform
    fetches the new revision. **Redeploy** can reuse the existing source
    checkout. Confirm the deployment shows the intended commit before testing.
+
+   Dokploy's default Compose command includes `--build`. For a released digest,
+   open **Advanced > Run Command**, copy the displayed default command, and
+   replace `--build` with `--no-build --pull always`. Keep Dokploy's existing
+   project name, Compose path, and `--remove-orphans` flag. Dokploy prefixes the
+   field with `docker`, so the saved command begins with `compose`. This keeps a
+   checkout from being built and tagged over the recorded release image.
 
 4. Route the review hostname to `review-admission:8644`.
 
@@ -524,7 +543,7 @@ then start the six long-running components:
 oc delete job review-agent-profile-install review-agent-db-migrate \
   --ignore-not-found
 oc process -f examples/openshift/review-agent-template.yaml \
-  -p IMAGE=ghcr.io/ccimen/review-agent:vX.Y.Z \
+  -p IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>' \
   -p WORKER_CONCURRENCY=4 | oc apply -f -
 oc wait --for=condition=complete job/review-agent-profile-install \
   job/review-agent-db-migrate --timeout=10m
@@ -535,9 +554,11 @@ oc scale deployment/hermes-review deployment/review-agent-admission \
 oc get route review-agent
 ```
 
-Delete only these completed initialization Jobs before an upgrade. Their pod
-templates are immutable, and recreating them makes the profile and migration
-checks run against the exact image being deployed.
+Delete only these completed initialization Jobs. Their pod templates are
+immutable, and recreating them makes the profile and migration checks run
+against the exact image being deployed. Follow
+[Upgrade and roll back production](#upgrade-and-roll-back-production) after the
+initial installation.
 
 Use `https://<route-host>/webhooks/github-app` as the App webhook URL. Connect
 the configured model provider inside Hermes once, then restart that deployment:
@@ -554,6 +575,155 @@ worker, and the publisher. It omits `runAsUser`, drops Linux capabilities, and
 uses PVC or `emptyDir` mounts for writable paths so OpenShift can assign an
 arbitrary UID under `restricted-v2`.
 
+
+## Upgrade and roll back production
+
+Before an upgrade, make a tested PostgreSQL backup as described in
+[Backup and recovery](./OPERATIONS.md#backup-and-recovery). Record the current
+and candidate Review Agent digests and the exact PostgreSQL digest. Keep the
+current PostgreSQL image during an application upgrade unless the database has
+its own reviewed maintenance plan.
+
+Drain every long-running Review Agent component before running a migration.
+This prevents an old process from writing against a schema that changed after
+its image was built.
+
+### Compose
+
+Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to the recorded digest references,
+then run:
+
+```bash
+bash -euo pipefail <<'COMPOSE_UPGRADE'
+APP_SERVICES='hermes-review review-admission review-github-gateway review-github-app-worker review-worker review-publisher'
+
+docker compose pull
+docker compose stop $APP_SERVICES
+
+running="$(docker compose ps --status running --services)"
+for service in $APP_SERVICES; do
+  if printf '%s\n' "$running" | grep -qx "$service"; then
+    echo "$service is still running; do not migrate." >&2
+    exit 1
+  fi
+done
+
+docker compose run --rm --no-deps --no-build review-profile-install
+docker compose run --rm --no-deps --no-build review-db-migrate
+
+docker compose up -d --no-deps --no-build --force-recreate \
+  --wait --wait-timeout 300 \
+  hermes-review review-admission review-github-gateway \
+  review-github-app-worker review-worker review-publisher
+docker compose exec hermes-review review-agent-admin doctor
+docker compose ps
+COMPOSE_UPGRADE
+```
+
+PostgreSQL remains available while the application is stopped. The two
+one-shot commands must exit with status `0` before new application containers
+start.
+
+### Dokploy
+
+1. Pause **AutoDeploy** for the maintenance window and take the database backup.
+2. Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to exact digest references in
+   **Environment**.
+3. In **Advanced > Run Command**, keep the project name, Compose path, and
+   `--remove-orphans`, but replace `--build` with
+   `--no-build --pull always`. Save the pull-only command.
+4. Select **Stop** and wait until the six long-running application containers
+   are stopped. The two initialization containers may already show `Exited (0)`.
+5. Select **Deploy**. Confirm the intended source commit and image digest. Do not
+   continue if the previous application containers are still running.
+6. Verify that `review-profile-install` and `review-db-migrate` exited with
+   status `0`, the long-running containers are healthy, `/ready` returns `200`,
+   and `review-agent-admin doctor` reports `ready: true` from `hermes-review`.
+7. Re-enable **AutoDeploy** only after the deployment receipt is recorded.
+
+Dokploy's stop step may also stop the bundled PostgreSQL container. Its named
+volume remains intact, and Compose starts it before the migration job. Do not
+delete the Compose service or either named volume during an upgrade.
+
+### OpenShift
+
+Set `IMAGE` to the release manifest digest. Confirm that the separately managed
+PostgreSQL workload also uses a recorded digest, then drain the old application
+pods before applying the template:
+
+```bash
+bash -euo pipefail <<'OPENSHIFT_UPGRADE'
+export IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
+DEPLOYMENTS=(
+  hermes-review
+  review-agent-admission
+  review-agent-github-gateway
+  review-agent-github-app-worker
+  review-agent-worker
+  review-agent-publisher
+)
+
+oc scale deployment "${DEPLOYMENTS[@]}" --replicas=0
+for deployment in "${DEPLOYMENTS[@]}"; do
+  pods="$(oc get pods -l "app=$deployment" -o name)"
+  if [ -n "$pods" ]; then
+    oc wait --for=delete $pods --timeout=5m
+  fi
+done
+
+oc delete job review-agent-profile-install review-agent-db-migrate \
+  --ignore-not-found
+oc process -f examples/openshift/review-agent-template.yaml \
+  -p IMAGE="$IMAGE" -p WORKER_CONCURRENCY=4 | oc apply -f -
+oc wait --for=condition=complete job/review-agent-profile-install \
+  job/review-agent-db-migrate --timeout=10m
+
+oc scale deployment/hermes-review \
+  deployment/review-agent-github-gateway --replicas=1
+for deployment in hermes-review review-agent-github-gateway; do
+  oc rollout status "deployment/$deployment" --timeout=5m
+done
+
+oc scale deployment/review-agent-admission \
+  deployment/review-agent-github-app-worker deployment/review-agent-worker \
+  deployment/review-agent-publisher --replicas=1
+for deployment in review-agent-admission review-agent-github-app-worker \
+  review-agent-worker review-agent-publisher; do
+  oc rollout status "deployment/$deployment" --timeout=5m
+done
+
+oc get deployment "${DEPLOYMENTS[@]}" \
+  -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image
+oc rsh deployment/hermes-review review-agent-admin doctor
+OPENSHIFT_UPGRADE
+```
+
+The first wait loop is the migration fence. Do not delete the old Jobs or apply
+the new template until every old application pod is gone.
+
+
+### Rollback boundary
+
+Roll back only to the exact prior Review Agent digest named in the release
+record. That record must include the post-migration schema version and a receipt
+showing that the prior digest passed `database ready`, `doctor`, and the smoke
+test against a restored copy of that schema. If the receipt is absent, use a
+forward fix or the verified backup restore instead of an application rollback.
+
+For a verified target, repeat the same drain sequence, select that digest,
+rerun the profile installer, and verify database readiness before starting
+application replicas. Keep the current PostgreSQL data and exact database image
+unless the separate database recovery plan requires a restore.
+
+Never reverse or edit an applied migration. If the previous application cannot
+run against the current schema, either deploy a forward fix or restore the
+pre-upgrade backup into a separate database and verify it before switching
+traffic.
+
+Future incompatible schema changes must use an expand-first sequence: add
+backward-compatible schema, deploy code that accepts both forms, backfill, and
+remove the old form only in a later release after every older application
+digest has been retired as a rollback target.
 
 ## Configure GitHub
 
@@ -619,10 +789,8 @@ checks the bounded ready queue at its configured poll interval.
 
 Title: Set up the GitHub App
 Canonical URL: https://ccimen.github.io/review-agent/docs/github-app-pilot
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/GITHUB_APP_PILOT.md
 Status: current
-Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.3
+Last verified: 2026-08-30
 
 # Set up the GitHub App
 
@@ -633,6 +801,12 @@ Review Agent revision: v0.1.0-rc.3
 
 Start with a test repository you own. Do not install the App on an organization
 or repository that you are not authorized to change.
+
+Examples use Compose and Dokploy. On OpenShift, use
+`oc rsh deployment/review-agent-github-gateway` wherever an example uses
+`docker compose exec review-github-gateway`, and use
+`oc rsh deployment/hermes-review` in place of
+`docker compose exec hermes-review`. Command arguments are otherwise identical.
 
 ## 1. Register the App
 
@@ -738,6 +912,10 @@ Open the App's **Install App** page, choose **Only select repositories**, and
 select the test repository. The current runtime rejects **All repositories** so
 new repositories cannot become available implicitly.
 
+Selecting a repository grants the App access; it does not authorize Review
+Agent to review it. The next command creates that separate, audited enablement
+decision for one repository.
+
 Run one command in the private gateway. Replace the operator placeholder with
 your GitHub login:
 
@@ -760,8 +938,9 @@ GitHub App access and review enablement remain separate audited decisions. The
 onboarding command performs both steps in order for one named repository. It
 never enables the rest of the installation.
 
-Changing the deployment profile intentionally revokes repositories enabled for
-a different profile until an operator enables them for the new one.
+Changing the deployment profile leaves the previous audited decision intact,
+but that decision is not eligible under the new profile. An operator must
+approve the repository again for the deployed profile.
 
 Run the onboarding command again after adding the repository to the App or when
 the service missed an installation webhook. The operation is safe to repeat.
@@ -806,6 +985,36 @@ Disabling blocks new admission and invalidates current source and publication
 authorization. Use the `repository_id` returned by `github-app onboard`.
 Preserve audit rows when diagnosing an incident.
 
+## Recover access after a repository or profile change
+
+If the App was uninstalled, reinstall it with **Only select repositories**. If
+one repository was removed from the App, add only that repository again. If the
+deployment profile changed, deploy the reviewed profile first and confirm that
+`review-profile-install` completed successfully. Then rerun onboarding for
+every repository the owner approves under the current profile:
+
+```bash
+docker compose exec review-github-gateway \
+  review-agent-admin github-app onboard <owner/repository> \
+  --actor "github:<operator>" \
+  --reason "restore approved access for the deployed profile"
+docker compose exec hermes-review review-agent-admin doctor
+```
+
+On OpenShift, use the matching workloads:
+
+```bash
+oc rsh deployment/review-agent-github-gateway \
+  review-agent-admin github-app onboard <owner/repository> \
+  --actor "github:<operator>" \
+  --reason "restore approved access for the deployed profile"
+oc rsh deployment/hermes-review review-agent-admin doctor
+```
+
+Onboarding reconciles the current installation and is safe to repeat. It still
+enables only the named repository; restoring App access never enables the rest
+of the installation.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -814,6 +1023,7 @@ Preserve audit rows when diagnosing an incident.
 | Sync rejects the installation | Confirm **Only select repositories** and all four permissions above. |
 | `repository_onboarding_failed` | Run `doctor`, confirm the App is installed on the named repository with **Only select repositories**, and verify the App key and permissions. |
 | `repository_not_authorized` | Confirm the App selection, then rerun `github-app onboard` for the named repository. |
+| `doctor` reports no repository ready for this profile | Confirm the reviewed profile installation completed, then rerun `github-app onboard` for each approved repository. |
 | `sender_not_authorized` | The commenter needs current `write` or `admin` permission. |
 | `fork_source_not_supported` | Test with a branch in the selected base repository. |
 | `provider_authorization_denied` | Confirm the App is installed, active, and still includes the repository. |
@@ -826,10 +1036,8 @@ Use [Operations](./OPERATIONS.md#runbook) for queue diagnostics and
 
 Title: Set up with a coding agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/ai-assisted-setup
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/AI_ASSISTED_SETUP.md
 Status: current
-Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.3
+Last verified: 2026-08-30
 
 # Set up with a coding agent
 
@@ -884,15 +1092,35 @@ owner decisions instead of asking you to translate the deployment guide.
 > key, model credential, or backup credential into chat. Put secrets directly
 > in the deployment platform's protected configuration.
 
-## 1. Record the non-secret decisions
+## 1. Lock the source release
 
-Copy
-[`install/review-agent.example.yaml`](https://github.com/CCimen/review-agent/blob/main/install/review-agent.example.yaml)
+The public LLM index declares the current release. The following commands read
+that value, check out its tag, and prove that the checkout resolves to the same
+commit:
+
+```bash
+REVIEW_AGENT_RELEASE="$(
+  curl -fsSL https://ccimen.github.io/review-agent/llms.txt |
+    sed -n 's/^Release state: //p'
+)"
+test -n "$REVIEW_AGENT_RELEASE"
+git clone --branch "$REVIEW_AGENT_RELEASE" --depth 1 \
+  https://github.com/CCimen/review-agent.git review-agent
+test "$(git -C review-agent rev-parse HEAD)" = \
+  "$(git -C review-agent rev-parse "${REVIEW_AGENT_RELEASE}^{commit}")"
+cd review-agent
+```
+
+Record the release and resolved commit in the installation report. Do not mix
+plans, schemas, Compose files, or skills from `main` into this checkout.
+
+## 2. Record the non-secret decisions
+
+Copy `install/review-agent.example.yaml` from the checked-out release to a file
 outside version control. Replace the example URL, immutable image digest,
 GitHub owner and repositories, capacity settings, and backup owner.
 
-Validate the result against
-[`install/review-agent.schema.json`](https://github.com/CCimen/review-agent/blob/main/install/review-agent.schema.json):
+Validate it with the schema and validator from that same checkout:
 
 ```bash
 npm --prefix install ci
@@ -922,7 +1150,7 @@ The plan maps to shipped deployment controls:
 The public URL, platform, selected repositories, and backup owner drive the
 deployment plan and its approval gates rather than a second runtime config file.
 
-## 2. Confirm the shipped behavior
+## 3. Confirm the shipped behavior
 
 From the exact release or commit you intend to deploy, run:
 
@@ -937,11 +1165,12 @@ The last two commands return bounded JSON. Capabilities reports the current App-
 contract. Preflight checks local configuration and the App key file without a
 network call, database write, or credential output.
 
-Do not use roadmap text as installation authority. Until the first prerelease
-exists, build and deploy an exact reviewed commit. After releases begin, prefer
-the signed image digest from the release.
+Do not use roadmap text as installation authority. For production, use the
+attested release image pinned to the manifest digest in `IMAGE-DIGESTS.txt`.
+Build from source only for local evaluation or when an owner explicitly
+approves that exact commit.
 
-## 3. Review the mutation plan
+## 4. Review the mutation plan
 
 Before the agent changes GitHub or your deployment, require one short plan that
 names:
@@ -958,12 +1187,19 @@ Approve only the named scope. `github-app onboard` reconciles App access and
 records review authorization for one named repository. It does not enable other
 repositories selected in the installation.
 
-## 4. Deploy and finish the owner gates
+## 5. Deploy and finish the owner gates
 
 Follow [Deployment](./DEPLOYMENT.md) for Compose platforms, including Dokploy,
 Coolify, and Portainer, or for OpenShift. Follow [GitHub App
 setup](./GITHUB_APP_PILOT.md) for the prefilled registration URL, exact
 permissions, installation reconciliation, and repository enablement.
+
+GitHub selection and Review Agent enablement are deliberately separate:
+
+| Owner action | Result |
+| --- | --- |
+| Select a repository in the GitHub App installation | The App may request a short-lived token for that repository. Reviews remain disabled. |
+| Run `github-app onboard <owner/repository>` | The runtime reconciles current App access and enables only that named repository for the deployed profile. |
 
 Keep PostgreSQL, Hermes, workers, publishers, and the GitHub gateway private.
 Only the admission route is public. The App private key belongs only in the
@@ -972,9 +1208,11 @@ private gateway.
 If model authentication uses a browser or device flow, the agent should give
 you the exact container command and pause. Resume after you confirm login.
 
-## 5. Verify before a real review
+## 6. Verify before a real review
 
 Run the live checks from the deployed containers:
+
+### Compose / Dokploy
 
 ```bash
 docker compose exec hermes-review review-agent-admin doctor
@@ -985,6 +1223,21 @@ docker compose exec hermes-review review-agent-admin smoke-test --dry-run \
   --repository <owner/repository> --pr <number>
 ```
 
+### OpenShift
+
+```bash
+oc rsh deployment/hermes-review review-agent-admin doctor
+oc rsh deployment/hermes-review review-agent-admin queues inspect
+oc rsh deployment/review-agent-github-gateway \
+  review-agent-admin installations list
+oc rsh deployment/review-agent-github-gateway \
+  review-agent-admin repositories list
+oc rsh deployment/hermes-review \
+  review-agent-admin smoke-test --dry-run \
+  --repository <owner/repository> --pr <number>
+```
+
+
 The dry run proves that one enabled, open, same-repository pull request can be
 read and has publication scope. It does not call the model or write to GitHub.
 
@@ -992,7 +1245,7 @@ The deployment is not ready merely because containers are healthy. Doctor,
 repository enablement, private-service isolation, backup ownership, and the dry
 run must all be known and successful.
 
-## 6. Run the owner-controlled acceptance check
+## 7. Run the owner-controlled acceptance check
 
 After the dry run passes, approve one new top-level comment on the test pull
 request:
@@ -1007,10 +1260,20 @@ publication appeared and that the result belongs to the expected head SHA.
 
 Record a baseline after the live test:
 
-```console
+### Compose / Dokploy
+
+```bash
 docker compose exec hermes-review \
   review-agent-memory quality --days 30 --repo <owner/repository>
 ```
+
+### OpenShift
+
+```bash
+oc rsh deployment/hermes-review \
+  review-agent-memory quality --days 30 --repo <owner/repository>
+```
+
 
 The agent may explain the denominators and current backlog. It must not classify
 feedback, promote a coach proposal, or change the reviewer profile without an
@@ -1039,10 +1302,8 @@ If one of these is unknown, report the setup as incomplete instead of guessing.
 
 Title: How reviews work
 Canonical URL: https://ccimen.github.io/review-agent/docs/how-reviews-work
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/HOW_REVIEWS_WORK.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.3
 
 # How reviews work
 
@@ -1137,10 +1398,8 @@ Read [Security](./SECURITY.md) for the trust boundaries and
 
 Title: Behavior ownership
 Canonical URL: https://ccimen.github.io/review-agent/docs/behavior-ownership
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/BEHAVIOR_OWNERSHIP.md
 Status: current
 Last verified: 2026-08-24
-Review Agent revision: v0.1.0-rc.3
 
 # Behavior ownership
 
@@ -1228,10 +1487,8 @@ engine branches.
 
 Title: Frequently asked questions
 Canonical URL: https://ccimen.github.io/review-agent/docs/faq
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/FAQ.md
 Status: current
 Last verified: 2026-08-27
-Review Agent revision: v0.1.0-rc.3
 
 # Frequently asked questions
 
@@ -1344,10 +1601,8 @@ runtime owners.
 
 Title: Capabilities and boundaries
 Canonical URL: https://ccimen.github.io/review-agent/docs/roadmap
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/ROADMAP.md
 Status: current
 Last verified: 2026-08-26
-Review Agent revision: v0.1.0-rc.3
 
 # Capabilities and boundaries
 
@@ -1415,10 +1670,8 @@ but it does not replace those controls or become the default merge owner.
 
 Title: Operations
 Canonical URL: https://ccimen.github.io/review-agent/docs/operations
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/OPERATIONS.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.3
 
 # Operations
 
@@ -1990,10 +2243,8 @@ OAuth state, or repository rules.
 
 Title: Feedback and design decisions
 Canonical URL: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/FEEDBACK_AND_DECISIONS.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.3
 
 # Feedback and design decisions
 
@@ -2267,10 +2518,8 @@ promotion.
 
 Title: Security model
 Canonical URL: https://ccimen.github.io/review-agent/docs/security
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/docs/SECURITY.md
 Status: current
 Last verified: 2026-08-28
-Review Agent revision: v0.1.0-rc.3
 
 # Security model
 
@@ -2462,10 +2711,8 @@ failure modes.
 
 Title: Example review
 Canonical URL: https://ccimen.github.io/review-agent/docs/example-review
-Source: https://github.com/CCimen/review-agent/blob/v0.1.0-rc.3/examples/comments/example-review.md
 Status: current
 Last verified: 2026-08-21
-Review Agent revision: v0.1.0-rc.3
 
 # Example review
 

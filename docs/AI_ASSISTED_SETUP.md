@@ -4,8 +4,11 @@ slug: /ai-assisted-setup
 title: Set up with a coding agent
 description: Give Codex, Claude Code, or another coding agent a safe, verifiable Review Agent installation contract.
 status: current
-last_verified: 2026-08-28
+last_verified: 2026-08-30
 ---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
 
 # Set up with a coding agent
 
@@ -60,15 +63,35 @@ owner decisions instead of asking you to translate the deployment guide.
 > key, model credential, or backup credential into chat. Put secrets directly
 > in the deployment platform's protected configuration.
 
-## 1. Record the non-secret decisions
+## 1. Lock the source release
 
-Copy
-[`install/review-agent.example.yaml`](https://github.com/CCimen/review-agent/blob/main/install/review-agent.example.yaml)
+The public LLM index declares the current release. The following commands read
+that value, check out its tag, and prove that the checkout resolves to the same
+commit:
+
+```bash
+REVIEW_AGENT_RELEASE="$(
+  curl -fsSL https://ccimen.github.io/review-agent/llms.txt |
+    sed -n 's/^Release state: //p'
+)"
+test -n "$REVIEW_AGENT_RELEASE"
+git clone --branch "$REVIEW_AGENT_RELEASE" --depth 1 \
+  https://github.com/CCimen/review-agent.git review-agent
+test "$(git -C review-agent rev-parse HEAD)" = \
+  "$(git -C review-agent rev-parse "${REVIEW_AGENT_RELEASE}^{commit}")"
+cd review-agent
+```
+
+Record the release and resolved commit in the installation report. Do not mix
+plans, schemas, Compose files, or skills from `main` into this checkout.
+
+## 2. Record the non-secret decisions
+
+Copy `install/review-agent.example.yaml` from the checked-out release to a file
 outside version control. Replace the example URL, immutable image digest,
 GitHub owner and repositories, capacity settings, and backup owner.
 
-Validate the result against
-[`install/review-agent.schema.json`](https://github.com/CCimen/review-agent/blob/main/install/review-agent.schema.json):
+Validate it with the schema and validator from that same checkout:
 
 ```bash
 npm --prefix install ci
@@ -98,7 +121,7 @@ The plan maps to shipped deployment controls:
 The public URL, platform, selected repositories, and backup owner drive the
 deployment plan and its approval gates rather than a second runtime config file.
 
-## 2. Confirm the shipped behavior
+## 3. Confirm the shipped behavior
 
 From the exact release or commit you intend to deploy, run:
 
@@ -113,11 +136,12 @@ The last two commands return bounded JSON. Capabilities reports the current App-
 contract. Preflight checks local configuration and the App key file without a
 network call, database write, or credential output.
 
-Do not use roadmap text as installation authority. Until the first prerelease
-exists, build and deploy an exact reviewed commit. After releases begin, prefer
-the signed image digest from the release.
+Do not use roadmap text as installation authority. For production, use the
+attested release image pinned to the manifest digest in `IMAGE-DIGESTS.txt`.
+Build from source only for local evaluation or when an owner explicitly
+approves that exact commit.
 
-## 3. Review the mutation plan
+## 4. Review the mutation plan
 
 Before the agent changes GitHub or your deployment, require one short plan that
 names:
@@ -134,12 +158,19 @@ Approve only the named scope. `github-app onboard` reconciles App access and
 records review authorization for one named repository. It does not enable other
 repositories selected in the installation.
 
-## 4. Deploy and finish the owner gates
+## 5. Deploy and finish the owner gates
 
 Follow [Deployment](./DEPLOYMENT.md) for Compose platforms, including Dokploy,
 Coolify, and Portainer, or for OpenShift. Follow [GitHub App
 setup](./GITHUB_APP_PILOT.md) for the prefilled registration URL, exact
 permissions, installation reconciliation, and repository enablement.
+
+GitHub selection and Review Agent enablement are deliberately separate:
+
+| Owner action | Result |
+| --- | --- |
+| Select a repository in the GitHub App installation | The App may request a short-lived token for that repository. Reviews remain disabled. |
+| Run `github-app onboard <owner/repository>` | The runtime reconciles current App access and enables only that named repository for the deployed profile. |
 
 Keep PostgreSQL, Hermes, workers, publishers, and the GitHub gateway private.
 Only the admission route is public. The App private key belongs only in the
@@ -148,9 +179,12 @@ private gateway.
 If model authentication uses a browser or device flow, the agent should give
 you the exact container command and pause. Resume after you confirm login.
 
-## 5. Verify before a real review
+## 6. Verify before a real review
 
 Run the live checks from the deployed containers:
+
+<Tabs groupId="operator-platform">
+<TabItem value="compose" label="Compose / Dokploy" default>
 
 ```bash
 docker compose exec hermes-review review-agent-admin doctor
@@ -161,6 +195,24 @@ docker compose exec hermes-review review-agent-admin smoke-test --dry-run \
   --repository <owner/repository> --pr <number>
 ```
 
+</TabItem>
+<TabItem value="openshift" label="OpenShift">
+
+```bash
+oc rsh deployment/hermes-review review-agent-admin doctor
+oc rsh deployment/hermes-review review-agent-admin queues inspect
+oc rsh deployment/review-agent-github-gateway \
+  review-agent-admin installations list
+oc rsh deployment/review-agent-github-gateway \
+  review-agent-admin repositories list
+oc rsh deployment/hermes-review \
+  review-agent-admin smoke-test --dry-run \
+  --repository <owner/repository> --pr <number>
+```
+
+</TabItem>
+</Tabs>
+
 The dry run proves that one enabled, open, same-repository pull request can be
 read and has publication scope. It does not call the model or write to GitHub.
 
@@ -168,7 +220,7 @@ The deployment is not ready merely because containers are healthy. Doctor,
 repository enablement, private-service isolation, backup ownership, and the dry
 run must all be known and successful.
 
-## 6. Run the owner-controlled acceptance check
+## 7. Run the owner-controlled acceptance check
 
 After the dry run passes, approve one new top-level comment on the test pull
 request:
@@ -183,10 +235,24 @@ publication appeared and that the result belongs to the expected head SHA.
 
 Record a baseline after the live test:
 
-```console
+<Tabs groupId="operator-platform">
+<TabItem value="compose" label="Compose / Dokploy" default>
+
+```bash
 docker compose exec hermes-review \
   review-agent-memory quality --days 30 --repo <owner/repository>
 ```
+
+</TabItem>
+<TabItem value="openshift" label="OpenShift">
+
+```bash
+oc rsh deployment/hermes-review \
+  review-agent-memory quality --days 30 --repo <owner/repository>
+```
+
+</TabItem>
+</Tabs>
 
 The agent may explain the denominators and current backlog. It must not classify
 feedback, promote a coach proposal, or change the reviewer profile without an

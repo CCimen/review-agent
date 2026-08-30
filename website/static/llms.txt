@@ -22,7 +22,7 @@ Feedback when enabled: `/review false-positive` requires the same finding and co
 
 ## Coding-agent handoff
 
-If no source checkout was provided, clone this repository and check out the exact release named above. Then use the versioned repository-local `skills/install-review-agent/SKILL.md`; Codex and Claude Code mirrors are included, so do not install a floating global copy. Read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.
+If no source checkout was provided, clone this repository and check out the exact runtime release named above. Then use the versioned repository-local `skills/install-review-agent/SKILL.md`; Codex and Claude Code mirrors are included, so do not install a floating global copy. Read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.
 
 ## Operator interface
 

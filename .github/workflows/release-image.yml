@@ -260,6 +260,10 @@ jobs:
       attestations: write
       artifact-metadata: write
       id-token: write
+    env:
+      # This job consumes verified artifacts without a checkout, so gh cannot
+      # infer the repository from a local .git directory.
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Download verified release evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c

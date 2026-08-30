@@ -463,6 +463,10 @@ class PythonBundleWorkflowTests(unittest.TestCase):
 
         self.assertEqual({"verify", "publish"}, needs(evidence))
         self.assertEqual({"verify", "publish", "evidence"}, needs(sbom))
+        self.assertEqual(
+            "${{ github.repository }}",
+            mapping(sbom["env"])["GH_REPO"],
+        )
         self.assertIn("image_digest: ${{ steps.push.outputs.digest }}", source)
         self.assertIn("scripts/generate_release_sbom.sh", source)
         self.assertIn("EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}", source)

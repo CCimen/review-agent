@@ -139,7 +139,7 @@ objects:
             - name: migrate
               image: ${IMAGE}
               command: [/usr/local/bin/review-agent-admin]
-              args: [database, migrate]
+              args: [database, prepare]
               envFrom:
                 - secretRef:
                     name: review-agent-database
@@ -195,7 +195,7 @@ objects:
                   valueFrom:
                     secretKeyRef:
                       name: review-agent-database
-                      key: REVIEW_AGENT_DATABASE_URL
+                      key: REVIEW_AGENT_RUNTIME_DATABASE_URL
                 - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
                   value: http://review-agent-github-gateway:8646
                 - name: HERMES_HOME
@@ -288,7 +288,7 @@ objects:
                   valueFrom:
                     secretKeyRef:
                       name: review-agent-database
-                      key: REVIEW_AGENT_DATABASE_URL
+                      key: REVIEW_AGENT_RUNTIME_DATABASE_URL
                 - name: REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET
                   valueFrom:
                     secretKeyRef:
@@ -381,7 +381,7 @@ objects:
                   valueFrom:
                     secretKeyRef:
                       name: review-agent-database
-                      key: REVIEW_AGENT_DATABASE_URL
+                      key: REVIEW_AGENT_RUNTIME_DATABASE_URL
                 - name: REVIEW_AGENT_GITHUB_APP_ID
                   valueFrom:
                     secretKeyRef:
@@ -477,7 +477,7 @@ objects:
                   valueFrom:
                     secretKeyRef:
                       name: review-agent-database
-                      key: REVIEW_AGENT_DATABASE_URL
+                      key: REVIEW_AGENT_RUNTIME_DATABASE_URL
                 - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
                   value: http://review-agent-github-gateway:8646
               resources:
@@ -528,7 +528,7 @@ objects:
                   valueFrom:
                     secretKeyRef:
                       name: review-agent-database
-                      key: REVIEW_AGENT_DATABASE_URL
+                      key: REVIEW_AGENT_RUNTIME_DATABASE_URL
                 - name: REVIEW_AGENT_HERMES_CHAT_URL
                   value: http://hermes-review:8642/v1/chat/completions
                 - name: API_SERVER_KEY
@@ -631,7 +631,7 @@ objects:
                   valueFrom:
                     secretKeyRef:
                       name: review-agent-database
-                      key: REVIEW_AGENT_DATABASE_URL
+                      key: REVIEW_AGENT_RUNTIME_DATABASE_URL
                 - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
                   value: http://review-agent-github-gateway:8646
               resources:

@@ -3,7 +3,7 @@ sidebar_label: Operations
 slug: /operations
 title: Operations
 status: current
-last_verified: 2026-08-28
+last_verified: 2026-08-30
 ---
 
 # Operations
@@ -86,6 +86,11 @@ worker replicas × (worker concurrency + 1)
 Pools open connections on demand. Keep the configured maximum below the
 database limit with headroom for maintenance and monitoring.
 
+The measured 3,000-file, 10,000-job, 10-publisher, App-intake, and
+100-repository workloads are recorded in
+[Production scale measurements](../benchmarks/production-scale.md). They
+justify the current queue queries and do not justify another queue service.
+
 ### Worker termination and lease recovery
 
 `SIGTERM` stops a worker from entering another claim cycle. A database claim
@@ -119,14 +124,16 @@ job is reclaimed. Never shorten recovery by releasing a lease while that model
 call can still run.
 
 Use one database per environment. The example Compose network keeps PostgreSQL
-private and uses this service-local URL shape:
+private and uses separate service-local credentials:
 
 ```text
-postgresql://review_agent:<url-safe-password>@review-postgres:5432/review_agent
+REVIEW_AGENT_DATABASE_URL=postgresql://review_agent:<owner-password>@review-postgres:5432/review_agent
+REVIEW_AGENT_RUNTIME_DATABASE_URL=postgresql://review_agent_runtime:<runtime-password>@review-postgres:5432/review_agent
 ```
 
-Use the same URL-safe value for `REVIEW_AGENT_POSTGRES_PASSWORD` and the URL
-password. A hex value from `openssl rand -hex 32` needs no percent-encoding.
+Use the same URL-safe owner value for `REVIEW_AGENT_POSTGRES_PASSWORD` and the
+first URL. Generate a different runtime value for the second URL. Hex output
+from `openssl rand -hex 32` needs no percent-encoding.
 
 ## Capacity And Incomplete Coverage
 
@@ -177,8 +184,9 @@ Do not run two Hermes gateways against the same `hermes_review_data` volume.
 
 Two one-shot services run before the live services. `review-profile-install`
 installs the selected managed profile under `/opt/data`. `review-db-migrate`
-waits for PostgreSQL and applies checksum-verified schema migrations. Both
-should finish as `Exited (0)`; inspect their logs when startup stops.
+waits for PostgreSQL, applies checksum-verified schema migrations, and creates
+or rotates the restricted runtime login. Both should finish as `Exited (0)`;
+inspect their logs when startup stops.
 
 Set `REVIEW_AGENT_PROFILE` to a trusted bundle key under
 `bootstrap/profiles`; the packaged default is `sundsvall-standard`. The init
@@ -201,13 +209,77 @@ durable failure-status path tells the developer to request a fresh review.
 Manual recovery only:
 
 ```bash
-/opt/review-agent-bootstrap/install.sh
-review-agent-admin database migrate
+docker compose run --rm --no-deps review-profile-install
+docker compose run --rm --no-deps review-db-migrate
+docker compose exec hermes-review review-agent-admin database ready
+```
+
+The one-shot database job is the only container that receives both database
+URLs. On OpenShift, delete and recreate the two initialization Jobs instead of
+running preparation inside a live pod.
+
+## Database Access And Retention
+
+The migration owner is available only to the one-shot database preparation
+job. It must own the application schema, have `CREATEROLE`, and be able to grant
+`CONNECT` on the target database; it does not need PostgreSQL superuser. Live
+services receive the shared runtime login, which can use application
+tables and sequences but cannot change the schema or migration ledger. This
+limits a compromised runtime without adding a role-per-service matrix to a
+single trusted-image deployment. The runtime login still has broad application
+DML authority; split it further only if a concrete threat model and measured
+operational benefit justify the extra secret and grant lifecycle.
+
+`database prepare` is idempotent. It checks the effective PostgreSQL connection
+parameters, applies migrations, and creates or rotates one marked runtime role.
+It refuses to adopt an unrelated or privilege-expanded role with the same name.
+Preparation finishes by opening a new runtime connection and reading the
+migration ledger, so a successful receipt also proves the rotated login:
+
+```bash
+review-agent-admin database prepare
 review-agent-admin database ready
 ```
 
-Run those commands inside the `hermes-review` container, then restart the
-service.
+To rotate the runtime password, update `REVIEW_AGENT_RUNTIME_DATABASE_URL`, run
+the one-shot database preparation job with both URLs available, and restart the
+live services. To roll back the credential, put the previous password back in
+the runtime URL, run `database prepare` again, and restart. Existing
+authenticated PostgreSQL connections remain valid until they reconnect, so
+complete either direction as one maintenance operation. Never expose the
+migration-owner URL to a live service.
+
+### Retention ownership
+
+Durable history is preserved unless this table explicitly says otherwise:
+
+| Tables | Owner | Default and exemption |
+| --- | --- | --- |
+| `schema_migrations` | Release operator | Permanent checksum ledger; never edit or prune. |
+| `github_app_installations`, `github_app_repository_access`, `github_app_installation_events`, `github_app_repository_access_events` | Platform operator | Preserve current authorization and its audit history. |
+| `github_webhook_deliveries` | Platform operator | Preserve active deliveries. Old terminal `accepted`, `ignored`, `rejected`, and `failed` receipts may be pruned only with the bounded command below. |
+| `repositories`, `pull_requests`, `review_subjects`, `review_runs`, `review_jobs`, `review_run_files`, `review_file_reads`, `review_decision_snapshots` | Repository owner | Preserve review identity, coverage, lifecycle, and decision context. |
+| `finding_identities`, `finding_occurrences`, `finding_suggestions`, `finding_decisions`, `intentional_design_evidence`, `decision_audit`, `pull_request_finding_references` | Repository owner | Preserve finding history and explicit human decisions. |
+| `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
+| `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage, and idempotency receipts. |
+| `coach_runs`, `coach_candidates`, `coach_intervention_outcomes`, `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | Quality owner | Preserve private coaching and verification evidence; unavailable to the live reviewer. |
+
+Preview terminal webhook history before a cutoff. The explicit limit is also
+capped by `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS`:
+
+```bash
+review-agent-admin database prune-webhook-deliveries \
+  --before 2026-01-01T00:00:00Z \
+  --limit 100 \
+  --actor "operator:alice" \
+  --reason "approved retention window"
+```
+
+The JSON receipt reports the matched rows, oldest processed timestamp, and
+whether more rows remain. Take and verify a backup, then repeat the same command
+with `--apply`. Each apply transaction locks and deletes only one oldest-first
+batch. Concurrent apply commands serialize on that ordering, so `more` remains
+truthful; active deliveries and every other table are untouched.
 
 ## Connect The Model Provider
 
@@ -470,10 +542,12 @@ docker compose stop review-admission review-github-app-worker review-worker \
   review-publisher review-github-gateway hermes-review
 ```
 
-Restore with `pg_restore --exit-on-error`, run
-`review-agent-admin database migrate` and `review-agent-admin database ready`, then point the
-environment at the restored database and redeploy. Recovery never converts or
-imports another database backend.
+Restore with `pg_restore --exit-on-error`, set the restored database's owner and
+runtime URLs, run `review-agent-admin database prepare` and
+`review-agent-admin database ready`, then point the environment at the restored
+database and redeploy. The canonical PostgreSQL gate exercises this sequence
+against a fresh restore. Recovery never converts or imports another database
+backend.
 
 ## Private Reviewer-Improvement Exports
 

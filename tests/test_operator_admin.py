@@ -11,7 +11,7 @@ import sys
 import tempfile
 import unittest
 from urllib.parse import parse_qs, urlsplit
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -29,9 +29,15 @@ from review_agent_tools.github.gateway import (  # noqa: E402
     OperatorAppStatus,
     OperatorSmokeResult,
 )
-from review_agent_tools.postgres import github_app, jobs, publications  # noqa: E402
+from review_agent_tools.postgres import (  # noqa: E402
+    github_app,
+    jobs,
+    publications,
+    retention,
+)
 from review_agent_tools.postgres.runtime import PostgreSQLUnavailable  # noqa: E402
 from review_agent_tools.domain.review import RepositoryId  # noqa: E402
+from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
 
 
 PINNED_HERMES_IMAGE = (
@@ -147,6 +153,10 @@ class OperatorSetupTests(unittest.TestCase):
                     "postgresql://review_agent:"
                     f"{database_password}@review-postgres:5432/review_agent"
                 ),
+                "REVIEW_AGENT_RUNTIME_DATABASE_URL": (
+                    "postgresql://review_agent_runtime:"
+                    "runtime-password@review-postgres:5432/review_agent"
+                ),
                 "REVIEW_AGENT_GITHUB_APP_ID": "123456",
                 "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": str(key_path),
                 "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET": webhook_secret,
@@ -178,6 +188,63 @@ class OperatorSetupTests(unittest.TestCase):
                 "internal_api_configuration": "ready",
             },
         )
+
+    def test_preflight_rejects_one_login_for_owner_and_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            key_path = Path(temp) / "github-app.pem"
+            key_path.write_text(_private_key(), encoding="utf-8")
+            key_path.chmod(0o400)
+            report = operator_setup.preflight(
+                {
+                    "REVIEW_AGENT_DATABASE_URL": (
+                        "postgresql://shared:owner-password@db/review_agent"
+                    ),
+                    "REVIEW_AGENT_RUNTIME_DATABASE_URL": (
+                        "postgresql://shared:runtime-password@db/review_agent"
+                    ),
+                    "REVIEW_AGENT_GITHUB_APP_ID": "123456",
+                    "REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE": str(key_path),
+                    "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET": "configured-secret",
+                    "API_SERVER_KEY": "configured-internal-api-key",
+                    "REVIEW_AGENT_HERMES_IMAGE": PINNED_HERMES_IMAGE,
+                    "REVIEW_AGENT_PROFILE": "sundsvall-standard",
+                },
+                bootstrap_source=ROOT / "bootstrap",
+            )
+
+        database_check = next(
+            check for check in report.checks if check.name == "database_configuration"
+        )
+        self.assertEqual(database_check.status, "error")
+
+    def test_database_contract_uses_effective_credentials_and_target(self) -> None:
+        for owner_url, runtime_url in (
+            (
+                "postgresql://shared%2Duser:shared%2Dpassword@db/review_agent",
+                "postgresql://shared-user:shared-password@db/review_agent",
+            ),
+            (
+                "postgresql://owner:owner-password@db/review_agent?host=other",
+                "postgresql://runtime:runtime-password@db/review_agent",
+            ),
+            (
+                "postgresql://owner:owner-password@db/review_agent?hostaddr=127.0.0.1",
+                "postgresql://runtime:runtime-password@db/review_agent?hostaddr=127.0.0.2",
+            ),
+            (
+                "postgresql://owner:owner-password@db/review_agent?service=owner",
+                "postgresql://runtime:runtime-password@db/review_agent?service=runtime",
+            ),
+        ):
+            with self.subTest(owner_url=owner_url):
+                settings = ReviewAgentSettings(
+                    {
+                        "REVIEW_AGENT_DATABASE_URL": owner_url,
+                        "REVIEW_AGENT_RUNTIME_DATABASE_URL": runtime_url,
+                    }
+                )
+                with self.assertRaises(ValueError):
+                    operator_setup.validate_database_configuration(settings)
 
     def test_preflight_reports_all_repairable_configuration_failures(self) -> None:
         report = operator_setup.preflight(
@@ -411,6 +478,266 @@ class OperatorAdminCliTests(unittest.TestCase):
             json.loads(stdout.getvalue()),
             operator_setup.capabilities().to_json_obj(),
         )
+
+    def test_database_retention_is_dry_run_by_default_and_emits_a_receipt(
+        self,
+    ) -> None:
+        admin = _load_admin_cli()
+        runtime = Mock()
+        before = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        result = operator_application.RetentionReceipt(
+            result=retention.RetentionResult(
+                before=before,
+                limit=25,
+                matched=25,
+                deleted=0,
+                more=True,
+                oldest_processed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            ),
+            actor="operator:ccimen",
+            reason="approved retention window",
+        )
+        stdout = io.StringIO()
+        with (
+            patch.object(admin, "_runtime", return_value=runtime),
+            patch.object(
+                admin.operator_application,
+                "prune_webhook_delivery_history",
+                return_value=result,
+            ) as prune,
+            redirect_stdout(stdout),
+        ):
+            status = admin.main(
+                [
+                    "database",
+                    "prune-webhook-deliveries",
+                    "--before",
+                    "2026-03-01T00:00:00Z",
+                    "--limit",
+                    "25",
+                    "--actor",
+                    "operator:ccimen",
+                    "--reason",
+                    "approved retention window",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        prune.assert_called_once_with(
+            runtime,
+            before=before,
+            limit=25,
+            apply=False,
+            actor="operator:ccimen",
+            reason="approved retention window",
+        )
+        runtime.close.assert_called_once()
+        self.assertEqual(
+            json.loads(stdout.getvalue()),
+            {
+                "actor": "operator:ccimen",
+                "before": "2026-03-01T00:00:00+00:00",
+                "deleted": 0,
+                "dry_run": True,
+                "limit": 25,
+                "matched": 25,
+                "more": True,
+                "oldest_processed_at": "2026-01-01T00:00:00+00:00",
+                "reason": "approved retention window",
+                "target": "terminal_webhook_deliveries",
+            },
+        )
+
+    def test_database_prepare_migrates_then_configures_runtime_role_secret_safely(
+        self,
+    ) -> None:
+        admin = _load_admin_cli()
+        owner_url = "postgresql://review_agent:owner-secret@db/review_agent"
+        runtime_password = "runtime-secret-with-32-characters"
+        runtime_url = (
+            "postgresql://review_agent_runtime:"
+            f"{runtime_password}@db/review_agent"
+        )
+        owner_connection = MagicMock()
+        owner_context = Mock()
+        owner_context.__enter__ = Mock(return_value=owner_connection)
+        owner_context.__exit__ = Mock(return_value=False)
+        runtime_connection = MagicMock()
+        runtime_connection.info.user = "review_agent_runtime"
+        runtime_context = Mock()
+        runtime_context.__enter__ = Mock(return_value=runtime_connection)
+        runtime_context.__exit__ = Mock(return_value=False)
+        role_result = Mock(
+            role_name="review_agent_runtime",
+            database_name="review_agent",
+        )
+        readiness = Mock(applied_version=12, pending_versions=())
+        stdout = io.StringIO()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "REVIEW_AGENT_DATABASE_URL": owner_url,
+                    "REVIEW_AGENT_RUNTIME_DATABASE_URL": runtime_url,
+                },
+                clear=True,
+            ),
+            patch.object(
+                admin.psycopg,
+                "connect",
+                side_effect=(owner_context, runtime_context),
+            ) as connect,
+            patch.object(admin.runner, "apply_migrations", return_value=(13,)) as migrate,
+            patch.object(
+                admin.runner,
+                "inspect_migrations",
+                return_value=readiness,
+            ) as inspect,
+            patch.object(
+                admin.database_roles,
+                "configure_runtime_role",
+                return_value=role_result,
+            ) as configure,
+            redirect_stdout(stdout),
+        ):
+            status = admin.main(["database", "prepare"])
+
+        self.assertEqual(status, 0)
+        migrate.assert_called_once_with(owner_connection)
+        configure.assert_called_once_with(
+            owner_connection,
+            role_name="review_agent_runtime",
+            password=runtime_password,
+        )
+        self.assertEqual(
+            connect.call_args_list,
+            [call(owner_url), call(runtime_url)],
+        )
+        inspect.assert_called_once_with(runtime_connection)
+        self.assertEqual(
+            json.loads(stdout.getvalue()),
+            {
+                "applied": [13],
+                "database": "review_agent",
+                "migration": 12,
+                "ready": True,
+                "runtime_role": "review_agent_runtime",
+            },
+        )
+        self.assertNotIn("secret", stdout.getvalue())
+
+    def test_database_prepare_reports_migration_failure_without_a_traceback(
+        self,
+    ) -> None:
+        admin = _load_admin_cli()
+        stderr = io.StringIO()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "REVIEW_AGENT_DATABASE_URL": (
+                        "postgresql://owner:owner-secret@db/review_agent"
+                    ),
+                    "REVIEW_AGENT_RUNTIME_DATABASE_URL": (
+                        "postgresql://runtime:runtime-secret@db/review_agent"
+                    ),
+                },
+                clear=True,
+            ),
+            patch.object(
+                admin.runner,
+                "apply_migrations",
+                side_effect=admin.runner.MigrationError("secret migration detail"),
+            ),
+            patch.object(admin.psycopg, "connect") as connect,
+            redirect_stderr(stderr),
+        ):
+            connection_context = connect.return_value
+            connection_context.__enter__.return_value = MagicMock()
+            status = admin.main(["database", "prepare"])
+
+        self.assertEqual(status, os.EX_CONFIG)
+        self.assertEqual(
+            json.loads(stderr.getvalue()),
+            {
+                "error": {
+                    "code": "database_migration_failed",
+                    "retryable": False,
+                }
+            },
+        )
+        self.assertNotIn("secret migration detail", stderr.getvalue())
+
+    def test_database_prepare_rejects_a_different_runtime_database_before_connecting(
+        self,
+    ) -> None:
+        admin = _load_admin_cli()
+        stderr = io.StringIO()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "REVIEW_AGENT_DATABASE_URL": (
+                        "postgresql://review_agent:owner-secret@db/review_agent"
+                    ),
+                    "REVIEW_AGENT_RUNTIME_DATABASE_URL": (
+                        "postgresql://review_agent_runtime:runtime-secret@db/other"
+                    ),
+                },
+                clear=True,
+            ),
+            patch.object(admin.psycopg, "connect") as connect,
+            redirect_stderr(stderr),
+        ):
+            status = admin.main(["database", "prepare"])
+
+        self.assertEqual(status, os.EX_CONFIG)
+        connect.assert_not_called()
+        self.assertEqual(
+            json.loads(stderr.getvalue()),
+            {
+                "error": {
+                    "code": "invalid_database_role_configuration",
+                    "retryable": False,
+                }
+            },
+        )
+
+    def test_database_retention_reports_runtime_failure_and_closes(self) -> None:
+        admin = _load_admin_cli()
+        runtime = Mock()
+        stderr = io.StringIO()
+        with (
+            patch.object(admin, "_runtime", return_value=runtime),
+            patch.object(
+                admin.operator_application,
+                "prune_webhook_delivery_history",
+                side_effect=PostgreSQLUnavailable("host=secret.internal"),
+            ),
+            redirect_stderr(stderr),
+        ):
+            status = admin.main(
+                [
+                    "database",
+                    "prune-webhook-deliveries",
+                    "--before",
+                    "2026-03-01T00:00:00Z",
+                    "--limit",
+                    "25",
+                    "--actor",
+                    "operator:ccimen",
+                    "--reason",
+                    "approved retention window",
+                ]
+            )
+
+        self.assertEqual(status, os.EX_TEMPFAIL)
+        runtime.close.assert_called_once()
+        self.assertEqual(
+            json.loads(stderr.getvalue()),
+            {"error": {"code": "database_unavailable", "retryable": True}},
+        )
+        self.assertNotIn("secret.internal", stderr.getvalue())
 
     def test_registration_url_reports_bounded_input_failure(self) -> None:
         admin = _load_admin_cli()

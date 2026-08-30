@@ -39,6 +39,7 @@ from .postgres import jobs as postgres_jobs
 from .postgres import publications as postgres_publications
 from .postgres import quality_reporting as postgres_quality_reporting
 from .postgres import quality_triage as postgres_quality_triage
+from .postgres import retention as postgres_retention
 from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import reporting as postgres_reporting
 from .postgres import review_runs as postgres_review_runs
@@ -63,6 +64,13 @@ class DeploymentHealth:
 class QueueHealth:
     review_queue: postgres_jobs.ReviewQueueHealth
     publication_queue: postgres_publications.PublicationQueueHealth
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionReceipt:
+    result: postgres_retention.RetentionResult
+    actor: str
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +340,41 @@ def _nonnegative(value: int, *, field: str) -> int:
 
 def _repository(value: str | None) -> str | None:
     return resolve_repository(value) if value is not None else None
+
+
+def _audit_text(value: str, *, field: str, maximum: int) -> str:
+    normalized = " ".join(value.strip().split())
+    if not normalized or len(normalized) > maximum:
+        raise OperatorInputError(f"{field} must be 1 to {maximum} characters")
+    return normalized
+
+
+def prune_webhook_delivery_history(
+    runtime: PostgreSQLRuntime,
+    *,
+    before: datetime,
+    limit: int,
+    apply: bool,
+    actor: str,
+    reason: str,
+) -> RetentionReceipt:
+    """Preview or apply one explicitly approved terminal-delivery batch."""
+    cutoff = _now(before)
+    batch_limit = _positive(limit, field="limit")
+    normalized_actor = _audit_text(actor, field="actor", maximum=120)
+    normalized_reason = _audit_text(reason, field="reason", maximum=500)
+    with runtime.transaction() as connection:
+        result = postgres_retention.prune_terminal_webhook_deliveries(
+            connection,
+            before=cutoff,
+            limit=batch_limit,
+            apply=apply,
+        )
+    return RetentionReceipt(
+        result=result,
+        actor=normalized_actor,
+        reason=normalized_reason,
+    )
 
 
 def list_findings(

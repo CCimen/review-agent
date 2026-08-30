@@ -155,5 +155,5 @@ Review Agent is licensed under `EUPL-1.2` (Version 1.2 only). Copyright © 2026
 licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Maintainers publish versioned images from GitHub releases. Follow
-[RELEASING.md](RELEASING.md) for the prerelease gate, GHCR verification, and
+[RELEASING.md](RELEASING.md) for the release gate, GHCR verification, and
 rollback checks.

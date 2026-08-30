@@ -891,8 +891,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn(
             'entrypoint: ["/usr/local/bin/review-agent-admin"]', migration_section
         )
-        self.assertIn('command: ["database", "migrate"]', migration_section)
+        self.assertIn('command: ["database", "prepare"]', migration_section)
         self.assertIn("REVIEW_AGENT_DATABASE_URL", migration_section)
+        self.assertIn("REVIEW_AGENT_RUNTIME_DATABASE_URL", migration_section)
         self.assertIn("review-postgres:", migration_section)
         self.assertIn("condition: service_healthy", migration_section)
         self.assertIn("read_only: true", migration_section)
@@ -914,7 +915,7 @@ class DocsContractTests(unittest.TestCase):
             "Exited (0)",
             "Manual recovery only",
             "/opt/review-agent-bootstrap/install.sh",
-            "review-agent-admin database migrate",
+            "review-agent-admin database prepare",
             "review-agent-admin database ready",
         ]:
             with self.subTest(required=required):
@@ -1155,6 +1156,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("POSTGRES_IMAGE=postgres:17-alpine", env_example)
         self.assertIn("REVIEW_AGENT_POSTGRES_PASSWORD=", env_example)
         self.assertIn("REVIEW_AGENT_DATABASE_URL=postgresql://", env_example)
+        self.assertIn("REVIEW_AGENT_RUNTIME_DATABASE_URL=postgresql://", env_example)
         self.assertIn("  review-profile-install:", compose)
         self.assertIn("  review-db-migrate:", compose)
         self.assertIn("review_postgres_data:/var/lib/postgresql/data", compose)

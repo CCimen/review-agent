@@ -1154,7 +1154,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("pg_dump", source)
         self.assertIn("pg_restore", source)
         self.assertIn("--exit-on-error", source)
-        self.assertIn("review_agent_admin.py database migrate", source)
+        self.assertIn("review_agent_admin.py database prepare", source)
         self.assertIn("review_agent_admin.py database ready", source)
         self.assertIn("recovery/probe", source)
         self.assertIn("application-state canary", source)

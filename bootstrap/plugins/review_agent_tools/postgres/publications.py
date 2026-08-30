@@ -1158,6 +1158,7 @@ def claim_next_publication(
             publication.delivery_lease_expires_at,
             publication.delivery_available_at
         ), publication.id
+        FOR UPDATE OF run SKIP LOCKED
         LIMIT 1
         """
     ).fetchone()

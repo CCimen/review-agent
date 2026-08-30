@@ -69,6 +69,8 @@ REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/r
         tests.test_postgres_repository_decisions \
         tests.test_postgres_verification_coaching \
         tests.test_postgres_reporting_cli \
+        tests.test_postgres_retention \
+        tests.test_postgres_roles \
         tests.test_github_app_processor
 
 # Seed one stable application row so backup/restore proves domain state, not
@@ -140,9 +142,10 @@ fi
 
 PYTHONDONTWRITEBYTECODE=1 \
 REVIEW_AGENT_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
-    python3 tools/review_agent_admin.py database migrate
+REVIEW_AGENT_RUNTIME_DATABASE_URL="postgresql://review_agent_restore_runtime:restore-runtime-password@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
+    python3 tools/review_agent_admin.py database prepare
 PYTHONDONTWRITEBYTECODE=1 \
-REVIEW_AGENT_DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
+REVIEW_AGENT_DATABASE_URL="postgresql://review_agent_restore_runtime:restore-runtime-password@127.0.0.1:$RESTORE_HOST_PORT/review_agent_restore" \
     python3 tools/review_agent_admin.py database ready
 
 RESTORED_MIGRATIONS=$(docker exec "$RESTORE_CONTAINER" \

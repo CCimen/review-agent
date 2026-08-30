@@ -530,7 +530,16 @@ def claim_next_job(
     with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
         row = cursor.execute(
             """
-            WITH candidate AS MATERIALIZED (
+            WITH leased_repositories AS MATERIALIZED (
+                SELECT DISTINCT active_pull_request.repository_id
+                FROM review_agent.review_jobs AS active_job
+                JOIN review_agent.review_runs AS active_run
+                  ON active_run.id = active_job.review_run_id
+                JOIN review_agent.pull_requests AS active_pull_request
+                  ON active_pull_request.id = active_run.pull_request_id
+                WHERE active_job.status = 'leased'
+            ),
+            candidate AS MATERIALIZED (
                 SELECT job.id
                 FROM review_agent.review_jobs AS job
                 JOIN review_agent.review_runs AS run
@@ -539,20 +548,13 @@ def claim_next_job(
                   ON pull_request.id = run.pull_request_id
                 JOIN review_agent.repositories AS repository
                   ON repository.id = pull_request.repository_id
+                LEFT JOIN leased_repositories AS leased_repository
+                  ON leased_repository.repository_id = repository.id
                 WHERE job.status = 'queued'
                   AND job.available_at <= statement_timestamp()
                   AND job.attempt_count < job.max_attempts
                   AND run.status = 'running'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM review_agent.review_jobs AS active_job
-                      JOIN review_agent.review_runs AS active_run
-                        ON active_run.id = active_job.review_run_id
-                      JOIN review_agent.pull_requests AS active_pull_request
-                        ON active_pull_request.id = active_run.pull_request_id
-                      WHERE active_job.status = 'leased'
-                        AND active_pull_request.repository_id = repository.id
-                  )
+                  AND leased_repository.repository_id IS NULL
                 ORDER BY
                     job.available_at - (%s * job.priority),
                     job.available_at,

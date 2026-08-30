@@ -36,6 +36,7 @@ from review_agent_tools.domain.publication import (  # noqa: E402
 )
 from review_agent_tools.domain.review import ReviewPhase, ReviewStatus  # noqa: E402
 from review_agent_tools.github.publication import (  # noqa: E402
+    PUBLICATION_REQUEST_MAX_PAGES,
     GitHubPublicationError,
     InlineReviewComment,
     IssueComment,
@@ -82,6 +83,7 @@ class FakePostgresPublicationGitHub:
         self.fail_on_call = False
         self.head_sha = "a" * 40
         self.issue_comments_newest_first = False
+        self.issue_comment_page_size: int | None = None
         self.create_calls = 0
         self.fail_on_create_call: int | None = None
         self.create_error: GitHubPublicationError | None = None
@@ -164,8 +166,26 @@ class FakePostgresPublicationGitHub:
         self.issue_comments_newest_first = (
             self.issue_comments_newest_first or newest_first
         )
-        comments = list(self.comments)
-        return list(reversed(comments)) if newest_first else comments
+        if self.issue_comment_page_size is None:
+            return (
+                list(reversed(self.comments))
+                if newest_first
+                else list(self.comments)
+            )
+        page_size = self.issue_comment_page_size
+        page_count = (len(self.comments) + page_size - 1) // page_size
+        if not newest_first:
+            return list(self.comments[: max_pages * page_size])
+        if page_count > 1 and max_pages < 2:
+            raise GitHubPublicationError(
+                "github_comment_scan_budget_too_small",
+                operation="list_issue_comments",
+                retryable=False,
+            )
+        if page_count <= max_pages:
+            return list(reversed(self.comments))
+        tail_capacity = (max_pages - 1) * page_size
+        return list(reversed(self.comments[-tail_capacity:]))
 
     def create_issue_comment(
         self, repository: str, issue_number: int, body: str
@@ -1817,6 +1837,78 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             stored = review_runs.failure_status_target(connection, run_id)
         self.assertEqual(stored.delivery_status, "posted")
+
+    def test_recent_failure_status_marker_is_recovered_without_duplicate(self) -> None:
+        run_id, _ = self.start_recorded_run(
+            request_key="failure-status-recent-marker"
+        )
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection, run_id, failure_code="review_deliver_error"
+            )
+            claim = review_runs.claim_failure_status(
+                connection,
+                run_id=run_id,
+                lease_owner="interrupted-publisher",
+                lease_duration=timedelta(seconds=30),
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.issue_comment_page_size = 1
+        github.comments = [
+            IssueComment(
+                comment_id=comment_id,
+                body="Older unrelated pull-request comment.",
+                author_login="developer",
+            )
+            for comment_id in range(
+                100,
+                101 + PUBLICATION_REQUEST_MAX_PAGES,
+            )
+        ]
+        github.kill_after_create = True
+
+        with self.assertRaises(ProcessDeath):
+            review_publication_application.publish_postgres_run_failure_status(
+                self.runtime,
+                run_id=int(run_id),
+                github=github,
+                lease_owner="interrupted-publisher",
+                lease_generation=claim.target.delivery_lease_generation,
+            )
+        original_marker_id = github.comments[-1].comment_id
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET "
+                "failure_status_delivery_lease_expires_at = statement_timestamp() "
+                "WHERE id = %s",
+                (run_id,),
+            )
+        worker = PublicationWorker(
+            self.runtime,
+            github,
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=30),
+                heartbeat_interval=timedelta(seconds=5),
+                retry_delay=timedelta(seconds=1),
+                poll_interval=timedelta(milliseconds=10),
+                max_comment_bytes=60_000,
+            ),
+            lease_owner="recovery-worker",
+            stop_event=threading.Event(),
+        )
+
+        worker.run(once=True)
+
+        markers = [
+            comment
+            for comment in github.comments
+            if "review-agent:failure-status" in comment.body
+        ]
+        self.assertEqual(
+            [comment.comment_id for comment in markers],
+            [original_marker_id],
+        )
+        self.assertEqual(github.create_calls, 1)
 
     def test_failure_status_recovery_retries_when_marker_listing_fails(self) -> None:
         run_id, _ = self.start_recorded_run(

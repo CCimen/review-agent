@@ -22,7 +22,6 @@ from review_agent_tools.github import (  # noqa: E402
     publication as publication_module,
     publication_gateway as publication_gateway_module,
 )
-from review_agent_tools import review_publication_application  # noqa: E402
 from review_agent_tools.github.gateway import (  # noqa: E402
     FeedbackAcknowledgementRequest,
     GitHubGatewayProtocolError,
@@ -61,9 +60,16 @@ from review_agent_tools.source_control import (  # noqa: E402
 
 
 class _Response:
-    def __init__(self, body: bytes, *, status: int = 200) -> None:
+    def __init__(
+        self,
+        body: bytes,
+        *,
+        status: int = 200,
+        headers: email.message.Message | None = None,
+    ) -> None:
         self._body = body
         self.status = status
+        self.headers = headers or email.message.Message()
 
     def __enter__(self) -> "_Response":
         return self
@@ -349,6 +355,58 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         ):
             gateway.list_issue_comments("CCimen/review-agent", 42)
 
+    def test_newest_issue_comment_scan_reads_tail_pages_within_budget(self) -> None:
+        def page(*comment_ids: int) -> bytes:
+            return json.dumps(
+                [
+                    {
+                        "id": comment_id,
+                        "body": f"comment {comment_id}",
+                        "user": {"login": "review-agent[bot]"},
+                    }
+                    for comment_id in comment_ids
+                ]
+            ).encode("utf-8")
+
+        link_headers = email.message.Message()
+        link_headers["Link"] = (
+            '<https://api.github.com/repos/CCimen/review-agent/issues/42/comments'
+            '?per_page=100&page=2>; rel="next", '
+            '<https://api.github.com/repos/CCimen/review-agent/issues/42/comments'
+            '?per_page=100&page=20>; rel="last"'
+        )
+        opener = Mock(spec=urllib.request.OpenerDirector)
+        opener.open.side_effect = (
+            _Response(page(*range(1, 101)), headers=link_headers),
+            _Response(page(1901, 1902)),
+            _Response(page(1801, 1802)),
+        )
+        gateway = GitHubIssueCommentGateway(
+            "installation-token",
+            max_attempts=1,
+            opener=cast(urllib.request.OpenerDirector, opener),
+        )
+
+        comments = gateway.list_issue_comments(
+            "CCimen/review-agent",
+            42,
+            max_pages=3,
+            newest_first=True,
+        )
+
+        self.assertEqual(
+            [comment.comment_id for comment in comments],
+            [1902, 1901, 1802, 1801],
+        )
+        requests = [item.args[0] for item in opener.open.call_args_list]
+        self.assertEqual(len(requests), 3)
+        urls = [request.full_url for request in requests]
+        self.assertIn("page=1", urls[0])
+        self.assertIn("page=20", urls[1])
+        self.assertIn("page=19", urls[2])
+        self.assertTrue(all("sort=" not in url for url in urls))
+        self.assertTrue(all("direction=" not in url for url in urls))
+
     def test_feedback_reaction_reports_only_new_creation(self) -> None:
         for status, expected in ((201, True), (200, False)):
             opener = _Opener(b'{"id":1}', status=status)
@@ -491,21 +549,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             )
         )
 
-    def test_failure_status_scan_stays_inside_the_gateway_page_contract(self) -> None:
-        gateway = Mock()
-        gateway.current_user_login.return_value = "review-agent[bot]"
-        gateway.list_issue_comments.return_value = []
-
-        comments = review_publication_application._my_failure_status_comments(
-            gateway, "CCimen/review-agent", 42
-        )
-
-        self.assertEqual(comments, [])
-        gateway.list_issue_comments.assert_called_once_with(
-            "CCimen/review-agent",
-            42,
-            max_pages=publication_module.PUBLICATION_REQUEST_MAX_PAGES,
-        )
+    def test_failure_status_gateway_rejects_scan_above_page_contract(self) -> None:
         request = PublicationGatewayRequest.from_mapping(
             {
                 "scope_kind": "failure_status",
@@ -514,7 +558,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 "lease_generation": 3,
                 "operation": "list_issue_comments",
                 "max_pages": publication_module.PUBLICATION_REQUEST_MAX_PAGES,
-                "newest_first": False,
+                "newest_first": True,
             }
         )
         self.assertEqual(
@@ -531,7 +575,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                     "max_pages": (
                         publication_module.PUBLICATION_REQUEST_MAX_PAGES + 1
                     ),
-                    "newest_first": False,
+                    "newest_first": True,
                 }
             )
 

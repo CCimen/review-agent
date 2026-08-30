@@ -182,6 +182,31 @@ def _optional_review_side(value: object, code: str) -> ReviewCommentSide | None:
     return cast(ReviewCommentSide, value)
 
 
+def _last_page_from_link_header(value: str | None) -> int:
+    if value is None:
+        return 1
+    for item in value.split(","):
+        parts = [part.strip() for part in item.split(";")]
+        if 'rel="last"' not in parts[1:]:
+            continue
+        target = parts[0]
+        if not target.startswith("<") or not target.endswith(">"):
+            break
+        pages = urllib.parse.parse_qs(
+            urllib.parse.urlsplit(target[1:-1]).query
+        ).get("page")
+        if pages is not None and len(pages) == 1 and pages[0].isdigit():
+            page = int(pages[0])
+            if page > 0:
+                return page
+        break
+    raise GitHubPublicationError(
+        "github_bad_comments_pagination",
+        operation="list_issue_comments",
+        retryable=False,
+    )
+
+
 def _github_failure_code(status: int, operation: str) -> str:
     suffix = f"_{operation}" if operation else ""
     if status in {401, 403, 404}:
@@ -271,7 +296,7 @@ class GitHubIssueCommentGateway:
     ) -> Any:
         if not endpoint.startswith("/") or "//" in endpoint:
             raise GitHubPublicationError("invalid_github_endpoint")
-        result, _ = self._request_json_with_token(
+        result, _, _ = self._request_json_with_token(
             method,
             endpoint,
             token=self._token,
@@ -290,7 +315,7 @@ class GitHubIssueCommentGateway:
         payload: dict[str, object] | None,
         max_bytes: int,
         operation: str,
-    ) -> tuple[Any, int]:
+    ) -> tuple[Any, int, str | None]:
         body = None
         headers = {
             "Accept": "application/vnd.github+json",
@@ -311,6 +336,12 @@ class GitHubIssueCommentGateway:
                 ) as response:
                     data = response.read(max_bytes + 1)
                     status = int(getattr(response, "status", 200))
+                    response_headers = getattr(response, "headers", None)
+                    link_header = (
+                        response_headers.get("Link")
+                        if response_headers is not None
+                        else None
+                    )
             except urllib.error.HTTPError as exc:
                 rate_limited = is_github_rate_limit_error(exc)
                 retryable = (
@@ -344,9 +375,9 @@ class GitHubIssueCommentGateway:
                     retryable=False,
                 )
             if method == "DELETE" and not data:
-                return {}, status
+                return {}, status, link_header
             try:
-                return json.loads(data.decode("utf-8")), status
+                return json.loads(data.decode("utf-8")), status, link_header
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise GitHubPublicationError(
                     "github_invalid_json", operation=operation, retryable=False
@@ -381,19 +412,12 @@ class GitHubIssueCommentGateway:
         max_pages: int = PUBLICATION_DEFAULT_MAX_PAGES,
         newest_first: bool = False,
     ) -> list[IssueComment]:
-        comments: list[IssueComment] = []
-        ordering = "&sort=created&direction=desc" if newest_first else ""
-        for page in range(1, max_pages + 1):
-            page_items = _json_list(
-                self._request_json(
-                    "GET",
-                    f"/repos/{_owner_repo(repository)}/issues/{issue_number}/comments"
-                    f"?per_page=100&page={page}{ordering}",
-                    operation="list_issue_comments",
-                ),
-                "github_bad_comments_response",
-            )
-            for item in page_items:
+        def comments_from_page(
+            page_items: list[Any], *, reverse: bool = False
+        ) -> list[IssueComment]:
+            comments: list[IssueComment] = []
+            items = reversed(page_items) if reverse else iter(page_items)
+            for item in items:
                 if isinstance(item, dict):
                     comment = cast(Mapping[str, object], item)
                     comments.append(
@@ -409,8 +433,61 @@ class GitHubIssueCommentGateway:
                             ),
                         )
                     )
-            if len(page_items) < 100:
-                break
+            return comments
+
+        endpoint = (
+            f"/repos/{_owner_repo(repository)}/issues/{issue_number}/comments"
+        )
+        if not newest_first:
+            comments: list[IssueComment] = []
+            for page in range(1, max_pages + 1):
+                page_items = _json_list(
+                    self._request_json(
+                        "GET",
+                        f"{endpoint}?per_page=100&page={page}",
+                        operation="list_issue_comments",
+                    ),
+                    "github_bad_comments_response",
+                )
+                comments.extend(comments_from_page(page_items))
+                if len(page_items) < 100:
+                    break
+            return comments
+
+        first_raw, _, link_header = self._request_json_with_token(
+            "GET",
+            f"{endpoint}?per_page=100&page=1",
+            token=self._token,
+            payload=None,
+            max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+            operation="list_issue_comments",
+        )
+        first_page = _json_list(first_raw, "github_bad_comments_response")
+        last_page = _last_page_from_link_header(link_header)
+        if last_page == 1:
+            return comments_from_page(first_page, reverse=True)
+        if max_pages < 2:
+            raise GitHubPublicationError(
+                "github_comment_scan_budget_too_small",
+                operation="list_issue_comments",
+                retryable=False,
+            )
+
+        comments = []
+        # First-page discovery counts against the same bounded request budget.
+        lowest_page = max(2, last_page - (max_pages - 2))
+        for page in range(last_page, lowest_page - 1, -1):
+            page_items = _json_list(
+                self._request_json(
+                    "GET",
+                    f"{endpoint}?per_page=100&page={page}",
+                    operation="list_issue_comments",
+                ),
+                "github_bad_comments_response",
+            )
+            comments.extend(comments_from_page(page_items, reverse=True))
+        if last_page <= max_pages:
+            comments.extend(comments_from_page(first_page, reverse=True))
         return comments
 
     def update_issue_comment(
@@ -457,7 +534,7 @@ class GitHubIssueCommentGateway:
         comment_id: int,
         content: IssueCommentReaction,
     ) -> bool:
-        _, status = self._request_json_with_token(
+        _, status, _ = self._request_json_with_token(
             "POST",
             f"/repos/{_owner_repo(repository)}/issues/comments/{comment_id}/reactions",
             token=self._token,

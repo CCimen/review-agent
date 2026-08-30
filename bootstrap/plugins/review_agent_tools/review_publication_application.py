@@ -923,6 +923,7 @@ def _my_failure_status_comments(
         repository,
         pr_number,
         max_pages=PUBLICATION_REQUEST_MAX_PAGES,
+        newest_first=True,
     )
     return [
         comment

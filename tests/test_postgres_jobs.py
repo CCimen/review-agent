@@ -239,13 +239,16 @@ class PostgreSQLJobTests(unittest.TestCase):
                     (started.run.id,),
                 )
 
-    def test_requeue_preserves_a_monotonic_lease_generation(self) -> None:
+    def test_unstarted_requeue_is_attempt_neutral_and_keeps_lease_fencing(
+        self,
+    ) -> None:
         pull_request = self.pull_request(provider_id=1011, number=21)
         subject = self.subject(pull_request, head_character="a")
         _, accepted = self.accept_job(
             pull_request,
             subject,
             request_key="github:manual:requeue-fence",
+            max_attempts=1,
         )
         assert isinstance(accepted, jobs.EnqueuedJob)
         with self.runtime.transaction() as connection:
@@ -257,14 +260,11 @@ class PostgreSQLJobTests(unittest.TestCase):
         assert first_lease is not None
 
         with self.runtime.transaction() as connection:
-            connection.execute(
-                """
-                UPDATE review_agent.review_jobs
-                SET status = 'queued', lease_owner = NULL,
-                    lease_expires_at = NULL, last_heartbeat_at = NULL
-                WHERE id = %s
-                """,
-                (accepted.job.id,),
+            requeued = jobs.requeue_unstarted_job(
+                connection,
+                job_id=first_lease.id,
+                lease_owner="worker-one",
+                lease_generation=first_lease.lease_generation,
             )
             second_lease = self.claim_job(
                 connection,
@@ -273,9 +273,12 @@ class PostgreSQLJobTests(unittest.TestCase):
             )
 
         assert second_lease is not None
+        self.assertEqual(requeued.status, jobs.ReviewJobStatus.QUEUED)
+        self.assertEqual(requeued.attempt_count, 0)
+        self.assertIsNone(requeued.started_at)
         self.assertEqual(first_lease.lease_generation, 1)
         self.assertEqual(second_lease.lease_generation, 2)
-        self.assertEqual(second_lease.started_at, first_lease.started_at)
+        self.assertEqual(second_lease.attempt_count, 1)
 
     def test_new_subject_supersedes_queued_run_and_job(self) -> None:
         pull_request = self.pull_request(provider_id=1002, number=12)

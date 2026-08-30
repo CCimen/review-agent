@@ -20,6 +20,9 @@ parameters:
   - name: WORKER_CONCURRENCY
     description: Concurrent reviews per worker replica.
     value: "4"
+  - name: WORKER_TERMINATION_GRACE_SECONDS
+    description: Maximum graceful worker drain before force termination.
+    value: "150"
   - name: FEEDBACK_ENABLED
     description: Enable durable PR feedback commands.
     value: "false"
@@ -509,6 +512,7 @@ objects:
           labels:
             app: review-agent-worker
         spec:
+          terminationGracePeriodSeconds: ${{WORKER_TERMINATION_GRACE_SECONDS}}
           securityContext:
             seccompProfile:
               type: RuntimeDefault

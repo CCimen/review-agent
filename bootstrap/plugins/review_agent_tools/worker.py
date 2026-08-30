@@ -221,6 +221,11 @@ class ReviewWorker:
     def run(self, *, once: bool = False) -> None:
         """Recover expired work, then claim only while an execution slot is free."""
         if once:
+            if self._stop.is_set():
+                return
+            self._recover_if_due()
+            if self._stop.is_set():
+                return
             claimed = self._claim()
             if claimed is not None:
                 self._log_claim(claimed)
@@ -234,6 +239,14 @@ class ReviewWorker:
             thread_name_prefix="review-agent-job",
         ) as executor:
             while not self._stop.is_set():
+                try:
+                    self._recover_if_due()
+                except _TRANSIENT_DATABASE_ERRORS as exc:
+                    logger.warning("Review worker recovery deferred: %s", exc)
+                    self._wait_for_work_or_completion(active)
+                    continue
+                if self._stop.is_set():
+                    break
                 fatal_error = self._reap_completed(active)
                 if fatal_error is not None:
                     break
@@ -251,6 +264,18 @@ class ReviewWorker:
                     continue
                 self._log_claim(claimed)
                 active[executor.submit(self._execute, claimed)] = claimed
+
+            if self._stop.is_set():
+                stopped_error = self._reap_completed(active)
+                if fatal_error is None:
+                    fatal_error = stopped_error
+                if active:
+                    logger.info(
+                        "Review worker stop requested; draining %s active review(s). "
+                        "Lease heartbeats continue until each request returns or the "
+                        "process is terminated.",
+                        len(active),
+                    )
 
         # Executor shutdown has joined every active review. Observe each result
         # and then propagate the first unexpected defect with its job logged.
@@ -304,7 +329,6 @@ class ReviewWorker:
         )
 
     def _claim(self) -> ClaimedReview | None:
-        self._recover_if_due()
         with self._runtime.transaction() as connection:
             job = jobs.claim_next_job(
                 connection,
@@ -337,6 +361,34 @@ class ReviewWorker:
             )
 
     def _execute(self, claimed: ClaimedReview) -> None:
+        if self._stop.is_set():
+            try:
+                with self._runtime.transaction() as connection:
+                    jobs.requeue_unstarted_job(
+                        connection,
+                        job_id=claimed.job.id,
+                        lease_owner=self._lease_owner,
+                        lease_generation=claimed.job.lease_generation,
+                    )
+            except jobs.ReviewJobLeaseLost:
+                logger.info(
+                    "Review job %s lost its lease before Hermes activation",
+                    claimed.job.id,
+                )
+            except _TRANSIENT_DATABASE_ERRORS as exc:
+                logger.warning(
+                    "Review job %s could not be returned before shutdown; "
+                    "its lease will expire into recovery: %s",
+                    claimed.job.id,
+                    exc,
+                )
+            else:
+                logger.info(
+                    "Worker returned review job %s to the queue without consuming "
+                    "an attempt",
+                    claimed.job.id,
+                )
+            return
         try:
             installed_contract = review_contract.load_installed_contract()
         except review_contract.ReviewContractError as exc:

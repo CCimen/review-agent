@@ -1718,6 +1718,10 @@ All values are optional and have deployable defaults:
   defaults `120` / `30`. Keep the heartbeat below half the lease.
 - `REVIEW_AGENT_HERMES_TIMEOUT_SECONDS` — default `7200`. Maximum duration of
   one Hermes request.
+- `REVIEW_AGENT_WORKER_TERMINATION_GRACE_SECONDS` — default `150` for Compose.
+  OpenShift uses the matching `WORKER_TERMINATION_GRACE_SECONDS` template
+  parameter. This is the maximum drain before the platform force-terminates a
+  worker; it is deliberately independent of the longer review timeout.
 - `REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS` — default `3`. Attempt budget frozen
   with each publication before the publisher claims it.
 - `REVIEW_AGENT_PUBLICATION_LEASE_SECONDS` /
@@ -1748,6 +1752,38 @@ worker replicas × (worker concurrency + 1)
 
 Pools open connections on demand. Keep the configured maximum below the
 database limit with headroom for maintenance and monitoring.
+
+### Worker termination and lease recovery
+
+`SIGTERM` stops a worker from entering another claim cycle. A database claim
+already in flight may still commit. At the task-entry activation boundary, the
+worker checks the stop signal again. If stopping, it returns the exact live
+lease to the queue without consuming a review attempt and does not start Hermes
+for that job. If PostgreSQL is temporarily unavailable, Hermes still does not
+start and the lease enters the existing expiry recovery path. After the
+activation boundary, the review is active: the worker does not cancel or detach
+the active Hermes request and continues heartbeating that exact lease. A request
+that finishes within the platform grace completes normally. If it remains
+blocked, Compose or OpenShift force-terminates the process after the configured
+grace; the worker does not write a guessed terminal state.
+
+After process termination, the last heartbeat remains authoritative until its
+lease expires. Another worker checks for expired work at the recovery interval
+and either requeues it with a new lease generation or dead-letters an exhausted
+attempt. Recovery polling continues while every execution slot is occupied.
+For one abandoned lease, when PostgreSQL is healthy, at least one worker
+survives, and the bounded recovery batch has no backlog, the upper bound from
+`SIGTERM` to requeue or dead-letter processing is:
+
+```text
+termination grace + lease duration + recovery interval
+```
+
+With the defaults, this is `150 + 120 + 30 = 300 seconds`. From the actual
+force-termination point, the bound is 150 seconds. The old Hermes session may
+still finish upstream, but the generation fence rejects late writes after the
+job is reclaimed. Never shorten recovery by releasing a lease while that model
+call can still run.
 
 Use one database per environment. The example Compose network keeps PostgreSQL
 private and uses this service-local URL shape:

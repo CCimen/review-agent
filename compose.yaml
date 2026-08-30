@@ -245,7 +245,7 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=64m
-    stop_grace_period: 150s
+    stop_grace_period: "${REVIEW_AGENT_WORKER_TERMINATION_GRACE_SECONDS:-150}s"
     deploy:
       resources:
         limits:

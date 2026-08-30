@@ -781,6 +781,62 @@ class DocsContractTests(unittest.TestCase):
             with self.subTest(contract_value=contract_value):
                 self.assertIn(contract_value, operations)
 
+    def test_worker_shutdown_and_lease_recovery_form_one_bounded_policy(self):
+        compose = read("compose.yaml")
+        env_example = read(".env.example")
+        operations = read("docs/OPERATIONS.md")
+        openshift = read("examples/openshift/review-agent-template.yaml")
+        openshift_template = mapping(yaml.safe_load(openshift))
+        compose_worker = compose.split("\n  review-worker:\n", 1)[1].split(
+            "\n  review-github-gateway:", 1
+        )[0]
+        parameters = tuple(
+            mapping(item) for item in sequence(openshift_template["parameters"])
+        )
+        grace_parameter = next(
+            item
+            for item in parameters
+            if item.get("name") == "WORKER_TERMINATION_GRACE_SECONDS"
+        )
+        objects = tuple(
+            mapping(item) for item in sequence(openshift_template["objects"])
+        )
+        worker_deployment = next(
+            item
+            for item in objects
+            if mapping(item.get("metadata", {})).get("name")
+            == "review-agent-worker"
+        )
+        worker_pod = mapping(
+            mapping(mapping(worker_deployment["spec"])["template"])["spec"]
+        )
+
+        self.assertIn(
+            "REVIEW_AGENT_WORKER_TERMINATION_GRACE_SECONDS=150", env_example
+        )
+        self.assertIn(
+            'stop_grace_period: "${REVIEW_AGENT_WORKER_TERMINATION_GRACE_SECONDS:-150}s"',
+            compose_worker,
+        )
+        self.assertEqual(grace_parameter["value"], "150")
+        self.assertEqual(
+            worker_pod["terminationGracePeriodSeconds"],
+            "${{WORKER_TERMINATION_GRACE_SECONDS}}",
+        )
+        normalized_operations = " ".join(operations.split())
+        for contract_value in (
+            "does not cancel or detach the active Hermes request",
+            "claim already in flight may still commit",
+            "does not start Hermes for that job",
+            "without consuming a review attempt",
+            "Recovery polling continues while every execution slot is occupied",
+            "termination grace + lease duration + recovery interval",
+            "150 + 120 + 30 = 300 seconds",
+            "generation fence rejects late writes",
+        ):
+            with self.subTest(contract_value=contract_value):
+                self.assertIn(contract_value, normalized_operations)
+
     def test_app_runtime_uses_least_privilege_deployment(self):
         compose = read("compose.yaml")
         profile_section = compose.split("  review-profile-install:", 1)[1].split(

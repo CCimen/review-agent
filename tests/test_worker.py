@@ -214,6 +214,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             return None
 
         with (
+            patch.object(worker, "_recover_if_due"),
             patch.object(worker, "_claim", side_effect=claim),
             self.assertLogs("review_agent_tools.worker", level="WARNING") as logged,
         ):
@@ -246,6 +247,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             for job_id in range(1, 5)
         ]
         two_started = threading.Event()
+        recovery_while_full = threading.Event()
         release = threading.Event()
         lock = threading.Lock()
         active = 0
@@ -277,13 +279,19 @@ class WorkerBoundaryTests(unittest.TestCase):
             except BaseException as exc:  # pragma: no cover - asserted below
                 errors.append(exc)
 
+        def recover() -> None:
+            if two_started.is_set():
+                recovery_while_full.set()
+
         with (
+            patch.object(worker, "_recover_if_due", side_effect=recover),
             patch.object(worker, "_claim", side_effect=claim) as claim_job,
             patch.object(worker, "_execute", side_effect=execute),
         ):
             runner = threading.Thread(target=run_worker)
             runner.start()
             self.assertTrue(two_started.wait(timeout=2))
+            self.assertTrue(recovery_while_full.wait(timeout=2))
             self.assertEqual(claim_job.call_count, 2)
             release.set()
             runner.join(timeout=2)
@@ -338,6 +346,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 errors.append(exc)
 
         with (
+            patch.object(worker, "_recover_if_due"),
             patch.object(worker, "_claim", side_effect=claim) as claim_job,
             patch.object(worker, "_execute", side_effect=execute),
             self.assertLogs("review_agent_tools.worker", level="ERROR") as logged,
@@ -357,6 +366,152 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.assertIsInstance(errors[0], RuntimeError)
         self.assertIn("Review job 1 failed unexpectedly", "\n".join(logged.output))
 
+    def test_stop_keeps_a_blocked_hermes_review_leased_until_it_returns(
+        self,
+    ) -> None:
+        stop = threading.Event()
+        runtime = Mock(spec=PostgreSQLRuntime)
+        runtime.transaction.return_value = nullcontext(Mock())
+        client = Mock(spec=HermesChatClient)
+        worker = ReviewWorker(
+            runtime,
+            client,
+            replace(
+                self._policy(),
+                heartbeat_interval=timedelta(milliseconds=10),
+                lease_duration=timedelta(seconds=1),
+            ),
+            lease_owner="worker-test",
+            stop_event=stop,
+        )
+        claimed = self._claim(generation=1)
+        started = threading.Event()
+        release = threading.Event()
+        heartbeat_after_stop = threading.Event()
+        errors: list[BaseException] = []
+
+        def review(*_args: object, **_kwargs: object) -> None:
+            started.set()
+            release.wait()
+            raise HermesRequestError("termination probe", retryable=True)
+
+        def heartbeat(*_args: object, **_kwargs: object) -> jobs.ReviewJob:
+            if stop.is_set():
+                heartbeat_after_stop.set()
+            return claimed.job
+
+        client.review.side_effect = review
+
+        def run_worker() -> None:
+            try:
+                worker.run()
+            except BaseException as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        with (
+            patch.object(worker, "_recover_if_due"),
+            patch.object(worker, "_claim", return_value=claimed) as claim_job,
+            patch.object(jobs, "heartbeat_job", side_effect=heartbeat),
+            patch.object(jobs, "get_job", return_value=claimed.job),
+            patch.object(
+                review_run_application,
+                "fail_claimed_job_in_transaction",
+                return_value=Mock(
+                    job=Mock(status=jobs.ReviewJobStatus.QUEUED),
+                ),
+            ) as fail_job,
+            self.assertLogs("review_agent_tools.worker", level="INFO") as logged,
+        ):
+            runner = threading.Thread(target=run_worker)
+            runner.start()
+            try:
+                self.assertTrue(started.wait(timeout=2))
+                stop.set()
+                self.assertTrue(heartbeat_after_stop.wait(timeout=2))
+                self.assertTrue(runner.is_alive())
+                fail_job.assert_not_called()
+            finally:
+                release.set()
+                runner.join(timeout=2)
+
+        self.assertFalse(runner.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(claim_job.call_count, 1)
+        fail_job.assert_called_once()
+        self.assertIn("draining 1 active review", "\n".join(logged.output))
+
+    def test_stop_before_activation_requeues_without_starting_hermes(self) -> None:
+        for once in (False, True):
+            with self.subTest(once=once):
+                stop = threading.Event()
+                connection = Mock()
+                runtime = Mock(spec=PostgreSQLRuntime)
+                runtime.transaction.return_value = nullcontext(connection)
+                client = Mock(spec=HermesChatClient)
+                worker = ReviewWorker(
+                    runtime,
+                    client,
+                    self._policy(),
+                    lease_owner="worker-test",
+                    stop_event=stop,
+                )
+                claimed = replace(
+                    self._claim(generation=1),
+                    job=replace(
+                        self._claim(generation=1).job,
+                        attempt_count=1,
+                        max_attempts=1,
+                    ),
+                )
+                execute = worker._execute
+
+                def stop_before_activation(item: ClaimedReview) -> None:
+                    stop.set()
+                    execute(item)
+
+                with (
+                    patch.object(worker, "_recover_if_due"),
+                    patch.object(worker, "_claim", return_value=claimed),
+                    patch.object(
+                        worker,
+                        "_execute",
+                        side_effect=stop_before_activation,
+                    ),
+                    patch.object(jobs, "requeue_unstarted_job") as requeue,
+                    self.assertLogs(
+                        "review_agent_tools.worker", level="INFO"
+                    ) as logged,
+                ):
+                    worker.run(once=once)
+
+                client.review.assert_not_called()
+                requeue.assert_called_once_with(
+                    connection,
+                    job_id=claimed.job.id,
+                    lease_owner="worker-test",
+                    lease_generation=claimed.job.lease_generation,
+                )
+                self.assertIn(
+                    "returned review job 17 to the queue without consuming an attempt",
+                    "\n".join(logged.output),
+                )
+
+    def test_once_does_not_claim_when_already_stopped(self) -> None:
+        stop = threading.Event()
+        stop.set()
+        worker = ReviewWorker(
+            Mock(spec=PostgreSQLRuntime),
+            Mock(spec=HermesChatClient),
+            self._policy(),
+            lease_owner="worker-test",
+            stop_event=stop,
+        )
+
+        with patch.object(worker, "_claim") as claim:
+            worker.run(once=True)
+
+        claim.assert_not_called()
+
     def test_once_executes_only_one_review_at_higher_concurrency(self) -> None:
         worker = ReviewWorker(
             Mock(spec=PostgreSQLRuntime),
@@ -368,6 +523,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         claimed = self._claim(generation=1)
 
         with (
+            patch.object(worker, "_recover_if_due"),
             patch.object(worker, "_claim", return_value=claimed) as claim_job,
             patch.object(worker, "_execute") as execute,
         ):
@@ -400,6 +556,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             return None
 
         with (
+            patch.object(worker, "_recover_if_due"),
             patch.object(worker, "_claim", side_effect=claim),
             patch.object(
                 review_run_application,

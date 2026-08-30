@@ -615,6 +615,51 @@ def heartbeat_job(
     return _job(row)
 
 
+def requeue_unstarted_job(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    job_id: int,
+    lease_owner: str,
+    lease_generation: int,
+) -> ReviewJob:
+    """Return one exact pre-activation lease without consuming an attempt."""
+    _require_transaction(connection)
+    resolved_job_id = _integer(job_id, field="job_id", minimum=1)
+    owner = lease_owner.strip()
+    if not owner:
+        raise ReviewJobError("lease_owner is required")
+    generation = _integer(lease_generation, field="lease_generation", minimum=1)
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            UPDATE review_agent.review_jobs AS job
+            SET status = 'queued',
+                available_at = statement_timestamp(),
+                attempt_count = job.attempt_count - 1,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                last_heartbeat_at = NULL,
+                failure_code = NULL,
+                started_at = CASE
+                    WHEN job.attempt_count = 1 THEN NULL
+                    ELSE job.started_at
+                END,
+                completed_at = NULL
+            WHERE job.id = %s
+              AND job.status = 'leased'
+              AND job.lease_owner = %s
+              AND job.lease_generation = %s
+              AND job.attempt_count > 0
+              AND job.lease_expires_at > statement_timestamp()
+            RETURNING {_JOB_COLUMNS}
+            """,
+            (resolved_job_id, owner, generation),
+        ).fetchone()
+    if row is None:
+        raise ReviewJobLeaseLost(get_job(connection, resolved_job_id))
+    return _job(row)
+
+
 def fail_claimed_job(
     connection: psycopg.Connection[TupleRow],
     *,

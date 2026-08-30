@@ -592,12 +592,19 @@ or repository text, so scrub them before committing or sharing.
 
 ## Updating And Validation
 
-`HERMES_IMAGE` is pinned to the Hermes v2026.8.3 release tag and its immutable
+`HERMES_IMAGE` is pinned to the Hermes v2026.8.27 release tag and its immutable
 multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency
 bump. Never replace this with the moving `latest` or `main` tag.
 
-Hermes v2026.8.3 owns the supported provider integrations. The Review Agent
+The Review Agent image applies security updates available from the pinned
+base's Debian release at build time and replaces its `uv` binary from a second
+digest-pinned upstream image. The release workflow then scans each exact
+platform digest and smoke-tests the exact published amd64 image. Deploy a Review
+Agent release digest only after that workflow succeeds; do not treat a repeated
+source build as an immutable deployment identity.
+
+Hermes v2026.8.27 owns the supported provider integrations. The Review Agent
 renders the deployment-selected provider, model, and effort into managed config
 so runtime behavior does not depend on a mutable interactive choice. A
 controlled review after deployment is the final proof that the provider

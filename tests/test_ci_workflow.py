@@ -215,6 +215,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("SCAN_OUTCOME", mapping(enforce["env"]))
         enforce_command = str(enforce["run"])
         self.assertIn("scripts/check_trivy_report.py", enforce_command)
+        self.assertNotIn("--critical-exceptions", enforce_command)
         for manifest in (
             "requirements.txt",
             "install/package-lock.json",
@@ -467,6 +468,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}", source)
         self.assertIn("subject-path: release-sbom/*", source)
         self.assertIn("gh release upload", source)
+        self.assertIn("gh release edit", source)
         self.assertIn("--clobber", source)
 
         upload = named_step(evidence, "Upload release evidence")
@@ -495,6 +497,16 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("SOURCE-SHA.txt", verify_command)
         self.assertIn("${{ needs.verify.outputs.source_sha }}", str(verify["env"]))
         self.assertIn("${{ needs.publish.outputs.image_digest }}", str(verify["env"]))
+        update_summary = named_step(
+            sbom,
+            "Update release vulnerability summary",
+        )
+        update_command = str(update_summary["run"])
+        self.assertIn("gh release view", update_command)
+        self.assertIn("review-agent-vulnerability-summary:start", update_command)
+        self.assertIn("review-agent-vulnerability-summary:end", update_command)
+        self.assertIn("release-sbom/VULNERABILITY-SUMMARY.md", update_command)
+        self.assertIn("gh release edit", update_command)
         sbom_step_names = [
             str(mapping(step).get("name", "")) for step in sequence(sbom["steps"])
         ]
@@ -503,9 +515,82 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             sbom_step_names.index("Attest release inventories"),
         )
         self.assertLess(
-            sbom_step_names.index("Verify release evidence"),
+            sbom_step_names.index("Attest release inventories"),
             sbom_step_names.index("Attach inventories to release"),
         )
+        self.assertLess(
+            sbom_step_names.index("Attach inventories to release"),
+            sbom_step_names.index("Update release vulnerability summary"),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            fake_bin = temporary / "bin"
+            fake_bin.mkdir()
+            fake_release_body = temporary / "release-body.md"
+            original_notes = "## Existing release notes\n\nKeep this paragraph exactly.\n"
+            fake_release_body.write_text(original_notes, encoding="utf-8")
+            release_evidence = temporary / "release-sbom"
+            release_evidence.mkdir()
+            summary = textwrap.dedent(
+                """\
+                <!-- review-agent-vulnerability-summary:start -->
+                ## Vulnerability policy
+
+                No unapproved release-image vulnerability blocks remain.
+                <!-- review-agent-vulnerability-summary:end -->
+                """
+            )
+            (release_evidence / "VULNERABILITY-SUMMARY.md").write_text(
+                summary,
+                encoding="utf-8",
+            )
+            fake_gh = fake_bin / "gh"
+            fake_gh.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -euo pipefail
+                    if [[ "$1 $2" == "release view" ]]; then
+                      cat "$FAKE_RELEASE_BODY"
+                      exit
+                    fi
+                    if [[ "$1 $2" == "release edit" ]]; then
+                      shift 3
+                      test "$1" = "--notes-file"
+                      cp "$2" "$FAKE_RELEASE_BODY"
+                      exit
+                    fi
+                    exit 2
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            update_environment = os.environ.copy()
+            update_environment.update(
+                {
+                    "FAKE_RELEASE_BODY": str(fake_release_body),
+                    "PATH": f"{fake_bin}{os.pathsep}{update_environment['PATH']}",
+                    "RELEASE_TAG": "v1.2.3",
+                }
+            )
+            updated_bodies: list[str] = []
+            for _ in range(2):
+                completed = subprocess.run(
+                    ["bash", "-c", f"set -euo pipefail\n{update_command}"],
+                    cwd=temporary,
+                    env=update_environment,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(0, completed.returncode, completed.stderr)
+                updated_bodies.append(
+                    fake_release_body.read_text(encoding="utf-8")
+                )
+            self.assertEqual(original_notes + "\n" + summary, updated_bodies[0])
+            self.assertEqual(updated_bodies[0], updated_bodies[1])
 
         expected_source = "a" * 40
         release_tag = "v1.2.3"
@@ -516,6 +601,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         checksum_assets = [
             "IMAGE-DIGESTS.txt",
             "SOURCE-SHA.txt",
+            "VULNERABILITY-POLICY.json",
+            "VULNERABILITY-SUMMARY.md",
             "review-agent-v1.2.3-linux-amd64.cyclonedx.json",
             "review-agent-v1.2.3-linux-amd64.spdx.json",
             "review-agent-v1.2.3-linux-amd64.table.txt",
@@ -760,6 +847,14 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         enforce_command = str(enforce["run"])
         self.assertIn("scripts/check_trivy_report.py", enforce_command)
         self.assertIn(
+            "--critical-exceptions release-image-critical-exceptions.json",
+            enforce_command,
+        )
+        self.assertIn(
+            "--markdown-output release-sbom/VULNERABILITY-SUMMARY.md",
+            enforce_command,
+        )
+        self.assertIn(
             "vulnerability-reports/vulnerability-linux-amd64.json",
             enforce_command,
         )
@@ -772,10 +867,29 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         self.assertIn("SBOM-SHA256SUMS.txt", evidence)
         self.assertIn("SOURCE-SHA.txt", evidence)
+        self.assertIn("VULNERABILITY-POLICY.json", evidence)
+        self.assertIn("VULNERABILITY-SUMMARY.md", evidence)
+
+        smoke = named_step(
+            evidence_job,
+            "Smoke exact linux/amd64 release image",
+        )
+        self.assertEqual(
+            'bash ./scripts/check_image.sh "$AMD64_IMAGE"',
+            str(smoke["run"]),
+        )
 
         self.assertLess(
             step_names.index("Generate release inventories"),
             step_names.index("Record release platform digests"),
+        )
+        self.assertLess(
+            step_names.index("Record release platform digests"),
+            step_names.index("Smoke exact linux/amd64 release image"),
+        )
+        self.assertLess(
+            step_names.index("Smoke exact linux/amd64 release image"),
+            step_names.index("Scan linux/amd64 image vulnerabilities"),
         )
         self.assertLess(
             step_names.index("Enforce image vulnerability policy"),

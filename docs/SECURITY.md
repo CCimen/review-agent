@@ -122,13 +122,21 @@ Every JSON report the scanner produces is retained.
 
 The policy is intentionally small:
 
-- every critical vulnerability blocks;
-- a high vulnerability blocks when the scanner reports an available fixed
-  version;
-- an unfixed high vulnerability remains visible in the report but does not make
-  an otherwise unremediable build fail;
-- scanner suppressions are disabled. An exception requires a separate reviewed
-  policy change, not an inline ignore entry.
+- every critical vulnerability blocks by default;
+- a high vulnerability blocks when the scanner reports an available fix;
+- an unfixed high vulnerability remains visible in the report;
+- the release-image gate may accept only the exact critical package identities
+  in `release-image-critical-exceptions.json`. That reviewed file has one
+  release-only scope and expiry date. A new ID, package version, unused entry,
+  available fix, or expired review window fails closed;
+- scanner suppressions are disabled. The exception file does not hide findings:
+  the exact reports, machine-readable policy receipt, and generated human
+  summary remain release evidence.
+
+The write-authorized evidence job appends the generated summary to the release
+notes only after the exact platform scans pass and the attested evidence files
+are attached. A release image is not qualified for deployment until this job
+succeeds.
 
 Source reports remain available as workflow artifacts for 30 days. Successful
 release reports are checksummed, attested, and attached to the GitHub release;

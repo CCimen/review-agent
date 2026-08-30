@@ -26,6 +26,10 @@ the matching GHCR image only after you publish the GitHub release.
   not tested, state that rollback is limited to a forward fix or backup restore.
 - Keep known validation gaps in the release notes. A prerelease must not claim
   production scale that the pilot did not exercise.
+- Review `release-image-critical-exceptions.json`. The shared gate blocks every
+  critical finding by default and every high finding with an available fix.
+  The release-only file may accept exact unfixed critical package versions for
+  a bounded period; unknown, changed, stale, or expired findings still fail.
 
 Run the local candidate checks once. These supplement, but do not replace, the
 canonical quality gate that the release workflow reruns against the exact
@@ -55,13 +59,16 @@ git diff --check
    retain its reports for triage and do not deploy the affected digest. Evidence
    generation and scanning have read-only repository and package access. Only
    after those checks pass does a separate job verify the closed file set,
-   checksums, source SHA, and published image digest, then attest and attach the
-   files.
+   checksums, source SHA, and published image digest, attest and attach the
+   files, then update the release notes with the generated vulnerability
+   summary. The exact published amd64 digest also passes the normal runtime
+   image smoke contract before the release is qualified for deployment.
    A prerelease does not update `latest`.
 4. Confirm the release contains per-platform CycloneDX JSON, SPDX JSON, and
    readable tables; the focused Python-runtime CycloneDX file; both
-   `vulnerability-linux-*.json` reports; `IMAGE-DIGESTS.txt`; `SOURCE-SHA.txt`;
-   and `SBOM-SHA256SUMS.txt`. Confirm
+   `vulnerability-linux-*.json` reports; `VULNERABILITY-POLICY.json`;
+   `VULNERABILITY-SUMMARY.md`; `IMAGE-DIGESTS.txt`; `SOURCE-SHA.txt`; and
+   `SBOM-SHA256SUMS.txt`. Confirm
    `ghcr.io/ccimen/review-agent:<tag>` resolves to the recorded workflow digest.
    Make the package public in GitHub Package settings if anonymous pulls are
    part of the release.
@@ -72,7 +79,8 @@ git diff --check
    sha256sum --check SBOM-SHA256SUMS.txt
    ```
 
-6. Deploy the immutable digest to the pilot. Run `doctor`, queue inspection,
+6. Deploy the immutable digest only after the full release workflow succeeds
+   and the generated vulnerability summary is visible. Run `doctor`, queue inspection,
    repository inventory, a dry-run smoke test, and one owner-approved `/review`.
 
 ## Roll back

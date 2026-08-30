@@ -1146,7 +1146,7 @@ class DocsContractTests(unittest.TestCase):
             1
         ].split("  - apiVersion: networking.k8s.io/v1", 1)[0]
 
-        digest = "nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e"
+        digest = "nousresearch/hermes-agent:v2026.8.27@sha256:e0df6adebddf29b91112aefc999d4aaf6846c9eb544faca5672a16a13590ff79"
         self.assertIn(digest, compose)
         self.assertIn(digest, env_example)
         self.assertIn(digest, dockerfile)

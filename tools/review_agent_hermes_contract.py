@@ -55,7 +55,14 @@ def main() -> int:
     )
     _require(
         registry,
-        "def dispatch(self, name: str, args: dict, **kwargs)",
+        "def dispatch(\n"
+        "        self,\n"
+        "        name: str,\n"
+        "        args: dict,\n"
+        "        *,\n"
+        "        scope: Optional[str] = None,\n"
+        "        **kwargs,\n"
+        "    ) -> str | dict:",
         "the registry must receive forwarded tool context as kwargs",
     )
     _require(

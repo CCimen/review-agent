@@ -878,6 +878,69 @@ class ToolContractTests(unittest.TestCase):
         )
         source.assert_not_called()
 
+    def test_delivery_preserves_primary_error_when_failure_state_write_fails(
+        self,
+    ) -> None:
+        runtime = self._runtime()
+        source = SimpleNamespace(
+            run_id=41,
+            lease=SimpleNamespace(job_id=7, lease_generation=3),
+        )
+        pull = {"state": "open", "head": {"sha": "b" * 40}}
+        secret_detail = "postgresql://operator:secret@example.test/reviews"
+        with (
+            patch.object(
+                review_delivery_tool,
+                "gateway_source_session",
+                return_value=source,
+            ),
+            patch.object(
+                review_delivery_tool,
+                "pull_request_identity",
+                return_value=(self.repository, 7, pull),
+            ),
+            patch.object(
+                review_delivery_tool,
+                "postgres_runtime",
+                return_value=runtime,
+            ),
+            patch.object(
+                review_run_application,
+                "load_live_run_state",
+                return_value=SimpleNamespace(phase="reviewing"),
+            ),
+            patch.object(
+                review_delivery_tool,
+                "review_run_snapshot",
+                side_effect=review_tool_runtime.ToolInputError(
+                    "primary review failure"
+                ),
+            ),
+            patch.object(
+                review_tool_runtime,
+                "postgres_runtime",
+                return_value=runtime,
+            ),
+            patch.object(
+                review_tool_runtime.review_run_application,
+                "fail_live_run",
+                side_effect=RuntimeError(secret_detail),
+            ),
+            self.assertLogs(
+                "review_agent_tools.review_tool_runtime",
+                level="ERROR",
+            ) as logged,
+        ):
+            result = json.loads(
+                review_delivery_tool.review_deliver.__wrapped__({"run_id": 41})
+            )
+
+        self.assertEqual(result["error"], "primary review failure")
+        rendered_logs = "\n".join(logged.output)
+        self.assertIn("run_id=41", rendered_logs)
+        self.assertIn("failure_code=review_deliver_error", rendered_logs)
+        self.assertNotIn(secret_detail, rendered_logs)
+
     def test_plugin_manifest_and_registered_handlers_have_one_owner(self) -> None:
         registry = _FakeRegistry()
         with patch.object(

@@ -326,7 +326,13 @@ def mark_run_failed(
             findings_count=findings_count,
             failure_code=failure_code,
         )
-    except Exception:
-        # The primary error is returned to the caller. A best-effort run state
-        # update must not mask the root cause.
-        pass
+    except Exception as exc:
+        # Keep the primary tool error public while making lost durable state
+        # visible without serializing provider or database exception details.
+        logger.error(
+            "Review run failure state could not be persisted: "
+            "run_id=%d failure_code=%s error_type=%s",
+            run_id,
+            failure_code,
+            type(exc).__name__,
+        )

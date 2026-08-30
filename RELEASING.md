@@ -52,12 +52,16 @@ git diff --check
    smoke, or dependency check blocks publication. The workflow
    creates registry SBOM and provenance attestations, then scans both exact
    published platform digests. A failed platform scan fails the release workflow;
-   retain its reports for triage and do not deploy the affected digest. A
-   prerelease does not update `latest`.
+   retain its reports for triage and do not deploy the affected digest. Evidence
+   generation and scanning have read-only repository and package access. Only
+   after those checks pass does a separate job verify the closed file set,
+   checksums, source SHA, and published image digest, then attest and attach the
+   files.
+   A prerelease does not update `latest`.
 4. Confirm the release contains per-platform CycloneDX JSON, SPDX JSON, and
    readable tables; the focused Python-runtime CycloneDX file; both
-   `vulnerability-linux-*.json` reports; `IMAGE-DIGESTS.txt`; and
-   `SBOM-SHA256SUMS.txt`. Confirm
+   `vulnerability-linux-*.json` reports; `IMAGE-DIGESTS.txt`; `SOURCE-SHA.txt`;
+   and `SBOM-SHA256SUMS.txt`. Confirm
    `ghcr.io/ccimen/review-agent:<tag>` resolves to the recorded workflow digest.
    Make the package public in GitHub Package settings if anonymous pulls are
    part of the release.

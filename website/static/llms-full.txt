@@ -2705,6 +2705,13 @@ If setup or transport fails before a report exists, the gate still fails and the
 diagnostic remains in the workflow log. A report records the vulnerability data
 available at scan time, so reruns can change as the database is updated.
 
+Evidence generation and scanning run with read-only repository and package
+access. A separate write-authorized job receives the successful workflow
+artifact, accepts only the expected release files, and verifies every listed
+checksum, the exact release source SHA, and the published image digest. It then
+attests and attaches the files. A failed scan or invalid handoff therefore cannot
+reach the release write boundary.
+
 Other deterministic controls can remain independent where the organization uses
 them:
 
@@ -2727,7 +2734,9 @@ published image digests, not from a source lockfile:
 - a focused CycloneDX 1.7 inventory of the Python packages installed in the
   shipped `linux/amd64` Hermes environment;
 - the image digests, per-platform Trivy reports, and SHA-256 checksums for every
-  attached evidence file.
+  attached evidence file;
+- `SOURCE-SHA.txt`, which binds the evidence handoff to the verified release
+  source.
 
 The image inventories describe the whole shipped container. The focused Python
 inventory makes application dependencies easier to inspect. BuildKit's

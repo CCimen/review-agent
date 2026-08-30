@@ -124,16 +124,14 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-  sbom:
+  evidence:
+    name: Generate and scan release evidence
     needs: [verify, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
       packages: read
-      attestations: write
-      artifact-metadata: write
-      id-token: write
     steps:
       - name: Check out verified source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -227,19 +225,110 @@ jobs:
             vulnerability-reports/vulnerability-linux-arm64.json
 
       - name: Add scan reports to release evidence
+        env:
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
         run: |
+          printf '%s\n' "$SOURCE_SHA" > release-sbom/SOURCE-SHA.txt
           cp vulnerability-reports/*.json release-sbom/
           (
             cd release-sbom
-            sha256sum -- vulnerability-*.json >> SBOM-SHA256SUMS.txt
+            sha256sum -- SOURCE-SHA.txt vulnerability-*.json \
+              >> SBOM-SHA256SUMS.txt
           )
 
-      - name: Upload workflow artifact
+      - name: Upload release evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-sbom-${{ github.event.release.tag_name }}
           path: release-sbom/*
           if-no-files-found: error
+
+  sbom:
+    name: Attest and attach release evidence
+    needs: [verify, publish, evidence]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      attestations: write
+      artifact-metadata: write
+      id-token: write
+    steps:
+      - name: Download verified release evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-sbom-${{ github.event.release.tag_name }}
+          path: release-sbom
+          digest-mismatch: error
+
+      - name: Verify release evidence
+        env:
+          EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+        run: |
+          expected_files=(
+            IMAGE-DIGESTS.txt
+            SBOM-SHA256SUMS.txt
+            SOURCE-SHA.txt
+            "review-agent-${RELEASE_TAG}-linux-amd64.cyclonedx.json"
+            "review-agent-${RELEASE_TAG}-linux-amd64.spdx.json"
+            "review-agent-${RELEASE_TAG}-linux-amd64.table.txt"
+            "review-agent-${RELEASE_TAG}-linux-arm64.cyclonedx.json"
+            "review-agent-${RELEASE_TAG}-linux-arm64.spdx.json"
+            "review-agent-${RELEASE_TAG}-linux-arm64.table.txt"
+            "review-agent-python-runtime-${RELEASE_TAG}-linux-amd64.cyclonedx.json"
+            vulnerability-linux-amd64.json
+            vulnerability-linux-arm64.json
+          )
+          checksum_files=(
+            IMAGE-DIGESTS.txt
+            SOURCE-SHA.txt
+            "${expected_files[@]:3}"
+          )
+          diff -u \
+            <(printf '%s\n' "${expected_files[@]}" | LC_ALL=C sort) \
+            <(
+              for path in release-sbom/* release-sbom/.[!.]* release-sbom/..?*; do
+                if [[ -e "$path" || -L "$path" ]]; then
+                  printf '%s\n' "${path##*/}"
+                fi
+              done | LC_ALL=C sort
+            )
+
+          checksum_manifest=release-sbom/SBOM-SHA256SUMS.txt
+          if grep -Ev '^[0-9a-f]{64}  [A-Za-z0-9._-]+$' \
+            "$checksum_manifest" >/dev/null; then
+            echo "Release evidence checksum manifest is malformed." >&2
+            exit 1
+          fi
+          diff -u \
+            <(printf '%s\n' "${checksum_files[@]}" | LC_ALL=C sort) \
+            <(cut -d ' ' -f3 "$checksum_manifest" | LC_ALL=C sort)
+
+          test "$(cat release-sbom/SOURCE-SHA.txt)" = "$SOURCE_SHA"
+          [[ "$EXPECTED_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          repository="$(printf '%s' "$GITHUB_REPOSITORY" \
+            | tr '[:upper:]' '[:lower:]')"
+          image_name="ghcr.io/$repository"
+          digest_lines=()
+          while IFS= read -r line; do
+            digest_lines+=("$line")
+          done < release-sbom/IMAGE-DIGESTS.txt
+          test "${#digest_lines[@]}" -eq 3
+          test "${digest_lines[0]}" = \
+            "review-agent manifest ${image_name}:${RELEASE_TAG} ${image_name}@${EXPECTED_IMAGE_DIGEST}"
+          for index_and_architecture in "1 amd64" "2 arm64"; do
+            read -r index architecture <<<"$index_and_architecture"
+            prefix="review-agent linux/${architecture} ${image_name}:${RELEASE_TAG} ${image_name}@sha256:"
+            [[ "${digest_lines[$index]}" == "$prefix"* ]]
+            digest="${digest_lines[$index]#"$prefix"}"
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          done
+          (
+            cd release-sbom
+            sha256sum --check SBOM-SHA256SUMS.txt
+          )
 
       - name: Attest release inventories
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6

@@ -296,6 +296,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         verify = mapping(jobs["verify"])
         quality = mapping(jobs["quality"])
         publish = mapping(jobs["publish"])
+        evidence = mapping(jobs["evidence"])
         sbom = mapping(jobs["sbom"])
 
         self.assertEqual({"verify"}, needs(quality))
@@ -304,7 +305,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertNotIn("secrets", quality)
         self.assertEqual({"verify", "quality"}, needs(publish))
         self.assertNotIn("if", publish)
-        self.assertEqual({"verify", "publish"}, needs(sbom))
+        self.assertEqual({"verify", "publish"}, needs(evidence))
+        self.assertEqual({"verify", "publish", "evidence"}, needs(sbom))
 
         self.assertEqual(
             {
@@ -317,8 +319,14 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             {
-                "contents": "write",
+                "contents": "read",
                 "packages": "read",
+            },
+            mapping(evidence["permissions"]),
+        )
+        self.assertEqual(
+            {
+                "contents": "write",
                 "attestations": "write",
                 "artifact-metadata": "write",
                 "id-token": "write",
@@ -350,7 +358,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         for job, step_name in (
             (publish, "Check out verified source"),
-            (sbom, "Check out verified source"),
+            (evidence, "Check out verified source"),
         ):
             self.assertEqual(
                 "${{ needs.verify.outputs.source_sha }}",
@@ -449,17 +457,184 @@ class PythonBundleWorkflowTests(unittest.TestCase):
     def test_release_workflow_attaches_immutable_release_sboms(self):
         source = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         jobs = mapping(workflow(RELEASE_WORKFLOW)["jobs"])
+        evidence = mapping(jobs["evidence"])
+        sbom = mapping(jobs["sbom"])
 
-        self.assertEqual({"verify", "publish"}, needs(mapping(jobs["sbom"])))
+        self.assertEqual({"verify", "publish"}, needs(evidence))
+        self.assertEqual({"verify", "publish", "evidence"}, needs(sbom))
         self.assertIn("image_digest: ${{ steps.push.outputs.digest }}", source)
-        self.assertIn("contents: write", source)
-        self.assertIn("packages: read", source)
-        self.assertIn("artifact-metadata: write", source)
         self.assertIn("scripts/generate_release_sbom.sh", source)
         self.assertIn("EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}", source)
         self.assertIn("subject-path: release-sbom/*", source)
         self.assertIn("gh release upload", source)
         self.assertIn("--clobber", source)
+
+        upload = named_step(evidence, "Upload release evidence")
+        self.assertRegex(
+            str(upload["uses"]),
+            r"^actions/upload-artifact@[0-9a-f]{40}$",
+        )
+        self.assertEqual(
+            "release-sbom-${{ github.event.release.tag_name }}",
+            mapping(upload["with"])["name"],
+        )
+        download = named_step(sbom, "Download verified release evidence")
+        self.assertRegex(
+            str(download["uses"]),
+            r"^actions/download-artifact@[0-9a-f]{40}$",
+        )
+        self.assertEqual(
+            mapping(upload["with"])["name"],
+            mapping(download["with"])["name"],
+        )
+        self.assertEqual("release-sbom", mapping(download["with"])["path"])
+        self.assertEqual("error", mapping(download["with"])["digest-mismatch"])
+        verify = named_step(sbom, "Verify release evidence")
+        verify_command = str(verify["run"])
+        self.assertIn("sha256sum --check SBOM-SHA256SUMS.txt", verify_command)
+        self.assertIn("SOURCE-SHA.txt", verify_command)
+        self.assertIn("${{ needs.verify.outputs.source_sha }}", str(verify["env"]))
+        self.assertIn("${{ needs.publish.outputs.image_digest }}", str(verify["env"]))
+        sbom_step_names = [
+            str(mapping(step).get("name", "")) for step in sequence(sbom["steps"])
+        ]
+        self.assertLess(
+            sbom_step_names.index("Verify release evidence"),
+            sbom_step_names.index("Attest release inventories"),
+        )
+        self.assertLess(
+            sbom_step_names.index("Verify release evidence"),
+            sbom_step_names.index("Attach inventories to release"),
+        )
+
+        expected_source = "a" * 40
+        release_tag = "v1.2.3"
+        image_name = "ghcr.io/example/review-agent"
+        manifest_digest = "sha256:" + "c" * 64
+        amd64_digest = "sha256:" + "d" * 64
+        arm64_digest = "sha256:" + "e" * 64
+        checksum_assets = [
+            "IMAGE-DIGESTS.txt",
+            "SOURCE-SHA.txt",
+            "review-agent-v1.2.3-linux-amd64.cyclonedx.json",
+            "review-agent-v1.2.3-linux-amd64.spdx.json",
+            "review-agent-v1.2.3-linux-amd64.table.txt",
+            "review-agent-v1.2.3-linux-arm64.cyclonedx.json",
+            "review-agent-v1.2.3-linux-arm64.spdx.json",
+            "review-agent-v1.2.3-linux-arm64.table.txt",
+            "review-agent-python-runtime-v1.2.3-linux-amd64.cyclonedx.json",
+            "vulnerability-linux-amd64.json",
+            "vulnerability-linux-arm64.json",
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            release_evidence = temporary / "release-sbom"
+            release_evidence.mkdir()
+            for asset in checksum_assets:
+                (release_evidence / asset).write_text("{}\n", encoding="utf-8")
+            (release_evidence / "SOURCE-SHA.txt").write_text(
+                expected_source + "\n",
+                encoding="utf-8",
+            )
+            image_digests = release_evidence / "IMAGE-DIGESTS.txt"
+            image_digests.write_text(
+                textwrap.dedent(
+                    f"""\
+                    review-agent manifest {image_name}:{release_tag} {image_name}@{manifest_digest}
+                    review-agent linux/amd64 {image_name}:{release_tag} {image_name}@{amd64_digest}
+                    review-agent linux/arm64 {image_name}:{release_tag} {image_name}@{arm64_digest}
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            def refresh_checksums() -> None:
+                with (release_evidence / "SBOM-SHA256SUMS.txt").open(
+                    "w",
+                    encoding="utf-8",
+                ) as checksum_file:
+                    subprocess.run(
+                        ["sha256sum", "--", *checksum_assets],
+                        cwd=release_evidence,
+                        check=True,
+                        stdout=checksum_file,
+                    )
+
+            refresh_checksums()
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "GITHUB_REPOSITORY": "example/review-agent",
+                    "RELEASE_TAG": release_tag,
+                    "SOURCE_SHA": expected_source,
+                }
+            )
+            valid = subprocess.run(
+                ["bash", "-c", f"set -euo pipefail\n{verify_command}"],
+                cwd=temporary,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, valid.returncode, valid.stderr)
+
+            inventory = release_evidence / checksum_assets[2]
+            inventory.write_text('{"changed":true}\n', encoding="utf-8")
+            tampered = subprocess.run(
+                ["bash", "-c", f"set -euo pipefail\n{verify_command}"],
+                cwd=temporary,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, tampered.returncode)
+
+            inventory.write_text("{}\n", encoding="utf-8")
+            (release_evidence / "rogue.txt").write_text("unexpected\n", encoding="utf-8")
+            unexpected_asset = subprocess.run(
+                ["bash", "-c", f"set -euo pipefail\n{verify_command}"],
+                cwd=temporary,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, unexpected_asset.returncode)
+            (release_evidence / "rogue.txt").unlink()
+
+            environment["SOURCE_SHA"] = "b" * 40
+            wrong_source = subprocess.run(
+                ["bash", "-c", f"set -euo pipefail\n{verify_command}"],
+                cwd=temporary,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, wrong_source.returncode)
+
+            environment["SOURCE_SHA"] = expected_source
+            wrong_manifest_digest = "sha256:" + "f" * 64
+            image_digests.write_text(
+                image_digests.read_text(encoding="utf-8").replace(
+                    manifest_digest,
+                    wrong_manifest_digest,
+                ),
+                encoding="utf-8",
+            )
+            refresh_checksums()
+            wrong_image = subprocess.run(
+                ["bash", "-c", f"set -euo pipefail\n{verify_command}"],
+                cwd=temporary,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(0, wrong_image.returncode)
 
         self.assertTrue(RELEASE_SBOM.is_file())
         release_sbom = RELEASE_SBOM.read_text(encoding="utf-8")
@@ -494,11 +669,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
 
     def test_release_vulnerability_gate_scans_each_exact_platform_digest(self):
         jobs = mapping(workflow(RELEASE_WORKFLOW)["jobs"])
-        sbom = mapping(jobs["sbom"])
-        steps = [mapping(step) for step in sequence(sbom["steps"])]
+        evidence_job = mapping(jobs["evidence"])
+        steps = [mapping(step) for step in sequence(evidence_job["steps"])]
         step_names = [str(step.get("name", "")) for step in steps]
 
-        record = named_step(sbom, "Record release platform digests")
+        record = named_step(evidence_job, "Record release platform digests")
         record_command = str(record["run"])
         self.assertIn("release-sbom/IMAGE-DIGESTS.txt", record_command)
         self.assertIn("linux/amd64", record_command)
@@ -557,7 +732,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             ),
         )
         for name, image_ref, report in scans:
-            scan = named_step(sbom, name)
+            scan = named_step(evidence_job, name)
             self.assertRegex(
                 str(scan["uses"]),
                 r"^aquasecurity/trivy-action@[0-9a-f]{40}$",
@@ -570,13 +745,13 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             self.assertEqual(report, inputs["output"])
             self.assertEqual("v0.74.0", inputs["version"])
 
-        retain = named_step(sbom, "Retain image vulnerability reports")
+        retain = named_step(evidence_job, "Retain image vulnerability reports")
         self.assertEqual("${{ always() }}", retain["if"])
         self.assertEqual(
             "vulnerability-reports/*.json",
             mapping(retain["with"])["path"],
         )
-        enforce = named_step(sbom, "Enforce image vulnerability policy")
+        enforce = named_step(evidence_job, "Enforce image vulnerability policy")
         self.assertEqual("${{ always() }}", enforce["if"])
         self.assertEqual(
             {"AMD64_SCAN_OUTCOME", "ARM64_SCAN_OUTCOME"},
@@ -592,8 +767,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "vulnerability-reports/vulnerability-linux-arm64.json",
             enforce_command,
         )
-        evidence = str(named_step(sbom, "Add scan reports to release evidence")["run"])
+        evidence = str(
+            named_step(evidence_job, "Add scan reports to release evidence")["run"]
+        )
         self.assertIn("SBOM-SHA256SUMS.txt", evidence)
+        self.assertIn("SOURCE-SHA.txt", evidence)
 
         self.assertLess(
             step_names.index("Generate release inventories"),
@@ -601,7 +779,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         self.assertLess(
             step_names.index("Enforce image vulnerability policy"),
-            step_names.index("Attest release inventories"),
+            step_names.index("Upload release evidence"),
         )
 
     def test_release_sbom_generation_uses_only_immutable_digests(self):

@@ -81,6 +81,79 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Dispatch **Publish documentation**", words(release))
         self.assertIn("* @CCimen", codeowners)
 
+    def test_production_upgrade_drains_before_migration_and_bounds_rollback(self):
+        deployment = read("docs/DEPLOYMENT.md")
+        release = read("RELEASING.md")
+        release_rollback = release.split("## Roll back", 1)[1]
+        normalized_release_rollback = words(release_rollback)
+        upgrade = deployment.split("## Upgrade and roll back production", 1)[1]
+        compose = upgrade.split(
+            '<TabItem value="compose-upgrade" label="Compose">', 1
+        )[1].split("</TabItem>", 1)[0]
+        dokploy = upgrade.split(
+            '<TabItem value="dokploy-upgrade" label="Dokploy">', 1
+        )[1].split("</TabItem>", 1)[0]
+        openshift = upgrade.split(
+            '<TabItem value="openshift-upgrade" label="OpenShift">', 1
+        )[1].split("</TabItem>", 1)[0]
+
+        self.assertIn(
+            "ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>",
+            deployment,
+        )
+        self.assertIn("store the resulting repository digest", deployment)
+        self.assertIn("bash -euo pipefail <<'COMPOSE_UPGRADE'", compose)
+        compose_steps = (
+            "docker compose stop $APP_SERVICES",
+            'running="$(docker compose ps --status running --services)"',
+            "docker compose run --rm --no-deps --no-build review-profile-install",
+            "docker compose run --rm --no-deps --no-build review-db-migrate",
+            "docker compose up -d --no-deps --no-build --force-recreate",
+            "docker compose exec hermes-review review-agent-admin doctor",
+        )
+        self.assertEqual(
+            tuple(sorted(compose.index(step) for step in compose_steps)),
+            tuple(compose.index(step) for step in compose_steps),
+        )
+
+        self.assertIn("`--no-build --pull always`", dokploy)
+        self.assertNotIn("up -d --build", dokploy)
+
+        self.assertIn("bash -euo pipefail <<'OPENSHIFT_UPGRADE'", openshift)
+        openshift_steps = (
+            'oc scale deployment "${DEPLOYMENTS[@]}" --replicas=0',
+            'pods="$(oc get pods',
+            "oc wait --for=delete $pods",
+            "oc delete job review-agent-profile-install",
+            "oc process -f examples/openshift/review-agent-template.yaml",
+            "oc wait --for=condition=complete job/review-agent-profile-install",
+            "oc scale deployment/hermes-review",
+            'oc rollout status "deployment/$deployment"',
+            "oc scale deployment/review-agent-admission",
+            "for deployment in review-agent-admission",
+            "oc rsh deployment/hermes-review review-agent-admin doctor",
+        )
+        self.assertEqual(
+            tuple(sorted(openshift.index(step) for step in openshift_steps)),
+            tuple(openshift.index(step) for step in openshift_steps),
+        )
+
+        for evidence in (
+            "exact prior Review Agent digest",
+            "post-migration schema version",
+            "restored copy",
+            "forward fix or backup restore",
+        ):
+            self.assertIn(evidence, release)
+        self.assertIn("exact verified rollback digest", normalized_release_rollback)
+        self.assertIn(
+            "forward fix or verified backup restore", normalized_release_rollback
+        )
+        self.assertNotIn("Redeploy the previous image digest", release_rollback)
+        self.assertIn("exact prior Review Agent digest", deployment)
+        self.assertIn("receipt is absent", deployment)
+        self.assertIn("expand-first sequence", deployment)
+
     def test_feedback_quality_docs_use_explicit_denominators_and_human_triage(self):
         feedback = read("docs/FEEDBACK_AND_DECISIONS.md")
         operations = read("docs/OPERATIONS.md")

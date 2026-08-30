@@ -16,8 +16,13 @@ the matching GHCR image only after you publish the GitHub release.
   files, and commit them before tagging.
 - Confirm the documentation workflow passed on the release commit. Dispatch
   **Publish documentation** when path filters did not start it.
-- Record the pilot deployment, one dry run, one published review, backup owner,
-  and rollback target without copying secrets.
+- Record the pilot deployment, one dry run, one published review, and backup
+  owner without copying secrets.
+- Record one exact prior Review Agent digest as the rollback target, the
+  post-migration schema version from `review-agent-admin database ready`, and a
+  receipt showing that prior digest passes `database ready`, `doctor`, and the
+  smoke test against a restored copy of the post-migration database. If this was
+  not tested, state that rollback is limited to a forward fix or backup restore.
 - Keep known validation gaps in the release notes. A prerelease must not claim
   production scale that the pilot did not exercise.
 
@@ -64,9 +69,11 @@ git diff --check
 
 ## Roll back
 
-Redeploy the previous image digest. Disable repository admission if the failure
-affects authorization or publication. Preserve PostgreSQL and Hermes volumes;
-follow the database recovery runbook instead of reversing migrations by hand.
+Redeploy only the exact verified rollback digest recorded in the release
+evidence above. If no verified target exists, use a forward fix or verified
+backup restore. Disable repository admission if the failure affects
+authorization or publication. Preserve PostgreSQL and Hermes volumes; follow
+the database recovery runbook instead of reversing migrations by hand.
 
 Promote a later build to a stable release only after the owner accepts the live
 scale, recovery, documentation, and support evidence.

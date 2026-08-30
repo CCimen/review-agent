@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
 status: current
-last_verified: 2026-08-27
+last_verified: 2026-08-30
 ---
 
 import Tabs from '@theme/Tabs';
@@ -56,22 +56,37 @@ secret as a GitHub token or database password.
 
 For local development, keep `REVIEW_AGENT_IMAGE=review-agent:local` and start
 Compose with `--build`. Each published release also creates one attested
-`linux/amd64` and `linux/arm64` image in GitHub Container Registry. Use the exact
-release tag in deployments:
+`linux/amd64` and `linux/arm64` image in GitHub Container Registry. Production
+deployments must use the manifest digest from the release's
+`IMAGE-DIGESTS.txt`, not a tag:
 
 ```bash
-export REVIEW_AGENT_IMAGE=ghcr.io/ccimen/review-agent:vX.Y.Z
+export REVIEW_AGENT_IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
 docker compose pull
-docker compose up -d --no-build
 ```
 
-`--no-build` prevents a missing pull from being replaced by a locally tagged
-working-tree build.
-
 Prereleases receive only their exact version tag. Stable releases also update
-`latest`; production deployments should still pin the exact version. GitHub
-creates the first package as private even for a public repository. After the
-first release, open **Packages > review-agent > Package settings > Change
+`latest`; production deployments should still pin the digest. Pin PostgreSQL as
+well. For a Compose deployment, resolve the selected PostgreSQL tag once and
+store the resulting repository digest as `POSTGRES_IMAGE`:
+
+```bash
+docker pull postgres:17-alpine
+export POSTGRES_IMAGE="$(
+  docker image inspect postgres:17-alpine \
+    --format '{{index .RepoDigests 0}}'
+)"
+printf 'Review Agent: %s\nPostgreSQL: %s\n' \
+  "$REVIEW_AGENT_IMAGE" "$POSTGRES_IMAGE"
+```
+
+Record both exact references with the deployment. The OpenShift template uses
+an external database, so its operator must pin and record that database image
+separately. Do not combine a PostgreSQL major-version change with a Review Agent
+upgrade.
+
+GitHub creates the first package as private even for a public repository. After
+the first release, open **Packages > review-agent > Package settings > Change
 visibility** to make anonymous pulls available. Public visibility cannot be
 reversed. See GitHub's guides to
 [publishing container images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)
@@ -149,6 +164,9 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    docker compose up -d --no-build
    ```
 
+   `--no-build` prevents a missing pull from being replaced by a locally tagged
+   working-tree build.
+
    Confirm the services started:
 
    ```bash
@@ -158,6 +176,13 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    In Dokploy, use **Deploy** after a source commit changes so the platform
    fetches the new revision. **Redeploy** can reuse the existing source
    checkout. Confirm the deployment shows the intended commit before testing.
+
+   Dokploy's default Compose command includes `--build`. For a released digest,
+   open **Advanced > Run Command**, copy the displayed default command, and
+   replace `--build` with `--no-build --pull always`. Keep Dokploy's existing
+   project name, Compose path, and `--remove-orphans` flag. Dokploy prefixes the
+   field with `docker`, so the saved command begins with `compose`. This keeps a
+   checkout from being built and tagged over the recorded release image.
 
 4. Route the review hostname to `review-admission:8644`.
 
@@ -238,7 +263,7 @@ then start the six long-running components:
 oc delete job review-agent-profile-install review-agent-db-migrate \
   --ignore-not-found
 oc process -f examples/openshift/review-agent-template.yaml \
-  -p IMAGE=ghcr.io/ccimen/review-agent:vX.Y.Z \
+  -p IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>' \
   -p WORKER_CONCURRENCY=4 | oc apply -f -
 oc wait --for=condition=complete job/review-agent-profile-install \
   job/review-agent-db-migrate --timeout=10m
@@ -249,9 +274,11 @@ oc scale deployment/hermes-review deployment/review-agent-admission \
 oc get route review-agent
 ```
 
-Delete only these completed initialization Jobs before an upgrade. Their pod
-templates are immutable, and recreating them makes the profile and migration
-checks run against the exact image being deployed.
+Delete only these completed initialization Jobs. Their pod templates are
+immutable, and recreating them makes the profile and migration checks run
+against the exact image being deployed. Follow
+[Upgrade and roll back production](#upgrade-and-roll-back-production) after the
+initial installation.
 
 Use `https://<route-host>/webhooks/github-app` as the App webhook URL. Connect
 the configured model provider inside Hermes once, then restart that deployment:
@@ -270,6 +297,160 @@ arbitrary UID under `restricted-v2`.
 
 </TabItem>
 </Tabs>
+
+## Upgrade and roll back production
+
+Before an upgrade, make a tested PostgreSQL backup as described in
+[Backup and recovery](./OPERATIONS.md#backup-and-recovery). Record the current
+and candidate Review Agent digests and the exact PostgreSQL digest. Keep the
+current PostgreSQL image during an application upgrade unless the database has
+its own reviewed maintenance plan.
+
+Drain every long-running Review Agent component before running a migration.
+This prevents an old process from writing against a schema that changed after
+its image was built.
+
+<Tabs groupId="upgrade-platform">
+<TabItem value="compose-upgrade" label="Compose">
+
+Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to the recorded digest references,
+then run:
+
+```bash
+bash -euo pipefail <<'COMPOSE_UPGRADE'
+APP_SERVICES='hermes-review review-admission review-github-gateway review-github-app-worker review-worker review-publisher'
+
+docker compose pull
+docker compose stop $APP_SERVICES
+
+running="$(docker compose ps --status running --services)"
+for service in $APP_SERVICES; do
+  if printf '%s\n' "$running" | grep -qx "$service"; then
+    echo "$service is still running; do not migrate." >&2
+    exit 1
+  fi
+done
+
+docker compose run --rm --no-deps --no-build review-profile-install
+docker compose run --rm --no-deps --no-build review-db-migrate
+
+docker compose up -d --no-deps --no-build --force-recreate \
+  --wait --wait-timeout 300 \
+  hermes-review review-admission review-github-gateway \
+  review-github-app-worker review-worker review-publisher
+docker compose exec hermes-review review-agent-admin doctor
+docker compose ps
+COMPOSE_UPGRADE
+```
+
+PostgreSQL remains available while the application is stopped. The two
+one-shot commands must exit with status `0` before new application containers
+start.
+
+</TabItem>
+<TabItem value="dokploy-upgrade" label="Dokploy">
+
+1. Pause **AutoDeploy** for the maintenance window and take the database backup.
+2. Set `REVIEW_AGENT_IMAGE` and `POSTGRES_IMAGE` to exact digest references in
+   **Environment**.
+3. In **Advanced > Run Command**, keep the project name, Compose path, and
+   `--remove-orphans`, but replace `--build` with
+   `--no-build --pull always`. Save the pull-only command.
+4. Select **Stop** and wait until the six long-running application containers
+   are stopped. The two initialization containers may already show `Exited (0)`.
+5. Select **Deploy**. Confirm the intended source commit and image digest. Do not
+   continue if the previous application containers are still running.
+6. Verify that `review-profile-install` and `review-db-migrate` exited with
+   status `0`, the long-running containers are healthy, `/ready` returns `200`,
+   and `review-agent-admin doctor` reports `ready: true` from `hermes-review`.
+7. Re-enable **AutoDeploy** only after the deployment receipt is recorded.
+
+Dokploy's stop step may also stop the bundled PostgreSQL container. Its named
+volume remains intact, and Compose starts it before the migration job. Do not
+delete the Compose service or either named volume during an upgrade.
+
+</TabItem>
+<TabItem value="openshift-upgrade" label="OpenShift">
+
+Set `IMAGE` to the release manifest digest. Confirm that the separately managed
+PostgreSQL workload also uses a recorded digest, then drain the old application
+pods before applying the template:
+
+```bash
+bash -euo pipefail <<'OPENSHIFT_UPGRADE'
+export IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
+DEPLOYMENTS=(
+  hermes-review
+  review-agent-admission
+  review-agent-github-gateway
+  review-agent-github-app-worker
+  review-agent-worker
+  review-agent-publisher
+)
+
+oc scale deployment "${DEPLOYMENTS[@]}" --replicas=0
+for deployment in "${DEPLOYMENTS[@]}"; do
+  pods="$(oc get pods -l "app=$deployment" -o name)"
+  if [ -n "$pods" ]; then
+    oc wait --for=delete $pods --timeout=5m
+  fi
+done
+
+oc delete job review-agent-profile-install review-agent-db-migrate \
+  --ignore-not-found
+oc process -f examples/openshift/review-agent-template.yaml \
+  -p IMAGE="$IMAGE" -p WORKER_CONCURRENCY=4 | oc apply -f -
+oc wait --for=condition=complete job/review-agent-profile-install \
+  job/review-agent-db-migrate --timeout=10m
+
+oc scale deployment/hermes-review \
+  deployment/review-agent-github-gateway --replicas=1
+for deployment in hermes-review review-agent-github-gateway; do
+  oc rollout status "deployment/$deployment" --timeout=5m
+done
+
+oc scale deployment/review-agent-admission \
+  deployment/review-agent-github-app-worker deployment/review-agent-worker \
+  deployment/review-agent-publisher --replicas=1
+for deployment in review-agent-admission review-agent-github-app-worker \
+  review-agent-worker review-agent-publisher; do
+  oc rollout status "deployment/$deployment" --timeout=5m
+done
+
+oc get deployment "${DEPLOYMENTS[@]}" \
+  -o custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image
+oc rsh deployment/hermes-review review-agent-admin doctor
+OPENSHIFT_UPGRADE
+```
+
+The first wait loop is the migration fence. Do not delete the old Jobs or apply
+the new template until every old application pod is gone.
+
+</TabItem>
+</Tabs>
+
+### Rollback boundary
+
+Roll back only to the exact prior Review Agent digest named in the release
+record. That record must include the post-migration schema version and a receipt
+showing that the prior digest passed `database ready`, `doctor`, and the smoke
+test against a restored copy of that schema. If the receipt is absent, use a
+forward fix or the verified backup restore instead of an application rollback.
+
+For a verified target, repeat the same drain sequence, select that digest,
+rerun the profile installer, and verify database readiness before starting
+application replicas. Keep the current PostgreSQL data and exact database image
+unless the separate database recovery plan requires a restore.
+
+Never reverse or edit an applied migration. If the previous application cannot
+run against the current schema, either deploy a forward fix or restore the
+pre-upgrade backup into a separate database and verify it before switching
+traffic.
+
+Future incompatible schema changes must use an expand-first sequence: add
+backward-compatible schema, deploy code that accepts both forms, backfill, and
+remove the old form only in a later release after every older application
+digest has been retired as a rollback target.
 
 ## Configure GitHub
 

@@ -6,12 +6,14 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Final, cast
 
 
 SUPPORTED_SCHEMA_VERSIONS: Final = {
     4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
 }
+REPOSITORY_RE: Final = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 @dataclass(frozen=True)
@@ -69,8 +71,8 @@ def decision_provenances(
         pr_number = optional_int(row, "pr_number")
         fingerprint = optional_string(row, "fingerprint")
         if repository and pr_number is not None and fingerprint:
-            local_refs[(repository, pr_number, fingerprint)] = optional_string(
-                row, "local_reference"
+            local_refs[(repository_key(repository), pr_number, fingerprint)] = (
+                optional_string(row, "local_reference")
             )
 
     provenances: dict[int, DecisionProvenance] = {}
@@ -82,8 +84,8 @@ def decision_provenances(
         pr_number = optional_int(row, "pr_number")
         fingerprint = required_string(row, "fingerprint")
         local_reference = (
-            local_refs.get((repository, pr_number, fingerprint), "")
-            if pr_number is not None
+            local_refs.get((repository_key(repository), pr_number, fingerprint), "")
+            if repository and pr_number is not None
             else ""
         )
         provenances[observation_id] = DecisionProvenance(
@@ -128,10 +130,22 @@ def matches_repository(
 ) -> bool:
     if repository is None:
         return True
+    requested = repository_key(repository)
     if provenance is not None:
-        return provenance.repository == repository
+        return repository_key(provenance.repository) == requested
     row_repository = optional_string(row, "repository")
-    return row_repository == repository
+    return repository_key(row_repository) == requested
+
+
+def resolve_repository(value: str) -> str:
+    repository = value.strip()
+    if not REPOSITORY_RE.fullmatch(repository):
+        raise ValueError("repository must be owner/name")
+    return repository
+
+
+def repository_key(value: str) -> str:
+    return resolve_repository(value).casefold()
 
 
 def row_id(row: Mapping[str, object]) -> int | None:

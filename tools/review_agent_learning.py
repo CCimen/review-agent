@@ -21,6 +21,7 @@ from review_agent_export import (
     optional_string,
     provenance_for_decision,
     required_string,
+    repository_key,
     row_id,
     rows,
     schema_version,
@@ -222,6 +223,7 @@ EMITTED_SIGNAL_STRENGTHS: Final[frozenset[str]] = frozenset(
 def build_learning_report(
     state: Mapping[str, object], *, repository: str | None = None
 ) -> LearningReport:
+    resolved_repository = repository_key(repository) if repository is not None else None
     source_schema_version = schema_version(state)
     provenance_by_observation_id = decision_provenances(state)
     decision_candidates: list[LearningSignal] = []
@@ -237,7 +239,11 @@ def build_learning_report(
 
     for episode in _decision_episodes(state, provenance_by_observation_id):
         decision = required_string(episode.latest, "decision")
-        if not matches_repository(repository, episode.provenance, episode.latest):
+        if not matches_repository(
+            resolved_repository,
+            episode.provenance,
+            episode.latest,
+        ):
             continue
         if decision in POSITIVE_DECISIONS:
             if _has_contradictory_chain(episode):
@@ -263,7 +269,7 @@ def build_learning_report(
             if feedback_id is not None
             else None
         )
-        if repository is not None and required_string(row, "repository") != repository:
+        if not matches_repository(resolved_repository, None, row):
             continue
         if category in POSITIVE_FEEDBACK:
             positive_patterns.append(
@@ -304,7 +310,7 @@ def build_learning_report(
 
     return LearningReport(
         schema_version=source_schema_version,
-        repository=repository,
+        repository=resolved_repository,
         decision_candidates=tuple(decision_candidates),
         quality_signals=tuple(quality_signals),
         positive_patterns=tuple(positive_patterns),

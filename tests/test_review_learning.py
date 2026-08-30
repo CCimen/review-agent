@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -80,6 +83,139 @@ def reference(**overrides: object) -> dict[str, object]:
 
 
 class ReviewLearningReportTests(unittest.TestCase):
+    def test_repository_scope_is_case_insensitive_without_cross_repo_leakage(
+        self,
+    ) -> None:
+        state = state_with(
+            observations=[
+                observation(repository="Example-Org/Example-Repository"),
+                observation(
+                    id=2,
+                    repository="other-org/other-repository",
+                    fingerprint="feedfacefeedface",
+                    title="Unrelated repository finding",
+                ),
+            ],
+            references=[
+                reference(repository="EXAMPLE-ORG/example-repository"),
+            ],
+            decisions=[
+                {
+                    "fingerprint": "abcdef1234567890",
+                    "observation_id": 1,
+                    "decision": "false_positive",
+                    "reason": "Target repository decision.",
+                },
+                {
+                    "fingerprint": "feedfacefeedface",
+                    "observation_id": 2,
+                    "decision": "false_positive",
+                    "reason": "Unrelated repository decision.",
+                },
+            ],
+            feedback=[
+                {
+                    "repository": "example-org/example-repository",
+                    "pr_number": 17,
+                    "category": "missed_issue",
+                    "reason": "Target repository feedback.",
+                },
+                {
+                    "repository": "other-org/other-repository",
+                    "pr_number": 18,
+                    "category": "missed_issue",
+                    "reason": "Unrelated repository feedback.",
+                },
+            ],
+        )
+        report = build_learning_report(
+            state,
+            repository="EXAMPLE-ORG/EXAMPLE-REPOSITORY",
+        )
+        same_report = build_learning_report(
+            state,
+            repository="example-org/example-repository",
+        )
+
+        self.assertEqual(report, same_report)
+        self.assertEqual(render_markdown(report), render_markdown(same_report))
+        self.assertEqual(len(report.decision_candidates), 1)
+        self.assertEqual(report.decision_candidates[0].local_reference, "F1")
+        self.assertEqual(len(report.quality_signals), 1)
+        self.assertEqual(
+            report.quality_signals[0].repository,
+            "example-org/example-repository",
+        )
+
+    def test_malformed_repository_scope_fails_before_building_a_report(self) -> None:
+        with self.assertRaisesRegex(ValueError, "repository must be owner/name"):
+            build_learning_report(
+                state_with(),
+                repository="missing-owner-separator",
+            )
+
+    def test_cli_rejects_an_export_for_another_repository(self) -> None:
+        state = state_with()
+        state.update(
+            {
+                "complete": True,
+                "repository": "Example-Org/Example-Repository",
+                "truncated_tables": [],
+            }
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            export_path = Path(temp) / "export.json"
+            export_path.write_text(json.dumps(state), encoding="utf-8")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "review_agent_memory.py"),
+                    "learning-report",
+                    "--export",
+                    str(export_path),
+                    "--repo",
+                    "other-org/other-repository",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("does not match --repo", completed.stderr)
+
+    def test_cli_accepts_a_matching_repository_with_no_history(self) -> None:
+        state = state_with()
+        state.update(
+            {
+                "complete": True,
+                "repository": "Example-Org/Example-Repository",
+                "truncated_tables": [],
+            }
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            export_path = Path(temp) / "export.json"
+            export_path.write_text(json.dumps(state), encoding="utf-8")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "tools" / "review_agent_memory.py"),
+                    "learning-report",
+                    "--export",
+                    str(export_path),
+                    "--repo",
+                    "example-org/example-repository",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("No decision-derived learning candidates", completed.stdout)
+
     def test_false_positive_decision_becomes_calibration_candidate(self) -> None:
         report = build_learning_report(
             state_with(

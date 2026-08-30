@@ -79,7 +79,7 @@ def build_coach_export(
     payload: dict[str, object] = {
         "schema_version": COACH_SCHEMA_VERSION,
         "source_schema_version": source_schema_version,
-        "repository_untrusted": bounded_text(repository or "", MAX_SHORT_TEXT),
+        "repository_untrusted": bounded_text(report.repository or "", MAX_SHORT_TEXT),
         "source_exported_at": optional_string(state, "exported_at"),
         "cursor": cursor,
         "events": events,

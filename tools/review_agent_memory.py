@@ -16,6 +16,7 @@ from typing import NoReturn, cast
 
 from review_agent_coach_run import build_coach_run_artifacts
 from review_agent_coach_proposals import CandidateProposal, ProposalBundle
+from review_agent_export import repository_key
 from review_agent_private_io import write_private_file
 
 
@@ -88,7 +89,11 @@ def _write_or_print(content: str, output: str | None) -> None:
         print(content, end="" if content.endswith("\n") else "\n")
 
 
-def _complete_export(path: str) -> dict[str, object]:
+def _complete_export(
+    path: str,
+    *,
+    repository: str | None = None,
+) -> dict[str, object]:
     value = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise SystemExit("export must contain a JSON object")
@@ -98,6 +103,23 @@ def _complete_export(path: str) -> dict[str, object]:
             "export is incomplete; rerun with a larger --row-limit before learning "
             f"or coaching (truncated_tables={state.get('truncated_tables', [])})"
         )
+    if repository is not None:
+        try:
+            requested = repository_key(repository)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+        exported_repository = state.get("repository")
+        if not isinstance(exported_repository, str):
+            raise SystemExit("repository-scoped export is missing repository")
+        try:
+            exported = repository_key(exported_repository)
+        except ValueError as exc:
+            raise SystemExit("export repository is invalid") from exc
+        if exported != requested:
+            raise SystemExit(
+                "export repository does not match --repo; export the requested "
+                "repository and retry"
+            )
     return state
 
 
@@ -247,7 +269,8 @@ def _offline_command(args: argparse.Namespace) -> int | None:
     if args.command == "learning-report":
         import review_agent_learning as learning
         report = learning.build_learning_report(
-            _complete_export(args.export), repository=args.repo
+            _complete_export(args.export, repository=args.repo),
+            repository=args.repo,
         )
         _write_or_print(learning.render_markdown(report), args.output)
         return 0
@@ -261,7 +284,7 @@ def _offline_command(args: argparse.Namespace) -> int | None:
     if args.command == "coach-export":
         import review_agent_coach as coach
         payload = coach.build_coach_export(
-            _complete_export(args.export),
+            _complete_export(args.export, repository=args.repo),
             repository=args.repo,
             after_decision_id=args.after_decision_id,
             after_feedback_id=args.after_feedback_id,
@@ -430,7 +453,7 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
         return 0
     elif args.command == "coach-run":
         if args.export:
-            state = _complete_export(args.export)
+            state = _complete_export(args.export, repository=args.repo)
         else:
             export = operator_application.export_repository(
                 runtime, repository=args.repo, row_limit=args.row_limit

@@ -163,6 +163,20 @@ class CoachExportTests(unittest.TestCase):
         self.assertNotEqual(first["snapshot_id"], second["snapshot_id"])
         self.assertEqual(first["event_set_id"], second["event_set_id"])
 
+    def test_repository_case_does_not_change_coach_identity(self) -> None:
+        state = state_with_signals()
+
+        first = build_coach_export(
+            state,
+            repository="Example-Org/Example-Repository",
+        )
+        second = build_coach_export(
+            state,
+            repository="example-org/example-repository",
+        )
+
+        self.assertEqual(first, second)
+
     def test_event_set_id_ignores_unemitted_unrelated_repository_rows(self) -> None:
         first_state = state_with_signals()
         second_state = state_with_signals()

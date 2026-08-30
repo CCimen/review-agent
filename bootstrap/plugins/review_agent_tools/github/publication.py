@@ -9,7 +9,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, cast
+from typing import Literal, Protocol, cast
 
 from ..source_control import (
     SameOriginHttpsRedirectHandler,
@@ -144,16 +144,16 @@ def _owner_repo(repository: str) -> str:
     return urllib.parse.quote(repository, safe="/")
 
 
-def _json_object(value: Any, code: str) -> dict[str, Any]:
+def _json_object(value: object, code: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise GitHubPublicationError(code)
-    return cast(dict[str, Any], value)
+    return cast(dict[str, object], value)
 
 
-def _json_list(value: Any, code: str) -> list[Any]:
+def _json_list(value: object, code: str) -> list[object]:
     if not isinstance(value, list):
         raise GitHubPublicationError(code)
-    return cast(list[Any], value)
+    return cast(list[object], value)
 
 
 def _positive_int(value: object, code: str) -> int:
@@ -293,7 +293,7 @@ class GitHubIssueCommentGateway:
         payload: dict[str, object] | None = None,
         max_bytes: int = PROVIDER_RESPONSE_MAX_BYTES,
         operation: str = "",
-    ) -> Any:
+    ) -> object:
         if not endpoint.startswith("/") or "//" in endpoint:
             raise GitHubPublicationError("invalid_github_endpoint")
         result, _, _ = self._request_json_with_token(
@@ -315,7 +315,7 @@ class GitHubIssueCommentGateway:
         payload: dict[str, object] | None,
         max_bytes: int,
         operation: str,
-    ) -> tuple[Any, int, str | None]:
+    ) -> tuple[object, int, str | None]:
         body = None
         headers = {
             "Accept": "application/vnd.github+json",
@@ -413,7 +413,7 @@ class GitHubIssueCommentGateway:
         newest_first: bool = False,
     ) -> list[IssueComment]:
         def comments_from_page(
-            page_items: list[Any], *, reverse: bool = False
+            page_items: list[object], *, reverse: bool = False
         ) -> list[IssueComment]:
             comments: list[IssueComment] = []
             items = reversed(page_items) if reverse else iter(page_items)

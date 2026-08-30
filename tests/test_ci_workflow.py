@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import tomllib
 import unittest
 from pathlib import Path
 from typing import cast
@@ -178,10 +179,32 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             DEVELOPMENT_REQUIREMENTS.read_text(encoding="utf-8"),
             "ruff==0.14.4\n",
         )
-        ruff = RUFF_CONFIG.read_text(encoding="utf-8")
-        self.assertIn('target-version = "py311"', ruff)
-        self.assertIn('select = ["E4", "E7", "E9", "F"]', ruff)
-        self.assertNotIn("ignore = [\"F", ruff)
+        ruff = mapping(tomllib.loads(RUFF_CONFIG.read_text(encoding="utf-8")))
+        self.assertEqual("py311", ruff["target-version"])
+        lint = mapping(ruff["lint"])
+        selected = {str(item) for item in sequence(lint["select"])}
+        self.assertLessEqual({"E4", "E7", "E9", "F", "B905"}, selected)
+        ignored = {
+            str(item)
+            for key in ("ignore", "extend-ignore")
+            for item in sequence(lint.get(key, []))
+        }
+        for key in ("per-file-ignores", "extend-per-file-ignores"):
+            per_file_ignores = mapping(lint.get(key, {}))
+            ignored.update(
+                str(item)
+                for rules in per_file_ignores.values()
+                for item in sequence(rules)
+            )
+        self.assertFalse(
+            any(
+                selector == "ALL"
+                or selector == "F"
+                or (selector.startswith("F") and selector[1:].isdigit())
+                or "B905".startswith(selector)
+                for selector in ignored
+            )
+        )
         self.assertIn("ruff check", PYTHON_CHECK.read_text(encoding="utf-8"))
 
         pyright = json.loads(PYRIGHT_CONFIG.read_text(encoding="utf-8"))

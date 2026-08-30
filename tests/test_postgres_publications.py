@@ -1660,14 +1660,15 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 run_id=second_run,
                 plan=self.plan(second_batch, key_character="6"),
             )
-        # Recovery and failure-status cleanup precede posted supersession.
-        github.fail_on_list_call = github.list_issue_comments_calls + 3
+        supersession_github = FakePostgresPublicationGitHub(self.runtime)
+        supersession_github.fail_on_list_call = 1
 
         result = review_publication_application.publish_postgres_publication(
             self.runtime,
             publication_id=int(second.id),
             github=github,
             max_comment_bytes=60_000,
+            posted_github=supersession_github,
         )
 
         self.assertEqual(result.status, "posted")

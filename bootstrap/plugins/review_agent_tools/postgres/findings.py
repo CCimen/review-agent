@@ -406,7 +406,10 @@ def _references(
             ),
         )
         existing.update(
-            {row.id: reference for row, reference in zip(missing, references)}
+            {
+                row.id: reference
+                for row, reference in zip(missing, references, strict=True)
+            }
         )
     if len(existing) != len(finding_ids):
         raise FindingConflict("local finding references could not be assigned")

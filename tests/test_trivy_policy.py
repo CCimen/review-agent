@@ -138,6 +138,38 @@ class TrivyPolicyTests(unittest.TestCase):
         self.assertIn("2999-12-31", summary)
         self.assertIn(exception["reason"], summary)
 
+    def test_empty_release_exception_policy_accepts_a_clean_report(self):
+        completed, summary = self._run_policy_with_exceptions(
+            {
+                "Results": [
+                    {
+                        "Target": "container-image",
+                        "Vulnerabilities": [],
+                    }
+                ]
+            },
+            exceptions=[],
+            expires_on="2999-12-31",
+        )
+
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual(
+            {
+                "accepted_critical_occurrences": 0,
+                "accepted_critical_vulnerabilities": 0,
+                "blocking_vulnerabilities": 0,
+                "reports": 1,
+                "required_targets": 0,
+                "vulnerabilities": 0,
+            },
+            json.loads(completed.stdout),
+        )
+        self.assertIn("Image vulnerability review", summary)
+        self.assertIn(
+            "No critical package findings require a temporary exception.",
+            summary,
+        )
+
     def test_exception_does_not_match_a_changed_package_version(self):
         completed, summary = self._run_policy_with_exceptions(
             self._critical_report(installed_version="2.0.0"),

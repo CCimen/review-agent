@@ -109,8 +109,6 @@ def _load_critical_exceptions(path: Path) -> CriticalExceptionPolicy:
     raw_exceptions = _sequence(
         root.get("exceptions"), context=f"{path}: exceptions"
     )
-    if not raw_exceptions:
-        raise TrivyReportError(f"{path}: exceptions must not be empty")
     if len(raw_exceptions) > _MAX_EXCEPTIONS:
         raise TrivyReportError(
             f"{path}: exceptions must not exceed {_MAX_EXCEPTIONS} entries"
@@ -268,17 +266,24 @@ def _write_markdown_summary(
         "## Image vulnerability review",
         "",
         "The exact release images have no fixable high or critical findings.",
-        f"The following {len(accepted)} critical package findings have no "
-        "published vendor fix and are accepted only until "
-        f"{policy.expires_on.isoformat()}:",
-        "",
     ]
-    for identity in sorted(accepted):
-        exception = policy.exceptions[identity]
-        lines.append(
-            f"- `{identity.vulnerability_id}` in `{identity.package_name}` "
-            f"`{identity.installed_version}` — {exception.reason}"
+    if accepted:
+        lines.extend(
+            [
+                f"The following {len(accepted)} critical package findings have "
+                "no published vendor fix and are accepted only until "
+                f"{policy.expires_on.isoformat()}:",
+                "",
+            ]
         )
+        for identity in sorted(accepted):
+            exception = policy.exceptions[identity]
+            lines.append(
+                f"- `{identity.vulnerability_id}` in `{identity.package_name}` "
+                f"`{identity.installed_version}` — {exception.reason}"
+            )
+    else:
+        lines.append("No critical package findings require a temporary exception.")
     lines.extend(
         [
             "",

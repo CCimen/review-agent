@@ -146,10 +146,12 @@ class DockerfileToolsTests(unittest.TestCase):
             ],
         )
 
-    def test_container_reuses_base_network_tools(self) -> None:
+    def test_container_refreshes_base_security_without_installing_tools(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
-        self.assertNotIn("apt-get", dockerfile)
+        self.assertIn("apt-get -o Acquire::Retries=3 upgrade", dockerfile)
+        self.assertNotIn("apt-get -o Acquire::Retries=3 install", dockerfile)
+        self.assertIn("/usr/local/lib/node_modules/npm", dockerfile)
 
     def test_installer_replaces_managed_trees_and_ignores_bytecode(self) -> None:
         install = _load_install_module()

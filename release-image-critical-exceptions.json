@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "scope": "release-image",
+  "expires_on": "2026-09-30",
+  "exceptions": [
+    {
+      "vulnerability_id": "CVE-2026-13221",
+      "package_name": "libperl5.40",
+      "installed_version": "5.40.1-6",
+      "reason": "Repository content is never executed with Perl; Debian 13 has not published a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-13221",
+      "package_name": "perl",
+      "installed_version": "5.40.1-6",
+      "reason": "Repository content is never executed with Perl; Debian 13 has not published a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-13221",
+      "package_name": "perl-base",
+      "installed_version": "5.40.1-6",
+      "reason": "Repository content is never executed with Perl; Debian 13 has not published a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-13221",
+      "package_name": "perl-modules-5.40",
+      "installed_version": "5.40.1-6",
+      "reason": "Repository content is never executed with Perl; Debian 13 has not published a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-34873",
+      "package_name": "libmbedcrypto16",
+      "installed_version": "3.6.5-0.1~deb13u1",
+      "reason": "Review Agent HTTP clients use OpenSSL or GnuTLS, not the inherited Mbed TLS media dependency; Debian 13 has no fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-34875",
+      "package_name": "libmbedcrypto16",
+      "installed_version": "3.6.5-0.1~deb13u1",
+      "reason": "Review Agent HTTP clients use OpenSSL or GnuTLS, not the inherited Mbed TLS media dependency; Debian 13 has no fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-42496",
+      "package_name": "libperl5.40",
+      "installed_version": "5.40.1-6",
+      "reason": "The managed runtime never invokes Perl archive extraction; Debian 13 has deferred a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-42496",
+      "package_name": "perl",
+      "installed_version": "5.40.1-6",
+      "reason": "The managed runtime never invokes Perl archive extraction; Debian 13 has deferred a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-42496",
+      "package_name": "perl-base",
+      "installed_version": "5.40.1-6",
+      "reason": "The managed runtime never invokes Perl archive extraction; Debian 13 has deferred a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-42496",
+      "package_name": "perl-modules-5.40",
+      "installed_version": "5.40.1-6",
+      "reason": "The managed runtime never invokes Perl archive extraction; Debian 13 has deferred a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-43185",
+      "package_name": "linux-libc-dev",
+      "installed_version": "6.12.107-1",
+      "reason": "This package supplies build headers and no executable runtime path; Debian 13 has not published a fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-58016",
+      "package_name": "libglib2.0-0t64",
+      "installed_version": "2.84.4-3~deb13u3",
+      "reason": "The managed review path does not parse repository-controlled D-Bus introspection XML; Debian 13 has no fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-60002",
+      "package_name": "openssh-client",
+      "installed_version": "1:10.0p1-7+deb13u4",
+      "reason": "The managed review path uses GitHub HTTPS APIs and exposes no SSH execution; Debian 13 has no fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-6653",
+      "package_name": "libxml2",
+      "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+      "reason": "Repository files are handled as text and are not parsed through inherited libxml2; Debian 13 has no fixed package."
+    },
+    {
+      "vulnerability_id": "CVE-2026-8376",
+      "package_name": "libperl5.40",
+      "installed_version": "5.40.1-6",
+      "reason": "The published images are 64-bit and the reported overflow is limited to 32-bit builds; Debian still marks the package affected."
+    },
+    {
+      "vulnerability_id": "CVE-2026-8376",
+      "package_name": "perl",
+      "installed_version": "5.40.1-6",
+      "reason": "The published images are 64-bit and the reported overflow is limited to 32-bit builds; Debian still marks the package affected."
+    },
+    {
+      "vulnerability_id": "CVE-2026-8376",
+      "package_name": "perl-base",
+      "installed_version": "5.40.1-6",
+      "reason": "The published images are 64-bit and the reported overflow is limited to 32-bit builds; Debian still marks the package affected."
+    },
+    {
+      "vulnerability_id": "CVE-2026-8376",
+      "package_name": "perl-modules-5.40",
+      "installed_version": "5.40.1-6",
+      "reason": "The published images are 64-bit and the reported overflow is limited to 32-bit builds; Debian still marks the package affected."
+    }
+  ]
+}

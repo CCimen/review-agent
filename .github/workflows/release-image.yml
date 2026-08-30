@@ -180,6 +180,9 @@ jobs:
           echo "AMD64_IMAGE=${amd64_image}" >> "$GITHUB_ENV"
           echo "ARM64_IMAGE=${arm64_image}" >> "$GITHUB_ENV"
 
+      - name: Smoke exact linux/amd64 release image
+        run: bash ./scripts/check_image.sh "$AMD64_IMAGE"
+
       - name: Scan linux/amd64 image vulnerabilities
         id: scan-amd64
         continue-on-error: true
@@ -221,8 +224,11 @@ jobs:
           test "$AMD64_SCAN_OUTCOME" = success
           test "$ARM64_SCAN_OUTCOME" = success
           python3 scripts/check_trivy_report.py \
+            --critical-exceptions release-image-critical-exceptions.json \
+            --markdown-output release-sbom/VULNERABILITY-SUMMARY.md \
             vulnerability-reports/vulnerability-linux-amd64.json \
-            vulnerability-reports/vulnerability-linux-arm64.json
+            vulnerability-reports/vulnerability-linux-arm64.json \
+            | tee release-sbom/VULNERABILITY-POLICY.json
 
       - name: Add scan reports to release evidence
         env:
@@ -232,7 +238,8 @@ jobs:
           cp vulnerability-reports/*.json release-sbom/
           (
             cd release-sbom
-            sha256sum -- SOURCE-SHA.txt vulnerability-*.json \
+            sha256sum -- SOURCE-SHA.txt VULNERABILITY-POLICY.json \
+              VULNERABILITY-SUMMARY.md vulnerability-*.json \
               >> SBOM-SHA256SUMS.txt
           )
 
@@ -271,6 +278,8 @@ jobs:
             IMAGE-DIGESTS.txt
             SBOM-SHA256SUMS.txt
             SOURCE-SHA.txt
+            VULNERABILITY-POLICY.json
+            VULNERABILITY-SUMMARY.md
             "review-agent-${RELEASE_TAG}-linux-amd64.cyclonedx.json"
             "review-agent-${RELEASE_TAG}-linux-amd64.spdx.json"
             "review-agent-${RELEASE_TAG}-linux-amd64.table.txt"
@@ -340,3 +349,58 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: gh release upload "$RELEASE_TAG" release-sbom/* --clobber
+
+      - name: Update release vulnerability summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release view "$RELEASE_TAG" --json body --jq .body \
+            > release-body-current.md
+          awk -v summary_file="release-sbom/VULNERABILITY-SUMMARY.md" '
+            {
+              lines[NR] = $0
+              if ($0 == "<!-- review-agent-vulnerability-summary:start -->") {
+                if (found_start || skip) invalid = 1
+                found_start = 1
+                start_line = NR
+                skip = 1
+                next
+              }
+              if ($0 == "<!-- review-agent-vulnerability-summary:end -->") {
+                if (!skip || found_end) invalid = 1
+                found_end = 1
+                end_line = NR
+                skip = 0
+              }
+            }
+            function print_summary(    line, status) {
+              while ((status = getline line < summary_file) > 0) print line
+              if (status < 0) invalid = 1
+              close(summary_file)
+            }
+            END {
+              if (invalid || skip || found_start != found_end) exit 1
+              if (found_start) {
+                for (line_number = 1; line_number < start_line; line_number++) {
+                  print lines[line_number]
+                }
+                print_summary()
+                for (line_number = end_line + 1; line_number <= NR; line_number++) {
+                  print lines[line_number]
+                }
+                if (invalid) exit 1
+                exit
+              }
+
+              last = NR
+              while (last > 0 && lines[last] ~ /^[[:space:]]*$/) last--
+              for (line_number = 1; line_number <= last; line_number++) {
+                print lines[line_number]
+              }
+              if (last > 0) print ""
+              print_summary()
+              if (invalid) exit 1
+            }
+          ' release-body-current.md > release-body-updated.md
+          gh release edit "$RELEASE_TAG" --notes-file release-body-updated.md

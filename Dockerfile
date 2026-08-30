@@ -1,10 +1,23 @@
-ARG HERMES_IMAGE=nousresearch/hermes-agent:v2026.8.3@sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e
+ARG HERMES_IMAGE=nousresearch/hermes-agent:v2026.8.27@sha256:e0df6adebddf29b91112aefc999d4aaf6846c9eb544faca5672a16a13590ff79
+ARG REVIEW_AGENT_UV_IMAGE=ghcr.io/astral-sh/uv:0.12.7-python3.13-trixie@sha256:767ae9f0bb33c54c8b6d1fc7e1ec842f85b18146936d7d0b9f16a357cec4f3fe
+FROM ${REVIEW_AGENT_UV_IMAGE} AS review_agent_uv
 FROM ${HERMES_IMAGE}
 
 ARG HERMES_IMAGE
 ENV REVIEW_AGENT_HERMES_IMAGE=${HERMES_IMAGE}
 
 USER root
+# A digest pin makes the upstream filesystem reproducible, but security fixes
+# published after that image was built still need to be applied to the release
+# candidate. Review Agent does not expose Hermes' npm-based terminal tooling,
+# so remove that package manager rather than carry an unused executable tree.
+RUN apt-get -o Acquire::Retries=3 update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 upgrade \
+        -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+        /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/uvx
+COPY --chmod=0755 --from=review_agent_uv /usr/local/bin/uv /usr/local/bin/uv
 COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt
 RUN uv pip install --no-cache --python /opt/hermes/.venv/bin/python \
         --requirement /opt/review-agent-requirements.txt

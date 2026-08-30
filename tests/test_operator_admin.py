@@ -35,8 +35,8 @@ from review_agent_tools.domain.review import RepositoryId  # noqa: E402
 
 
 PINNED_HERMES_IMAGE = (
-    "nousresearch/hermes-agent:v2026.8.3@"
-    "sha256:16788311e2fa3035456bdc1bafb8ec2b1777db64ebf020af9bb7eb73c3712c9e"
+    "nousresearch/hermes-agent:v2026.8.27@"
+    "sha256:e0df6adebddf29b91112aefc999d4aaf6846c9eb544faca5672a16a13590ff79"
 )
 
 

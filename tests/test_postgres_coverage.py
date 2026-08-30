@@ -160,6 +160,34 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.assertEqual(complete.changed_files_registered, 2)
         self.assertTrue(complete.registration_complete)
 
+    def test_live_inventory_persists_classifications_and_returns_summary(self) -> None:
+        run_id = self.start_run()
+
+        summary = review_run_application.register_live_changed_files(
+            self.runtime,
+            review_run_application.RunSubject(
+                repository="team/coverage",
+                pr_number=21,
+                run_id=run_id,
+            ),
+            files=(
+                {"path": "backend/app.py", "status": "modified"},
+                {"path": ".github/workflows/ci.yml", "status": "added"},
+            ),
+            changed_files_reported=2,
+        )
+
+        self.assertEqual(summary.changed_files_registered, 2)
+        self.assertTrue(summary.registration_complete)
+        self.assertEqual(
+            summary.by_domain,
+            (("backend", 1), ("infrastructure", 1)),
+        )
+        self.assertEqual(
+            summary.by_review_mode,
+            (("configuration", 1), ("normal", 1)),
+        )
+
     def test_empty_inventory_and_fail_closed_guards_are_explicit(self) -> None:
         run_id = self.start_run()
         unknown = review_run_application.summarize_postgres_coverage(

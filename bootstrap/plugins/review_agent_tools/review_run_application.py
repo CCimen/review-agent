@@ -12,6 +12,7 @@ from psycopg.rows import TupleRow
 
 from . import changed_files, failure_codes
 from .domain.review import (
+    ChangedFileDefinition,
     DiffState,
     FileDomain,
     FileSide as PostgresFileSide,
@@ -426,6 +427,23 @@ def _ensure_review_scope(
     return pull_request.id, subject.id
 
 
+def _resolve_changed_file_registration(
+    files: Sequence[PostgresChangedFile],
+    changed_files_reported: int,
+) -> tuple[tuple[ChangedFileDefinition, ...], int]:
+    resolved = tuple(
+        resolve_changed_file(
+            path=item.path,
+            change_status=item.change_status,
+            previous_path=item.previous_path,
+            domain=item.domain,
+            review_mode=item.review_mode,
+        )
+        for item in files
+    )
+    return resolved, resolve_changed_file_count(changed_files_reported)
+
+
 def register_postgres_changed_files(
     runtime: PostgreSQLRuntime,
     *,
@@ -437,17 +455,9 @@ def register_postgres_changed_files(
     """Persist one pre-fetched changed-file batch in one short transaction."""
     if len(files) > changed_files.GITHUB_PR_FILES_LIMIT:
         raise ReviewDomainError("changed-file batch exceeds the supported limit")
-    resolved = tuple(
-        resolve_changed_file(
-            path=item.path,
-            change_status=item.change_status,
-            previous_path=item.previous_path,
-            domain=item.domain,
-            review_mode=item.review_mode,
-        )
-        for item in files
+    resolved, resolved_reported = _resolve_changed_file_registration(
+        files, changed_files_reported
     )
-    resolved_reported = resolve_changed_file_count(changed_files_reported)
     with runtime.transaction() as connection:
         return postgres_coverage.insert_changed_files(
             connection,
@@ -482,21 +492,14 @@ def register_live_changed_files(
         for item in files
     )
     registration_complete = len(files) >= changed_files_reported
-    resolved_reported = resolve_changed_file_count(changed_files_reported)
     with runtime.transaction() as connection:
+        resolved, resolved_reported = _resolve_changed_file_registration(
+            resolved_files, changed_files_reported
+        )
         postgres_coverage.insert_changed_files(
             connection,
             run_id=ReviewRunId(subject.run_id),
-            files=tuple(
-                resolve_changed_file(
-                    path=item.path,
-                    change_status=item.change_status,
-                    previous_path=item.previous_path,
-                    domain=item.domain,
-                    review_mode=item.review_mode,
-                )
-                for item in resolved_files
-            ),
+            files=resolved,
             changed_files_reported=resolved_reported,
             registration_complete=registration_complete,
         )

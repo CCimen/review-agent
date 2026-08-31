@@ -49,8 +49,9 @@ openssl rand -hex 32  # REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET
 openssl rand -hex 32  # API_SERVER_KEY
 ```
 
-Use another random value for the PostgreSQL password. Do not reuse a webhook
-secret as a GitHub token or database password.
+Generate two more values for PostgreSQL: one migration-owner password and one
+runtime password. The live services receive only the runtime login. Do not
+reuse a webhook secret as a GitHub token or database password.
 
 ## Choose an image
 
@@ -99,8 +100,18 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 
 1. Copy `.env.example` to the platform secret store and replace each
    `replace-with...` placeholder: the GitHub App values, service secrets, and
-   PostgreSQL password and URL.
+   both PostgreSQL credentials and URLs.
    Every other value is a documented tuning default you can keep.
+
+   `REVIEW_AGENT_DATABASE_URL` is the migration-owner URL used only by the
+   one-shot `review-db-migrate` service. `REVIEW_AGENT_RUNTIME_DATABASE_URL`
+   uses a different login and password for every live service. Both URLs must
+   target the same host, port, and database. The initialization job rejects a
+   shared login or mismatched effective target before applying a migration.
+   The migration owner must own the application schema, have `CREATEROLE`, and
+   be able to grant `CONNECT` on this database; PostgreSQL superuser is not
+   required. The job refuses to reuse an unrelated role with the requested
+   runtime name and verifies a fresh runtime login before it succeeds.
 
    `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
    `REVIEW_AGENT_REASONING_EFFORT` select inference behavior for new reviews.
@@ -247,7 +258,8 @@ the secrets in the target project:
 ```bash
 export REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET='paste-the-registered-value'
 oc create secret generic review-agent-database \
-  --from-literal=REVIEW_AGENT_DATABASE_URL='postgresql://...'
+  --from-literal=REVIEW_AGENT_DATABASE_URL='postgresql://migration-owner:...@host:5432/review_agent' \
+  --from-literal=REVIEW_AGENT_RUNTIME_DATABASE_URL='postgresql://review_agent_runtime:...@host:5432/review_agent'
 oc create secret generic review-agent-hermes \
   --from-literal=API_SERVER_KEY="$(openssl rand -hex 32)"
 oc create secret generic review-agent-github-app \

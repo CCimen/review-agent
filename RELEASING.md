@@ -1,8 +1,10 @@
 # Release Review Agent
 
-Use a prerelease while multi-repository scale, backup recovery, arm64 runtime,
-and any claimed alternate model provider still need live proof. GitHub publishes
-the matching GHCR image only after you publish the GitHub release.
+Use a prerelease until the App-only path, multi-repository scale, backup
+recovery, capacity, and the arm64 runtime have evidence. An
+alternate model provider is required only when its support is claimed in that
+release. GitHub publishes the matching GHCR image only after you publish the
+GitHub release.
 
 ## Before a release
 
@@ -44,11 +46,12 @@ python3 scripts/sync_install_skill.py --check
 git diff --check
 ```
 
-## Publish a prerelease
+## Publish a release
 
-1. Choose a SemVer prerelease such as `v0.1.0-rc.1` and target the exact verified
-   `main` commit.
-2. Create a GitHub release, mark it **Pre-release**, and publish concise notes:
+1. Choose an exact SemVer tag such as `v0.1.0-rc.1` or `v0.1.0` and target the
+   verified `main` commit. For an RC, mark it **Pre-release**; leave a stable
+   release unmarked.
+2. Publish concise notes:
    shipped behavior, setup path, validation evidence, known gaps, and rollback.
 3. Wait for **Publish container image**. It verifies the tag and generated
    release documentation, runs `CI / required` against that exact source, then
@@ -63,7 +66,7 @@ git diff --check
    files, then update the release notes with the generated vulnerability
    summary. The exact published amd64 digest also passes the normal runtime
    image smoke contract before the release is qualified for deployment.
-   A prerelease does not update `latest`.
+   A prerelease does not update `latest`; a stable release does.
 4. Confirm the release contains per-platform CycloneDX JSON, SPDX JSON, and
    readable tables; the focused Python-runtime CycloneDX file; both
    `vulnerability-linux-*.json` reports; `VULNERABILITY-POLICY.json`;
@@ -91,5 +94,6 @@ backup restore. Disable repository admission if the failure affects
 authorization or publication. Preserve PostgreSQL and Hermes volumes; follow
 the database recovery runbook instead of reversing migrations by hand.
 
-Promote a later build to a stable release only after the owner accepts the live
-scale, recovery, documentation, and support evidence.
+Publish a stable release only after the owner accepts the live correctness,
+capacity, recovery, documentation, and support evidence. Do not turn an
+untested optional provider or deployment platform into a release claim.

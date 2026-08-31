@@ -11,5 +11,6 @@
   "docs/OPERATIONS.md",
   "docs/FEEDBACK_AND_DECISIONS.md",
   "docs/SECURITY.md",
+  "benchmarks/production-scale.md",
   "examples/comments/example-review.md"
 ]

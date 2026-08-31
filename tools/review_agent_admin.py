@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -40,6 +41,7 @@ from review_agent_tools.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
 from review_agent_tools.postgres import github_app, jobs, registry  # noqa: E402
+from review_agent_tools.postgres import roles as database_roles  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
@@ -78,9 +80,23 @@ def _parser() -> argparse.ArgumentParser:
     )
     for command, help_text in (
         ("migrate", "Apply pending PostgreSQL migrations."),
+        ("prepare", "Apply migrations and configure the DML-only runtime role."),
         ("ready", "Verify PostgreSQL and migration readiness."),
     ):
         database_commands.add_parser(command, help=help_text)
+    prune_deliveries = database_commands.add_parser(
+        "prune-webhook-deliveries",
+        help="Preview or delete one bounded batch of old terminal webhook receipts.",
+    )
+    prune_deliveries.add_argument("--before", type=_timestamp_argument, required=True)
+    prune_deliveries.add_argument("--limit", type=_positive_argument, required=True)
+    prune_deliveries.add_argument("--actor", required=True)
+    prune_deliveries.add_argument("--reason", required=True)
+    prune_deliveries.add_argument(
+        "--apply",
+        action="store_true",
+        help="Delete the previewed class of rows; omission is a dry run.",
+    )
 
     job_parser = commands.add_parser("jobs", help="Inspect or recover review jobs.")
     job_commands = job_parser.add_subparsers(dest="job_command", required=True)
@@ -194,6 +210,20 @@ def _nonnegative_argument(value: str) -> int:
         raise argparse.ArgumentTypeError("must be an integer") from exc
     if resolved < 0:
         raise argparse.ArgumentTypeError("must be nonnegative")
+    return resolved
+
+
+def _timestamp_argument(value: str) -> datetime:
+    try:
+        resolved = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "must be an ISO-8601 timestamp with a timezone"
+        ) from exc
+    if resolved.tzinfo is None or resolved.utcoffset() is None:
+        raise argparse.ArgumentTypeError(
+            "must be an ISO-8601 timestamp with a timezone"
+        )
     return resolved
 
 
@@ -460,6 +490,10 @@ def _repository_change(args: argparse.Namespace) -> int:
 
 
 def _database_command(args: argparse.Namespace) -> int:
+    if args.database_command == "prune-webhook-deliveries":
+        return _database_retention_command(args)
+    if args.database_command == "prepare":
+        return _database_prepare_command()
     try:
         database_url = ReviewAgentSettings.from_environment().postgres_database_url
         if args.database_command == "migrate":
@@ -478,6 +512,9 @@ def _database_command(args: argparse.Namespace) -> int:
             database_url, role=PostgreSQLRuntimeRole.OPERATOR
         )
         readiness = runtime.open()
+    except runner.MigrationError:
+        _json_error(code="database_migration_failed", retryable=False)
+        return os.EX_CONFIG
     except (PostgreSQLRuntimeError, psycopg.Error, ValueError):
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
@@ -493,6 +530,100 @@ def _database_command(args: argparse.Namespace) -> int:
         return 0
     finally:
         runtime.close()
+
+
+def _database_prepare_command() -> int:
+    try:
+        settings = ReviewAgentSettings.from_environment()
+        contract = operator_setup.validate_database_configuration(settings)
+        owner_url = settings.postgres_database_url
+        runtime_url = settings.postgres_runtime_database_url
+        with psycopg.connect(owner_url) as connection:
+            applied = runner.apply_migrations(connection)
+            with connection.transaction():
+                role = database_roles.configure_runtime_role(
+                    connection,
+                    role_name=contract.runtime_role,
+                    password=contract.runtime_password,
+                )
+        if contract.database_name != role.database_name:
+            raise ValueError("runtime database URL targets a different database")
+        with psycopg.connect(runtime_url) as runtime_connection:
+            if runtime_connection.info.user != contract.runtime_role:
+                raise ValueError("runtime database URL authenticated as another role")
+            readiness = runner.inspect_migrations(runtime_connection)
+    except (database_roles.DatabaseRoleError, ValueError):
+        _json_error(code="invalid_database_role_configuration", retryable=False)
+        return os.EX_CONFIG
+    except runner.MigrationError:
+        _json_error(code="database_migration_failed", retryable=False)
+        return os.EX_CONFIG
+    except psycopg.Error:
+        _json_error(code="database_unavailable", retryable=True)
+        return os.EX_TEMPFAIL
+    _json(
+        {
+            "applied": list(applied),
+            "database": role.database_name,
+            "migration": readiness.applied_version,
+            "ready": not readiness.pending_versions,
+            "runtime_role": role.role_name,
+        }
+    )
+    return 0
+
+
+def _database_retention_command(args: argparse.Namespace) -> int:
+    try:
+        limit = _page_limit(args.limit)
+        runtime = _runtime()
+    except ValueError:
+        _json_error(code="invalid_retention_request", retryable=False)
+        return os.EX_USAGE
+    except (PostgreSQLRuntimeError, psycopg.Error):
+        _json_error(code="database_unavailable", retryable=True)
+        return os.EX_TEMPFAIL
+    try:
+        receipt = operator_application.prune_webhook_delivery_history(
+            runtime,
+            before=args.before,
+            limit=limit,
+            apply=args.apply,
+            actor=args.actor,
+            reason=args.reason,
+        )
+    except (PostgreSQLRuntimeError, psycopg.OperationalError):
+        _json_error(code="database_unavailable", retryable=True)
+        return os.EX_TEMPFAIL
+    except (operator_application.OperatorInputError, ValueError):
+        _json_error(code="invalid_retention_request", retryable=False)
+        return os.EX_USAGE
+    except psycopg.Error:
+        _json_error(code="database_operation_failed", retryable=False)
+        return 1
+    finally:
+        runtime.close()
+
+    result = receipt.result
+    _json(
+        {
+            "actor": receipt.actor,
+            "before": result.before.isoformat(),
+            "deleted": result.deleted,
+            "dry_run": not args.apply,
+            "limit": result.limit,
+            "matched": result.matched,
+            "more": result.more,
+            "oldest_processed_at": (
+                result.oldest_processed_at.isoformat()
+                if result.oldest_processed_at is not None
+                else None
+            ),
+            "reason": receipt.reason,
+            "target": "terminal_webhook_deliveries",
+        }
+    )
+    return 0
 
 
 def _job_command(args: argparse.Namespace) -> int:

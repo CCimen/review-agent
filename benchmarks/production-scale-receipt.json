@@ -1,0 +1,123 @@
+{
+  "app_intake": {
+    "buffer_hits": 2863,
+    "buffer_reads": 4,
+    "clients": 8,
+    "deliveries": 100,
+    "deliveries_per_second": 1210.9,
+    "pool_maximum_size": 4,
+    "pool_waiters_peak": 6,
+    "process_peak_rss_mib": 63.47,
+    "wall_ms": 82.58
+  },
+  "candidate_revision": "v0.1.0",
+  "changed_files": {
+    "cpu_ms": 38.31,
+    "files": 3000,
+    "index_state": "complete",
+    "process_peak_rss_mib": 60.28,
+    "python_peak_mib": 2.56,
+    "requests": 30,
+    "wall_ms": 38.37
+  },
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "publishers": [
+    {
+      "buffer_hits": 3382,
+      "buffer_reads": 7,
+      "distinct_claims": 1,
+      "peak_locks": 75,
+      "process_peak_rss_mib": 63.16,
+      "replicas": 1,
+      "wall_ms": 25.72
+    },
+    {
+      "buffer_hits": 4023,
+      "buffer_reads": 0,
+      "distinct_claims": 2,
+      "peak_locks": 75,
+      "process_peak_rss_mib": 63.16,
+      "replicas": 2,
+      "wall_ms": 20.86
+    },
+    {
+      "buffer_hits": 19092,
+      "buffer_reads": 1,
+      "distinct_claims": 10,
+      "peak_locks": 75,
+      "process_peak_rss_mib": 63.25,
+      "replicas": 10,
+      "wall_ms": 65.28
+    }
+  ],
+  "python": "3.14.0",
+  "queue": [
+    {
+      "buffer_hits": 14367,
+      "buffer_reads": 0,
+      "claims": 20,
+      "lock_modes": [
+        "AccessShareLock",
+        "ExclusiveLock",
+        "RowExclusiveLock",
+        "RowShareLock"
+      ],
+      "max_ms": 4.89,
+      "median_ms": 2.81,
+      "p95_ms": 4.38,
+      "peak_locks": 31,
+      "pool_waiters_peak": 0,
+      "process_peak_rss_mib": 62.09,
+      "ready_jobs": 100
+    },
+    {
+      "buffer_hits": 404020,
+      "buffer_reads": 0,
+      "claims": 20,
+      "lock_modes": [
+        "AccessShareLock",
+        "ExclusiveLock",
+        "RowExclusiveLock",
+        "RowShareLock"
+      ],
+      "max_ms": 61.03,
+      "median_ms": 46.59,
+      "p95_ms": 56.1,
+      "peak_locks": 31,
+      "pool_waiters_peak": 0,
+      "process_peak_rss_mib": 62.2,
+      "ready_jobs": 1000
+    },
+    {
+      "buffer_hits": 1805087,
+      "buffer_reads": 0,
+      "claims": 20,
+      "lock_modes": [
+        "AccessShareLock",
+        "ExclusiveLock",
+        "RowExclusiveLock",
+        "RowShareLock"
+      ],
+      "max_ms": 33.24,
+      "median_ms": 26.98,
+      "p95_ms": 33.16,
+      "peak_locks": 31,
+      "pool_waiters_peak": 0,
+      "process_peak_rss_mib": 62.28,
+      "ready_jobs": 10000
+    }
+  ],
+  "repositories": {
+    "buffer_hits": 72648,
+    "buffer_reads": 0,
+    "distinct_claims": 100,
+    "peak_locks": 31,
+    "pool_maximum_size": 11,
+    "pool_waiters_peak": 7,
+    "process_peak_rss_mib": 63.16,
+    "repositories": 100,
+    "wall_ms": 290.32,
+    "workers": 10
+  },
+  "schema_version": 2
+}

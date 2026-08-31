@@ -776,6 +776,49 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             acquired = list(executor.map(lambda _: claim(), range(2)))
         self.assertEqual(sorted(acquired), [False, True])
 
+    def test_concurrent_publishers_claim_distinct_ready_reviews(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        first_run, first_batch = self.start_recorded_run(
+            request_key="github:issue-comment:parallel-publication-one",
+            pr_number=41,
+        )
+        second_run, second_batch = self.start_recorded_run(
+            request_key="github:issue-comment:parallel-publication-two",
+            pr_number=42,
+        )
+        with self.runtime.transaction() as connection:
+            prepared = {
+                publications.prepare_publication(
+                    connection,
+                    run_id=first_run,
+                    plan=self.plan(first_batch, key_character="d"),
+                ).id,
+                publications.prepare_publication(
+                    connection,
+                    run_id=second_run,
+                    plan=self.plan(second_batch, key_character="e"),
+                ).id,
+            }
+
+        barrier = threading.Barrier(2)
+
+        def claim(sequence: int) -> publications.PublicationId:
+            with self.runtime.transaction() as connection:
+                barrier.wait()
+                result = publications.claim_next_publication(
+                    connection,
+                    lease_owner=f"publisher-{sequence}",
+                    lease_duration=timedelta(minutes=2),
+                )
+            assert result is not None
+            self.assertTrue(result.acquired)
+            return result.publication.id
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            claimed = set(executor.map(claim, range(2)))
+        self.assertEqual(claimed, prepared)
+
     def test_expired_delivery_reclaims_with_a_new_fenced_generation(self) -> None:
         run_id, batch = self.start_recorded_run(
             request_key="github:issue-comment:delivery-reclaim"

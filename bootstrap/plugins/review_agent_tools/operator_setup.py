@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Literal
 from urllib.parse import quote, urlencode, urlsplit
+
+import psycopg
+from psycopg.conninfo import conninfo_to_dict
 
 from . import operator_application, review_contract
 from .github import app_auth
@@ -31,6 +34,24 @@ _APP_NAME_RE = re.compile(r"[^a-z0-9]+")
 
 class OperatorCapacityUnavailable(RuntimeError):
     """The deployment can retry a dry-run after active work drains."""
+
+
+@dataclass(frozen=True, slots=True)
+class DatabaseConnectionContract:
+    """Effective credentials for one migration-owner/runtime database pair."""
+
+    database_name: str
+    runtime_password: str = field(repr=False)
+    runtime_role: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DatabaseParameters:
+    database_name: str
+    host: str
+    password: str = field(repr=False)
+    port: str
+    role: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,8 +157,10 @@ def _homepage_url(value: str) -> str:
 
 def _owner(value: str) -> str:
     normalized = value.strip()
-    if not normalized or len(normalized) > 100 or any(
-        character in normalized for character in "/?#"
+    if (
+        not normalized
+        or len(normalized) > 100
+        or any(character in normalized for character in "/?#")
     ):
         raise ValueError("owner must be a GitHub account name")
     return normalized
@@ -215,7 +238,9 @@ def github_app_authenticator(
     try:
         app_id = int(raw_app_id)
     except ValueError as exc:
-        raise ValueError("REVIEW_AGENT_GITHUB_APP_ID must be a positive integer") from exc
+        raise ValueError(
+            "REVIEW_AGENT_GITHUB_APP_ID must be a positive integer"
+        ) from exc
     if app_id < 1:
         raise ValueError("REVIEW_AGENT_GITHUB_APP_ID must be a positive integer")
     raw_path = (
@@ -225,9 +250,7 @@ def github_app_authenticator(
     if not raw_path:
         raise ValueError("GitHub App private key path is required")
     private_key = app_auth.load_private_key_file(raw_path)
-    return app_auth.GitHubAppAuthenticator(
-        app_id=app_id, private_key_pem=private_key
-    )
+    return app_auth.GitHubAppAuthenticator(app_id=app_id, private_key_pem=private_key)
 
 
 def _webhook_configuration(environment: Mapping[str, str]) -> None:
@@ -240,6 +263,69 @@ def _api_key_configuration(environment: Mapping[str, str]) -> None:
     value = environment.get("API_SERVER_KEY", "").strip()
     if not value or _PLACEHOLDER_RE.search(value):
         raise ValueError("API_SERVER_KEY is not configured")
+
+
+def _database_parameters(value: str, *, label: str) -> _DatabaseParameters:
+    try:
+        parameters = conninfo_to_dict(value)
+    except psycopg.Error as exc:
+        raise ValueError(
+            f"{label} URL is not valid PostgreSQL connection data"
+        ) from exc
+    if parameters.get("hostaddr") or parameters.get("service"):
+        raise ValueError(
+            f"{label} URL must not use hostaddr or service target selection"
+        )
+    host = parameters.get("host")
+    database_name = parameters.get("dbname")
+    role = parameters.get("user")
+    password = parameters.get("password")
+    if not all(
+        isinstance(item, str) and item for item in (host, database_name, role, password)
+    ):
+        raise ValueError(
+            f"{label} URL requires a host, database, username, and password"
+        )
+    assert isinstance(host, str)
+    assert isinstance(database_name, str)
+    assert isinstance(role, str)
+    assert isinstance(password, str)
+    raw_port = parameters.get("port", "5432")
+    port = str(raw_port)
+    if "," in host or "," in port:
+        raise ValueError(f"{label} URL must target one PostgreSQL server")
+    return _DatabaseParameters(
+        database_name=database_name,
+        host=host,
+        password=password,
+        port=port,
+        role=role,
+    )
+
+
+def validate_database_configuration(
+    settings: ReviewAgentSettings,
+) -> DatabaseConnectionContract:
+    """Require separate credentials for one exact owner/runtime database target."""
+    owner = _database_parameters(
+        settings.postgres_database_url,
+        label="migration owner",
+    )
+    runtime = _database_parameters(
+        settings.postgres_runtime_database_url,
+        label="runtime",
+    )
+    if owner.role == runtime.role or owner.password == runtime.password:
+        raise ValueError("migration owner and runtime credentials must differ")
+    owner_target = (owner.host, owner.port, owner.database_name)
+    runtime_target = (runtime.host, runtime.port, runtime.database_name)
+    if owner_target != runtime_target:
+        raise ValueError("migration owner and runtime URLs must target one database")
+    return DatabaseConnectionContract(
+        database_name=runtime.database_name,
+        runtime_password=runtime.password,
+        runtime_role=runtime.role,
+    )
 
 
 def preflight(
@@ -255,8 +341,8 @@ def preflight(
     checks = (
         _run_check(
             "database_configuration",
-            "PostgreSQL URL is structurally valid",
-            lambda: settings.postgres_database_url,
+            "PostgreSQL owner and runtime URLs are structurally valid",
+            lambda: validate_database_configuration(settings),
         ),
         _run_check(
             "github_app_configuration",

@@ -85,24 +85,27 @@ class ReviewAgentSettings:
 
     @property
     def postgres_database_url(self) -> PostgresDatabaseUrl:
-        value = self.environment.get("REVIEW_AGENT_DATABASE_URL", "").strip()
+        return self._postgres_database_url("REVIEW_AGENT_DATABASE_URL")
+
+    @property
+    def postgres_runtime_database_url(self) -> PostgresDatabaseUrl:
+        return self._postgres_database_url("REVIEW_AGENT_RUNTIME_DATABASE_URL")
+
+    def _postgres_database_url(self, variable: str) -> PostgresDatabaseUrl:
+        value = self.environment.get(variable, "").strip()
         if not value:
-            raise SettingsError("REVIEW_AGENT_DATABASE_URL is required")
+            raise SettingsError(f"{variable} is required")
         try:
             parsed = urlsplit(value)
         except ValueError as exc:
-            raise SettingsError(
-                "REVIEW_AGENT_DATABASE_URL must be a PostgreSQL URL"
-            ) from exc
+            raise SettingsError(f"{variable} must be a PostgreSQL URL") from exc
         if parsed.scheme not in {"postgresql", "postgres"} or any(
             character.isspace() for character in value
         ):
-            raise SettingsError(
-                "REVIEW_AGENT_DATABASE_URL must be a PostgreSQL URL"
-            )
+            raise SettingsError(f"{variable} must be a PostgreSQL URL")
         if not parsed.hostname or not parsed.path.strip("/"):
             raise SettingsError(
-                "REVIEW_AGENT_DATABASE_URL must include a host and database name"
+                f"{variable} must include a host and database name"
             )
         return PostgresDatabaseUrl(value)
 

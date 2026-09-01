@@ -167,7 +167,7 @@ class ProfileBundleTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(
-                33,
+                39,
                 self.install.load_yaml(hermes_home / "config.yaml")[
                     "_config_version"
                 ],

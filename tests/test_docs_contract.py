@@ -1147,10 +1147,15 @@ class DocsContractTests(unittest.TestCase):
             1
         ].split("  - apiVersion: networking.k8s.io/v1", 1)[0]
 
-        digest = "nousresearch/hermes-agent:v2026.8.27@sha256:e0df6adebddf29b91112aefc999d4aaf6846c9eb544faca5672a16a13590ff79"
+        digest = "nousresearch/hermes-agent:v2026.8.31@sha256:64923faeae267792bf9bf87fe3b4c4869e35004e360c7df01730ad801b74d524"
         self.assertIn(digest, compose)
         self.assertIn(digest, env_example)
         self.assertIn(digest, dockerfile)
+        compose_hermes_defaults = re.findall(
+            r"HERMES_IMAGE: \$\{HERMES_IMAGE:-([^}]+)\}", compose
+        )
+        self.assertTrue(compose_hermes_defaults)
+        self.assertEqual({digest}, set(compose_hermes_defaults))
         self.assertNotIn("nousresearch/hermes-agent:latest", compose)
         self.assertNotIn("nousresearch/hermes-agent:latest", env_example)
         self.assertIn("POSTGRES_IMAGE=postgres:17-alpine", env_example)

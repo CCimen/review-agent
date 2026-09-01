@@ -31,8 +31,13 @@ docker run --rm --user 12345:0 \
     --tmpfs /opt/data:rw,mode=0770,uid=12345,gid=0 \
     --env HOME=/opt/data \
     --env HERMES_HOME=/opt/data \
-    --entrypoint /opt/review-agent-bootstrap/install.sh \
-    "$image"
+    --entrypoint sh \
+    "$image" -ec '
+        /opt/review-agent-bootstrap/install.sh
+        cp /opt/data/config.yaml /tmp/config.yaml.before-hermes
+        /opt/hermes/bin/hermes config migrate >/dev/null
+        cmp -s /tmp/config.yaml.before-hermes /opt/data/config.yaml
+    '
 
 docker run --rm --user 12345:0 \
     --tmpfs /opt/data:rw,mode=0770,uid=12345,gid=0 \

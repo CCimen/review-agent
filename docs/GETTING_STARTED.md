@@ -54,12 +54,18 @@ modes and the rollback command.
 
 Repositories work without local configuration. To add team instructions,
 ordered platform or framework context, and typed design decisions, copy the
-starter package and validate it offline:
+starter only when the repository has no `.review-agent/` package. Preserve and
+edit an existing package in place, then validate it offline:
 
 ```bash
-cp -R examples/repository-context/.review-agent /path/to/repository/
-.venv/bin/python tools/review_agent_admin.py \
-  repository-context validate /path/to/repository
+repository_root=/path/to/repository
+if [ -e "$repository_root/.review-agent" ]; then
+  echo ".review-agent already exists; preserve it and edit it in place."
+else
+  cp -R examples/repository-context/.review-agent "$repository_root/"
+fi
+.venv/bin/python tools/review_agent_admin.py repository-context validate \
+  "$repository_root"
 ```
 
 [Repository context](./REPOSITORY_CONTEXT.md) defines which files are loaded,

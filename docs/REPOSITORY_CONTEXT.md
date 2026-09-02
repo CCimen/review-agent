@@ -9,11 +9,11 @@ last_verified: 2026-09-02
 
 # Configure reviews in a repository
 
-> **TL;DR:** Copy `examples/repository-context/.review-agent/` into a repository,
-> edit the English Markdown files, list context files in `config.toml`, and run
-> the offline validator from a Review Agent checkout or release image.
-> Repositories without this directory continue to use the neutral deployment
-> baseline.
+> **TL;DR:** If the repository has no `.review-agent/` directory, copy the
+> versioned starter into it. Otherwise preserve and edit the existing package.
+> List context files in `config.toml`, then run the offline validator from a
+> Review Agent checkout or release image. Repositories without this directory
+> continue to use the neutral deployment baseline.
 
 Repository owners can add reviewed project knowledge without asking the Review
 Agent operator to create another deployment profile. The package is ordinary
@@ -82,12 +82,18 @@ content can focus the review and its wording; it cannot weaken those controls.
 ## Start with the copyable package
 
 From a Review Agent checkout with its documented virtual environment, copy the
-starter and validate the target repository:
+starter only when the repository has no package. Preserve and edit an existing
+package in place, then validate the target repository:
 
 ```bash
-cp -R examples/repository-context/.review-agent /path/to/repository/
-.venv/bin/python tools/review_agent_admin.py \
-  repository-context validate /path/to/repository
+repository_root=/path/to/repository
+if [ -e "$repository_root/.review-agent" ]; then
+  echo ".review-agent already exists; preserve it and edit it in place."
+else
+  cp -R examples/repository-context/.review-agent "$repository_root/"
+fi
+.venv/bin/python tools/review_agent_admin.py repository-context validate \
+  "$repository_root"
 ```
 
 A repository owner who does not keep a Review Agent checkout can run the same
@@ -96,9 +102,10 @@ repository:
 
 ```bash
 docker run --rm --read-only \
+  --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.2.0-rc.2 \
+  ghcr.io/ccimen/review-agent:v0.2.0 \
   repository-context validate /repo
 ```
 

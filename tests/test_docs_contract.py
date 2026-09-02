@@ -72,13 +72,14 @@ class DocsContractTests(unittest.TestCase):
         codeowners = read(".github/CODEOWNERS")
 
         self.assertIn("Confirm `LICENSE`, `NOTICE.md`, `CONTRIBUTING.md`", release)
-        self.assertIn("mark it **Pre-release**", release)
+        self.assertIn("mark it **Pre-release**", words(release))
         self.assertIn("does not update `latest`", release)
         self.assertIn("Deploy the immutable digest", release)
         self.assertIn("multi-repository scale", release)
         self.assertIn("Update `REVISION`", release)
         self.assertIn("arm64 runtime", release)
-        self.assertIn("Dispatch **Publish documentation**", words(release))
+        self.assertIn("Wait for **Publish documentation**", words(release))
+        self.assertIn("attached `IMAGE-DIGESTS.txt`", words(release))
         self.assertIn("* @CCimen", codeowners)
 
     def test_production_upgrade_drains_before_migration_and_bounds_rollback(self):

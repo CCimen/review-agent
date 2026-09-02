@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "website" / "public-documents.json"
 STATIC = ROOT / "website" / "static"
 BASE_URL = "https://ccimen.github.io/review-agent"
-REVISION = "v0.2.0-rc.2"
+REVISION = "v0.2.0"
 FRONTMATTER = re.compile(r"\A---\n(?P<header>.*?)\n---\n", re.DOTALL)
 TAB_ITEM = re.compile(r'^<TabItem\b[^>]*\blabel="(?P<label>[^"]+)"[^>]*>$')
 DIRECTIVE = re.compile(r"^(?P<indent>\s*):::(?P<kind>[a-z]+)\[(?P<title>[^]]+)]$")
@@ -128,6 +128,10 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
         "## Coding-agent handoff",
         "",
         "If no source checkout was provided, clone this repository and check out the exact runtime release named above. Then use the versioned repository-local `skills/install-review-agent/SKILL.md`; Codex and Claude Code mirrors are included, so do not install a floating global copy. Read only the platform-relevant documents above, prepare and validate the non-secret installation plan, and stop only for owner approvals, protected secret placement, DNS, model login, deployment approval, and the first live `/review`. On Dokploy, use Deploy when the source revision changes and verify the completed deployment commit. Finish with doctor, inventory, dry-run, and live-review evidence; report unknowns instead of guessing.",
+        "",
+        "## Repository-only handoff",
+        "",
+        "When Review Agent is already deployed and the target repository is covered by an approved installation, use the same versioned installation skill and its `Configure one repository` section. This mode configures guidance; it does not install or activate Review Agent. Do not change the deployment, GitHub App, model, or secrets. Prepare the skill's documented virtual environment. Copy `examples/repository-context/.review-agent` only when the target has no `.review-agent/` directory; otherwise preserve the existing package and edit it in place. Keep technical context explicitly ordered in `config.toml`, store indexed ADRs under `.review-agent/decisions/`, and run `.venv/bin/python tools/review_agent_admin.py repository-context validate <repository-root>`. Submit the package through normal repository review; it becomes active only after merge when a later pull request reads it from the base commit.",
         "",
         "## Operator interface",
         "",

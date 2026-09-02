@@ -4,12 +4,12 @@ slug: /overview
 title: Repository overview
 description: What Review Agent does, where its boundaries sit, and where each concern lives.
 status: current
-last_verified: 2026-08-25
+last_verified: 2026-09-02
 ---
 
 # Review Agent
 
-> **Current** — This page describes the reviewer available in this repository
+> **Current:** This page describes the reviewer available in this repository
 > today.
 
 Review Agent is a self-hosted, advisory pull-request reviewer built on Hermes.
@@ -17,10 +17,10 @@ An authorized maintainer comments `/review` on a PR; the service pins the
 exact base/head snapshot, reviews it through bounded read tools, and posts
 evidence-backed findings through a deterministic publisher.
 
-The reusable part is the review engine: webhook admission, bounded GitHub
-reads, PostgreSQL review state, human feedback, deterministic publication, and
-operator tooling. Voice and review policy live in a swappable profile, not in
-the engine.
+The review engine owns webhook admission, bounded GitHub reads, PostgreSQL
+review state, human feedback, deterministic publication, and operator
+controls. A deployment profile owns shared identity and review policy;
+repository-owned guidance can add local context without changing the engine.
 
 ## Start here
 

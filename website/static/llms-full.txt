@@ -1,18 +1,18 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.2.0-rc.2
+Runtime release selected by `llms.txt`: v0.2.0
 
 ---
 
 Title: Repository overview
 Canonical URL: https://ccimen.github.io/review-agent/docs/overview
 Status: current
-Last verified: 2026-08-25
+Last verified: 2026-09-02
 
 # Review Agent
 
-> **Current** — This page describes the reviewer available in this repository
+> **Current:** This page describes the reviewer available in this repository
 > today.
 
 Review Agent is a self-hosted, advisory pull-request reviewer built on Hermes.
@@ -20,10 +20,10 @@ An authorized maintainer comments `/review` on a PR; the service pins the
 exact base/head snapshot, reviews it through bounded read tools, and posts
 evidence-backed findings through a deterministic publisher.
 
-The reusable part is the review engine: webhook admission, bounded GitHub
-reads, PostgreSQL review state, human feedback, deterministic publication, and
-operator tooling. Voice and review policy live in a swappable profile, not in
-the engine.
+The review engine owns webhook admission, bounded GitHub reads, PostgreSQL
+review state, human feedback, deterministic publication, and operator
+controls. A deployment profile owns shared identity and review policy;
+repository-owned guidance can add local context without changing the engine.
 
 ## Start here
 
@@ -252,12 +252,18 @@ modes and the rollback command.
 
 Repositories work without local configuration. To add team instructions,
 ordered platform or framework context, and typed design decisions, copy the
-starter package and validate it offline:
+starter only when the repository has no `.review-agent/` package. Preserve and
+edit an existing package in place, then validate it offline:
 
 ```bash
-cp -R examples/repository-context/.review-agent /path/to/repository/
-.venv/bin/python tools/review_agent_admin.py \
-  repository-context validate /path/to/repository
+repository_root=/path/to/repository
+if [ -e "$repository_root/.review-agent" ]; then
+  echo ".review-agent already exists; preserve it and edit it in place."
+else
+  cp -R examples/repository-context/.review-agent "$repository_root/"
+fi
+.venv/bin/python tools/review_agent_admin.py repository-context validate \
+  "$repository_root"
 ```
 
 [Repository context](./REPOSITORY_CONTEXT.md) defines which files are loaded,
@@ -1121,10 +1127,10 @@ Last verified: 2026-09-02
 > scope, Review Agent activation policy, secrets, model login, DNS, deployment,
 > and first real `/review`.
 
-Send the agent **this page** and the assignment below. That is enough as the
-human handoff: the agent follows the machine-readable index, checks out the
-declared release, and uses the repository-local installation skill. You do not
-need to install the skill globally or collect the linked guides yourself.
+Send the agent **this page** and the assignment below. This page is the human
+handoff: the agent follows the machine-readable index, checks out the declared
+release, and uses the repository-local installation skill. You do not need to
+install the skill globally or collect the linked guides yourself.
 
 ## Give this assignment to your agent
 
@@ -1154,6 +1160,35 @@ optional explicit repositories, and the deployment tools the agent may use.
 The validated installation plan records the remaining non-secret choices. This
 keeps the conversation focused on real owner decisions instead of asking you to
 translate the deployment guide.
+
+## Configure only one repository
+
+If Review Agent is already deployed, give a coding agent this shorter assignment:
+
+```text
+Configure repository-owned Review Agent guidance for this repository. Do not
+change the deployment, GitHub App, installation policy, model, or secrets. Read
+https://ccimen.github.io/review-agent/llms.txt, check out the exact release it
+declares, and use that checkout's skills/install-review-agent/SKILL.md section
+"Configure one repository". This mode assumes the target repository is already
+covered by an approved Review Agent installation; if it is not, report that
+access prerequisite instead of changing the installation. Copy
+examples/repository-context/.review-agent only when the target has no
+.review-agent/ directory. Otherwise preserve the existing package and edit it
+in place. Keep instructions in instructions.md, list technical context
+explicitly in config.toml, and store indexed ADRs under
+.review-agent/decisions/. Do not invent or auto-discover policy files. Prepare
+the documented virtual environment, then run
+.venv/bin/python tools/review_agent_admin.py repository-context validate
+against the target repository. Show the repository diff and bounded validation
+receipt for normal review. The new guidance becomes active only after it is
+merged and a later pull request reads it from the base commit.
+```
+
+When the repository is already covered by an approved installation, this path
+needs no Dokploy access, model login, database connection, or GitHub App
+administration. The repository owner reviews and merges the package like other
+project policy.
 
 ## What the agent may do
 
@@ -1288,9 +1323,10 @@ private gateway.
 
 Repositories need no local configuration. When a team wants its own engineering
 principles, communication preferences, platform context, or typed decisions,
-follow [Repository context](./REPOSITORY_CONTEXT.md). Copy the starter into that
-repository, edit only reviewed team content, and run this without network or
-database access before opening the configuration pull request:
+follow [Repository context](./REPOSITORY_CONTEXT.md). Copy the starter only when
+the repository has no `.review-agent/` directory; otherwise preserve and edit
+the existing package. Run this without network or database access before
+opening the configuration pull request:
 
 ```bash
 .venv/bin/python tools/review_agent_admin.py \
@@ -1608,11 +1644,11 @@ Last verified: 2026-09-02
 
 # Configure reviews in a repository
 
-> **TL;DR:** Copy `examples/repository-context/.review-agent/` into a repository,
-> edit the English Markdown files, list context files in `config.toml`, and run
-> the offline validator from a Review Agent checkout or release image.
-> Repositories without this directory continue to use the neutral deployment
-> baseline.
+> **TL;DR:** If the repository has no `.review-agent/` directory, copy the
+> versioned starter into it. Otherwise preserve and edit the existing package.
+> List context files in `config.toml`, then run the offline validator from a
+> Review Agent checkout or release image. Repositories without this directory
+> continue to use the neutral deployment baseline.
 
 Repository owners can add reviewed project knowledge without asking the Review
 Agent operator to create another deployment profile. The package is ordinary
@@ -1681,12 +1717,18 @@ content can focus the review and its wording; it cannot weaken those controls.
 ## Start with the copyable package
 
 From a Review Agent checkout with its documented virtual environment, copy the
-starter and validate the target repository:
+starter only when the repository has no package. Preserve and edit an existing
+package in place, then validate the target repository:
 
 ```bash
-cp -R examples/repository-context/.review-agent /path/to/repository/
-.venv/bin/python tools/review_agent_admin.py \
-  repository-context validate /path/to/repository
+repository_root=/path/to/repository
+if [ -e "$repository_root/.review-agent" ]; then
+  echo ".review-agent already exists; preserve it and edit it in place."
+else
+  cp -R examples/repository-context/.review-agent "$repository_root/"
+fi
+.venv/bin/python tools/review_agent_admin.py repository-context validate \
+  "$repository_root"
 ```
 
 A repository owner who does not keep a Review Agent checkout can run the same
@@ -1695,9 +1737,10 @@ repository:
 
 ```bash
 docker run --rm --read-only \
+  --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.2.0-rc.2 \
+  ghcr.io/ccimen/review-agent:v0.2.0 \
   repository-context validate /repo
 ```
 

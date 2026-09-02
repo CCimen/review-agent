@@ -7,11 +7,16 @@ with deterministic controls.
 [![Publish documentation](https://github.com/CCimen/review-agent/actions/workflows/docs-pages.yml/badge.svg)](https://github.com/CCimen/review-agent/actions/workflows/docs-pages.yml)
 [![Documentation](https://img.shields.io/badge/docs-ccimen.github.io-blue)](https://ccimen.github.io/review-agent/)
 
-An authorized maintainer comments `/review` on a pull request. The service pins the
-exact base/head snapshot, reviews it in two passes through bounded read tools,
-and posts evidence-backed findings through a deterministic publisher. Reviews
-stay advisory: the reviewer has no shell, no repository write access, and no
-merge authority.
+> **TL;DR:** Deploy Review Agent once, approve each trusted GitHub App
+> installation once, and let maintainers request reviews with `/review` across
+> the repositories covered by that installation. Repositories need no local
+> setup. An optional `.review-agent/` package adds team instructions, ordered
+> technical context, and accepted design decisions. Reviews stay advisory: the
+> model has no shell, repository write access, or merge authority.
+
+For each request, the service pins the exact base and head commits, reviews the
+snapshot in two passes through bounded read tools, and publishes
+evidence-backed findings through deterministic code.
 
 ![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](website/static/img/review-lifecycle.webp)
 
@@ -39,14 +44,20 @@ merge authority.
    /review
    ```
 
-Repositories work with the neutral baseline by default. Teams that need local
-review principles, platform context, or ADR evidence can copy the explicit
-`.review-agent/` starter and validate it offline; see [Repository
-context](docs/REPOSITORY_CONTEXT.md).
-
 The GitHub App receives review commands and gives the private gateway short-lived,
 repository-scoped credentials for source reads and deterministic publication.
 The model and publisher never receive the App private key.
+
+## Add repository guidance when needed
+
+Repositories use the neutral `default-standard` profile without local files.
+Teams can add a reviewed `.review-agent/` package when they need local
+engineering principles, platform context, communication preferences, or ADR
+evidence. Context files are selected explicitly, validated offline, and read
+from the pull request's base commit. See [Repository
+context](docs/REPOSITORY_CONTEXT.md).
+
+## Use the review result
 
 After fixing findings, push a commit and comment `/review` again; the new
 snapshot starts a fresh round. Collaborators with current write or admin
@@ -118,12 +129,12 @@ either build locally or use an immutable release tag through
 > shared identity or fixed review policy; GitHub App installation controls
 > access, not reviewer behavior.
 
-The reusable part is the review engine: webhook admission, bounded GitHub
-reads, PostgreSQL review state, deterministic publication, and operator
-tooling. Voice and review policy live in a swappable profile; select one with
-`REVIEW_AGENT_PROFILE=<profile-key>`. The shipped `default-standard` bundle
-is the neutral default deployment profile, not an organization identity.
-Repository-specific principles and technical context live in the optional,
+The review engine owns webhook admission, bounded GitHub reads, PostgreSQL
+state, deterministic publication, and operator controls. The deployment
+profile owns the shared reviewer identity, fixed review contract, and review
+procedure. Select it with `REVIEW_AGENT_PROFILE=<profile-key>`. The shipped
+`default-standard` profile is neutral and is not tied to an organization.
+Repository-specific principles and technical context belong in the optional,
 explicitly indexed `.review-agent/` package.
 
 The deployment selects the Hermes provider, model, and reasoning effort with
@@ -150,9 +161,8 @@ backups, updates, and operator commands. [docs/SECURITY.md](docs/SECURITY.md)
 owns the trust model, prompt-injection posture, token boundaries, and
 dependency-scanning scope.
 
-The short version: the reviewer is useful because it has narrow tools and
-durable audit state. Keep deterministic scanners, tests, type checks, and
-human ownership as separate controls.
+Review Agent does not replace deterministic scanners, tests, type checks, or
+human ownership. Keep those as separate controls.
 
 ## Development
 

@@ -18,6 +18,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release-image.yml"
+DOCS_WORKFLOW = ROOT / ".github" / "workflows" / "docs-pages.yml"
 RELEASE_SBOM = ROOT / "scripts" / "generate_release_sbom.sh"
 PYTHON_RUNTIME_SBOM = ROOT / "scripts" / "generate_python_runtime_sbom.sh"
 RELEASE_SBOM_REQUIREMENTS = ROOT / "requirements-release-sbom.txt"
@@ -84,6 +85,27 @@ def named_step(job: dict[str, object], name: str) -> dict[str, object]:
 
 
 class PythonBundleWorkflowTests(unittest.TestCase):
+    def test_pages_publishes_only_a_qualified_documented_release(self):
+        document = workflow(DOCS_WORKFLOW)
+        self.assertEqual(mapping(document["permissions"]), {"contents": "read"})
+        jobs = mapping(document["jobs"])
+        build = mapping(jobs["build"])
+        gate = named_step(build, "Confirm documented release is qualified")
+        self.assertEqual("${{ github.token }}", mapping(gate["env"])["GH_TOKEN"])
+        self.assertEqual("${{ github.repository }}", mapping(gate["env"])["GH_REPO"])
+        command = str(gate["run"])
+        self.assertIn("Release state: ", command)
+        self.assertIn('gh release view "$release_tag" --json assets', command)
+        self.assertIn("IMAGE-DIGESTS.txt", command)
+        step_names = [
+            str(mapping(step).get("name", "")) for step in sequence(build["steps"])
+        ]
+        self.assertLess(
+            step_names.index("Confirm documented release is qualified"),
+            step_names.index("Upload GitHub Pages artifact"),
+        )
+        self.assertEqual(needs(mapping(jobs["deploy"])), {"build"})
+
     def test_required_quality_gates_run_independently_in_read_only_ci(self):
         self.assertTrue(WORKFLOW.is_file(), "full Python bundle CI is missing")
         source = WORKFLOW.read_text(encoding="utf-8")

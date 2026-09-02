@@ -3,8 +3,10 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
+import tempfile
 import unittest
 
 import yaml
@@ -82,6 +84,7 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertIn("use Deploy when the source revision changes", short)
         self.assertIn("AI-assisted setup", short)
         self.assertIn("## Coding-agent handoff", short)
+        self.assertIn("## Repository-only handoff", short)
         self.assertIn("check out the exact runtime release named above", short)
         self.assertIn("skills/install-review-agent/SKILL.md", short)
         self.assertIn("do not install a floating global copy", short)
@@ -110,6 +113,16 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertNotIn("Review Agent revision:", full)
 
         generator = _llms_generator_module()
+        repository_context = (ROOT / "docs/REPOSITORY_CONTEXT.md").read_text(
+            encoding="utf-8"
+        )
+        public_image_tags = set(
+            re.findall(
+                r"ghcr\.io/ccimen/review-agent:(v[0-9A-Za-z.-]+)",
+                repository_context,
+            )
+        )
+        self.assertEqual(public_image_tags, {generator.REVISION})
         for invalid_tag in (
             "v01.2.3",
             "v1.2.3-01",
@@ -160,6 +173,19 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertIn("https://ccimen.github.io/review-agent/llms.txt", combined)
         self.assertIn(".claude/skills/install-review-agent/SKILL.md", skill)
         self.assertIn(".agents/skills/install-review-agent/SKILL.md", skill)
+        self.assertIn("repository-owned `.review-agent/` packages", skill)
+        self.assertIn("## Configure one repository", skill)
+        self.assertIn("## Configure only one repository", setup)
+        repository_only = setup.split(
+            "## Configure only one repository", 1
+        )[1].split("## What the agent may do", 1)[0]
+        self.assertIn("repository-context validate", repository_only)
+        self.assertIn(
+            "covered by an approved Review Agent installation", repository_only
+        )
+        self.assertIn(
+            "Do not change the deployment", " ".join(repository_only.split())
+        )
         self.assertIn("python3 -m venv .venv", combined)
         self.assertIn(
             ".venv/bin/python tools/review_agent_admin.py capabilities", combined
@@ -167,6 +193,27 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertIn(
             ".venv/bin/python tools/review_agent_admin.py preflight", combined
         )
+        configure_repository = skill.split(
+            "## Configure one repository", 1
+        )[1].split("## Minimize operator effort", 1)[0]
+        self.assertLess(
+            configure_repository.index("python3 -m venv .venv"),
+            configure_repository.index("repository-context validate"),
+        )
+        self.assertIn(
+            "This mode configures guidance; it does not install or activate Review Agent",
+            " ".join(skill.split()),
+        )
+        repository_context = (ROOT / "docs/REPOSITORY_CONTEXT.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--network none", repository_context)
+        for public_source in (setup, repository_context, skill):
+            with self.subTest(source=public_source[:40]):
+                normalized_source = " ".join(public_source.split())
+                self.assertIn(
+                    "otherwise preserve", normalized_source.casefold()
+                )
         self.assertIn("--homepage-url", combined)
         self.assertIn(
             "docker compose exec hermes-review review-agent-admin doctor", setup
@@ -309,6 +356,72 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertNotIn("preflight --json", combined)
         self.assertNotIn("doctor --json", combined)
         self.assertNotIn("installations list --json", combined)
+
+    def test_repository_only_starter_validates_with_the_documented_cli(self) -> None:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "tools/review_agent_admin.py"),
+                "repository-context",
+                "validate",
+                str(ROOT / "examples/repository-context"),
+            ],
+            check=False,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        receipt = json.loads(completed.stdout)
+        self.assertIs(receipt["ready"], True)
+        self.assertIs(receipt["configured"], True)
+
+    def test_documented_starter_copy_preserves_existing_repository_policy(self) -> None:
+        copy_command = """
+repository_root="$1"
+if [ -e "$repository_root/.review-agent" ]; then
+  echo ".review-agent already exists; preserve it and edit it in place."
+else
+  cp -R examples/repository-context/.review-agent "$repository_root/"
+fi
+"""
+        skill = (ROOT / "skills/install-review-agent/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('if [ -e "$repository_root/.review-agent" ]; then', skill)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            fresh_repository = temporary_root / "fresh"
+            fresh_repository.mkdir()
+            subprocess.run(
+                ["sh", "-c", copy_command, "copy-starter", str(fresh_repository)],
+                check=True,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertTrue((fresh_repository / ".review-agent/config.toml").is_file())
+
+            existing_repository = temporary_root / "existing"
+            package = existing_repository / ".review-agent"
+            package.mkdir(parents=True)
+            config = package / "config.toml"
+            instructions = package / "instructions.md"
+            config.write_text("sentinel config\n", encoding="utf-8")
+            instructions.write_text("sentinel instructions\n", encoding="utf-8")
+            subprocess.run(
+                ["sh", "-c", copy_command, "copy-starter", str(existing_repository)],
+                check=True,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(config.read_text(encoding="utf-8"), "sentinel config\n")
+            self.assertEqual(
+                instructions.read_text(encoding="utf-8"),
+                "sentinel instructions\n",
+            )
 
     def test_docs_ci_runs_installation_contract(self) -> None:
         package = json.loads((ROOT / "install/package.json").read_text(encoding="utf-8"))

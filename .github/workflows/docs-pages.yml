@@ -58,6 +58,16 @@ jobs:
           python3 scripts/sync_install_skill.py --check
           npm --prefix install test
 
+      - name: Confirm documented release is qualified
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          release_tag="$(sed -n 's/^Release state: //p' website/static/llms.txt)"
+          test -n "$release_tag"
+          gh release view "$release_tag" --json assets --jq '.assets[].name' \
+            | grep -Fx 'IMAGE-DIGESTS.txt'
+
       - name: Type-check the site
         run: npm --prefix website run typecheck
 

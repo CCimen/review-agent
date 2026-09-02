@@ -1,6 +1,6 @@
 ---
 name: install-review-agent
-description: Plan, deploy, verify, upgrade, or recover the self-hosted Review Agent, approve an organization-managed GitHub App installation or explicit repositories, and establish the initial quality baseline. Use for Review Agent installation, organization onboarding, Dokploy or Compose deployment, OpenShift setup, repository activation, readiness checks, smoke tests, initial quality reporting, upgrades, and rollback. Do not use to classify reviewer feedback or bypass owner, secret, OAuth, DNS, deployment, or live-review approval gates.
+description: Plan, deploy, verify, upgrade, or recover the self-hosted Review Agent; approve an organization-managed GitHub App installation or explicit repositories; configure or validate repository-owned `.review-agent/` packages; and establish the initial quality baseline. Use for Review Agent installation, organization onboarding, Dokploy or Compose deployment, OpenShift setup, repository activation or context, readiness checks, smoke tests, initial quality reporting, upgrades, and rollback. Do not use to classify reviewer feedback or bypass owner, secret, OAuth, DNS, deployment, or live-review approval gates.
 ---
 
 # Install Review Agent
@@ -17,13 +17,59 @@ do not install or prefer a floating global copy. Codex and Claude Code mirrors
 are already included at `.agents/skills/install-review-agent/SKILL.md` and
 `.claude/skills/install-review-agent/SKILL.md`.
 
-Follow five phases:
+Choose the smallest mode that matches the request:
+
+- For a deployment, organization onboarding, upgrade, or recovery, follow the
+  five phases below.
+- When Review Agent is already deployed and a team only wants repository-owned
+  guidance, first confirm that the target repository is covered by an approved
+  installation. Then follow **Configure one repository** and stop. This mode
+  configures guidance; it does not install or activate Review Agent. Do not
+  change the deployment, GitHub App, installation policy, model, or secrets
+  unless the owner separately requests that work.
+
+The full deployment flow has five phases:
 
 1. Inspect the exact revision and shipped capabilities.
 2. Prepare and validate one non-secret installation plan.
 3. Present one mutation, verification, rollback, and human-gate plan.
 4. Apply only the approved deployment and repository scope.
 5. Prove readiness with doctor, inventory, dry-run, and one approved live test.
+
+## Configure one repository
+
+Use the exact release declared in `website/static/llms.txt`. Read
+`docs/REPOSITORY_CONTEXT.md` and prepare that release checkout. Copy the
+versioned starter only when the target has no `.review-agent/` directory;
+otherwise preserve the existing package and edit it in place:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+repository_root=/path/to/repository
+if [ -e "$repository_root/.review-agent" ]; then
+  echo ".review-agent already exists; preserve it and edit it in place."
+else
+  cp -R examples/repository-context/.review-agent "$repository_root/"
+fi
+.venv/bin/python tools/review_agent_admin.py repository-context validate \
+  "$repository_root"
+```
+
+If no source checkout is available, use the versioned stable release image and
+the read-only bind-mount command documented in `docs/REPOSITORY_CONTEXT.md`.
+
+Keep one optional `instructions.md`, list every technical context file in
+`config.toml` in the order it should be read, and store indexed ADRs under
+`.review-agent/decisions/`. Do not scan directories, infer frameworks, invent
+policy files, or load unlisted Markdown. Repository content may focus the
+review and its communication style, but it cannot change authorization, tools,
+evidence, severity, lifecycle, model routing, or publication controls.
+
+After dependencies are installed, validation uses no network, database, model,
+or secret access. Show the proposed repository diff and validation receipt for
+normal code review. The package becomes active only after it is merged and a
+later pull request reads it from the base commit.
 
 ## Minimize operator effort
 

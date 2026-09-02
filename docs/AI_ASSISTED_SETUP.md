@@ -19,10 +19,10 @@ import TabItem from '@theme/TabItem';
 > scope, Review Agent activation policy, secrets, model login, DNS, deployment,
 > and first real `/review`.
 
-Send the agent **this page** and the assignment below. That is enough as the
-human handoff: the agent follows the machine-readable index, checks out the
-declared release, and uses the repository-local installation skill. You do not
-need to install the skill globally or collect the linked guides yourself.
+Send the agent **this page** and the assignment below. This page is the human
+handoff: the agent follows the machine-readable index, checks out the declared
+release, and uses the repository-local installation skill. You do not need to
+install the skill globally or collect the linked guides yourself.
 
 ## Give this assignment to your agent
 
@@ -52,6 +52,35 @@ optional explicit repositories, and the deployment tools the agent may use.
 The validated installation plan records the remaining non-secret choices. This
 keeps the conversation focused on real owner decisions instead of asking you to
 translate the deployment guide.
+
+## Configure only one repository
+
+If Review Agent is already deployed, give a coding agent this shorter assignment:
+
+```text
+Configure repository-owned Review Agent guidance for this repository. Do not
+change the deployment, GitHub App, installation policy, model, or secrets. Read
+https://ccimen.github.io/review-agent/llms.txt, check out the exact release it
+declares, and use that checkout's skills/install-review-agent/SKILL.md section
+"Configure one repository". This mode assumes the target repository is already
+covered by an approved Review Agent installation; if it is not, report that
+access prerequisite instead of changing the installation. Copy
+examples/repository-context/.review-agent only when the target has no
+.review-agent/ directory. Otherwise preserve the existing package and edit it
+in place. Keep instructions in instructions.md, list technical context
+explicitly in config.toml, and store indexed ADRs under
+.review-agent/decisions/. Do not invent or auto-discover policy files. Prepare
+the documented virtual environment, then run
+.venv/bin/python tools/review_agent_admin.py repository-context validate
+against the target repository. Show the repository diff and bounded validation
+receipt for normal review. The new guidance becomes active only after it is
+merged and a later pull request reads it from the base commit.
+```
+
+When the repository is already covered by an approved installation, this path
+needs no Dokploy access, model login, database connection, or GitHub App
+administration. The repository owner reviews and merges the package like other
+project policy.
 
 ## What the agent may do
 
@@ -186,9 +215,10 @@ private gateway.
 
 Repositories need no local configuration. When a team wants its own engineering
 principles, communication preferences, platform context, or typed decisions,
-follow [Repository context](./REPOSITORY_CONTEXT.md). Copy the starter into that
-repository, edit only reviewed team content, and run this without network or
-database access before opening the configuration pull request:
+follow [Repository context](./REPOSITORY_CONTEXT.md). Copy the starter only when
+the repository has no `.review-agent/` directory; otherwise preserve and edit
+the existing package. Run this without network or database access before
+opening the configuration pull request:
 
 ```bash
 .venv/bin/python tools/review_agent_admin.py \

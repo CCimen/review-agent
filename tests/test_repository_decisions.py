@@ -21,7 +21,7 @@ version = 1
 
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007-rag-chunking.md"
+adr_path = ".review-agent/decisions/ADR-0007-rag-chunking.md"
 applies_to = ["src/rag/**", "tests/rag/*.py"]
 """.strip()
         )
@@ -46,7 +46,7 @@ applies_to = ["src/rag/**", "tests/rag/*.py"]
 
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007.md"
+adr_path = ".review-agent/decisions/ADR-0007.md"
 applies_to = ["**/settings.py", "src/**/config?.py"]
 """
         )
@@ -65,6 +65,16 @@ applies_to = ["**/settings.py", "src/**/config?.py"]
         self.assertEqual(matches[0].matched_path_count, 4)
 
     def test_index_rejects_unknown_fields_and_more_than_the_review_guard(self) -> None:
+        for version in ("true", "1.0"):
+            with self.subTest(version=version):
+                with self.assertRaisesRegex(
+                    repository_decisions.RepositoryDecisionError,
+                    "version",
+                ):
+                    repository_decisions.parse_index(
+                        f"version = {version}\ndecision = []"
+                    )
+
         with self.assertRaisesRegex(
             repository_decisions.RepositoryDecisionError,
             "fields",
@@ -81,7 +91,7 @@ decision = []
             f"""
 [[decision]]
 id = "ADR-{number:04d}"
-adr_path = "docs/decisions/ADR-{number:04d}.md"
+adr_path = ".review-agent/decisions/ADR-{number:04d}.md"
 applies_to = ["src/{number}/**"]
 """.strip()
             for number in range(repository_decisions.MAX_INDEX_ENTRIES + 1)
@@ -95,7 +105,7 @@ applies_to = ["src/{number}/**"]
     def test_adr_frontmatter_is_typed_hashed_and_keeps_provenance(self) -> None:
         entry = repository_decisions.DecisionIndexEntry(
             id="ADR-0007",
-            adr_path="docs/decisions/ADR-0007-rag-chunking.md",
+            adr_path=".review-agent/decisions/ADR-0007-rag-chunking.md",
             applies_to=("src/rag/**",),
         )
 
@@ -133,7 +143,7 @@ Human rationale.
     def test_adr_requires_matching_identity_and_bounded_frontmatter(self) -> None:
         entry = repository_decisions.DecisionIndexEntry(
             id="ADR-0007",
-            adr_path="docs/decisions/ADR-0007.md",
+            adr_path=".review-agent/decisions/ADR-0007.md",
             applies_to=("src/**",),
         )
         with self.assertRaisesRegex(
@@ -180,7 +190,7 @@ on_change = ["Run its evaluation."]
                 """version = 1
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007.md"
+adr_path = ".review-agent/decisions/ADR-0007.md"
 applies_to = ["src/[ab]/**"]
 """
             )
@@ -193,7 +203,7 @@ applies_to = ["src/[ab]/**"]
                 """version = 1
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007.md"
+adr_path = ".review-agent/decisions/ADR-0007.md"
 applies_to = ["src/**/**/config.py"]
 """
             )

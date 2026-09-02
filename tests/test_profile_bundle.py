@@ -12,7 +12,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE_SOURCE = ROOT / "bootstrap" / "profiles" / "sundsvall-standard"
+PROFILE_SOURCE = ROOT / "bootstrap" / "profiles" / "default-standard"
 PLUGIN_SOURCE = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
 HERMES_IMAGE = "nousresearch/hermes-agent:test@sha256:" + "1" * 64
 
@@ -78,7 +78,7 @@ class ProfileBundleTests(unittest.TestCase):
         hermes_home: Path,
         *arguments: str,
         profiles_source: Path | None = None,
-        profile_environment: str | None = "sundsvall-standard",
+        profile_environment: str | None = "default-standard",
         deployment_environment: dict[str, str] | None = None,
     ) -> int:
         with (
@@ -186,7 +186,7 @@ class ProfileBundleTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual("sundsvall-standard", receipt["contract"]["profile"])
+            self.assertEqual("default-standard", receipt["contract"]["profile"])
             self.assertEqual(["review-agent-pr", "ponytail"], receipt["skills"])
             self.assertEqual(2, receipt["schema_version"])
             self.assertEqual(HERMES_IMAGE, receipt["contract"]["hermes_image"])
@@ -217,7 +217,7 @@ class ProfileBundleTests(unittest.TestCase):
 
             self.assertEqual(0, installed)
             contract = self.load_installed_contract(hermes_home)
-            self.assertEqual("sundsvall-standard", contract.profile)
+            self.assertEqual("default-standard", contract.profile)
 
             (hermes_home / "SOUL.md").write_text(
                 "# Changed outside the selected profile\n", encoding="utf-8"
@@ -256,7 +256,7 @@ class ProfileBundleTests(unittest.TestCase):
             ):
                 packaged_contract = (
                     self.install.review_contract.load_packaged_contract(
-                        "sundsvall-standard",
+                        "default-standard",
                         self.install.SOURCE,
                         environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
                     )
@@ -279,7 +279,7 @@ class ProfileBundleTests(unittest.TestCase):
                 )
                 self.assertEqual(0, installed)
                 packaged = self.install.review_contract.load_packaged_contract(
-                    "sundsvall-standard",
+                    "default-standard",
                     self.install.SOURCE,
                     environment={
                         "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
@@ -310,7 +310,7 @@ class ProfileBundleTests(unittest.TestCase):
                     deployment_environment=overrides,
                 )
                 packaged = self.install.review_contract.load_packaged_contract(
-                    "sundsvall-standard",
+                    "default-standard",
                     self.install.SOURCE,
                     environment={
                         "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
@@ -367,9 +367,9 @@ class ProfileBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             profiles = root / "profiles"
-            shutil.copytree(PROFILE_SOURCE, profiles / "sundsvall-standard")
+            shutil.copytree(PROFILE_SOURCE, profiles / "default-standard")
             custom = profiles / "team-standard"
-            shutil.copytree(profiles / "sundsvall-standard", custom)
+            shutil.copytree(profiles / "default-standard", custom)
             (custom / "SOUL.md").write_text(
                 "# Team reviewer\n\nAnswer review explanations in Swedish.\n",
                 encoding="utf-8",
@@ -469,7 +469,7 @@ class ProfileBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             profiles = root / "profiles"
-            selected = profiles / "sundsvall-standard"
+            selected = profiles / "default-standard"
             shutil.copytree(PROFILE_SOURCE, selected)
             (selected / "profile.json").write_text(
                 json.dumps({"schema_version": 1, "skills": ["ponytail"]}),
@@ -497,7 +497,7 @@ class ProfileBundleTests(unittest.TestCase):
             completed = self.run_installer(
                 hermes_home,
                 "--profile",
-                "sundsvall-standard",
+                "default-standard",
                 profile_environment=None,
             )
 
@@ -507,7 +507,7 @@ class ProfileBundleTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertEqual("sundsvall-standard", receipt["contract"]["profile"])
+            self.assertEqual("default-standard", receipt["contract"]["profile"])
 
 
 if __name__ == "__main__":

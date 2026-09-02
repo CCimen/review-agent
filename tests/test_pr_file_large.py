@@ -132,6 +132,50 @@ class ReviewSourceFilePageTests(unittest.TestCase):
         self.assertEqual(page.state, "not_regular")
         github.request.assert_not_called()
 
+    def test_invalid_utf8_is_a_terminal_text_state(self) -> None:
+        github = Mock()
+        raw = b"valid prefix\n\xff\xfe"
+        github.request_json.return_value = self._contents(
+            content=base64.b64encode(raw).decode("ascii"),
+            size=len(raw),
+        )
+
+        page = source.read_review_file_page(
+            github,
+            self._scope(),
+            path="context/not-utf8.md",
+            side="base",
+            start_line=1,
+            max_lines=200,
+            max_chars=1_000,
+        )
+
+        self.assertEqual(page.state, "not_utf8")
+        self.assertEqual(page.content, "")
+        self.assertEqual(page.complete_lines, 0)
+
+    def test_invalid_utf8_outside_the_requested_page_is_not_inspected(self) -> None:
+        github = Mock()
+        raw = b"requested line\n\xff\xfe\n"
+        github.request_json.return_value = self._contents(
+            content=base64.b64encode(raw).decode("ascii"),
+            size=len(raw),
+        )
+
+        page = source.read_review_file_page(
+            github,
+            self._scope(),
+            path="decisions/typed-header.md",
+            side="base",
+            start_line=1,
+            max_lines=1,
+            max_chars=1_000,
+        )
+
+        self.assertEqual(page.state, "ok")
+        self.assertEqual(page.content, "1: requested line")
+        self.assertEqual((page.complete_lines, page.total_lines), (1, 2))
+
 
 if __name__ == "__main__":
     unittest.main()

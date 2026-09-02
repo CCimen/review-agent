@@ -1,5 +1,4 @@
-/* Landing-page tokens. Brand values come from the Sundsvall palette:
-   vattjom blue is the site accent, grönsta green marks success. */
+/* Landing-page tokens. Blue marks navigation and green marks success. */
 .main {
   --landing-band: #f4f6f8;
   --landing-success: #00733b;

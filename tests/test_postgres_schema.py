@@ -406,7 +406,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
                 trigger_mode, profile_key, enabled_at, updated_by,
                 update_reason, updated_at
             ) VALUES (
-                %d, %d, 'removed', true, 'manual', 'sundsvall-standard',
+                %d, %d, 'removed', true, 'manual', 'default-standard',
                 CURRENT_TIMESTAMP, 'test', 'must fail closed', CURRENT_TIMESTAMP
             );
             """

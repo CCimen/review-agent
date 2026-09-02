@@ -96,7 +96,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 github_app.enable_repository(
                     connection,
                     repository_id=retained.repository_id,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                     trigger_mode=github_app.TriggerMode.MANUAL,
                     actor="operator:ccimen",
                     reason="approve pilot",
@@ -274,7 +274,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 github_app.enable_repository(
                     connection,
                     repository_id=access.repository_id,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                     trigger_mode=github_app.TriggerMode.MANUAL,
                     actor="operator:ccimen",
                     reason="approve pilot",
@@ -288,7 +288,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 authorization = github_app.authorize_review_read(
                     connection,
                     9001,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                 )
                 github_app.disable_repository(
                     connection,
@@ -318,13 +318,13 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 github_app.enable_repository(
                     connection,
                     repository_id=access.repository_id,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                     trigger_mode=github_app.TriggerMode.MANUAL,
                     actor="operator:ccimen",
                     reason="approve pilot",
                 )
                 authorization = github_app.authorize_review_publication(
-                    connection, 9001, profile_key="sundsvall-standard"
+                    connection, 9001, profile_key="default-standard"
                 )
                 github_app.sync_installation(
                     connection,
@@ -362,7 +362,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 github_app.enable_repository(
                     connection,
                     repository_id=access.repository_id,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                     trigger_mode=github_app.TriggerMode.MANUAL,
                     actor="operator:ccimen",
                     reason="approve pilot",
@@ -371,7 +371,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     connection,
                     provider_repository_id=9001,
                     provider_installation_id=7001,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                 )
                 with self.assertRaises(
                     github_app.GitHubAppRepositoryUnauthorized
@@ -459,7 +459,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 enabled = github_app.enable_repository(
                     connection,
                     repository_id=access.repository_id,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                     trigger_mode=github_app.TriggerMode.MANUAL,
                     actor="operator:ccimen",
                     reason="approve personal-account pilot",
@@ -481,7 +481,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     github_app.enable_repository(
                         connection,
                         repository_id=enabled.repository_id,
-                        profile_key="sundsvall-standard",
+                        profile_key="default-standard",
                         trigger_mode=github_app.TriggerMode.MANUAL,
                         actor="operator:ccimen",
                         reason="must remain fenced",
@@ -544,7 +544,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 github_app.enable_repository(
                     connection,
                     repository_id=access.repository_id,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                     trigger_mode=github_app.TriggerMode.MANUAL,
                     actor="operator:ccimen",
                     reason="approve pilot",
@@ -564,7 +564,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 reenabled = github_app.enable_repository(
                     connection,
                     repository_id=access.repository_id,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                     trigger_mode=github_app.TriggerMode.MANUAL,
                     actor="operator:ccimen",
                     reason="resume reviews",
@@ -639,7 +639,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     github_app.enable_repository(
                         connection,
                         repository_id=access.repository_id,
-                        profile_key="sundsvall-standard",
+                        profile_key="default-standard",
                         trigger_mode=github_app.TriggerMode.MANUAL,
                         actor="operator:ccimen",
                         reason="must fail closed",
@@ -691,7 +691,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 enabled = github_app.enable_repository(
                     connection,
                     repository_id=original.repository_id,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                     trigger_mode=github_app.TriggerMode.MANUAL,
                     actor="operator:ccimen",
                     reason="approve pilot",
@@ -781,7 +781,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                 )
                 health = github_app.access_health(
                     connection,
-                    profile_key="sundsvall-standard",
+                    profile_key="default-standard",
                 )
                 by_name = github_app.get_repository_access_by_full_name(
                     connection, "example-org/ALPHA"
@@ -910,7 +910,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                     return github_app.enable_repository(
                         connection,
                         repository_id=access.repository_id,
-                        profile_key="sundsvall-standard",
+                        profile_key="default-standard",
                         trigger_mode=github_app.TriggerMode.MANUAL,
                         actor="operator:ccimen",
                         reason="concurrent enable",

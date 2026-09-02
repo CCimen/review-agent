@@ -207,7 +207,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.tokens = _Tokens()
         self.feedback_github = _FeedbackGitHub()
         self.contract = review_contract.ReviewContract(
-            profile="sundsvall-standard",
+            profile="default-standard",
             hermes_image="hermes@test",
             model_provider="openai-codex",
             model="gpt-test",
@@ -231,7 +231,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         gateway_service = ReviewGitHubGateway(
             postgres=self.runtime,
             tokens=cast(GitHubAppTokenService, self.tokens),
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_factory=lambda _: client,
             feedback_factory=lambda _: cast(
                 GitHubIssueCommentGateway, self.feedback_github
@@ -251,7 +251,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 selected_gateway,
             ),
             config=app_processor.ProcessorConfig(
-                profile="sundsvall-standard",
+                profile="default-standard",
                 policy_revision="policy-v1",
                 job_priority=0,
                 job_max_attempts=3,
@@ -346,7 +346,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             github_app.enable_repository(
                 connection,
                 repository_id=access[0],
-                profile_key="sundsvall-standard",
+                profile_key="default-standard",
                 trigger_mode=github_app.TriggerMode.MANUAL,
                 actor="operator:test",
                 reason="approve pilot",

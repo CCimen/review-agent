@@ -310,7 +310,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
                 cast(PostgreSQLRuntime, Runtime()),
                 cast(app_auth.GitHubAppAuthenticator, object()),
                 repository="CCimen/review-agent",
-                profile="sundsvall-standard",
+                profile="default-standard",
                 actor="github:CCimen",
                 reason="approved repository onboarding",
             )
@@ -332,7 +332,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
         enable.assert_called_once_with(
             ANY,
             repository_id=11,
-            profile_key="sundsvall-standard",
+            profile_key="default-standard",
             trigger_mode=github_app.TriggerMode.MANUAL,
             actor="github:CCimen",
             reason="approved repository onboarding",
@@ -369,7 +369,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
                 cast(PostgreSQLRuntime, Runtime()),
                 cast(app_auth.GitHubAppAuthenticator, object()),
                 repository="CCimen/review-agent",
-                profile="sundsvall-standard",
+                profile="default-standard",
                 actor="github:CCimen",
                 reason="approved repository onboarding",
             )

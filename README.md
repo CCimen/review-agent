@@ -35,6 +35,11 @@ merge authority.
    /review
    ```
 
+Repositories work with the neutral baseline by default. Teams that need local
+review principles, platform context, or ADR evidence can copy the explicit
+`.review-agent/` starter and validate it offline; see [Repository
+context](docs/REPOSITORY_CONTEXT.md).
+
 The GitHub App receives review commands and gives the private gateway short-lived,
 repository-scoped credentials for source reads and deterministic publication.
 The model and publisher never receive the App private key.
@@ -66,6 +71,7 @@ search and task-based navigation. Key pages:
 | Set up with a coding agent | [AI-assisted setup](docs/AI_ASSISTED_SETUP.md) |
 | Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
+| Add repository instructions and platform context | [Repository context](docs/REPOSITORY_CONTEXT.md) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |
 | Assess trust boundaries | [Security](docs/SECURITY.md) |
 | See capabilities and boundaries | [Capabilities](docs/ROADMAP.md) |
@@ -104,8 +110,10 @@ either build locally or use an immutable release tag through
 The reusable part is the review engine: webhook admission, bounded GitHub
 reads, PostgreSQL review state, deterministic publication, and operator
 tooling. Voice and review policy live in a swappable profile; select one with
-`REVIEW_AGENT_PROFILE=<profile-key>`. The shipped `sundsvall-standard` bundle
-is the default deployment profile, not the product identity.
+`REVIEW_AGENT_PROFILE=<profile-key>`. The shipped `default-standard` bundle
+is the neutral default deployment profile, not an organization identity.
+Repository-specific principles and technical context live in the optional,
+explicitly indexed `.review-agent/` package.
 
 The deployment selects the Hermes provider, model, and reasoning effort with
 `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and

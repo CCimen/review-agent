@@ -81,7 +81,7 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
             app_id=1234,
             private_key_pem=self.private_key,
             postgres=cast(PostgreSQLRuntime, _Runtime()),
-            profile="sundsvall-standard",
+            profile="default-standard",
             api_url="https://github.test",
         )
 
@@ -477,7 +477,7 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
                 app_id=0,
                 private_key_pem=self.private_key,
                 postgres=cast(PostgreSQLRuntime, _Runtime()),
-                profile="sundsvall-standard",
+                profile="default-standard",
             )
         with self.assertRaises(app_auth.GitHubAppConfigurationError):
             app_auth.GitHubAppAuthenticator(
@@ -489,7 +489,7 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
                 app_id=1234,
                 private_key_pem=self.private_key,
                 postgres=cast(PostgreSQLRuntime, _Runtime()),
-                profile="sundsvall-standard",
+                profile="default-standard",
                 api_url="http://github.test",
             )
         error = urllib.error.HTTPError(

@@ -229,8 +229,8 @@ lessons into the narrowest canonical owner:
 
 - exact finding decisions stay in PostgreSQL;
 - architectural context becomes an accepted ADR;
-- visible review shape belongs in `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md`;
-- review procedure belongs in `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md`;
+- visible review shape belongs in `bootstrap/profiles/default-standard/workspace/AGENTS.md`;
+- review procedure belongs in `bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md`;
 - mechanical enforcement belongs in plugin code and tests;
 - replay behavior belongs in `review-learning/replay/`.
 

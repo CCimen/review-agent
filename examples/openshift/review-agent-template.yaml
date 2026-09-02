@@ -7,7 +7,7 @@ parameters:
     description: Immutable Review Agent image reference.
     required: true
   - name: PROFILE
-    value: sundsvall-standard
+    value: default-standard
   - name: MODEL_PROVIDER
     description: Hermes model provider identifier.
     value: openai-codex

@@ -4,7 +4,7 @@ slug: /roadmap
 title: Capabilities and boundaries
 description: The working Review Agent core and the integrations kept outside it.
 status: current
-last_verified: 2026-08-26
+last_verified: 2026-09-02
 ---
 
 # Capabilities and boundaries
@@ -33,6 +33,10 @@ last_verified: 2026-08-26
 - **Deployment profiles:** a reviewed profile owns voice, stable rules,
   presentation, and enabled skills. Engine code keeps authorization, tool
   limits, snapshot checks, state transitions, and GitHub writes fixed.
+- **Repository context:** one explicit `.review-agent/` package can add team
+  instructions and ordered platform or framework facts from the exact base
+  commit. The package is bounded, content-addressed, and cannot override the
+  deployment contract.
 - **Repository decisions:** typed ADR metadata from the exact base commit gives
   the reviewer repository-specific invariants without granting repository files
   control over policy, tools, or severity.
@@ -57,7 +61,7 @@ own profile and session files outside application state.
 
 ## Optional extensions
 
-- Per-repository profiles or reviewed repository-specific rules.
+- Repository-specific replacement profiles or remote context-package imports.
 - Notification or collaboration channels beyond GitHub.
 
 Each extension needs a concrete operator need, an owner, and a security review.

@@ -31,7 +31,11 @@ def _load_package() -> None:
 
 _load_package()
 
-from review_agent_tools import operator_application, operator_setup  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    operator_application,
+    operator_setup,
+    repository_context_validation,
+)
 from review_agent_tools.github import app_auth, app_inventory  # noqa: E402
 from review_agent_tools.github.gateway import (  # noqa: E402
     GitHubGatewayError,
@@ -186,6 +190,20 @@ def _parser() -> argparse.ArgumentParser:
     repository_disable.add_argument("repository_id", type=_positive_argument)
     repository_disable.add_argument("--actor", required=True)
     repository_disable.add_argument("--reason", required=True)
+
+    repository_context = commands.add_parser(
+        "repository-context",
+        help="Validate repository-owned review guidance and decisions.",
+    )
+    repository_context_commands = repository_context.add_subparsers(
+        dest="repository_context_command", required=True
+    )
+    repository_context_validate = repository_context_commands.add_parser(
+        "validate", help="Validate one local checkout without network or database access."
+    )
+    repository_context_validate.add_argument(
+        "root", nargs="?", default=".", help="Repository root; defaults to the current directory."
+    )
     return parser
 
 
@@ -795,6 +813,32 @@ def _onboard_repository(args: argparse.Namespace) -> int:
     return 0
 
 
+def _validate_repository_context(args: argparse.Namespace) -> int:
+    try:
+        receipt = repository_context_validation.validate_repository_context(
+            Path(args.root)
+        )
+    except repository_context_validation.RepositoryContextValidationError as exc:
+        error: dict[str, object] = {
+            "code": exc.code,
+            "path": exc.path,
+            "retryable": False,
+        }
+        if exc.detail is not None:
+            error["detail"] = exc.detail
+        print(
+            json.dumps(
+                {"error": error},
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        return os.EX_DATAERR
+    _json(receipt.to_json_obj())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -867,6 +911,11 @@ def main(argv: list[str] | None = None) -> int:
         "disable",
     }:
         return _repository_change(args)
+    if (
+        args.command == "repository-context"
+        and args.repository_context_command == "validate"
+    ):
+        return _validate_repository_context(args)
     parser.error("unsupported command")
 
 

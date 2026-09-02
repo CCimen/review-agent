@@ -34,14 +34,14 @@ class AdmissionTests(unittest.TestCase):
             database_url=PostgresDatabaseUrl(
                 "postgresql://review:secret@database/review"
             ),
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_app_secret="app-webhook-secret",
             contract_environment={},
             webhook_delivery_max_attempts=4,
         )
         self.runtime = MagicMock()
         self.contract = review_contract.ReviewContract(
-            profile="sundsvall-standard",
+            profile="default-standard",
             hermes_image="hermes@test",
             model_provider="openai-codex",
             model="gpt-test",
@@ -170,7 +170,7 @@ class AdmissionTests(unittest.TestCase):
 
         self.assertNotIn(str(self.config.database_url), rendered)
         self.assertNotIn(self.config.github_app_secret, rendered)
-        self.assertIn("profile='sundsvall-standard'", rendered)
+        self.assertIn("profile='default-standard'", rendered)
 
 
 class AdmissionHttpBoundaryTests(unittest.TestCase):
@@ -180,7 +180,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             database_url=PostgresDatabaseUrl(
                 "postgresql://review:secret@database/review"
             ),
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_app_secret="app-webhook-secret",
             contract_environment={},
         )

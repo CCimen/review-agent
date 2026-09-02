@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import NewType
 from urllib.parse import urlsplit
 
-DEFAULT_PROFILE = "sundsvall-standard"
+DEFAULT_PROFILE = "default-standard"
 DEFAULT_POLICY_REVISION = "policy-v1"
 DEFAULT_PUBLISH_MAX_BYTES = 60_000
 DEFAULT_OPERATOR_EXPORT_MAX_ROWS = 10_000

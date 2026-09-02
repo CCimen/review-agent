@@ -472,7 +472,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 head_sha="a" * 40,
                 policy_revision="profile@1",
                 resolved_config_schema_version=1,
-                resolved_config={"profile": "sundsvall-standard"},
+                resolved_config={"profile": "default-standard"},
                 request_key=request_key,
             ),
         )
@@ -1020,7 +1020,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         gateway = ReviewPublicationGateway(
             postgres=self.runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_factory=Mock(return_value=provider),
         )
         active = PublicationGatewayRequest.from_mapping(
@@ -2348,7 +2348,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 head_sha="e" * 40,
                 policy_revision="profile@1",
                 resolved_config_schema_version=1,
-                resolved_config={"profile": "sundsvall-standard"},
+                resolved_config={"profile": "default-standard"},
                 request_key="github:issue-comment:outcomes-2",
             ),
         )

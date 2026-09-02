@@ -176,7 +176,7 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
                 head_sha=head_sha,
                 policy_revision="profile@1",
                 resolved_config_schema_version=1,
-                resolved_config={"profile": "sundsvall-standard"},
+                resolved_config={"profile": "default-standard"},
                 request_key=request_key,
             ),
         )
@@ -196,7 +196,7 @@ class PostgreSQLFeedbackTests(unittest.TestCase):
         if decision_status is not None:
             entry = decision_domain.DecisionIndexEntry(
                 id="ADR-0042",
-                adr_path="docs/decisions/ADR-0042.md",
+                adr_path=".review-agent/decisions/ADR-0042.md",
                 applies_to=decision_applies_to,
             )
             decision = decision_domain.parse_adr(
@@ -405,7 +405,7 @@ on_change = ["Run the cross-scope authorization test."]
         self.assertEqual(row[0], "ADR-0042")
         self.assertRegex(str(row[1]), r"^sha256:[0-9a-f]{64}$")
         self.assertEqual(row[2:], (
-            "docs/decisions/ADR-0042.md",
+            ".review-agent/decisions/ADR-0042.md",
             "b" * 40,
             "loaded",
             "intentional_by_design",

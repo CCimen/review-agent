@@ -2,13 +2,14 @@
 
 Self-hosted, advisory pull-request review with bounded model tools, deterministic authorization, PostgreSQL state, and GitHub App publication.
 
-Release state: v0.1.1
+Release state: v0.2.0-rc.1
 License: EUPL-1.2 (Version 1.2 only). Third-party components retain their original licenses.
 Authentication: GitHub App only; install it on explicitly selected repositories, then enable each repository separately.
 Model policy: set REVIEW_AGENT_MODEL_PROVIDER, REVIEW_AGENT_MODEL, and REVIEW_AGENT_REASONING_EFFORT to a Hermes-supported route; the documented default uses Codex device-code OAuth.
 Trigger: an authorized maintainer posts a new top-level `/review` comment on an open same-repository pull request.
 Security boundary: the model has no shell, merge authority, App private key, installation token, or arbitrary GitHub write access.
 Feedback when enabled: `/review false-positive` requires the same finding and code context; `/review intentional` also requires the same accepted ADR metadata in the current base snapshot. `/review feedback scope` and `/review feedback missed` record evidence for gated improvement without silently changing live behavior.
+Repository guidance: repositories may opt into `.review-agent/config.toml`, one optional `instructions.md`, explicitly ordered `context/**/*.md`, and typed ADRs under `.review-agent/decisions/`; all are read from the exact pull-request base commit and cannot weaken the deployment safety contract.
 
 ## Start here
 
@@ -18,6 +19,7 @@ Feedback when enabled: `/review false-positive` requires the same finding and co
 - AI-assisted setup: https://ccimen.github.io/review-agent/docs/ai-assisted-setup
 - Operations: https://ccimen.github.io/review-agent/docs/operations
 - Feedback and design decisions: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
+- Repository context: https://ccimen.github.io/review-agent/docs/repository-context
 - Security: https://ccimen.github.io/review-agent/docs/security
 
 ## Coding-agent handoff
@@ -26,7 +28,7 @@ If no source checkout was provided, clone this repository and check out the exac
 
 ## Operator interface
 
-Source checkout prerequisite: create `.venv` and install `requirements.txt` with `.venv/bin/python`. Run `.venv/bin/python tools/review_agent_admin.py capabilities` and `.venv/bin/python tools/review_agent_admin.py preflight`. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.
+Source checkout prerequisite: create `.venv` and install `requirements.txt` with `.venv/bin/python`. Run `.venv/bin/python tools/review_agent_admin.py capabilities` and `.venv/bin/python tools/review_agent_admin.py preflight`. Validate an optional repository package with `.venv/bin/python tools/review_agent_admin.py repository-context validate <repository-root>`; this command is offline and prints hashes, paths, and status rather than file bodies. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.
 
 Quality reporting: run `review-agent-memory quality --days 30` globally or add `--repo owner/repository`. It reports explicit signals beside their denominators and keeps the current triage backlog visible. Missed-issue coach input requires explicit operator triage; a coding agent must not choose the status or target owner.
 

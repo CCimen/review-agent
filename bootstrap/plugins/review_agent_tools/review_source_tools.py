@@ -13,6 +13,7 @@ from . import (
     failure_codes,
     memory_validation,
     repository_decision_context,
+    repository_guidance_context,
     review_contract,
     review_run_application,
     schemas,
@@ -53,6 +54,7 @@ FileTerminalState = Literal[
     "not_regular",
     "too_large",
     "binary",
+    "not_utf8",
 ]
 
 
@@ -338,6 +340,38 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
 
         base_sha = pull_base_sha(pull)
 
+        def load_guidance() -> repository_guidance_context.RepositoryGuidanceContext:
+            loaded = repository_guidance_context.load(
+                source,
+                repository=repository,
+                base_sha=base_sha,
+                content_max_chars=capacity.current().text_page_max_chars,
+            )
+            if loaded.status == "loaded":
+                candidate = dict(result)
+                candidate["repository_guidance_untrusted"] = (
+                    repository_guidance_context.payload(loaded)
+                )
+                if len(output_json(candidate)) > capacity.current().result_max_chars:
+                    return repository_guidance_context.failed(
+                        "unavailable",
+                        base_sha=base_sha,
+                        config_hash=loaded.config_hash,
+                        failure_code="guidance_result_budget",
+                    )
+            return loaded
+
+        guidance_context = (
+            review_run_application.load_or_create_live_repository_guidance(
+                postgres_runtime(),
+                subject,
+                loader=load_guidance,
+            )
+        )
+        result["repository_guidance_untrusted"] = (
+            repository_guidance_context.payload(guidance_context)
+        )
+
         def load_decisions(
             changed_paths: tuple[str, ...],
         ) -> repository_decision_context.RepositoryDecisionContext:
@@ -381,6 +415,17 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
                     repository_decision_context.unavailable(
                         base_sha=base_sha,
                         failure_code="decision_context_result_budget",
+                    )
+                )
+            )
+            rendered = output_json(result)
+        if len(rendered) > capacity.current().result_max_chars:
+            result["repository_guidance_untrusted"] = (
+                repository_guidance_context.payload(
+                    repository_guidance_context.failed(
+                        "unavailable",
+                        base_sha=base_sha,
+                        failure_code="guidance_result_budget",
                     )
                 )
             )
@@ -933,6 +978,8 @@ def pr_file(args: dict[str, Any], **context: Any) -> str:
                 )
             elif page.state == "binary":
                 reason = "Binary content cannot be inspected as source text."
+            elif page.state == "not_utf8":
+                reason = "Content that is not valid UTF-8 cannot be inspected as source text."
             else:
                 reason = "This file exceeds the bounded source-read size."
             return _pr_file_terminal_handoff(

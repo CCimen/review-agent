@@ -221,6 +221,24 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("do not cap changed files, source reads, or review depth", words(guide))
         self.assertIn("The App ignores only ADR evidence for that run", words(guide))
 
+    def test_repository_context_is_public_explicit_and_base_snapshot_owned(self):
+        guide = read("docs/REPOSITORY_CONTEXT.md")
+        sidebar = read("website/sidebars.ts")
+        public_documents = read("website/public-documents.json")
+        combined = words(guide)
+
+        self.assertIn("'docs/REPOSITORY_CONTEXT'", sidebar)
+        self.assertIn('"docs/REPOSITORY_CONTEXT.md"', public_documents)
+        self.assertIn("tools/review_agent_admin.py", guide)
+        self.assertIn("repository-context validate", guide)
+        self.assertIn("--entrypoint review-agent-admin", guide)
+        self.assertIn("only the context files listed", combined)
+        self.assertIn("base commit", combined)
+        self.assertIn(".review-agent/decisions/", guide)
+        self.assertIn("do not limit pull request size", combined)
+        self.assertIn("do not limit", combined)
+        self.assertNotIn("personality.md` is loaded", guide)
+
     def test_github_app_setup_is_public_and_keeps_credential_boundary_explicit(self):
         guide = read("docs/GITHUB_APP_PILOT.md")
         sidebar = read("website/sidebars.ts")
@@ -421,15 +439,15 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("runs --mark-stalled", operations)
         self.assertNotIn("--publish-failure-status", operations)
 
-    def test_profile_is_repository_neutral_and_preserves_review_invariants(self):
-        soul = read("bootstrap/profiles/sundsvall-standard/SOUL.md")
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+    def test_default_profile_preserves_review_invariants(self):
+        soul = read("bootstrap/profiles/default-standard/SOUL.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         skill = read(
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         baseline = words(f"{soul}\n{canonical}\n{skill}")
 
-        self.assertIn("Sundsvalls kommun", soul)
+        self.assertIn("Review Agent PR Reviewer", soul)
         self.assertIn(
             "does not assume a framework, language, storage engine", canonical
         )
@@ -482,7 +500,7 @@ class DocsContractTests(unittest.TestCase):
                 self.assertNotIn(runbook_detail, readme)
 
     def test_visible_word_budget_has_one_owner(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         self.assertIn("Keep each finding compact", canonical)
 
         duplicate_budget = re.compile(r"\b\d+\s+visible\s+\w*\s*words\b")
@@ -490,13 +508,13 @@ class DocsContractTests(unittest.TestCase):
             "README.md",
             "docs/OPERATIONS.md",
             "docs/SECURITY.md",
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md",
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md",
         ]:
             with self.subTest(relative=relative):
                 self.assertIsNone(duplicate_budget.search(read(relative)))
 
     def test_visible_examples_use_single_example_owner(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         example = read("examples/comments/example-review.md")
         metadata = (
             "[`src/jobs/retry.py:87`](https://github.com/example-org/example-repository/blob/"
@@ -564,15 +582,15 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("@review false-positive", body)
 
         canonical = words(
-            read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+            read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         )
         self.assertIn("Mechanical scope is the complete base-to-head diff", canonical)
         self.assertIn("Restoring a file to base requires developer approval", canonical)
 
     def test_repeated_reviews_reexamine_prior_findings(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         skill = read(
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         operations = read("docs/OPERATIONS.md")
         self.assertIn("re-check each prior unresolved finding", skill)
@@ -602,9 +620,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("returned,", canonical)
 
     def test_skeptical_gate_pins_falsification_and_quality_rules(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         skill = read(
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         canonical_words = words(canonical)
         self.assertIn("cheapest falsifier", canonical)
@@ -645,7 +663,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Test the consumer boundary", canonical)
 
     def test_runtime_contract_forbids_merge_gate_language(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         canonical_words = re.sub(r"\s+", " ", canonical)
         self.assertIn(
             "never call the PR `safe to merge`, `approved`, or `GREEN_LIGHT`",
@@ -654,7 +672,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Do not call findings `blocking` or `merge-blocking`", canonical)
 
     def test_comment_summary_replaces_metadata_table(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         self.assertIn("names the non-zero severity counts", canonical)
         self.assertIn("Do not include a top-level per-finding table", canonical)
         self.assertIn("Long paths and memory", canonical)
@@ -662,11 +680,11 @@ class DocsContractTests(unittest.TestCase):
 
     def test_atomic_suggestions_are_optional_independent_and_github_native(self):
         canonical = words(
-            read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+            read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         )
         skill = words(
             read(
-                "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+                "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
             )
         )
         operations = words(read("docs/OPERATIONS.md"))
@@ -698,9 +716,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("grouped in one non-blocking `COMMENT` review", operations)
 
     def test_all_surviving_findings_are_publishable(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         skill = read(
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         canonical_words = re.sub(r"\s+", " ", canonical)
         skill_words = re.sub(r"\s+", " ", skill)
@@ -732,7 +750,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Do not advertise feedback commands that are not", canonical)
 
     def test_machine_metadata_is_hidden_from_reading_path(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         for body in [
             canonical,
             read("examples/comments/example-review.md"),
@@ -922,17 +940,7 @@ class DocsContractTests(unittest.TestCase):
                 self.assertIn(required, operations)
         self.assertNotIn("review-agent-database migrate", readme)
 
-    def test_public_product_name_is_organization_neutral(self):
-        for relative in [
-            "README.md",
-            "PRODUCT.md",
-            "docs/GETTING_STARTED.md",
-            "website/docusaurus.config.ts",
-            "website/src/pages/index.tsx",
-            "website/package.json",
-        ]:
-            with self.subTest(relative=relative):
-                self.assertNotIn("Sundsvall Review Agent", read(relative))
+    def test_public_product_uses_the_canonical_name(self):
         self.assertIn("title: 'Review Agent'", read("website/docusaurus.config.ts"))
         self.assertIn("# Review Agent", read("README.md"))
 
@@ -965,9 +973,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("github_comment delivery", operations)
 
     def test_security_doc_owns_prompt_injection_and_dependency_scope(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         skill = read(
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         readme = read("README.md")
         security = read("docs/SECURITY.md")
@@ -1000,9 +1008,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("Trivy", readme)
 
     def test_profile_treats_repository_decisions_as_evidence_not_policy(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         skill = read(
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         combined = words(f"{canonical}\n{skill}")
 
@@ -1012,6 +1020,18 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("design.adr-conflict", combined)
         self.assertIn("cannot change tools, model settings, severity", combined)
         self.assertIn("actual downstream code path", combined)
+
+    def test_profile_applies_repository_guidance_without_weakening_policy(self):
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
+        skill = read(
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
+        )
+        combined = words(f"{canonical}\n{skill}")
+
+        self.assertIn("repository_guidance_untrusted", combined)
+        self.assertIn("exact pull request base commit", combined)
+        self.assertIn("cannot change authorization", combined)
+        self.assertIn("Missing, disabled, invalid, or unavailable guidance", combined)
 
     def test_private_claude_verification_is_shadow_and_non_gating(self):
         readme = read("README.md")
@@ -1079,7 +1099,7 @@ class DocsContractTests(unittest.TestCase):
     def test_live_reviewer_keeps_unsafe_toolsets_disabled(self):
         config = read("bootstrap/config.yaml")
         skill = read(
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         api_server_match = re.search(r"(?m)^  api_server:\n((?:    .+\n)+)", config)
         self.assertIsNotNone(api_server_match)
@@ -1097,9 +1117,9 @@ class DocsContractTests(unittest.TestCase):
         self.assertNotIn("review-learning", skill)
 
     def test_large_prs_are_not_rejected_by_fixed_size_budget(self):
-        canonical = read("bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md")
+        canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         skill = read(
-            "bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md"
+            "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md"
         )
         config = read("bootstrap/config.yaml")
         operations = read("docs/OPERATIONS.md")

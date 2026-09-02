@@ -189,7 +189,7 @@ or rotates the restricted runtime login. Both should finish as `Exited (0)`;
 inspect their logs when startup stops.
 
 Set `REVIEW_AGENT_PROFILE` to a trusted bundle key under
-`bootstrap/profiles`; the packaged default is `sundsvall-standard`. The init
+`bootstrap/profiles`; the packaged default is `default-standard`. The init
 service rejects an unknown key before changing `HERMES_HOME`. A profile owns
 `SOUL.md`, `workspace/AGENTS.md`, and the reviewed skills named in
 `profile.json`; it cannot merge model, route, tool, authorization, snapshot,
@@ -213,6 +213,16 @@ docker compose run --rm --no-deps review-profile-install
 docker compose run --rm --no-deps review-db-migrate
 docker compose exec hermes-review review-agent-admin database ready
 ```
+
+### Start the repository-context release cleanly
+
+This pre-1.0 release uses `default-standard` and
+`.review-agent/decisions/` as strict current contracts. It does not ship aliases
+for earlier profile names or ADR locations. Start the deployment with a fresh
+Review Agent database, set `REVIEW_AGENT_PROFILE=default-standard`, and let the
+one-shot database and profile installers complete before enabling repositories.
+Migration 013 creates the repository-guidance table as part of normal fresh
+schema installation; it does not transform legacy data.
 
 The one-shot database job is the only container that receives both database
 URLs. On OpenShift, delete and recreate the two initialization Jobs instead of

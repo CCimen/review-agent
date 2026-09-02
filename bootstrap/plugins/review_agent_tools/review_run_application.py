@@ -36,13 +36,14 @@ from .domain.review import (
 from .postgres import registry as postgres_registry
 from .postgres import coverage as postgres_coverage
 from .postgres import jobs as postgres_jobs
+from .postgres import repository_guidance as postgres_repository_guidance
 from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import review_runs as postgres_review_runs
 from .postgres.coverage import RunFileLookup
 from .postgres.runtime import PostgreSQLRuntime
 
 if TYPE_CHECKING:
-    from . import repository_decision_context
+    from . import repository_decision_context, repository_guidance_context
 
 
 PullPayload = TypeVar("PullPayload")
@@ -655,6 +656,30 @@ def load_or_create_live_repository_decisions(
     _require_live_scope(runtime, subject)
     with runtime.transaction() as connection:
         return postgres_repository_decisions.store_context(
+            connection,
+            run_id=ReviewRunId(subject.run_id),
+            context=candidate,
+        )
+
+
+def load_or_create_live_repository_guidance(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    loader: Callable[[], "repository_guidance_context.RepositoryGuidanceContext"],
+) -> "repository_guidance_context.RepositoryGuidanceContext":
+    """Load one immutable base-snapshot guidance package outside DB-held I/O."""
+    _require_live_scope(runtime, subject)
+    with runtime.transaction() as connection:
+        existing = postgres_repository_guidance.load_context(
+            connection, run_id=ReviewRunId(subject.run_id)
+        )
+        if existing.status != "pending":
+            return existing
+    candidate = loader()
+    _require_live_scope(runtime, subject)
+    with runtime.transaction() as connection:
+        return postgres_repository_guidance.store_context(
             connection,
             run_id=ReviewRunId(subject.run_id),
             context=candidate,

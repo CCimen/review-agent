@@ -74,6 +74,7 @@ class OperatorSetupTests(unittest.TestCase):
                 "authentication": "github-app",
                 "feedback": True,
                 "fork_pull_requests": False,
+                "repository_guidance": "explicit-base-snapshot",
                 "repository_profiles": "deployment-profile-only",
                 "selected_repositories_only": True,
                 "trigger_mode": "manual",
@@ -162,7 +163,7 @@ class OperatorSetupTests(unittest.TestCase):
                 "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET": webhook_secret,
                 "API_SERVER_KEY": "configured-internal-api-key",
                 "REVIEW_AGENT_HERMES_IMAGE": PINNED_HERMES_IMAGE,
-                "REVIEW_AGENT_PROFILE": "sundsvall-standard",
+                "REVIEW_AGENT_PROFILE": "default-standard",
                 "REVIEW_AGENT_REASONING_EFFORT": "high",
             }
             with patch.dict(
@@ -207,7 +208,7 @@ class OperatorSetupTests(unittest.TestCase):
                     "REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET": "configured-secret",
                     "API_SERVER_KEY": "configured-internal-api-key",
                     "REVIEW_AGENT_HERMES_IMAGE": PINNED_HERMES_IMAGE,
-                    "REVIEW_AGENT_PROFILE": "sundsvall-standard",
+                    "REVIEW_AGENT_PROFILE": "default-standard",
                 },
                 bootstrap_source=ROOT / "bootstrap",
             )
@@ -306,7 +307,7 @@ class OperatorSetupTests(unittest.TestCase):
         environment = {
             "REVIEW_AGENT_ACTIVE_JOB_LIMIT": "100",
             "REVIEW_AGENT_GITHUB_APP_ID": "123456",
-            "REVIEW_AGENT_PROFILE": "sundsvall-standard",
+            "REVIEW_AGENT_PROFILE": "default-standard",
         }
         with (
             patch.object(
@@ -478,6 +479,60 @@ class OperatorAdminCliTests(unittest.TestCase):
             json.loads(stdout.getvalue()),
             operator_setup.capabilities().to_json_obj(),
         )
+
+    def test_repository_context_validation_is_offline_and_secret_safe(self) -> None:
+        admin = _load_admin_cli()
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / ".review-agent"
+            (package / "context").mkdir(parents=True)
+            (package / "config.toml").write_text(
+                'version = 1\ncontext = ["context/backend.md"]\n',
+                encoding="utf-8",
+            )
+            (package / "instructions.md").write_text(
+                "Prefer explicit failure modes.\n", encoding="utf-8"
+            )
+            (package / "context" / "backend.md").write_text(
+                "Internal bearer value: do-not-print-this.\n", encoding="utf-8"
+            )
+            stdout = io.StringIO()
+            with (
+                patch.object(admin, "_runtime") as runtime,
+                redirect_stdout(stdout),
+            ):
+                status = admin.main(
+                    ["repository-context", "validate", directory]
+                )
+
+        self.assertEqual(status, 0)
+        runtime.assert_not_called()
+        value = json.loads(stdout.getvalue())
+        self.assertTrue(value["ready"])
+        self.assertEqual(
+            value["context_files"][0]["path"],
+            ".review-agent/context/backend.md",
+        )
+        self.assertNotIn("do-not-print-this", stdout.getvalue())
+
+    def test_repository_context_validation_explains_a_safe_config_error(self) -> None:
+        admin = _load_admin_cli()
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / ".review-agent"
+            package.mkdir()
+            (package / "config.toml").write_text(
+                'version = 1\nenabled = "not-a-secret-value"\n',
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                status = admin.main(
+                    ["repository-context", "validate", directory]
+                )
+
+        self.assertEqual(status, os.EX_DATAERR)
+        value = json.loads(stderr.getvalue())
+        self.assertEqual(value["error"]["detail"], "enabled must be a boolean")
+        self.assertNotIn("not-a-secret-value", stderr.getvalue())
 
     def test_database_retention_is_dry_run_by_default_and_emits_a_receipt(
         self,
@@ -796,7 +851,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             access_state=github_app.RepositoryAccess.AVAILABLE,
             enabled=True,
             trigger_mode=github_app.TriggerMode.MANUAL,
-            profile_key="sundsvall-standard",
+            profile_key="default-standard",
             enabled_at=datetime(2026, 8, 27, 4, 1, tzinfo=timezone.utc),
             disabled_at=None,
             updated_by="operator:ccimen",
@@ -853,7 +908,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                     {
                         "access": "available",
                         "enabled": True,
-                        "profile": "sundsvall-standard",
+                        "profile": "default-standard",
                         "repository": "CCimen/review-agent",
                         "repository_id": 9001,
                         "trigger_mode": "manual",
@@ -870,7 +925,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             access_state=github_app.RepositoryAccess.AVAILABLE,
             enabled=True,
             full_name="CCimen/review-agent",
-            profile_key="sundsvall-standard",
+            profile_key="default-standard",
             provider_repository_id=9001,
             trigger_mode=github_app.TriggerMode.MANUAL,
         )
@@ -890,7 +945,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                     "enable",
                     "9001",
                     "--profile",
-                    "sundsvall-standard",
+                    "default-standard",
                     "--actor",
                     "operator:ccimen",
                     "--reason",
@@ -902,7 +957,7 @@ class OperatorAdminCliTests(unittest.TestCase):
         enable.assert_called_once_with(
             runtime,
             provider_repository_id=9001,
-            profile="sundsvall-standard",
+            profile="default-standard",
             actor="operator:ccimen",
             reason="approved pilot",
         )
@@ -912,7 +967,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             {
                 "access": "available",
                 "enabled": True,
-                "profile": "sundsvall-standard",
+                "profile": "default-standard",
                 "repository": "CCimen/review-agent",
                 "repository_id": 9001,
                 "trigger_mode": "manual",
@@ -926,7 +981,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             access_state=github_app.RepositoryAccess.AVAILABLE,
             enabled=True,
             full_name="CCimen/review-agent",
-            profile_key="sundsvall-standard",
+            profile_key="default-standard",
             provider_repository_id=9001,
             trigger_mode=github_app.TriggerMode.MANUAL,
         )
@@ -950,7 +1005,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                 "onboard_github_app_repository",
                 return_value=result,
             ) as onboard,
-            patch.dict(os.environ, {"REVIEW_AGENT_PROFILE": "sundsvall-standard"}),
+            patch.dict(os.environ, {"REVIEW_AGENT_PROFILE": "default-standard"}),
             redirect_stdout(stdout),
         ):
             status = admin.main(
@@ -968,7 +1023,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             runtime,
             "authenticator",
             repository="CCimen/review-agent",
-            profile="sundsvall-standard",
+            profile="default-standard",
             actor="github:CCimen",
             reason="approved repository onboarding",
         )
@@ -978,7 +1033,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             {
                 "access": "available",
                 "enabled": True,
-                "profile": "sundsvall-standard",
+                "profile": "default-standard",
                 "repositories_removed": 0,
                 "repositories_seen": 1,
                 "installation_id": 7001,

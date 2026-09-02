@@ -365,7 +365,7 @@ def _intake(database_url: str) -> dict[str, object]:
     runtime.open()
     config = admission.AdmissionConfig(
         database_url=PostgresDatabaseUrl(database_url),
-        profile="sundsvall-standard",
+        profile="default-standard",
         github_app_secret="benchmark-only",
         contract_environment={},
     )

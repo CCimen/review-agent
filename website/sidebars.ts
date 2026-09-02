@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
         'docs/GITHUB_APP_PILOT',
         'docs/AI_ASSISTED_SETUP',
         'docs/BEHAVIOR_OWNERSHIP',
+        'docs/REPOSITORY_CONTEXT',
       ],
     },
     {

@@ -45,7 +45,22 @@ The onboarding command replaces the lower-level installation-ID sync and
 repository-ID enable commands. Run it again after changing the App's selected
 repositories; it is safe to repeat.
 
-## 2. Run the first review
+## 2. Add optional repository context
+
+Repositories work without local configuration. To add team instructions,
+ordered platform or framework context, and typed design decisions, copy the
+starter package and validate it offline:
+
+```bash
+cp -R examples/repository-context/.review-agent /path/to/repository/
+.venv/bin/python tools/review_agent_admin.py \
+  repository-context validate /path/to/repository
+```
+
+[Repository context](./REPOSITORY_CONTEXT.md) defines which files are loaded,
+their order, and the fixed deployment rules they cannot override.
+
+## 3. Run the first review
 
 Open or reuse a pull request and add a new top-level comment:
 
@@ -59,7 +74,7 @@ base/head snapshot and the review's coverage and findings.
 After fixing findings, push a commit and post `/review` again. A changed head SHA
 creates a new review round while the prior round remains historical context.
 
-## 3. Verify the result
+## 4. Verify the result
 
 - Confirm the summary identifies the expected base and head SHAs.
 - Open each cited file link and assess the finding in context.
@@ -80,11 +95,10 @@ App installation and run `github-app onboard` for its full name. No repository
 workflow or duplicated Actions secrets are required.
 
 Every onboarded repository shares one queue, one PostgreSQL database, and one
-reviewer profile. PostgreSQL serializes reviews within a repository, so
+neutral reviewer baseline. PostgreSQL serializes reviews within a repository, so
 [scale review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when
-cross-repository wait time grows. Per-repository voice or rules are not
-supported yet; see [Behavior ownership](./BEHAVIOR_OWNERSHIP.md) for what a
-profile controls deployment-wide.
+cross-repository wait time grows. Teams may add bounded repository-owned
+instructions and context without creating another deployment profile.
 
 ## Next step
 

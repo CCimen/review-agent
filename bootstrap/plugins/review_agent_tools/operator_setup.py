@@ -61,6 +61,7 @@ class Capabilities:
     fork_pull_requests: bool = False
     feedback: bool = True
     repository_profiles: str = "deployment-profile-only"
+    repository_guidance: str = "explicit-base-snapshot"
     advisory_only: bool = True
     trigger_mode: str = "manual"
 
@@ -71,6 +72,7 @@ class Capabilities:
             "feedback": self.feedback,
             "fork_pull_requests": self.fork_pull_requests,
             "repository_profiles": self.repository_profiles,
+            "repository_guidance": self.repository_guidance,
             "selected_repositories_only": self.selected_repositories_only,
             "trigger_mode": self.trigger_mode,
         }

@@ -83,7 +83,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             head_sha="a" * 40,
             policy_revision="profile@1",
             resolved_config_schema_version=1,
-            resolved_config={"profile": "sundsvall-standard"},
+            resolved_config={"profile": "default-standard"},
             request_key="github:issue-comment:2001",
             trigger_comment_id=2001,
             trigger_user="reviewer",

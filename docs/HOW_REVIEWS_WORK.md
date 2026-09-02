@@ -31,8 +31,11 @@ tokens behind the private gateway.
 
 The review begins against one base SHA and one head SHA. Bounded tools read PR
 metadata, the changed-file list, diffs, and selected file content for that
-snapshot. Repository content is evidence, not policy, and cannot change the
-reviewer's instructions or tool permissions.
+snapshot. When `.review-agent/config.toml` exists, deterministic code also reads
+the optional `instructions.md` and explicitly indexed context files from that
+base commit and stores one immutable snapshot. This guidance may focus the
+review and communication style, but it cannot change tools, authorization,
+evidence gates, lifecycle, or publication.
 
 If the repository has `.review-agent/decisions.toml`, deterministic code maps
 changed paths to typed ADR headers and stores one immutable base-commit

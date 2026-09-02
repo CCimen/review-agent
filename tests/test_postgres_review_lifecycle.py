@@ -233,7 +233,7 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
             head_sha=head_sha,
             policy_revision="profile@1",
             resolved_config_schema_version=1,
-            resolved_config={"profile": "sundsvall-standard"},
+            resolved_config={"profile": "default-standard"},
             request_key=request_key,
             trigger_comment_id=1001,
             trigger_user="reviewer",
@@ -488,14 +488,14 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
             head_sha="a" * 40,
             policy_revision="profile@1",
             resolved_config_schema_version=1,
-            resolved_config={"profile": "sundsvall-standard"},
+            resolved_config={"profile": "default-standard"},
         )
         second_definition = resolve_review_subject(
             base_sha="b" * 40,
             head_sha="c" * 40,
             policy_revision="profile@1",
             resolved_config_schema_version=1,
-            resolved_config={"profile": "sundsvall-standard"},
+            resolved_config={"profile": "default-standard"},
         )
         with self.runtime.transaction() as connection:
             repository = registry.ensure_repository(

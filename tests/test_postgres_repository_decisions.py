@@ -60,7 +60,7 @@ class PostgreSQLRepositoryDecisionTests(unittest.TestCase):
     def context(self) -> repository_decision_context.RepositoryDecisionContext:
         entry = decision_domain.DecisionIndexEntry(
             id="ADR-0007",
-            adr_path="docs/decisions/ADR-0007.md",
+            adr_path=".review-agent/decisions/ADR-0007.md",
             applies_to=("src/rag/**",),
         )
         decision = decision_domain.parse_adr(

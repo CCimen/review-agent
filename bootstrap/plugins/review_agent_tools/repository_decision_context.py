@@ -7,18 +7,18 @@ from dataclasses import dataclass
 import hashlib
 import json
 import re
-from typing import Literal, Protocol, cast
+from typing import Literal, cast
 
-from . import capacity, schemas
+from . import capacity
 from .domain import repository_decisions
 from .domain.finding import IntentionalDesignEvidence
 from .domain.review import ReviewRunId
 from .github.gateway import GitHubGatewayError
+from .repository_base_files import BaseFileSource, read_base_file
 
 
 INDEX_PATH = ".review-agent/decisions.toml"
 SNAPSHOT_SCHEMA_VERSION = 1
-_NUMBERED_LINE_RE = re.compile(r"^[0-9]+: ?(.*)$")
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
 _HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 CompletedStatus = Literal[
@@ -42,66 +42,6 @@ class RepositoryDecisionContextError(ValueError):
     """A stored decision snapshot violates its typed aggregate contract."""
 
 
-class DecisionFilePage(Protocol):
-    @property
-    def state(self) -> str: ...
-
-    @property
-    def repository(self) -> str: ...
-
-    @property
-    def revision(self) -> str: ...
-
-    @property
-    def start_line(self) -> int: ...
-
-    @property
-    def total_lines(self) -> int: ...
-
-    @property
-    def content(self) -> str: ...
-
-    @property
-    def complete_lines(self) -> int: ...
-
-    @property
-    def partial_line(self) -> bool: ...
-
-
-class DecisionFileClient(Protocol):
-    def get_review_file_page(
-        self,
-        *,
-        run_id: int,
-        job_id: int,
-        lease_generation: int,
-        path: str,
-        side: Literal["base"],
-        start_line: int,
-        max_lines: int,
-        max_chars: int,
-    ) -> DecisionFilePage: ...
-
-
-class DecisionLease(Protocol):
-    @property
-    def job_id(self) -> int: ...
-
-    @property
-    def lease_generation(self) -> int: ...
-
-
-class GatewayDecisionSource(Protocol):
-    @property
-    def run_id(self) -> int: ...
-
-    @property
-    def lease(self) -> DecisionLease: ...
-
-    @property
-    def client(self) -> DecisionFileClient: ...
-
-
 @dataclass(frozen=True, slots=True)
 class RepositoryDecisionContext:
     snapshot_id: int | None
@@ -112,68 +52,6 @@ class RepositoryDecisionContext:
     index_hash: str | None
     snapshot_hash: str
     decisions: tuple[repository_decisions.RepositoryDecision, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _FileResult:
-    state: str
-    content: str
-
-
-def _read_file(
-    source: GatewayDecisionSource,
-    *,
-    repository: str,
-    base_sha: str,
-    path: str,
-    max_lines: int,
-    allow_trailing_lines: bool = False,
-) -> _FileResult:
-    start_line = 1
-    lines: list[str] = []
-    while start_line <= max_lines:
-        page = source.client.get_review_file_page(
-            run_id=source.run_id,
-            job_id=source.lease.job_id,
-            lease_generation=source.lease.lease_generation,
-            path=path,
-            side="base",
-            start_line=start_line,
-            max_lines=min(schemas.SOURCE_PAGE_MAX_LINES, max_lines - start_line + 1),
-            # This is an internal typed-metadata read, not a model-facing page.
-            # Use the gateway's canonical protocol ceiling so lowering the model
-            # result budget cannot multiply full-file GitHub fetches.
-            max_chars=capacity.DEFAULT_RESULT_MAX_CHARS,
-        )
-        if (
-            page.repository.casefold() != repository.casefold()
-            or page.revision != base_sha
-            or page.start_line != start_line
-        ):
-            return _FileResult(state="subject_mismatch", content="")
-        if page.state != "ok":
-            return _FileResult(state=page.state, content="")
-        if (
-            (page.total_lines > max_lines and not allow_trailing_lines)
-            or page.partial_line
-            or page.complete_lines < 1
-        ):
-            return _FileResult(state="too_large", content="")
-        page_lines = page.content.splitlines()
-        if len(page_lines) != page.complete_lines:
-            return _FileResult(state="invalid_page", content="")
-        for numbered in page_lines:
-            match = _NUMBERED_LINE_RE.fullmatch(numbered)
-            if match is None:
-                return _FileResult(state="invalid_page", content="")
-            lines.append(match.group(1))
-        start_line += page.complete_lines
-        if start_line > page.total_lines:
-            return _FileResult(state="ok", content="\n".join(lines))
-        if start_line > max_lines and allow_trailing_lines:
-            return _FileResult(state="ok", content="\n".join(lines))
-    return _FileResult(state="too_large", content="")
-
 
 def _content_hash(content: str) -> str:
     return f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
@@ -494,7 +372,7 @@ def intentional_evidence_is_current(
 
 
 def load(
-    source: GatewayDecisionSource,
+    source: BaseFileSource,
     *,
     repository: str,
     base_sha: str,
@@ -502,12 +380,15 @@ def load(
 ) -> RepositoryDecisionContext:
     """Load matching ADR headers; every failure leaves ordinary review available."""
     try:
-        index_file = _read_file(
+        index_file = read_base_file(
             source,
             repository=repository,
             base_sha=base_sha,
             path=INDEX_PATH,
             max_lines=repository_decisions.MAX_INDEX_LINES,
+            # Typed ADR metadata uses the fixed gateway ceiling. Lowering the
+            # model response budget must not multiply internal source requests.
+            max_chars=capacity.DEFAULT_RESULT_MAX_CHARS,
         )
         if index_file.state == "not_found_at_revision":
             return _completed("not_configured", base_sha=base_sha)
@@ -540,12 +421,13 @@ def load(
             )
         decisions: list[repository_decisions.RepositoryDecision] = []
         for match in matching:
-            adr_file = _read_file(
+            adr_file = read_base_file(
                 source,
                 repository=repository,
                 base_sha=base_sha,
                 path=match.entry.adr_path,
                 max_lines=repository_decisions.MAX_FRONTMATTER_LINES,
+                max_chars=capacity.DEFAULT_RESULT_MAX_CHARS,
                 allow_trailing_lines=True,
             )
             if adr_file.state != "ok":

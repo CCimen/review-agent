@@ -19,6 +19,7 @@ from review_agent_tools import (  # noqa: E402
     review_delivery_tool,
     review_memory_tools,
     repository_decision_context,
+    repository_guidance_context,
     review_run_application,
     review_source_tools,
     review_tool_runtime,
@@ -40,7 +41,7 @@ from review_agent_tools.postgres.coverage import (  # noqa: E402
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
 
 TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
-    profile="sundsvall-standard",
+    profile="default-standard",
     hermes_image="hermes@test",
     model_provider="openai-codex",
     model="gpt-test",
@@ -179,6 +180,13 @@ class ToolContractTests(unittest.TestCase):
             ),
             patch.object(
                 review_run_application,
+                "load_or_create_live_repository_guidance",
+                return_value=repository_guidance_context.not_configured(
+                    base_sha="a" * 40,
+                ),
+            ),
+            patch.object(
+                review_run_application,
                 "load_or_create_live_repository_decisions",
                 return_value=repository_decision_context.not_configured(
                     base_sha="a" * 40,
@@ -193,7 +201,7 @@ class ToolContractTests(unittest.TestCase):
             ),
             patch.dict(
                 os.environ,
-                {"REVIEW_AGENT_PROFILE": "sundsvall-standard"},
+                {"REVIEW_AGENT_PROFILE": "default-standard"},
                 clear=True,
             ),
         ):
@@ -208,6 +216,10 @@ class ToolContractTests(unittest.TestCase):
         self.assertEqual(result["phase"], "reviewing")
         self.assertTrue(result["continued"])
         self.assertEqual(
+            result["repository_guidance_untrusted"]["status"],
+            "not_configured",
+        )
+        self.assertEqual(
             result["repository_decisions_untrusted"]["status"],
             "not_configured",
         )
@@ -217,6 +229,172 @@ class ToolContractTests(unittest.TestCase):
         )
         start.assert_not_called()
         changed.assert_not_called()
+
+    def test_review_begin_loads_ordered_guidance_once_and_reuses_its_snapshot(self) -> None:
+        pull = {
+            "state": "open",
+            "title": "Continue",
+            "base": {
+                "sha": "a" * 40,
+                "ref": "main",
+                "repo": {"id": 1, "full_name": self.repository},
+            },
+            "head": {
+                "sha": "b" * 40,
+                "ref": "change",
+                "repo": {"id": 1, "full_name": self.repository},
+            },
+            "changed_files": 1,
+        }
+
+        def page(content: str) -> ReviewFilePage:
+            lines = content.splitlines()
+            return ReviewFilePage(
+                state="ok",
+                repository=self.repository,
+                revision="a" * 40,
+                start_line=1,
+                total_lines=len(lines),
+                content="\n".join(
+                    f"{number}: {line}"
+                    for number, line in enumerate(lines, start=1)
+                ),
+                complete_lines=len(lines),
+                partial_line=False,
+            )
+
+        client = Mock()
+        client.get_review_file_page.side_effect = [
+            page(
+                'version = 1\ncontext = ["context/platform.md", '
+                '"context/service.md"]'
+            ),
+            page("Prefer one clear owner for each lifecycle transition."),
+            page("The platform owns authentication."),
+            page("This service owns billing reconciliation."),
+        ]
+        source = SimpleNamespace(
+            run_id=41,
+            lease=SimpleNamespace(job_id=7, lease_generation=3),
+            client=client,
+        )
+        runtime = self._runtime()
+        stored: list[repository_guidance_context.RepositoryGuidanceContext] = []
+
+        def load_context(*_args: object, **_kwargs: object):
+            if stored:
+                return stored[0]
+            return repository_guidance_context.pending(base_sha="a" * 40)
+
+        def store_context(
+            *_args: object,
+            context: repository_guidance_context.RepositoryGuidanceContext,
+            **_kwargs: object,
+        ) -> repository_guidance_context.RepositoryGuidanceContext:
+            stored.append(context)
+            return context
+
+        with (
+            patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
+            patch.object(review_source_tools, "postgres_runtime", return_value=runtime),
+            patch.object(review_tool_runtime.postgres_jobs, "require_live_lease"),
+            patch.object(
+                review_source_tools, "gateway_source_session", return_value=source
+            ),
+            patch.object(
+                review_source_tools,
+                "pull_request_identity",
+                return_value=(self.repository, 1, pull),
+            ),
+            patch.object(
+                review_run_application,
+                "load_live_run_state",
+                return_value=self._live_state(),
+            ),
+            patch.object(
+                review_source_tools,
+                "review_run_snapshot",
+                return_value=pull,
+            ),
+            patch.object(review_run_application, "_require_live_scope"),
+            patch.object(
+                review_run_application.postgres_repository_guidance,
+                "load_context",
+                side_effect=load_context,
+            ),
+            patch.object(
+                review_run_application.postgres_repository_guidance,
+                "store_context",
+                side_effect=store_context,
+            ),
+            patch.object(
+                review_run_application,
+                "load_or_create_live_repository_decisions",
+                return_value=repository_decision_context.not_configured(
+                    base_sha="a" * 40,
+                ),
+            ),
+            patch.object(
+                review_contract,
+                "load_installed_contract",
+                return_value=TEST_REVIEW_CONTRACT,
+            ),
+            patch.dict(
+                os.environ,
+                {"REVIEW_AGENT_PROFILE": "default-standard"},
+                clear=True,
+            ),
+        ):
+            first = json.loads(
+                review_source_tools.review_begin(
+                    {"existing_run_id": 41},
+                    session_id=self.session_id,
+                )
+            )
+            second = json.loads(
+                review_source_tools.review_begin(
+                    {"existing_run_id": 41},
+                    session_id=self.session_id,
+                )
+            )
+
+        first_guidance = first["repository_guidance_untrusted"]
+        second_guidance = second["repository_guidance_untrusted"]
+        self.assertEqual(first_guidance["status"], "loaded")
+        self.assertEqual(first_guidance["base_sha"], "a" * 40)
+        self.assertEqual(
+            first_guidance["instructions"]["content"],
+            "Prefer one clear owner for each lifecycle transition.",
+        )
+        self.assertEqual(
+            [item["path"] for item in first_guidance["context_files"]],
+            [
+                ".review-agent/context/platform.md",
+                ".review-agent/context/service.md",
+            ],
+        )
+        self.assertEqual(
+            [item["content"] for item in first_guidance["context_files"]],
+            [
+                "The platform owns authentication.",
+                "This service owns billing reconciliation.",
+            ],
+        )
+        self.assertEqual(
+            [
+                call.kwargs["path"]
+                for call in client.get_review_file_page.call_args_list
+            ],
+            [
+                ".review-agent/config.toml",
+                ".review-agent/instructions.md",
+                ".review-agent/context/platform.md",
+                ".review-agent/context/service.md",
+            ],
+        )
+        self.assertEqual(first_guidance, second_guidance)
+        self.assertEqual(client.get_review_file_page.call_count, 4)
+        self.assertEqual(len(stored), 1)
 
     def test_stored_adr_payload_degrades_when_the_response_budget_is_reduced(self) -> None:
         pull = {
@@ -241,7 +419,7 @@ class ToolContractTests(unittest.TestCase):
         decisions = tuple(
             RepositoryDecision(
                 id=f"ADR-{number:04d}",
-                adr_path=f"docs/decisions/ADR-{number:04d}.md",
+                adr_path=f".review-agent/decisions/ADR-{number:04d}.md",
                 applies_to=("src/**",),
                 title="T" * 300,
                 status="accepted",
@@ -282,6 +460,13 @@ class ToolContractTests(unittest.TestCase):
             patch.object(review_source_tools, "review_run_snapshot", return_value=pull),
             patch.object(
                 review_run_application,
+                "load_or_create_live_repository_guidance",
+                return_value=repository_guidance_context.not_configured(
+                    base_sha="a" * 40,
+                ),
+            ),
+            patch.object(
+                review_run_application,
                 "load_or_create_live_repository_decisions",
                 return_value=stored,
             ),
@@ -300,7 +485,7 @@ class ToolContractTests(unittest.TestCase):
             ),
             patch.dict(
                 os.environ,
-                {"REVIEW_AGENT_PROFILE": "sundsvall-standard"},
+                {"REVIEW_AGENT_PROFILE": "default-standard"},
                 clear=True,
             ),
         ):

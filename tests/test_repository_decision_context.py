@@ -113,7 +113,7 @@ class RepositoryDecisionContextTests(unittest.TestCase):
     def test_current_intentional_evidence_requires_same_accepted_metadata(self) -> None:
         entry = repository_decisions.DecisionIndexEntry(
             id="ADR-0007",
-            adr_path="docs/decisions/ADR-0007.md",
+            adr_path=".review-agent/decisions/ADR-0007.md",
             applies_to=("src/rag/**",),
         )
         decision = repository_decisions.parse_adr(
@@ -198,12 +198,12 @@ on_change = ["Run the retrieval evaluation."]
 
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007.md"
+adr_path = ".review-agent/decisions/ADR-0007.md"
 applies_to = ["src/rag/**"]
 
 [[decision]]
 id = "ADR-0008"
-adr_path = "docs/decisions/ADR-0008.md"
+adr_path = ".review-agent/decisions/ADR-0008.md"
 applies_to = ["src/api/**"]
 """
         adr = """+++
@@ -216,7 +216,7 @@ on_change = ["Run the retrieval evaluation."]
 """
         source.client.handler.side_effect = [
             page(".review-agent/decisions.toml", index),
-            page("docs/decisions/ADR-0007.md", adr),
+            page(".review-agent/decisions/ADR-0007.md", adr),
         ]
 
         result = repository_decision_context.load(
@@ -244,7 +244,7 @@ on_change = ["Run the retrieval evaluation."]
 
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007.md"
+adr_path = ".review-agent/decisions/ADR-0007.md"
 applies_to = ["src/rag/**"]
 """
         adr = "\n".join(
@@ -281,7 +281,7 @@ applies_to = ["src/rag/**"]
         entries = "\n".join(
             f"""[[decision]]
 id = "ADR-{number:04d}"
-adr_path = "docs/decisions/ADR-{number:04d}.md"
+adr_path = ".review-agent/decisions/ADR-{number:04d}.md"
 applies_to = ["src/**"]"""
             for number in range(11)
         )
@@ -308,12 +308,12 @@ applies_to = ["src/**"]"""
 
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007.md"
+adr_path = ".review-agent/decisions/ADR-0007.md"
 applies_to = ["src/**"]
 
 [[decision]]
 id = "ADR-0008"
-adr_path = "docs/decisions/ADR-0008.md"
+adr_path = ".review-agent/decisions/ADR-0008.md"
 applies_to = ["src/**"]
 """
         valid = """+++
@@ -333,8 +333,8 @@ invariant = "Missing on-change evidence."
 """
         source.client.handler.side_effect = [
             page(".review-agent/decisions.toml", index),
-            page("docs/decisions/ADR-0007.md", valid),
-            page("docs/decisions/ADR-0008.md", invalid),
+            page(".review-agent/decisions/ADR-0007.md", valid),
+            page(".review-agent/decisions/ADR-0008.md", invalid),
         ]
 
         result = repository_decision_context.load(
@@ -351,7 +351,7 @@ invariant = "Missing on-change evidence."
     def test_intentional_evidence_requires_the_accepted_matching_snapshot(self) -> None:
         entry = repository_decisions.DecisionIndexEntry(
             id="ADR-0007",
-            adr_path="docs/decisions/ADR-0007.md",
+            adr_path=".review-agent/decisions/ADR-0007.md",
             applies_to=("src/rag/**",),
         )
         decision = repository_decisions.parse_adr(

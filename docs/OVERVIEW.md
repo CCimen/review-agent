@@ -93,14 +93,16 @@ gate pull requests.
 | GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
 | Review state | PostgreSQL database | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
 | Publication | `review_agent_deliver`, publisher worker | Verifies the snapshot, freezes exact parts, and delivers them through a recoverable lease. |
-| Reviewer identity | `bootstrap/profiles/sundsvall-standard/SOUL.md` | Tone, evidence posture, and identity. |
-| Review contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
-| Review procedure | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | Two-pass PR review procedure. |
+| Reviewer identity | `bootstrap/profiles/default-standard/SOUL.md` | Tone, evidence posture, and identity. |
+| Review contract | `bootstrap/profiles/default-standard/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
+| Review procedure | `bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md` | Two-pass PR review procedure. |
+| Repository review context | `.review-agent/config.toml` and explicitly indexed Markdown | Optional team instructions and technical context loaded from the exact base commit. |
 | Example output | `examples/comments/example-review.md` | Single example of the rendered review shape. |
 | Visible review copy | `bootstrap/plugins/review_agent_tools/review_identity.py` | Centralized profile-facing title, continuation, fix-brief, and feedback messages. |
 
-The shipped `sundsvall-standard` bundle is the default deployment profile, not
-the product identity. Select another trusted bundle with
+The shipped `default-standard` bundle is the neutral default deployment
+profile, not an organization identity. Most teams should keep it and add
+repository-owned context instead of copying a profile. Select another trusted bundle with
 `REVIEW_AGENT_PROFILE=<profile-key>`. To create one:
 
 1. Copy the profile directory.

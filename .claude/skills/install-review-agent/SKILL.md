@@ -48,6 +48,8 @@ Read only the material needed for the requested platform:
 - `docs/AI_ASSISTED_SETUP.md` for approval boundaries;
 - `docs/DEPLOYMENT.md` for Compose/Dokploy or OpenShift;
 - `docs/GITHUB_APP_PILOT.md` for App registration and repository activation;
+- `docs/REPOSITORY_CONTEXT.md` for optional repository-owned instructions,
+  technical context, and typed decisions;
 - `docs/OPERATIONS.md` for updates, recovery, and backup checks;
 - `docs/SECURITY.md` for credential and network boundaries.
 
@@ -159,6 +161,18 @@ respectively.
    ```
 3. List durable repositories and confirm that the command enabled only the
    approved names.
+   Repository configuration is optional. If the team approved a local
+   `.review-agent/` package, validate its checkout without network or database
+   access before the configuration PR is merged:
+
+   ```bash
+   .venv/bin/python tools/review_agent_admin.py \
+     repository-context validate /path/to/repository
+   ```
+
+   Read only `instructions.md` and context files explicitly selected by
+   `config.toml`; decisions must be indexed and stored under
+   `.review-agent/decisions/`. Do not invent files or auto-discover Markdown.
 4. Run this in `hermes-review`:
 
    ```bash

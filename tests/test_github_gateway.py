@@ -667,7 +667,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewGitHubGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             feedback_factory=factory,
         )
         target = SimpleNamespace(
@@ -701,7 +701,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewGitHubGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             feedback_factory=factory,
         )
         command = SimpleNamespace(
@@ -747,7 +747,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewGitHubGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             feedback_factory=Mock(return_value=github),
         )
         command = SimpleNamespace(
@@ -795,7 +795,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewGitHubGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             feedback_factory=Mock(return_value=github),
         )
         command = SimpleNamespace(
@@ -839,7 +839,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewPublicationGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
         )
         request = PublicationGatewayRequest.from_mapping(
             {
@@ -872,7 +872,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewPublicationGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_factory=factory,
         )
         scope = SimpleNamespace(
@@ -925,7 +925,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewPublicationGateway(
             postgres=Mock(),
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_factory=Mock(return_value=github),
         )
         scope = SimpleNamespace(
@@ -973,7 +973,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             service = ReviewPublicationGateway(
                 postgres=Mock(),
                 tokens=tokens,
-                profile="sundsvall-standard",
+                profile="default-standard",
                 github_factory=Mock(return_value=github),
             )
             scope = SimpleNamespace(
@@ -1011,7 +1011,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewPublicationGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
         )
         scope = SimpleNamespace(
             provider_repository_id=9001,
@@ -1056,7 +1056,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewPublicationGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_factory=factory,
         )
         scope = SimpleNamespace(
@@ -1096,7 +1096,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewGitHubGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_factory=Mock(return_value=github),
         )
         scope = self._scope()
@@ -1152,7 +1152,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             service = ReviewGitHubGateway(
                 postgres=Mock(),
                 tokens=tokens,
-                profile="sundsvall-standard",
+                profile="default-standard",
                 github_factory=Mock(return_value=Mock()),
             )
 
@@ -1183,7 +1183,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewGitHubGateway(
             postgres=Mock(),
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_factory=Mock(return_value=Mock()),
         )
         request = ReviewSourceRequest.from_mapping(
@@ -1228,7 +1228,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewGitHubGateway(
             postgres=runtime,
             tokens=tokens,
-            profile="sundsvall-standard",
+            profile="default-standard",
             github_factory=factory,
         )
         access = SimpleNamespace(

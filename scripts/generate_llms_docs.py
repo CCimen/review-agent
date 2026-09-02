@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "website" / "public-documents.json"
 STATIC = ROOT / "website" / "static"
 BASE_URL = "https://ccimen.github.io/review-agent"
-REVISION = "v0.1.1"
+REVISION = "v0.2.0-rc.1"
 FRONTMATTER = re.compile(r"\A---\n(?P<header>.*?)\n---\n", re.DOTALL)
 TAB_ITEM = re.compile(r'^<TabItem\b[^>]*\blabel="(?P<label>[^"]+)"[^>]*>$')
 DIRECTIVE = re.compile(r"^(?P<indent>\s*):::(?P<kind>[a-z]+)\[(?P<title>[^]]+)]$")
@@ -111,6 +111,7 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
         "Trigger: an authorized maintainer posts a new top-level `/review` comment on an open same-repository pull request.",
         "Security boundary: the model has no shell, merge authority, App private key, installation token, or arbitrary GitHub write access.",
         "Feedback when enabled: `/review false-positive` requires the same finding and code context; `/review intentional` also requires the same accepted ADR metadata in the current base snapshot. `/review feedback scope` and `/review feedback missed` record evidence for gated improvement without silently changing live behavior.",
+        "Repository guidance: repositories may opt into `.review-agent/config.toml`, one optional `instructions.md`, explicitly ordered `context/**/*.md`, and typed ADRs under `.review-agent/decisions/`; all are read from the exact pull-request base commit and cannot weaken the deployment safety contract.",
         "",
         "## Start here",
         "",
@@ -120,6 +121,7 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
         f"- AI-assisted setup: {BASE_URL}/docs/ai-assisted-setup",
         f"- Operations: {BASE_URL}/docs/operations",
         f"- Feedback and design decisions: {BASE_URL}/docs/feedback-and-decisions",
+        f"- Repository context: {BASE_URL}/docs/repository-context",
         f"- Security: {BASE_URL}/docs/security",
         "",
         "## Coding-agent handoff",
@@ -128,7 +130,7 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
         "",
         "## Operator interface",
         "",
-        "Source checkout prerequisite: create `.venv` and install `requirements.txt` with `.venv/bin/python`. Run `.venv/bin/python tools/review_agent_admin.py capabilities` and `.venv/bin/python tools/review_agent_admin.py preflight`. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.",
+        "Source checkout prerequisite: create `.venv` and install `requirements.txt` with `.venv/bin/python`. Run `.venv/bin/python tools/review_agent_admin.py capabilities` and `.venv/bin/python tools/review_agent_admin.py preflight`. Validate an optional repository package with `.venv/bin/python tools/review_agent_admin.py repository-context validate <repository-root>`; this command is offline and prints hashes, paths, and status rather than file bodies. After deployment, run `review-agent-admin doctor`, inventory, activation, and `smoke-test --dry-run` inside the documented service container. These commands return bounded JSON except where the command documents another default.",
         "",
         "Quality reporting: run `review-agent-memory quality --days 30` globally or add `--repo owner/repository`. It reports explicit signals beside their denominators and keeps the current triage backlog visible. Missed-issue coach input requires explicit operator triage; a coding agent must not choose the status or target owner.",
         "",

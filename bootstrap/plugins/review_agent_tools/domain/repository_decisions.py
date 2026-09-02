@@ -102,6 +102,15 @@ def _path(value: object, *, field: str) -> str:
     return path
 
 
+def _adr_path(value: object, *, field: str) -> str:
+    path = _path(value, field=field)
+    if not path.startswith(".review-agent/decisions/") or not path.endswith(".md"):
+        raise RepositoryDecisionError(
+            f"{field} must reference a Markdown file under .review-agent/decisions/"
+        )
+    return path
+
+
 def _glob(value: object, *, field: str) -> str:
     pattern = _path(value, field=field)
     if any(character in pattern for character in "[]{}"):
@@ -158,7 +167,8 @@ def parse_index(content: str) -> DecisionIndex:
         raise RepositoryDecisionError(
             "decision index fields must be exactly version and decision"
         )
-    if value.get("version") != 1:
+    version = value.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
         raise RepositoryDecisionError("decision index version must be 1")
     raw_entries = value.get("decision")
     if not isinstance(raw_entries, list):
@@ -184,7 +194,7 @@ def parse_index(content: str) -> DecisionIndex:
         entries.append(
             DecisionIndexEntry(
                 id=_decision_id(raw.get("id"), field=f"decision entry {position} id"),
-                adr_path=_path(
+                adr_path=_adr_path(
                     raw.get("adr_path"),
                     field=f"decision entry {position} adr_path",
                 ),
@@ -338,7 +348,7 @@ def restore_snapshot_value(value: object) -> RepositoryDecision:
     identifier = _decision_id(item.get("id"))
     entry = DecisionIndexEntry(
         id=identifier,
-        adr_path=_path(item.get("adr_path"), field="adr_path"),
+        adr_path=_adr_path(item.get("adr_path"), field="adr_path"),
         applies_to=tuple(
             _glob(pattern, field="applies_to")
             for pattern in _string_list(

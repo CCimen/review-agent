@@ -118,7 +118,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 resolved_config=(
                     resolved_config
                     if resolved_config is not None
-                    else {"profile": "sundsvall-standard"}
+                    else {"profile": "default-standard"}
                 ),
                 request_key=f"github:issue-comment:{request_suffix}",
             ),
@@ -781,7 +781,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             "model": "gpt-5.6-sol",
         }
         resolved_config: dict[str, object] = {
-            "profile": "sundsvall-standard",
+            "profile": "default-standard",
             "review_contract": contract,
         }
         first = self.start(

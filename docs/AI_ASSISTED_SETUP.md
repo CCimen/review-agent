@@ -40,7 +40,10 @@ the GitHub App, repository access, secret placement, DNS, model login,
 deployment, or the first live /review. Finish with doctor, inventory, dry-run,
 and one approved live-review result. Report exact versions and stable IDs. On
 Dokploy, use Deploy when the source revision changes and verify the completed
-deployment commit. Mark unknowns as incomplete instead of guessing.
+deployment commit. If a team wants repository-specific review guidance, use
+the versioned examples/repository-context/.review-agent starter and validate it
+with review-agent-admin repository-context validate; never invent or
+auto-discover policy files. Mark unknowns as incomplete instead of guessing.
 ```
 
 Add the target platform, public hostname, GitHub owner and repositories, and
@@ -57,6 +60,7 @@ owner decisions instead of asking you to translate the deployment guide.
 | Prepare Compose, Dokploy, or OpenShift changes | Secret placement and model login |
 | Run local preflight and live doctor checks | DNS or production deployment approval |
 | Reconcile and enable approved repositories | The first real `/review` and feedback test |
+| Validate a proposed `.review-agent/` package offline | Approve and merge repository-owned guidance or decisions |
 
 > [!IMPORTANT]
 > Do not paste a private key, webhook secret, database credential, internal API
@@ -175,6 +179,17 @@ GitHub selection and Review Agent enablement are deliberately separate:
 Keep PostgreSQL, Hermes, workers, publishers, and the GitHub gateway private.
 Only the admission route is public. The App private key belongs only in the
 private gateway.
+
+Repositories need no local configuration. When a team wants its own engineering
+principles, communication preferences, platform context, or typed decisions,
+follow [Repository context](./REPOSITORY_CONTEXT.md). Copy the starter into that
+repository, edit only reviewed team content, and run this without network or
+database access before opening the configuration pull request:
+
+```bash
+.venv/bin/python tools/review_agent_admin.py \
+  repository-context validate /path/to/repository
+```
 
 If model authentication uses a browser or device flow, the agent should give
 you the exact container command and pause. Resume after you confirm login.

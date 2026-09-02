@@ -1,0 +1,7 @@
+version = 1
+enabled = true
+
+# Files are loaded in this exact order from the pull request base commit.
+context = [
+  "context/platform.md",
+]

@@ -365,7 +365,10 @@ def read_review_file_page(
             return _terminal_file(scope, side, "too_large", start_line)
     if b"\x00" in raw[:8192]:
         return _terminal_file(scope, side, "binary", start_line)
-    lines = raw.decode("utf-8", errors="replace").splitlines()
+    # Preserve line boundaries without accepting invalid bytes. Surrogate escapes
+    # let a bounded page ignore invalid data outside the requested page while the
+    # fragment actually returned below still fails closed.
+    lines = raw.decode("utf-8", errors="surrogateescape").splitlines()
     selected = lines[start_line - 1 : start_line - 1 + max_lines]
     parts: list[str] = []
     used = 0
@@ -376,12 +379,16 @@ def read_review_file_page(
         candidate = ("\n" if parts else "") + rendered
         remaining = max_chars - used
         if len(candidate) <= remaining:
+            if any(0xDC80 <= ord(character) <= 0xDCFF for character in candidate):
+                return _terminal_file(scope, side, "not_utf8", start_line)
             parts.append(candidate)
             used += len(candidate)
             complete_lines += 1
             continue
         fragment = candidate[:remaining]
         if fragment:
+            if any(0xDC80 <= ord(character) <= 0xDCFF for character in fragment):
+                return _terminal_file(scope, side, "not_utf8", start_line)
             parts.append(fragment)
             partial_line = True
         break

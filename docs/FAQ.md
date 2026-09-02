@@ -4,7 +4,7 @@ slug: /faq
 title: Frequently asked questions
 description: Practical answers about access, findings, feedback, storage, and failures.
 status: current
-last_verified: 2026-08-30
+last_verified: 2026-09-02
 ---
 
 # Frequently asked questions
@@ -93,12 +93,17 @@ grows.
 
 ## Can each repository have its own reviewer voice or rules?
 
-Not today. One selected profile applies to every repository in the
-environment, so review a profile change as a deployment-wide policy change.
-Trusted per-repository context read from the base branch is an
-[optional extension](./ROADMAP.md) that is not built yet. If two repository
-groups genuinely need different
-voices now, run two deployments with different `REVIEW_AGENT_PROFILE` values.
+Each repository can add engineering principles, review focus, communication
+preferences, ordered technical context, and accepted ADRs through its reviewed
+[`.review-agent/` package](./REPOSITORY_CONTEXT.md). Review Agent reads that
+package from the exact pull-request base commit, so a pull request cannot change
+the rules used to review itself.
+
+The deployment profile still owns the neutral identity, review procedure,
+evidence gates, severity rules, tools, authorization, and publication. A
+repository cannot override those controls. If two repository groups truly need
+different core review contracts or model routes, run separate deployments with
+reviewed profiles rather than adding repository-name branches to the engine.
 
 ## What are `SOUL.md` and profiles, and where do I learn more?
 
@@ -112,5 +117,6 @@ Hermes also documents [deploying a custom soul](https://hermes-agent.nousresearc
 ## How do I add another repository or change reviewer behavior?
 
 Use [Getting started](./GETTING_STARTED.md) for repository onboarding and
-[Behavior ownership](./BEHAVIOR_OWNERSHIP.md) for deployment-wide policy and
-runtime owners.
+[Repository context](./REPOSITORY_CONTEXT.md) for team-owned focus and project
+facts. [Behavior ownership](./BEHAVIOR_OWNERSHIP.md) maps deployment-wide policy
+and runtime owners.

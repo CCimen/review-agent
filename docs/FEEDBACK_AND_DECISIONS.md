@@ -179,14 +179,14 @@ version = 1
 
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007-rag-chunking.md"
+adr_path = ".review-agent/decisions/ADR-0007-rag-chunking.md"
 applies_to = ["src/rag/**", "tests/rag/**"]
 ```
 
 Each ADR starts with a short TOML block. Keep longer rationale below the block
 for human readers.
 
-```md title="docs/decisions/ADR-0007-rag-chunking.md"
+```md title=".review-agent/decisions/ADR-0007-rag-chunking.md"
 +++
 id = "ADR-0007"
 title = "Keep the retrieval inputs inside the embedding budget"
@@ -220,7 +220,7 @@ only ADR evidence for that run when the metadata exceeds a guard. It reports the
 reason and completes the code review.
 
 Use CODEOWNERS and branch review for `.review-agent/decisions.toml` and
-`docs/decisions/`. The index owns path relevance. The ADR owns the decision and
+`.review-agent/decisions/`. The index owns path relevance. The ADR owns the decision and
 its human rationale. Git history and the pull request remain the source for who
 approved a decision and when; the typed block does not duplicate authorship.
 
@@ -233,7 +233,7 @@ ADR supplies an invariant to check, not proof that the change is wrong.
 F2 · Medium (P2): Preserve the retrieval budget recorded in ADR-0007
 
 src/rag/config.py:41 changes CHUNK_SIZE from 200 to 512 while overlap and
-top-k stay unchanged. docs/decisions/ADR-0007-rag-chunking.md:12 records these
+top-k stay unchanged. .review-agent/decisions/ADR-0007-rag-chunking.md:12 records these
 values as one retrieval-budget invariant for the embedding model's input
 window. The current retrieval path still assembles eight chunks, so this change
 can truncate context without an error.

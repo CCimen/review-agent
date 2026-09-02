@@ -148,7 +148,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
                 head_sha=self.head_sha,
                 policy_revision="profile@1",
                 resolved_config_schema_version=1,
-                resolved_config={"profile": "sundsvall-standard"},
+                resolved_config={"profile": "default-standard"},
                 request_key="github:issue-comment:4001",
             ),
         )

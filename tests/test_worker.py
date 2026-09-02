@@ -720,7 +720,7 @@ class WorkerBoundaryTests(unittest.TestCase):
     @staticmethod
     def _contract() -> review_contract.ReviewContract:
         return review_contract.ReviewContract(
-            profile="sundsvall-standard",
+            profile="default-standard",
             hermes_image="hermes@test",
             model_provider="openai-codex",
             model="gpt-test",

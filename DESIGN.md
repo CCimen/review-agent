@@ -2,7 +2,7 @@
 
 ## Direction
 
-Use a restrained civic Read mode without copying an application shell. The visual character comes from
+Use a restrained technical-documentation style without copying an application shell. The visual character comes from
 clear hierarchy, narrow reading measure, flat structure, deliberate focus
 states, and one blue accent—not decoration.
 
@@ -10,7 +10,7 @@ states, and one blue accent—not decoration.
 
 - Canvas: white and near-white (`#ffffff`, `#fafafa`, `#f0f0f0`).
 - Text: charcoal (`#1f1f25`) with muted text that remains WCAG AA compliant.
-- Accent: vattjom blue (`#005595`), with `#004c85` for text on pale surfaces and
+- Accent: deep blue (`#005595`), with `#004c85` for text on pale surfaces and
   `#0c8ced` for focus indication.
 - Typography: durable system sans stack; 16/24 body; compact but decisive
   headings; 65-75 character article measure.
@@ -45,7 +45,7 @@ or color-mode control with a second component system.
 
 ## Deliberate Omissions
 
-No municipal logo, invented seal, external font, gradient, glass effect,
+No organization-specific logo, invented seal, external font, gradient, glass effect,
 decorative illustration, icon-card grid, oversized hero, search dependency, or
 marketing metrics. The site documents a working engineering system; it does not
 pretend to be a separate product application.

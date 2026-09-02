@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.1.1
+Runtime release selected by `llms.txt`: v0.2.0-rc.1
 
 ---
 
@@ -96,14 +96,16 @@ gate pull requests.
 | GitHub reads | `bootstrap/plugins/review_agent_tools/` | Bounded PR metadata, diff, and file reads. |
 | Review state | PostgreSQL database | Findings, decisions, publications, feedback, coverage, run phases, and verifier reconciliation state. |
 | Publication | `review_agent_deliver`, publisher worker | Verifies the snapshot, freezes exact parts, and delivers them through a recoverable lease. |
-| Reviewer identity | `bootstrap/profiles/sundsvall-standard/SOUL.md` | Tone, evidence posture, and identity. |
-| Review contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
-| Review procedure | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | Two-pass PR review procedure. |
+| Reviewer identity | `bootstrap/profiles/default-standard/SOUL.md` | Tone, evidence posture, and identity. |
+| Review contract | `bootstrap/profiles/default-standard/workspace/AGENTS.md` | Visible comment contract and evidence rules. |
+| Review procedure | `bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md` | Two-pass PR review procedure. |
+| Repository review context | `.review-agent/config.toml` and explicitly indexed Markdown | Optional team instructions and technical context loaded from the exact base commit. |
 | Example output | `examples/comments/example-review.md` | Single example of the rendered review shape. |
 | Visible review copy | `bootstrap/plugins/review_agent_tools/review_identity.py` | Centralized profile-facing title, continuation, fix-brief, and feedback messages. |
 
-The shipped `sundsvall-standard` bundle is the default deployment profile, not
-the product identity. Select another trusted bundle with
+The shipped `default-standard` bundle is the neutral default deployment
+profile, not an organization identity. Most teams should keep it and add
+repository-owned context instead of copying a profile. Select another trusted bundle with
 `REVIEW_AGENT_PROFILE=<profile-key>`. To create one:
 
 1. Copy the profile directory.
@@ -241,7 +243,22 @@ The onboarding command replaces the lower-level installation-ID sync and
 repository-ID enable commands. Run it again after changing the App's selected
 repositories; it is safe to repeat.
 
-## 2. Run the first review
+## 2. Add optional repository context
+
+Repositories work without local configuration. To add team instructions,
+ordered platform or framework context, and typed design decisions, copy the
+starter package and validate it offline:
+
+```bash
+cp -R examples/repository-context/.review-agent /path/to/repository/
+.venv/bin/python tools/review_agent_admin.py \
+  repository-context validate /path/to/repository
+```
+
+[Repository context](./REPOSITORY_CONTEXT.md) defines which files are loaded,
+their order, and the fixed deployment rules they cannot override.
+
+## 3. Run the first review
 
 Open or reuse a pull request and add a new top-level comment:
 
@@ -255,7 +272,7 @@ base/head snapshot and the review's coverage and findings.
 After fixing findings, push a commit and post `/review` again. A changed head SHA
 creates a new review round while the prior round remains historical context.
 
-## 3. Verify the result
+## 4. Verify the result
 
 - Confirm the summary identifies the expected base and head SHAs.
 - Open each cited file link and assess the finding in context.
@@ -276,11 +293,10 @@ App installation and run `github-app onboard` for its full name. No repository
 workflow or duplicated Actions secrets are required.
 
 Every onboarded repository shares one queue, one PostgreSQL database, and one
-reviewer profile. PostgreSQL serializes reviews within a repository, so
+neutral reviewer baseline. PostgreSQL serializes reviews within a repository, so
 [scale review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when
-cross-repository wait time grows. Per-repository voice or rules are not
-supported yet; see [Behavior ownership](./BEHAVIOR_OWNERSHIP.md) for what a
-profile controls deployment-wide.
+cross-repository wait time grows. Teams may add bounded repository-owned
+instructions and context without creating another deployment profile.
 
 ## Next step
 
@@ -1081,7 +1097,10 @@ the GitHub App, repository access, secret placement, DNS, model login,
 deployment, or the first live /review. Finish with doctor, inventory, dry-run,
 and one approved live-review result. Report exact versions and stable IDs. On
 Dokploy, use Deploy when the source revision changes and verify the completed
-deployment commit. Mark unknowns as incomplete instead of guessing.
+deployment commit. If a team wants repository-specific review guidance, use
+the versioned examples/repository-context/.review-agent starter and validate it
+with review-agent-admin repository-context validate; never invent or
+auto-discover policy files. Mark unknowns as incomplete instead of guessing.
 ```
 
 Add the target platform, public hostname, GitHub owner and repositories, and
@@ -1098,6 +1117,7 @@ owner decisions instead of asking you to translate the deployment guide.
 | Prepare Compose, Dokploy, or OpenShift changes | Secret placement and model login |
 | Run local preflight and live doctor checks | DNS or production deployment approval |
 | Reconcile and enable approved repositories | The first real `/review` and feedback test |
+| Validate a proposed `.review-agent/` package offline | Approve and merge repository-owned guidance or decisions |
 
 > [!IMPORTANT]
 > Do not paste a private key, webhook secret, database credential, internal API
@@ -1216,6 +1236,17 @@ GitHub selection and Review Agent enablement are deliberately separate:
 Keep PostgreSQL, Hermes, workers, publishers, and the GitHub gateway private.
 Only the admission route is public. The App private key belongs only in the
 private gateway.
+
+Repositories need no local configuration. When a team wants its own engineering
+principles, communication preferences, platform context, or typed decisions,
+follow [Repository context](./REPOSITORY_CONTEXT.md). Copy the starter into that
+repository, edit only reviewed team content, and run this without network or
+database access before opening the configuration pull request:
+
+```bash
+.venv/bin/python tools/review_agent_admin.py \
+  repository-context validate /path/to/repository
+```
 
 If model authentication uses a browser or device flow, the agent should give
 you the exact container command and pause. Resume after you confirm login.
@@ -1341,8 +1372,11 @@ tokens behind the private gateway.
 
 The review begins against one base SHA and one head SHA. Bounded tools read PR
 metadata, the changed-file list, diffs, and selected file content for that
-snapshot. Repository content is evidence, not policy, and cannot change the
-reviewer's instructions or tool permissions.
+snapshot. When `.review-agent/config.toml` exists, deterministic code also reads
+the optional `instructions.md` and explicitly indexed context files from that
+base commit and stores one immutable snapshot. This guidance may focus the
+review and communication style, but it cannot change tools, authorization,
+evidence gates, lifecycle, or publication.
 
 If the repository has `.review-agent/decisions.toml`, deterministic code maps
 changed paths to typed ADR headers and stores one immutable base-commit
@@ -1411,13 +1445,13 @@ Read [Security](./SECURITY.md) for the trust boundaries and
 Title: Behavior ownership
 Canonical URL: https://ccimen.github.io/review-agent/docs/behavior-ownership
 Status: current
-Last verified: 2026-08-24
+Last verified: 2026-09-02
 
 # Behavior ownership
 
-> **Current**: Deployment profiles own reviewer behavior. Typed repository
-> decisions add evidence from the exact base commit without changing that
-> behavior.
+> **Current**: The deployment owns the neutral identity and fixed review
+> contract. Repositories may add bounded instructions, ordered technical
+> context, and typed decisions from the exact base commit.
 
 The current deployment has one selected reviewer profile per environment.
 Change the canonical owner of a concern instead of adding repository-name
@@ -1425,22 +1459,24 @@ conditionals or copying policy into runtime code.
 
 | Concern | Current owner | Change it when |
 | --- | --- | --- |
-| Identity, tone, and evidence posture | `bootstrap/profiles/sundsvall-standard/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
-| Review rules and visible contract | `bootstrap/profiles/sundsvall-standard/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
-| Review procedure and tool sequence | `bootstrap/profiles/sundsvall-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
+| Identity, tone, and evidence posture | `bootstrap/profiles/default-standard/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
+| Review rules and visible contract | `bootstrap/profiles/default-standard/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
+| Review procedure and tool sequence | `bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
 | Provider, model, and reasoning effort | Deployment environment rendered into `bootstrap/config.yaml` | The inference route, model, or review depth changes. |
 | Toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
 | Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |
 | Durable job execution | `review_agent_tools.worker` and `review_agent_tools.postgres.jobs` | Claim, heartbeat, retry, or exact-run continuation behavior changes. |
 | Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |
 | Repository trigger contract | `review_agent_tools.github_webhook` and `review_agent_tools.admission` | Signed GitHub App event or command behavior changes. |
+| Repository instructions and ordered context | `.review-agent/config.toml`, `.review-agent/instructions.md`, and indexed `.review-agent/context/**/*.md` | A team changes repository-specific review focus, technical facts, or communication preferences. |
+| Immutable repository guidance | `review_agent_tools.repository_guidance_context` and `review_guidance_snapshots` | Exact-base loading, bounds, degradation, hashing, or run provenance changes. |
 | Repository decision format and matching | `.review-agent/decisions.toml`, typed ADR headers, and `review_agent_tools.domain.repository_decisions` | A repository maps an accepted invariant to different paths or the shared typed contract changes. |
 | Immutable decision evidence | `review_agent_tools.repository_decision_context` and `review_decision_snapshots` | Loading, degradation, hashing, or run provenance changes. |
 
 ## Selecting a deployment profile
 
 Set `REVIEW_AGENT_PROFILE` to a trusted directory key under
-`bootstrap/profiles`. The default is `sundsvall-standard`. The installer records
+`bootstrap/profiles`. The default is `default-standard`. The installer records
 the selected profile and its reviewed skill list in `HERMES_HOME`. Outside the
 packaged Compose deployment, it reuses that receipt when no explicit value is
 supplied. Compose always injects `REVIEW_AGENT_PROFILE`, so deployed selection
@@ -1467,10 +1503,11 @@ GitHub headings and hidden markers are not free-form profile templates.
 
 ## Changing `SOUL.md`
 
-`SOUL.md` owns the global reviewer identity: evidence-first tone, constructive
-language, and the stance taken when explaining risk and remediation. It is not
-a repository customization file. A change affects every repository using that
-deployed profile, so review it as a product-policy change.
+`SOUL.md` owns the neutral reviewer identity: evidence-first tone, constructive
+language, and the stance taken when explaining risk and remediation. A change
+affects every repository using that deployed profile, so review it as a
+product-policy change. Teams use repository `instructions.md` for local
+communication preferences rather than replacing Hermes' deployment-wide soul.
 
 This follows Hermes' native [personality and `SOUL.md` ownership](https://hermes-agent.nousresearch.com/docs/user-guide/features/personality)
 and its [deployment guide for a custom soul](https://hermes-agent.nousresearch.com/docs/guides/use-soul-with-hermes).
@@ -1484,23 +1521,238 @@ than relying on prose alone.
 
 ## Repository-specific context
 
-Today, repositories share the same deployment-wide profile. The current
-onboarding mechanism is selected-repository GitHub App installation followed by
-explicit operator enablement, as described in [Getting
-started](./GETTING_STARTED.md).
+Repositories share the deployment's neutral profile and deterministic safety
+contract. Each repository may opt into one explicit `.review-agent/` package
+for local engineering principles, ordered platform context, and accepted
+decisions. The runtime reads it from the exact base commit and stores immutable
+run snapshots; current pull-request content cannot rewrite its own review.
 
-Typed repository decisions provide additive evidence from the exact base
-snapshot. Repository files do not replace the deployment profile or change
-review policy. [Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md)
-defines the authoring and trust contract. Keep repository-specific policy out of
-engine branches.
+[Repository context](./REPOSITORY_CONTEXT.md) owns the copyable package,
+selection order, validation command, capacity boundary, and trust rules.
+[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) owns typed ADR and
+feedback semantics. Keep repository-specific behavior out of engine branches
+and repository-name conditionals.
+
+---
+
+Title: Configure reviews in a repository
+Canonical URL: https://ccimen.github.io/review-agent/docs/repository-context
+Status: current
+Last verified: 2026-09-02
+
+# Configure reviews in a repository
+
+> **TL;DR:** Copy `examples/repository-context/.review-agent/` into a repository,
+> edit the English Markdown files, list context files in `config.toml`, and run
+> the offline validator from a Review Agent checkout or release image.
+> Repositories without this directory continue to use the neutral deployment
+> baseline.
+
+Repository owners can add reviewed project knowledge without asking the Review
+Agent operator to create another deployment profile. The package is ordinary
+version-controlled repository content.
+
+## Understand the ownership boundary
+
+The deployment owns controls that must stay consistent across every repository.
+Each repository owns only its optional review focus and accepted project facts:
+
+```text
+Deployment
+├── bootstrap/profiles/default-standard/
+│   ├── SOUL.md                 Neutral reviewer identity and baseline tone
+│   ├── workspace/AGENTS.md     Non-overridable review and evidence contract
+│   └── skills/review-agent-pr/ Review procedure
+└── Environment
+    ├── Provider and model
+    ├── Reasoning effort
+    ├── Secrets
+    └── Capacity settings
+
+Repository
+└── .review-agent/
+    ├── config.toml             Enables the package and orders context files
+    ├── instructions.md         Engineering principles, focus, and response style
+    ├── context/
+    │   ├── backend.md
+    │   ├── platform.md
+    │   ├── frontend/framework.md
+    │   └── ui/design-system.md
+    ├── decisions.toml          Explicit ADR index
+    └── decisions/              Typed, accepted repository ADRs
+```
+
+The environment can be Dokploy, OpenShift, Docker Compose, or another supported
+container platform. None of the product defaults depend on one organization or
+one deployment provider.
+
+The effective review combines the neutral deployment contract, repository
+instructions, context files in their declared order, indexed decisions, and the
+exact pull request snapshot. Repository content is additive: it cannot replace
+the deployment's authorization, evidence, severity, tooling, or publication
+rules.
+
+## See the repository package
+
+```text
+.review-agent/
+├── config.toml
+├── instructions.md
+├── context/
+│   ├── platform.md
+│   ├── backend.md
+│   └── frontend/
+│       └── framework.md
+├── decisions.toml
+└── decisions/
+    └── ADR-0001-example.md
+```
+
+The deployment still owns the neutral reviewer identity, security and evidence
+contract, tools, model route, lifecycle, and GitHub publication. Repository
+content can focus the review and its wording; it cannot weaken those controls.
+
+## Start with the copyable package
+
+From a Review Agent checkout with its documented virtual environment, copy the
+starter and validate the target repository:
+
+```bash
+cp -R examples/repository-context/.review-agent /path/to/repository/
+.venv/bin/python tools/review_agent_admin.py \
+  repository-context validate /path/to/repository
+```
+
+A repository owner who does not keep a Review Agent checkout can run the same
+offline validator from the release image while standing in the target
+repository:
+
+```bash
+docker run --rm --read-only \
+  --entrypoint review-agent-admin \
+  --mount type=bind,source="$PWD",target=/repo,readonly \
+  ghcr.io/ccimen/review-agent:v0.2.0-rc.1 \
+  repository-context validate /repo
+```
+
+The validator is offline: it does not need GitHub, PostgreSQL, Hermes, a model,
+or secrets. Its JSON receipt contains paths, hashes, counts, and validation
+status, never Markdown bodies.
+
+## Select files explicitly
+
+`config.toml` is the only context index:
+
+```toml title=".review-agent/config.toml"
+version = 1
+enabled = true
+
+context = [
+  "context/platform.md",
+  "context/backend.md",
+  "context/frontend/framework.md",
+]
+```
+
+Review Agent reads the optional fixed `instructions.md` first, then only the
+context files listed in this array, in this exact order. Paths are relative to
+`.review-agent/`, must stay under `context/`, and must end in `.md`. It does not
+scan directories, infer frameworks from repository names, fetch remote
+packages, or load unlisted Markdown.
+
+Set `enabled = false` to keep the package in the repository without applying
+its instructions or context. Removing `config.toml` opts out and uses only the
+deployment baseline. A missing indexed file or invalid package disables the
+whole optional guidance snapshot for that review; the normal code review still
+runs.
+
+## Write one instruction layer
+
+Use `instructions.md` for repository-wide engineering principles, review focus,
+and communication style. A separate `personality.md` is not part of version 1;
+one repository-owned instruction layer keeps ownership clear.
+
+Good instructions are specific enough to influence a review but broad enough
+to survive ordinary refactors. For example:
+
+- prefer the existing transaction owner for multi-step writes;
+- check generated API clients when a public schema changes;
+- prioritize maintainability and explicit failure behavior;
+- use concise, direct, constructive wording.
+
+Instructions cannot request credentials, change tools or authorization, lower
+finding gates, suppress verified problems, or redefine publication behavior.
+They may guide the review prose when that guidance is compatible with the fixed
+contract. Public headings, hidden markers, finding fields, operator errors, and
+other machine-readable wording remain deployment-owned English protocol.
+
+## Compose platform and project context
+
+Use `context/` for facts and contracts the reviewer cannot reliably infer from
+one pull request. A service built on a shared backend platform can copy the
+platform context into `context/platform.md`, then add service-specific context
+in another file. A frontend can combine framework, starter-kit, and UI-system
+files in the order declared by `config.toml`.
+
+This is copy-and-edit composition, not inheritance. There is no remote import
+resolver or central package registry. Teams can update a shared starter and copy
+its reviewed package into a new repository without coupling every review to an
+external repository or network request.
+
+Keep context factual: supported extension points, integration boundaries,
+known coupled settings, required validation, and failure modes. Keep general
+review preferences in `instructions.md`.
+
+## Record durable decisions
+
+Store accepted ADRs under `.review-agent/decisions/` and list them in
+`.review-agent/decisions.toml`. Review Agent ignores unlisted decision files.
+The full typed format and feedback lifecycle are documented in [Feedback and
+design decisions](./FEEDBACK_AND_DECISIONS.md#repository-decision-contract).
+
+Decisions are separate from general context. Use an ADR when changing one
+accepted invariant needs explicit downstream checks and evidence. Use a context
+file when the information is a reusable platform fact or review aid.
+
+## Know when changes become active
+
+Review Agent reads the package from the pull request's exact **base commit** and
+stores an immutable snapshot with the review run. A pull request cannot change
+its own active review instructions. Changes to `.review-agent/` become active
+after they are reviewed and merged, when a later pull request uses that commit
+as its base.
+
+Protect `config.toml`, `instructions.md`, `context/`, `decisions.toml`, and
+`decisions/` with normal branch review and CODEOWNERS where appropriate.
+
+The current contract accepts ADRs only under `.review-agent/decisions/`; it has
+no compatibility path for other locations. New deployments should follow the
+clean initialization sequence in
+[Operations](./OPERATIONS.md#start-the-repository-context-release-cleanly).
+
+## Capacity is not review depth
+
+The package is optional model context, so it is bounded to avoid accidental
+multi-megabyte GitHub reads, database rows, RAM use, and prompt expansion. A
+configuration can list at most 10 context files; each file is limited to 400
+lines. The combined instructions and context use the smaller of the plugin's
+JSON-safe text-page capacity (`result_max_chars / 7`) and 81,920 characters.
+With the packaged 160,000-character result budget, repository guidance can use
+22,857 characters. The storage ceiling is derived from the 512 KiB immutable
+snapshot contract with space reserved for paths, hashes, and lifecycle
+metadata. These guards do not limit pull request size, changed files, diff
+pagination, source reads, findings, or review depth.
+
+If a package exceeds the guidance capacity, the review records a bounded reason,
+omits the optional guidance for that run, and continues the complete review
+contract.
 
 ---
 
 Title: Frequently asked questions
 Canonical URL: https://ccimen.github.io/review-agent/docs/faq
 Status: current
-Last verified: 2026-08-30
+Last verified: 2026-09-02
 
 # Frequently asked questions
 
@@ -1588,12 +1840,17 @@ grows.
 
 ## Can each repository have its own reviewer voice or rules?
 
-Not today. One selected profile applies to every repository in the
-environment, so review a profile change as a deployment-wide policy change.
-Trusted per-repository context read from the base branch is an
-[optional extension](./ROADMAP.md) that is not built yet. If two repository
-groups genuinely need different
-voices now, run two deployments with different `REVIEW_AGENT_PROFILE` values.
+Each repository can add engineering principles, review focus, communication
+preferences, ordered technical context, and accepted ADRs through its reviewed
+[`.review-agent/` package](./REPOSITORY_CONTEXT.md). Review Agent reads that
+package from the exact pull-request base commit, so a pull request cannot change
+the rules used to review itself.
+
+The deployment profile still owns the neutral identity, review procedure,
+evidence gates, severity rules, tools, authorization, and publication. A
+repository cannot override those controls. If two repository groups truly need
+different core review contracts or model routes, run separate deployments with
+reviewed profiles rather than adding repository-name branches to the engine.
 
 ## What are `SOUL.md` and profiles, and where do I learn more?
 
@@ -1607,15 +1864,16 @@ Hermes also documents [deploying a custom soul](https://hermes-agent.nousresearc
 ## How do I add another repository or change reviewer behavior?
 
 Use [Getting started](./GETTING_STARTED.md) for repository onboarding and
-[Behavior ownership](./BEHAVIOR_OWNERSHIP.md) for deployment-wide policy and
-runtime owners.
+[Repository context](./REPOSITORY_CONTEXT.md) for team-owned focus and project
+facts. [Behavior ownership](./BEHAVIOR_OWNERSHIP.md) maps deployment-wide policy
+and runtime owners.
 
 ---
 
 Title: Capabilities and boundaries
 Canonical URL: https://ccimen.github.io/review-agent/docs/roadmap
 Status: current
-Last verified: 2026-08-26
+Last verified: 2026-09-02
 
 # Capabilities and boundaries
 
@@ -1643,6 +1901,10 @@ Last verified: 2026-08-26
 - **Deployment profiles:** a reviewed profile owns voice, stable rules,
   presentation, and enabled skills. Engine code keeps authorization, tool
   limits, snapshot checks, state transitions, and GitHub writes fixed.
+- **Repository context:** one explicit `.review-agent/` package can add team
+  instructions and ordered platform or framework facts from the exact base
+  commit. The package is bounded, content-addressed, and cannot override the
+  deployment contract.
 - **Repository decisions:** typed ADR metadata from the exact base commit gives
   the reviewer repository-specific invariants without granting repository files
   control over policy, tools, or severity.
@@ -1667,7 +1929,7 @@ own profile and session files outside application state.
 
 ## Optional extensions
 
-- Per-repository profiles or reviewed repository-specific rules.
+- Repository-specific replacement profiles or remote context-package imports.
 - Notification or collaboration channels beyond GitHub.
 
 Each extension needs a concrete operator need, an owner, and a security review.
@@ -1869,7 +2131,7 @@ or rotates the restricted runtime login. Both should finish as `Exited (0)`;
 inspect their logs when startup stops.
 
 Set `REVIEW_AGENT_PROFILE` to a trusted bundle key under
-`bootstrap/profiles`; the packaged default is `sundsvall-standard`. The init
+`bootstrap/profiles`; the packaged default is `default-standard`. The init
 service rejects an unknown key before changing `HERMES_HOME`. A profile owns
 `SOUL.md`, `workspace/AGENTS.md`, and the reviewed skills named in
 `profile.json`; it cannot merge model, route, tool, authorization, snapshot,
@@ -1893,6 +2155,16 @@ docker compose run --rm --no-deps review-profile-install
 docker compose run --rm --no-deps review-db-migrate
 docker compose exec hermes-review review-agent-admin database ready
 ```
+
+### Start the repository-context release cleanly
+
+This pre-1.0 release uses `default-standard` and
+`.review-agent/decisions/` as strict current contracts. It does not ship aliases
+for earlier profile names or ADR locations. Start the deployment with a fresh
+Review Agent database, set `REVIEW_AGENT_PROFILE=default-standard`, and let the
+one-shot database and profile installers complete before enabling repositories.
+Migration 013 creates the repository-guidance table as part of normal fresh
+schema installation; it does not transform legacy data.
 
 The one-shot database job is the only container that receives both database
 URLs. On OpenShift, delete and recreate the two initialization Jobs instead of
@@ -2565,14 +2837,14 @@ version = 1
 
 [[decision]]
 id = "ADR-0007"
-adr_path = "docs/decisions/ADR-0007-rag-chunking.md"
+adr_path = ".review-agent/decisions/ADR-0007-rag-chunking.md"
 applies_to = ["src/rag/**", "tests/rag/**"]
 ```
 
 Each ADR starts with a short TOML block. Keep longer rationale below the block
 for human readers.
 
-```md title="docs/decisions/ADR-0007-rag-chunking.md"
+```md title=".review-agent/decisions/ADR-0007-rag-chunking.md"
 +++
 id = "ADR-0007"
 title = "Keep the retrieval inputs inside the embedding budget"
@@ -2606,7 +2878,7 @@ only ADR evidence for that run when the metadata exceeds a guard. It reports the
 reason and completes the code review.
 
 Use CODEOWNERS and branch review for `.review-agent/decisions.toml` and
-`docs/decisions/`. The index owns path relevance. The ADR owns the decision and
+`.review-agent/decisions/`. The index owns path relevance. The ADR owns the decision and
 its human rationale. Git history and the pull request remain the source for who
 approved a decision and when; the typed block does not duplicate authorship.
 
@@ -2619,7 +2891,7 @@ ADR supplies an invariant to check, not proof that the change is wrong.
 F2 · Medium (P2): Preserve the retrieval budget recorded in ADR-0007
 
 src/rag/config.py:41 changes CHUNK_SIZE from 200 to 512 while overlap and
-top-k stay unchanged. docs/decisions/ADR-0007-rag-chunking.md:12 records these
+top-k stay unchanged. .review-agent/decisions/ADR-0007-rag-chunking.md:12 records these
 values as one retrieval-budget invariant for the embedding model's input
 window. The current retrieval path still assembles eight chunks, so this change
 can truncate context without an error.

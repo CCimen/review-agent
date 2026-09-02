@@ -155,6 +155,26 @@ class GitHubAppInventoryTests(unittest.TestCase):
             ],
         )
 
+    def test_reads_all_repository_installation_metadata_without_enumerating_repositories(
+        self,
+    ) -> None:
+        authenticator = _Authenticator(selection="all")
+
+        metadata = app_inventory.read_installation_metadata(
+            cast(app_auth.GitHubAppAuthenticator, authenticator),
+            provider_installation_id=7001,
+            now=NOW,
+        )
+
+        self.assertEqual(
+            metadata.definition.repository_selection,
+            github_app.RepositorySelection.ALL,
+        )
+        self.assertEqual(metadata.status, github_app.InstallationStatus.ACTIVE)
+        self.assertEqual(authenticator.app_paths, ["/app/installations/7001"])
+        self.assertEqual(authenticator.token_requests, [])
+        self.assertEqual(authenticator.installation_paths, [])
+
     def test_all_repository_mode_is_explicitly_unsupported(self) -> None:
         authenticator = _Authenticator(selection="all")
 

@@ -74,9 +74,9 @@ class OperatorSetupTests(unittest.TestCase):
                 "authentication": "github-app",
                 "feedback": True,
                 "fork_pull_requests": False,
+                "repository_activation": ["explicit", "automatic"],
                 "repository_guidance": "explicit-base-snapshot",
                 "repository_profiles": "deployment-profile-only",
-                "selected_repositories_only": True,
                 "trigger_mode": "manual",
             },
         )
@@ -272,9 +272,10 @@ class OperatorSetupTests(unittest.TestCase):
         snapshot = operator_application.DeploymentHealth(
             github_app=github_app.GitHubAppAccessHealth(
                 active_installations=1,
+                automatic_installations=1,
                 invalid_active_installations=0,
-                repositories=1,
-                enabled_repositories=1,
+                repositories=0,
+                enabled_repositories=0,
             ),
             review_queue=jobs.ReviewQueueHealth(
                 active=2,
@@ -348,11 +349,19 @@ class OperatorSetupTests(unittest.TestCase):
             "Review queue has 2/100 active jobs, 1 dead-letter record, and no "
             "expired work",
         )
+        repository_check = next(
+            check for check in report.checks if check.name == "repositories"
+        )
+        self.assertEqual(
+            repository_check.detail,
+            "Repositories will activate after the first signed /review delivery",
+        )
 
     def test_smoke_test_checks_capacity_then_uses_only_gateway_dry_run(self) -> None:
         snapshot = operator_application.DeploymentHealth(
             github_app=github_app.GitHubAppAccessHealth(
                 active_installations=0,
+                automatic_installations=0,
                 invalid_active_installations=0,
                 repositories=0,
                 enabled_repositories=0,
@@ -428,6 +437,7 @@ class OperatorSetupTests(unittest.TestCase):
                 snapshot = operator_application.DeploymentHealth(
                     github_app=github_app.GitHubAppAccessHealth(
                         active_installations=1,
+                        automatic_installations=0,
                         invalid_active_installations=0,
                         repositories=1,
                         enabled_repositories=1,
@@ -834,6 +844,12 @@ class OperatorAdminCliTests(unittest.TestCase):
             account_login="CCimen",
             account_type=github_app.AccountType.USER,
             repository_selection=github_app.RepositorySelection.SELECTED,
+            repository_activation_policy=(
+                github_app.RepositoryActivationPolicy.EXPLICIT
+            ),
+            activation_policy_actor=None,
+            activation_policy_reason=None,
+            activation_policy_changed_at=None,
             status=github_app.InstallationStatus.ACTIVE,
             contents_permission=github_app.PermissionLevel.READ,
             issues_permission=github_app.PermissionLevel.WRITE,
@@ -850,6 +866,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             full_name="CCimen/review-agent",
             access_state=github_app.RepositoryAccess.AVAILABLE,
             enabled=True,
+            automatic_activation_blocked=False,
             trigger_mode=github_app.TriggerMode.MANUAL,
             profile_key="default-standard",
             enabled_at=datetime(2026, 8, 27, 4, 1, tzinfo=timezone.utc),
@@ -894,6 +911,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                         "installation_id": 7001,
                         "issues_permission": "write",
                         "pull_requests_permission": "write",
+                        "repository_activation": "explicit",
                         "repository_selection": "selected",
                         "status": "active",
                     }
@@ -907,6 +925,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                 "repositories": [
                     {
                         "access": "available",
+                        "automatic_activation_blocked": False,
                         "enabled": True,
                         "profile": "default-standard",
                         "repository": "CCimen/review-agent",
@@ -923,6 +942,7 @@ class OperatorAdminCliTests(unittest.TestCase):
         runtime = Mock()
         access = Mock(
             access_state=github_app.RepositoryAccess.AVAILABLE,
+            automatic_activation_blocked=False,
             enabled=True,
             full_name="CCimen/review-agent",
             profile_key="default-standard",
@@ -966,6 +986,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             json.loads(stdout.getvalue()),
             {
                 "access": "available",
+                "automatic_activation_blocked": False,
                 "enabled": True,
                 "profile": "default-standard",
                 "repository": "CCimen/review-agent",
@@ -979,6 +1000,7 @@ class OperatorAdminCliTests(unittest.TestCase):
         runtime = Mock()
         access = Mock(
             access_state=github_app.RepositoryAccess.AVAILABLE,
+            automatic_activation_blocked=False,
             enabled=True,
             full_name="CCimen/review-agent",
             profile_key="default-standard",
@@ -1032,6 +1054,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             json.loads(stdout.getvalue()),
             {
                 "access": "available",
+                "automatic_activation_blocked": False,
                 "enabled": True,
                 "profile": "default-standard",
                 "repositories_removed": 0,
@@ -1040,6 +1063,76 @@ class OperatorAdminCliTests(unittest.TestCase):
                 "repository": "CCimen/review-agent",
                 "repository_id": 9001,
                 "trigger_mode": "manual",
+            },
+        )
+
+    def test_github_app_approve_enables_automatic_repository_activation_once(
+        self,
+    ) -> None:
+        admin = _load_admin_cli()
+        runtime = Mock()
+        installation = Mock(
+            account_login="eneo-ai",
+            account_type=github_app.AccountType.ORGANIZATION,
+            contents_permission=github_app.PermissionLevel.READ,
+            issues_permission=github_app.PermissionLevel.WRITE,
+            provider_installation_id=7001,
+            pull_requests_permission=github_app.PermissionLevel.WRITE,
+            repository_activation_policy=(
+                github_app.RepositoryActivationPolicy.AUTOMATIC
+            ),
+            repository_selection=github_app.RepositorySelection.ALL,
+            status=github_app.InstallationStatus.ACTIVE,
+        )
+        stdout = io.StringIO()
+        with (
+            patch.object(admin, "_runtime", return_value=runtime),
+            patch.object(
+                admin.operator_setup,
+                "github_app_authenticator",
+                return_value="authenticator",
+            ),
+            patch.object(
+                admin.operator_application,
+                "approve_github_app_installation",
+                return_value=installation,
+            ) as approve,
+            redirect_stdout(stdout),
+        ):
+            status = admin.main(
+                [
+                    "github-app",
+                    "approve",
+                    "7001",
+                    "--actor",
+                    "github:CCimen",
+                    "--reason",
+                    "approved Eneo organization",
+                ]
+            )
+
+        self.assertEqual(status, 0)
+        approve.assert_called_once_with(
+            runtime,
+            "authenticator",
+            provider_installation_id=7001,
+            policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
+            actor="github:CCimen",
+            reason="approved Eneo organization",
+        )
+        runtime.close.assert_called_once()
+        self.assertEqual(
+            json.loads(stdout.getvalue()),
+            {
+                "account": "eneo-ai",
+                "account_type": "organization",
+                "contents_permission": "read",
+                "installation_id": 7001,
+                "issues_permission": "write",
+                "pull_requests_permission": "write",
+                "repository_activation": "automatic",
+                "repository_selection": "all",
+                "status": "active",
             },
         )
 

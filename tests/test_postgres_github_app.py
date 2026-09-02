@@ -79,6 +79,354 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
         self.assertEqual(events[0].event_kind, github_app.AccessEvent.GRANTED)
         self.assertFalse(events[0].enabled)
 
+    def test_approved_automatic_installation_enables_only_the_verified_repository(
+        self,
+    ) -> None:
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                installation = github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7001,
+                        account_id=8001,
+                        account_login="Example-Org",
+                        account_type=github_app.AccountType.ORGANIZATION,
+                        repository_selection=github_app.RepositorySelection.ALL,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.WRITE,
+                        pull_requests_permission=github_app.PermissionLevel.WRITE,
+                    ),
+                )
+                self.assertEqual(
+                    installation.repository_activation_policy,
+                    github_app.RepositoryActivationPolicy.EXPLICIT,
+                )
+                approved = github_app.set_repository_activation_policy(
+                    connection,
+                    installation_id=installation.id,
+                    policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
+                    actor="operator:owner",
+                    reason="approved organization-managed reviews",
+                )
+                access = github_app.enable_automatic_repository(
+                    connection,
+                    provider_installation_id=7001,
+                    provider_repository_id=9001,
+                    full_name="Example-Org/service",
+                    profile_key="default-standard",
+                    actor="github-app:review-delivery",
+                    reason="verified exact repository access",
+                )
+                authorization = github_app.authorize_review_admission(
+                    connection,
+                    provider_repository_id=9001,
+                    provider_installation_id=7001,
+                    profile_key="default-standard",
+                )
+                with self.assertRaises(
+                    github_app.GitHubAppRepositoryUnauthorized
+                ):
+                    github_app.authorize_review_admission(
+                        connection,
+                        provider_repository_id=9002,
+                        provider_installation_id=7001,
+                        profile_key="default-standard",
+                    )
+                health = github_app.access_health(
+                    connection, profile_key="default-standard"
+                )
+
+        self.assertEqual(
+            approved.repository_activation_policy,
+            github_app.RepositoryActivationPolicy.AUTOMATIC,
+        )
+        self.assertTrue(access.enabled)
+        self.assertEqual(access.trigger_mode, github_app.TriggerMode.AUTOMATIC)
+        self.assertEqual(authorization.repository_id, access.repository_id)
+        self.assertEqual(health.automatic_installations, 1)
+
+    def test_activation_policy_audit_is_all_or_nothing(self) -> None:
+        installation = self.installation()
+
+        with psycopg.connect(DSN) as connection:
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                with connection.transaction():
+                    connection.execute(
+                        """
+                        UPDATE review_agent.github_app_installations
+                        SET activation_policy_reason = 'partial audit',
+                            activation_policy_changed_at = CURRENT_TIMESTAMP
+                        WHERE id = %s
+                        """,
+                        (installation.id,),
+                    )
+
+    def test_manual_disable_is_a_durable_override_of_automatic_activation(
+        self,
+    ) -> None:
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                installation = github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7001,
+                        account_id=8001,
+                        account_login="Example-Org",
+                        account_type=github_app.AccountType.ORGANIZATION,
+                        repository_selection=github_app.RepositorySelection.ALL,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.WRITE,
+                        pull_requests_permission=github_app.PermissionLevel.WRITE,
+                    ),
+                )
+                github_app.set_repository_activation_policy(
+                    connection,
+                    installation_id=installation.id,
+                    policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
+                    actor="operator:owner",
+                    reason="approved organization-managed reviews",
+                )
+                access = github_app.enable_automatic_repository(
+                    connection,
+                    provider_installation_id=7001,
+                    provider_repository_id=9001,
+                    full_name="Example-Org/service",
+                    profile_key="default-standard",
+                    actor="github-app:review-delivery",
+                    reason="verified exact repository access",
+                )
+                disabled = github_app.disable_repository(
+                    connection,
+                    repository_id=access.repository_id,
+                    actor="operator:owner",
+                    reason="repository explicitly paused",
+                )
+                with self.assertRaises(
+                    github_app.GitHubAppRepositoryUnauthorized
+                ):
+                    github_app.enable_automatic_repository(
+                        connection,
+                        provider_installation_id=7001,
+                        provider_repository_id=9001,
+                        full_name="Example-Org/service",
+                        profile_key="default-standard",
+                        actor="github-app:review-delivery",
+                        reason="must not override an operator pause",
+                    )
+
+        self.assertFalse(disabled.enabled)
+        self.assertEqual(disabled.trigger_mode, github_app.TriggerMode.MANUAL)
+
+    def test_requiring_explicit_activation_fences_automatic_repositories(self) -> None:
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                installation = github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7001,
+                        account_id=8001,
+                        account_login="Example-Org",
+                        account_type=github_app.AccountType.ORGANIZATION,
+                        repository_selection=github_app.RepositorySelection.ALL,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.WRITE,
+                        pull_requests_permission=github_app.PermissionLevel.WRITE,
+                    ),
+                )
+                github_app.set_repository_activation_policy(
+                    connection,
+                    installation_id=installation.id,
+                    policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
+                    actor="operator:owner",
+                    reason="approved organization-managed reviews",
+                )
+                access = github_app.enable_automatic_repository(
+                    connection,
+                    provider_installation_id=7001,
+                    provider_repository_id=9001,
+                    full_name="Example-Org/service",
+                    profile_key="default-standard",
+                    actor="github-app:review-delivery",
+                    reason="verified exact repository access",
+                )
+                restricted = github_app.set_repository_activation_policy(
+                    connection,
+                    installation_id=installation.id,
+                    policy=github_app.RepositoryActivationPolicy.EXPLICIT,
+                    actor="operator:owner",
+                    reason="returned to explicit repository approval",
+                )
+                current = github_app.get_repository_access(
+                    connection, access.repository_id
+                )
+
+        self.assertEqual(
+            restricted.repository_activation_policy,
+            github_app.RepositoryActivationPolicy.EXPLICIT,
+        )
+        self.assertFalse(current.enabled)
+        self.assertEqual(current.trigger_mode, github_app.TriggerMode.AUTOMATIC)
+
+    def test_manual_disable_pins_a_repository_while_policy_is_explicit(self) -> None:
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                installation = github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7001,
+                        account_id=8001,
+                        account_login="Example-Org",
+                        account_type=github_app.AccountType.ORGANIZATION,
+                        repository_selection=github_app.RepositorySelection.ALL,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.WRITE,
+                        pull_requests_permission=github_app.PermissionLevel.WRITE,
+                    ),
+                )
+                github_app.set_repository_activation_policy(
+                    connection,
+                    installation_id=installation.id,
+                    policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
+                    actor="operator:owner",
+                    reason="approved organization-managed reviews",
+                )
+                access = github_app.enable_automatic_repository(
+                    connection,
+                    provider_installation_id=7001,
+                    provider_repository_id=9001,
+                    full_name="Example-Org/service",
+                    profile_key="default-standard",
+                    actor="github-app:review-delivery",
+                    reason="verified exact repository access",
+                )
+                github_app.set_repository_activation_policy(
+                    connection,
+                    installation_id=installation.id,
+                    policy=github_app.RepositoryActivationPolicy.EXPLICIT,
+                    actor="operator:owner",
+                    reason="returned to explicit repository approval",
+                )
+                disabled = github_app.disable_repository(
+                    connection,
+                    repository_id=access.repository_id,
+                    actor="operator:owner",
+                    reason="repository explicitly paused",
+                )
+                github_app.set_repository_activation_policy(
+                    connection,
+                    installation_id=installation.id,
+                    policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
+                    actor="operator:owner",
+                    reason="restored organization-managed reviews",
+                )
+                with self.assertRaises(
+                    github_app.GitHubAppRepositoryUnauthorized
+                ):
+                    github_app.enable_automatic_repository(
+                        connection,
+                        provider_installation_id=7001,
+                        provider_repository_id=9001,
+                        full_name="Example-Org/service",
+                        profile_key="default-standard",
+                        actor="github-app:review-delivery",
+                        reason="must not override an operator pause",
+                    )
+
+        self.assertFalse(disabled.enabled)
+        self.assertEqual(disabled.trigger_mode, github_app.TriggerMode.MANUAL)
+
+    def test_manual_disable_survives_provider_access_churn(self) -> None:
+        with psycopg.connect(DSN) as connection:
+            with connection.transaction():
+                installation = github_app.sync_installation(
+                    connection,
+                    github_app.InstallationDefinition(
+                        provider_installation_id=7001,
+                        account_id=8001,
+                        account_login="Example-Org",
+                        account_type=github_app.AccountType.ORGANIZATION,
+                        repository_selection=github_app.RepositorySelection.ALL,
+                        contents_permission=github_app.PermissionLevel.READ,
+                        issues_permission=github_app.PermissionLevel.WRITE,
+                        pull_requests_permission=github_app.PermissionLevel.WRITE,
+                    ),
+                )
+                github_app.set_repository_activation_policy(
+                    connection,
+                    installation_id=installation.id,
+                    policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
+                    actor="operator:owner",
+                    reason="approved organization-managed reviews",
+                )
+                access = github_app.enable_automatic_repository(
+                    connection,
+                    provider_installation_id=7001,
+                    provider_repository_id=9001,
+                    full_name="Example-Org/service",
+                    profile_key="default-standard",
+                    actor="github-app:review-delivery",
+                    reason="verified exact repository access",
+                )
+                github_app.disable_repository(
+                    connection,
+                    repository_id=access.repository_id,
+                    actor="operator:owner",
+                    reason="repository explicitly paused",
+                )
+                github_app.set_installation_status(
+                    connection,
+                    installation_id=installation.id,
+                    status=github_app.InstallationStatus.SUSPENDED,
+                    actor="github-app:installation",
+                    reason="installation suspended",
+                )
+                github_app.set_installation_status(
+                    connection,
+                    installation_id=installation.id,
+                    status=github_app.InstallationStatus.ACTIVE,
+                    actor="github-app:installation",
+                    reason="installation restored",
+                )
+                with self.assertRaises(
+                    github_app.GitHubAppRepositoryUnauthorized
+                ):
+                    github_app.enable_automatic_repository(
+                        connection,
+                        provider_installation_id=7001,
+                        provider_repository_id=9001,
+                        full_name="Example-Org/service",
+                        profile_key="default-standard",
+                        actor="github-app:review-delivery",
+                        reason="must preserve the operator pause",
+                    )
+                github_app.remove_repository_access(
+                    connection,
+                    repository_id=access.repository_id,
+                    actor="github-app:installation_repositories",
+                    reason="repository removed from installation",
+                )
+                github_app.grant_repository_access(
+                    connection,
+                    installation_id=installation.id,
+                    provider_repository_id=9001,
+                    full_name="Example-Org/service",
+                    actor="github-app:installation_repositories",
+                    reason="repository restored to installation",
+                    trigger_mode=github_app.TriggerMode.AUTOMATIC,
+                )
+                with self.assertRaises(
+                    github_app.GitHubAppRepositoryUnauthorized
+                ):
+                    github_app.enable_automatic_repository(
+                        connection,
+                        provider_installation_id=7001,
+                        provider_repository_id=9001,
+                        full_name="Example-Org/service",
+                        profile_key="default-standard",
+                        actor="github-app:review-delivery",
+                        reason="must preserve the operator pause",
+                    )
+
     def test_complete_inventory_reconciliation_is_atomic_safe_and_idempotent(
         self,
     ) -> None:
@@ -188,6 +536,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
             removed_after.access_state, github_app.RepositoryAccess.REMOVED
         )
         self.assertFalse(new_after.enabled)
+        self.assertEqual(new_after.trigger_mode, github_app.TriggerMode.AUTOMATIC)
         self.assertEqual(first_event_counts, repeated_event_counts)
 
     def test_inventory_reconciliation_rejects_another_installation_owner(
@@ -802,6 +1151,7 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
             health,
             github_app.GitHubAppAccessHealth(
                 active_installations=2,
+                automatic_installations=0,
                 invalid_active_installations=0,
                 repositories=2,
                 enabled_repositories=0,

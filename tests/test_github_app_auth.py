@@ -163,6 +163,51 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
         self.assertLessEqual(claims["exp"] - claims["iat"], 600)
         self.assertEqual(captured_timeouts, [15])
 
+    def test_automatic_activation_proof_uses_one_exact_metadata_only_repository_scope(
+        self,
+    ) -> None:
+        requests: list[urllib.request.Request] = []
+
+        def open_request(
+            request: urllib.request.Request, *, timeout: float
+        ) -> _Response:
+            del timeout
+            requests.append(request)
+            if request.full_url.endswith("/access_tokens"):
+                return self.response(
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                    permissions={"metadata": "read"},
+                )
+            return _Response(
+                json.dumps(
+                    {"id": 9001, "full_name": "Example-Org/service"}
+                ).encode()
+            )
+
+        with patch.object(
+            self.service._opener, "open", side_effect=open_request
+        ):
+            repository = self.service.verify_installation_repository(
+                7001,
+                9001,
+                "example-org/SERVICE",
+            )
+
+        self.assertEqual(repository.provider_repository_id, 9001)
+        self.assertEqual(repository.full_name, "Example-Org/service")
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(
+            json.loads(requests[0].data),
+            {
+                "repository_ids": [9001],
+                "permissions": {"metadata": "read"},
+            },
+        )
+        self.assertEqual(
+            requests[1].full_url,
+            "https://github.test/repositories/9001",
+        )
+
     def test_publication_token_has_separate_write_scope_and_cache(self) -> None:
         requests: list[urllib.request.Request] = []
 

@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
 status: current
-last_verified: 2026-08-30
+last_verified: 2026-09-02
 ---
 
 import Tabs from '@theme/Tabs';
@@ -13,7 +13,7 @@ import TabItem from '@theme/TabItem';
 # Deploy Review Agent
 
 > **TL;DR**: Choose a released image or build locally, provide PostgreSQL and a
-> repository-scoped GitHub App, then expose only the admission endpoint. Tune
+> least-privilege GitHub App, then expose only the admission endpoint. Tune
 > bounded worker concurrency before adding replicas. Queue limits protect shared
 > compute and do not limit PR size.
 
@@ -34,7 +34,9 @@ not receive the key or installation tokens.
 ### GitHub App
 
 Create a GitHub App with webhook events and permissions from [GitHub App
-setup](./GITHUB_APP_PILOT.md). Install it with **Only select repositories**.
+setup](./GITHUB_APP_PILOT.md). Use **All repositories** with one audited
+installation approval for organization-managed operation, or **Only select
+repositories** with an explicit allowlist.
 Store the App ID, webhook secret, and private-key file in the deployment secret
 manager. The App needs Contents read, Issues write, Pull requests write, and
 Metadata read; it does not need Actions, Administration, Secrets, or Contents
@@ -466,13 +468,18 @@ digest has been retired as a rollback target.
 
 ## Configure GitHub
 
-Register the App, install it with **Only select repositories**, reconcile the
-installation, and explicitly enable each repository. The [GitHub App setup
-guide](./GITHUB_APP_PILOT.md) has the exact permissions and commands. No
-repository workflow or Actions secrets are required.
+Register the App and choose one activation model. The recommended
+organization-managed model installs it with **All repositories** and records one
+audited installation approval; repositories then activate on their first
+signed `/review` delivery. Requester authorization still gates the review. The
+explicit model uses **Only select repositories** and
+an operator allowlist. The [GitHub App setup guide](./GITHUB_APP_PILOT.md) has
+the exact permissions, commands, and rollback behavior. Neither mode requires a
+repository workflow or Actions secrets.
 
-After onboarding at least one repository, run `review-agent-admin doctor` in
-`hermes-review` (`docker compose exec` or `oc rsh`, depending on the platform).
+Run `review-agent-admin doctor` in `hermes-review` after approving the
+installation. In automatic mode it is valid for zero repositories to be enabled
+before the first signed `/review` delivery.
 
 ## Scale and operate the queue
 

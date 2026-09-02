@@ -958,12 +958,44 @@ class ReviewGitHubGateway:
                     delivery,
                     expected_category=command_category,
                 )
+        except (
+            webhook_deliveries.DeliveryLeaseLost,
+            webhook_deliveries.DeliveryNotFound,
+        ) as exc:
+            raise GitHubGatewayRejected("delivery_lease_lost") from exc
+        try:
+            with self._postgres.transaction() as connection:
                 github_app.authorize_review_admission(
                     connection,
                     provider_repository_id=command.provider_repository_id,
                     provider_installation_id=command.provider_installation_id,
                     profile_key=self._profile,
                 )
+            return command
+        except github_app.GitHubAppRepositoryUnauthorized:
+            self._activate_automatic_repository(command, delivery_id=delivery_id)
+
+        try:
+            with self._postgres.transaction() as connection:
+                current_delivery = webhook_deliveries.require_live_delivery(
+                    connection,
+                    delivery_id=delivery_id,
+                    lease_owner=lease_owner,
+                    lease_generation=lease_generation,
+                )
+                current = _issue_comment_command(
+                    current_delivery,
+                    expected_category=command_category,
+                )
+                if current != command:
+                    raise GitHubGatewayRejected("delivery_subject_changed")
+                github_app.authorize_review_admission(
+                    connection,
+                    provider_repository_id=current.provider_repository_id,
+                    provider_installation_id=current.provider_installation_id,
+                    profile_key=self._profile,
+                )
+                return current
         except (
             webhook_deliveries.DeliveryLeaseLost,
             webhook_deliveries.DeliveryNotFound,
@@ -971,7 +1003,48 @@ class ReviewGitHubGateway:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
             raise GitHubGatewayRejected("repository_not_authorized") from exc
-        return command
+
+    def _activate_automatic_repository(
+        self,
+        command: _IssueCommentCommand,
+        *,
+        delivery_id: int,
+    ) -> None:
+        try:
+            with self._postgres.transaction() as connection:
+                installation = github_app.get_installation_by_provider_id(
+                    connection,
+                    command.provider_installation_id,
+                )
+                if (
+                    installation.status is not github_app.InstallationStatus.ACTIVE
+                    or installation.repository_activation_policy
+                    is not github_app.RepositoryActivationPolicy.AUTOMATIC
+                ):
+                    raise github_app.GitHubAppRepositoryUnauthorized(
+                        "installation requires explicit repository activation"
+                    )
+            verified = self._tokens.verify_installation_repository(
+                command.provider_installation_id,
+                command.provider_repository_id,
+                command.repository,
+            )
+            with self._postgres.transaction() as connection:
+                github_app.enable_automatic_repository(
+                    connection,
+                    provider_installation_id=command.provider_installation_id,
+                    provider_repository_id=verified.provider_repository_id,
+                    full_name=verified.full_name,
+                    profile_key=self._profile,
+                    actor="github-app:review-delivery",
+                    reason=f"verified repository for delivery {delivery_id}",
+                )
+        except GitHubAppTokenRetryable as exc:
+            raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+        except GitHubAppTokenPermanent as exc:
+            raise GitHubGatewayRejected("provider_authorization_denied") from exc
+        except github_app.GitHubAppStateError as exc:
+            raise GitHubGatewayRejected("repository_not_authorized") from exc
 
     def _provider_feedback(
         self,

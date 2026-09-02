@@ -39,6 +39,12 @@ class InstallationInventory:
     repositories: tuple[github_app.InstallationRepositoryDefinition, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class InstallationMetadata:
+    definition: github_app.InstallationDefinition
+    status: github_app.InstallationStatus
+
+
 def installation_id_for_repository(
     authenticator: GitHubAppAuthenticator,
     *,
@@ -99,11 +105,15 @@ def _definition(
         raise GitHubAppInventoryPermanent(
             "GitHub returned a different installation identity"
         )
-    selection = _text(root.get("repository_selection"), "repository selection")
-    if selection != github_app.RepositorySelection.SELECTED.value:
-        raise GitHubAppInventoryUnsupported(
-            "only selected-repository GitHub App installations are supported"
-        )
+    raw_selection = _text(
+        root.get("repository_selection"), "repository selection"
+    )
+    try:
+        selection = github_app.RepositorySelection(raw_selection)
+    except ValueError as exc:
+        raise GitHubAppInventoryPermanent(
+            "GitHub returned unsupported repository selection"
+        ) from exc
     account = _object(root.get("account"), "installation account")
     raw_account_type = _text(account.get("type"), "account type").lower()
     try:
@@ -124,7 +134,7 @@ def _definition(
             account_id=_positive(account.get("id"), "account id"),
             account_login=_text(account.get("login"), "account login"),
             account_type=account_type,
-            repository_selection=github_app.RepositorySelection.SELECTED,
+            repository_selection=selection,
             contents_permission=_permission(
                 permissions.get("contents"), "contents permission"
             ),
@@ -174,10 +184,17 @@ def read_installation_inventory(
     """Fetch and validate one complete selected-installation snapshot."""
     if isinstance(provider_installation_id, bool) or provider_installation_id < 1:
         raise ValueError("provider_installation_id must be positive")
-    metadata = authenticator.app_json(
-        f"/app/installations/{provider_installation_id}", now=now
+    metadata = read_installation_metadata(
+        authenticator,
+        provider_installation_id=provider_installation_id,
+        now=now,
     )
-    definition, status = _definition(metadata, provider_installation_id)
+    definition = metadata.definition
+    status = metadata.status
+    if definition.repository_selection is not github_app.RepositorySelection.SELECTED:
+        raise GitHubAppInventoryUnsupported(
+            "complete inventory reconciliation requires a selected-repository installation"
+        )
     token = authenticator.installation_token(
         provider_installation_id,
         permissions={"metadata": "read"},
@@ -238,3 +255,19 @@ def read_installation_inventory(
         status=status,
         repositories=tuple(repositories),
     )
+
+
+def read_installation_metadata(
+    authenticator: GitHubAppAuthenticator,
+    *,
+    provider_installation_id: int,
+    now: datetime | None = None,
+) -> InstallationMetadata:
+    """Fetch one installation without enumerating its repository inventory."""
+    if isinstance(provider_installation_id, bool) or provider_installation_id < 1:
+        raise ValueError("provider_installation_id must be positive")
+    payload = authenticator.app_json(
+        f"/app/installations/{provider_installation_id}", now=now
+    )
+    definition, status = _definition(payload, provider_installation_id)
+    return InstallationMetadata(definition=definition, status=status)

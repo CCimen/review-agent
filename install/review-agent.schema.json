@@ -95,11 +95,10 @@
           "enum": ["user", "organization"]
         },
         "installation_mode": {
-          "const": "selected_repositories"
+          "enum": ["organization_managed", "selected_repositories"]
         },
         "repositories": {
           "type": "array",
-          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "type": "object",
@@ -123,7 +122,32 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "installation_mode": {"const": "organization_managed"}
+            }
+          },
+          "then": {
+            "properties": {
+              "repositories": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "repositories": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
     },
     "runtime": {
       "type": "object",

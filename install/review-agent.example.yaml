@@ -18,12 +18,8 @@ deployment:
 github:
   owner: example-org
   owner_type: organization
-  installation_mode: selected_repositories
-  repositories:
-    - full_name: example-org/example-repository
-      enabled: true
-      trigger_mode: manual
-      profile: default-standard
+  installation_mode: organization_managed
+  repositories: []
 
 runtime:
   worker_replicas: 1
@@ -37,5 +33,5 @@ operations:
     owner: review-agent-operator
 
 # Copy this file before editing it. Replace the example URL, image digest,
-# owner, repositories, and backup owner. Secrets belong in the deployment
-# platform, never in this installation plan.
+# owner, activation mode, any explicit repositories, and backup owner. Secrets
+# belong in the deployment platform, never in this installation plan.

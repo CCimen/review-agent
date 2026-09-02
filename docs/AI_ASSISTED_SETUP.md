@@ -4,7 +4,7 @@ slug: /ai-assisted-setup
 title: Set up with a coding agent
 description: Give Codex, Claude Code, or another coding agent a safe, verifiable Review Agent installation contract.
 status: current
-last_verified: 2026-08-30
+last_verified: 2026-09-02
 ---
 
 import Tabs from '@theme/Tabs';
@@ -15,8 +15,9 @@ import TabItem from '@theme/TabItem';
 > **TL;DR:** A coding agent can prepare, deploy, and verify Review Agent when it
 > has this page and access to your source and deployment tools. If no checkout
 > exists, the assignment below tells it how to fetch the exact release and use
-> the versioned installation skill. You still approve the GitHub App, selected
-> repositories, secrets, model login, DNS, deployment, and first real `/review`.
+> the versioned installation skill. You still approve the GitHub App installation
+> scope, Review Agent activation policy, secrets, model login, DNS, deployment,
+> and first real `/review`.
 
 Send the agent **this page** and the assignment below. That is enough as the
 human handoff: the agent follows the machine-readable index, checks out the
@@ -46,20 +47,21 @@ with review-agent-admin repository-context validate; never invent or
 auto-discover policy files. Mark unknowns as incomplete instead of guessing.
 ```
 
-Add the target platform, public hostname, GitHub owner and repositories, and
-the deployment tools the agent may use. The validated installation plan records
-the remaining non-secret choices. This keeps the conversation focused on real
-owner decisions instead of asking you to translate the deployment guide.
+Add the target platform, public hostname, GitHub owner, installation scope,
+optional explicit repositories, and the deployment tools the agent may use.
+The validated installation plan records the remaining non-secret choices. This
+keeps the conversation focused on real owner decisions instead of asking you to
+translate the deployment guide.
 
 ## What the agent may do
 
 | The agent can | A human owner must approve or complete |
 | --- | --- |
 | Validate non-secret decisions | GitHub App creation and installation |
-| Generate a prefilled App registration URL | Selected-repository access |
+| Generate a prefilled App registration URL | GitHub installation scope and one Review Agent installation approval |
 | Prepare Compose, Dokploy, or OpenShift changes | Secret placement and model login |
 | Run local preflight and live doctor checks | DNS or production deployment approval |
-| Reconcile and enable approved repositories | The first real `/review` and feedback test |
+| Approve one installation or onboard an explicit repository | The first real `/review` and feedback test |
 | Validate a proposed `.review-agent/` package offline | Approve and merge repository-owned guidance or decisions |
 
 > [!IMPORTANT]
@@ -93,7 +95,7 @@ plans, schemas, Compose files, or skills from `main` into this checkout.
 
 Copy `install/review-agent.example.yaml` from the checked-out release to a file
 outside version control. Replace the example URL, immutable image digest,
-GitHub owner and repositories, capacity settings, and backup owner.
+GitHub owner and activation mode, capacity settings, and backup owner.
 
 Validate it with the schema and validator from that same checkout:
 
@@ -122,7 +124,7 @@ The plan maps to shipped deployment controls:
 | `runtime.worker_replicas` | Compose `--scale review-worker=N` or OpenShift replicas |
 | `runtime.publication_replicas` | Compose `--scale review-publisher=N` or OpenShift replicas |
 
-The public URL, platform, selected repositories, and backup owner drive the
+The public URL, platform, GitHub activation mode, and backup owner drive the
 deployment plan and its approval gates rather than a second runtime config file.
 
 ## 3. Confirm the shipped behavior
@@ -152,29 +154,31 @@ names:
 
 - the exact commit or image digest;
 - the deployment project, environment, services, and public route;
-- the GitHub App owner, permissions, event, and selected repositories;
-- repositories that will become review-enabled;
+- the GitHub App owner, permissions, event, installation scope, and activation policy;
+- whether repositories activate automatically or from an explicit allowlist;
 - secret names, never values;
 - migration, backup, verification, and rollback steps;
 - every action that still needs a human.
 
-Approve only the named scope. `github-app onboard` reconciles App access and
-records review authorization for one named repository. It does not enable other
-repositories selected in the installation.
+Approve only the named scope. `github-app approve <installation-id>` records one
+organization-managed decision after checking the live installation. It does not
+pre-enumerate repositories; each first `/review` verifies one exact repository.
+Use `github-app onboard <owner/repository>` only for the optional explicit mode.
 
 ## 5. Deploy and finish the owner gates
 
 Follow [Deployment](./DEPLOYMENT.md) for Compose platforms, including Dokploy,
 Coolify, and Portainer, or for OpenShift. Follow [GitHub App
 setup](./GITHUB_APP_PILOT.md) for the prefilled registration URL, exact
-permissions, installation reconciliation, and repository enablement.
+permissions, installation approval, and repository verification.
 
-GitHub selection and Review Agent enablement are deliberately separate:
+GitHub installation scope and Review Agent activation are deliberately separate:
 
 | Owner action | Result |
 | --- | --- |
-| Select a repository in the GitHub App installation | The App may request a short-lived token for that repository. Reviews remain disabled. |
-| Run `github-app onboard <owner/repository>` | The runtime reconciles current App access and enables only that named repository for the deployed profile. |
+| Install the App with **All repositories** or **Only select repositories** | GitHub defines where the App may request a token. Reviews remain locked for a new installation. |
+| Run `github-app approve <installation-id>` | The trusted installation may activate an exact repository on its first signed `/review` delivery. Requester authorization still gates the review. |
+| Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named selected repository is enabled. |
 
 Keep PostgreSQL, Hermes, workers, publishers, and the GitHub gateway private.
 Only the admission route is public. The App private key belongs only in the
@@ -194,7 +198,7 @@ database access before opening the configuration pull request:
 If model authentication uses a browser or device flow, the agent should give
 you the exact container command and pause. Resume after you confirm login.
 
-## 6. Verify before a real review
+## 6. Verify the deployment state
 
 Run the live checks from the deployed containers:
 
@@ -228,12 +232,15 @@ oc rsh deployment/hermes-review \
 </TabItem>
 </Tabs>
 
-The dry run proves that one enabled, open, same-repository pull request can be
-read and has publication scope. It does not call the model or write to GitHub.
+The dry run proves that an already enabled, open, same-repository pull request
+can be read and has publication scope. It does not call the model or write to
+GitHub. For a fresh automatic installation, zero enabled repositories is valid:
+run `doctor`, queue, and installation checks now, then run the dry test after the
+first signed `/review` delivery activates its exact repository.
 
 The deployment is not ready merely because containers are healthy. Doctor,
-repository enablement, private-service isolation, backup ownership, and the dry
-run must all be known and successful.
+activation policy, private-service isolation, backup ownership, and the
+applicable dry or live acceptance evidence must all be known.
 
 ## 7. Run the owner-controlled acceptance check
 
@@ -247,6 +254,8 @@ request:
 Verify one accepted App delivery, one review run and durable job, and one
 terminal publication or deterministic failure status. Confirm that no duplicate
 publication appeared and that the result belongs to the expected head SHA.
+For automatic mode, confirm `repositories list` now contains only the exact
+repository, then run the dry smoke test from the previous section.
 
 Record a baseline after the live test:
 
@@ -284,7 +293,7 @@ A setup report is complete only when it records, without secrets:
 - deployment environment and public URL;
 - database readiness and migration version;
 - App ID, verified identity, permissions, event, and installation ID;
-- selected and explicitly enabled repository IDs;
+- installation scope and activation policy, plus any activated repository IDs;
 - profile, doctor, queue, and dry-run results;
 - real review run and publication identifiers;
 - backup and rollback status;

@@ -21,7 +21,7 @@ from review_agent_tools import (  # noqa: E402
     review_contract,
     review_run_application,
 )
-from review_agent_tools.github import app_processor  # noqa: E402
+from review_agent_tools.github import app_auth, app_processor  # noqa: E402
 from review_agent_tools.github.app_auth import (  # noqa: E402
     InstallationToken,
     GitHubAppTokenService,
@@ -58,6 +58,7 @@ class _Tokens:
     def __init__(self) -> None:
         self.token_requests: list[tuple[int, str]] = []
         self.invalidated_repository_ids: list[int] = []
+        self.repository_verifications: list[tuple[int, int, str]] = []
 
     def token_for(
         self, provider_repository_id: int, *, purpose: str = "review_read"
@@ -76,6 +77,24 @@ class _Tokens:
 
     def app_bot_login(self) -> str:
         return "review-agent[bot]"
+
+    def verify_installation_repository(
+        self,
+        provider_installation_id: int,
+        provider_repository_id: int,
+        expected_full_name: str,
+    ) -> app_auth.VerifiedInstallationRepository:
+        self.repository_verifications.append(
+            (
+                provider_installation_id,
+                provider_repository_id,
+                expected_full_name,
+            )
+        )
+        return app_auth.VerifiedInstallationRepository(
+            provider_repository_id=provider_repository_id,
+            full_name=expected_full_name,
+        )
 
 
 class _FeedbackGitHub:
@@ -367,7 +386,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             installation = github_app.get_installation_by_provider_id(connection, 7001)
             access = connection.execute(
-                "SELECT repository_id, enabled "
+                "SELECT repository_id, enabled, trigger_mode "
                 "FROM review_agent.github_app_repository_access "
                 "ORDER BY repository_id"
             ).fetchall()
@@ -375,6 +394,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(installation.repository_selection, "selected")
         self.assertEqual(len(access), 2)
         self.assertTrue(all(not row[1] for row in access))
+        self.assertEqual({row[2] for row in access}, {"automatic"})
         self.assertIsNone(delivery.normalized_payload)
 
     def test_installation_created_accepts_no_selected_repositories(self) -> None:
@@ -393,21 +413,34 @@ class GitHubAppProcessorTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(access_count, (0,))
 
-    def test_all_repository_installation_is_explicitly_rejected(self) -> None:
+    def test_all_repository_installation_is_accepted_but_not_automatically_approved(
+        self,
+    ) -> None:
         delivery_id = self.register(
             "installation", self.installation_payload(selection="all")
         )
 
         result = self.processor().process_next(lease_owner="worker-1")
 
-        self.assertEqual(result.reason if result else None, "unsupported_selection")
+        self.assertEqual(result.status if result else None, "accepted")
         with self.runtime.transaction() as connection:
             delivery = webhook_deliveries.get_delivery(connection, delivery_id)
-            installations = connection.execute(
-                "SELECT count(*) FROM review_agent.github_app_installations"
+            installation = github_app.get_installation_by_provider_id(
+                connection, 7001
+            )
+            access_count = connection.execute(
+                "SELECT count(*) FROM review_agent.github_app_repository_access"
             ).fetchone()
-        self.assertEqual(delivery.status, "rejected")
-        self.assertEqual(installations, (0,))
+        self.assertEqual(delivery.status, "accepted")
+        self.assertEqual(
+            installation.repository_selection,
+            github_app.RepositorySelection.ALL,
+        )
+        self.assertEqual(
+            installation.repository_activation_policy,
+            github_app.RepositoryActivationPolicy.EXPLICIT,
+        )
+        self.assertEqual(access_count, (0,))
 
     def test_repository_name_conflict_rolls_back_and_terminalizes(self) -> None:
         with self.runtime.transaction() as connection:
@@ -674,6 +707,72 @@ class GitHubAppProcessorTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(counts, (1, 1))
         self.assertEqual(repository_name, ("CCimen/review-agent",))
+
+    def test_approved_all_repository_installation_activates_exact_repo_on_first_review(
+        self,
+    ) -> None:
+        installation_delivery = self.register(
+            "installation", self.installation_payload(selection="all")
+        )
+        installed = self.processor().process_next(lease_owner="worker-install")
+        self.assertEqual(
+            installed.delivery_id if installed else None,
+            installation_delivery,
+        )
+        with self.runtime.transaction() as connection:
+            installation = github_app.get_installation_by_provider_id(
+                connection, 7001
+            )
+            github_app.set_repository_activation_policy(
+                connection,
+                installation_id=installation.id,
+                policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
+                actor="operator:owner",
+                reason="approved organization-managed reviews",
+            )
+        delivery_id = self.register("issue_comment", self.review_payload())
+
+        with patch.object(
+            app_processor.review_contract,
+            "load_packaged_contract",
+            return_value=self.contract,
+        ):
+            result = self.processor().process_next(lease_owner="worker-review")
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "accepted")
+        self.assertIsNotNone(result.run_id if result else None)
+        self.assertEqual(
+            self.tokens.repository_verifications,
+            [(7001, 9001, "CCimen/review-agent")],
+        )
+        with self.runtime.transaction() as connection:
+            access = github_app.get_repository_access_by_provider_id(
+                connection, 9001
+            )
+        self.assertTrue(access.enabled)
+        self.assertEqual(access.trigger_mode, github_app.TriggerMode.AUTOMATIC)
+        self.assertEqual(access.profile_key, "default-standard")
+
+    def test_unapproved_all_repository_installation_does_not_verify_or_admit_repo(
+        self,
+    ) -> None:
+        self.register("installation", self.installation_payload(selection="all"))
+        self.processor().process_next(lease_owner="worker-install")
+        delivery_id = self.register("issue_comment", self.review_payload())
+
+        result = self.processor().process_next(lease_owner="worker-review")
+
+        self.assertEqual(result.delivery_id if result else None, delivery_id)
+        self.assertEqual(result.status if result else None, "rejected")
+        self.assertEqual(result.reason if result else None, "repository_not_authorized")
+        self.assertEqual(self.tokens.repository_verifications, [])
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.repositories), "
+                "(SELECT count(*) FROM review_agent.review_runs)"
+            ).fetchone()
+        self.assertEqual(counts, (0, 0))
 
     def test_review_acknowledgement_failure_keeps_durable_admission_accepted(
         self,

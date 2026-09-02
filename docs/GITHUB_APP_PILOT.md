@@ -2,26 +2,47 @@
 sidebar_label: GitHub App setup
 slug: /github-app-pilot
 title: Set up the GitHub App
-description: Register, install, enable, and verify Review Agent on selected repositories.
+description: Register the App, approve an installation once, and choose automatic or explicit repository activation.
 status: current
-last_verified: 2026-08-30
+last_verified: 2026-09-02
 ---
 
 # Set up the GitHub App
 
-> **TL;DR:** Install one GitHub App with selected-repository access. The App
-> receives `/review`, while a private gateway uses short-lived installation
-> tokens for source reads and publication. Each repository remains disabled
-> until an operator explicitly enables it.
+> **TL;DR:** Install the App on an organization, then approve that installation
+> once with `github-app approve`. In the recommended organization-managed mode,
+> a current or future repository activates on its first signed `/review` delivery;
+> no per-repository Dokploy command is required. Explicit repository onboarding
+> remains available for installations that need a narrower operator allowlist.
 
-Start with a test repository you own. Do not install the App on an organization
-or repository that you are not authorized to change.
+Start with an account and repository you are authorized to change. A public App
+may be installed by other accounts, but a new installation starts in
+**explicit** mode and cannot consume review capacity until your deployment
+operator approves it.
 
-Examples use Compose and Dokploy. On OpenShift, use
-`oc rsh deployment/review-agent-github-gateway` wherever an example uses
-`docker compose exec review-github-gateway`, and use
-`oc rsh deployment/hermes-review` in place of
-`docker compose exec hermes-review`. Command arguments are otherwise identical.
+Examples use Compose and Dokploy. On OpenShift, replace
+`docker compose exec review-github-gateway` with
+`oc rsh deployment/review-agent-github-gateway`, and replace
+`docker compose exec hermes-review` with
+`oc rsh deployment/hermes-review`.
+
+## Understand the two access decisions
+
+GitHub and Review Agent own separate gates:
+
+1. The account owner chooses **All repositories** or **Only select
+   repositories** when installing the App. This controls where GitHub may issue
+   an installation token.
+2. The Review Agent operator chooses **automatic** or **explicit** activation
+   for that installation. This controls which signed commands may enter the
+   review queue.
+
+Automatic activation does not mint an organization-wide runtime token. On the
+first signed `/review`, the private gateway asks GitHub for a short-lived
+installation token restricted to that one stable repository ID, verifies the repository identity,
+and records only that repository. Normal source and publication tokens remain
+restricted to the same exact repository. The commenter must still have current
+`write` or `admin` permission, and the PR snapshot is checked before admission.
 
 ## 1. Register the App
 
@@ -35,12 +56,12 @@ python3 tools/review_agent_admin.py github-app registration-url \
   --homepage-url https://docs.example.org/review-agent/
 ```
 
-Open the returned URL and verify these settings before creating the App:
+Open the returned URL and verify these settings:
 
 | Setting | Value |
 | --- | --- |
-| Homepage URL | The Review Agent documentation or repository URL supplied with `--homepage-url`. |
-| Callback URL | Leave blank. Review Agent does not use user OAuth. |
+| Homepage URL | The documentation or repository URL supplied with `--homepage-url` |
+| Callback URL | Leave blank; Review Agent does not use user OAuth |
 | Request user authorization during installation | Off |
 | Device Flow | Off |
 | Setup URL | Leave blank |
@@ -48,7 +69,6 @@ Open the returned URL and verify these settings before creating the App:
 | Webhook URL | `https://review.example.org/webhooks/github-app` |
 | Webhook secret | A new random value used only by this App |
 | SSL verification | On |
-| Installation | Use the account or organization that owns the selected repositories |
 
 Grant these repository permissions:
 
@@ -56,24 +76,21 @@ Grant these repository permissions:
 | --- | --- | --- |
 | Metadata | Read | Stable repository identity |
 | Contents | Read | Exact source snapshots |
-| Issues | Write | PR comments and feedback-ready events |
+| Issues | Write | PR comments, reactions, and feedback events |
 | Pull requests | Write | PR state, reviews, and native suggestions |
 
-Subscribe to **Issue comment**. GitHub sends installation and selected-repository
-lifecycle events to installed Apps automatically. OAuth, user authorization,
-organization permissions, Actions, Administration, Secrets, and Contents write
-are not required.
-
-The public hostname serves the webhook and readiness endpoints. It does not
-serve an OAuth callback or an App homepage.
+Subscribe only to **Issue comment**. GitHub sends installation and repository
+selection lifecycle events to installed Apps automatically. OAuth, user
+authorization, organization permissions, Actions, Administration, Secrets,
+and Contents write are not required.
 
 After creating the App, generate a private key. Record the numeric App ID and
-store the downloaded PEM as a file in the deployment secret manager. Never put
-the PEM contents in an environment variable or commit it.
+store the downloaded PEM as a protected file. Never commit or paste the PEM into
+chat.
 
 ## 2. Configure and start the deployment
 
-Set:
+Set the App credentials in the deployment secret store:
 
 ```dotenv
 REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET=<dedicated webhook secret>
@@ -81,58 +98,78 @@ REVIEW_AGENT_GITHUB_APP_ID=<numeric App ID>
 REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=./secrets/github-app-private-key.pem
 ```
 
-That path is the Compose and local-host default. For Dokploy, create a **File
-Mount** with file path `github-app-private-key.pem`. Paste the complete file,
-including its `BEGIN` and `END` lines. Leave the Dokploy mount path at `/`;
-Compose reads the managed file from `../files` and mounts it into the gateway
-at `/run/secrets`. Replace the default host path with:
+For Dokploy, create a **File Mount** named
+`github-app-private-key.pem`. Paste the complete PEM, including its `BEGIN` and
+`END` lines, and set:
 
 ```dotenv
 REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
 ```
 
-Dokploy stores this file outside the Git checkout so redeploys preserve it.
-Compose still controls the container mount and exposes the key only to the
-private GitHub gateway.
+Compose mounts the key read-only into the private GitHub gateway. Workers,
+Hermes, and the public admission service do not receive it. Anyone who can read
+or edit the Dokploy Compose service may be able to read file-mount content, so
+limit project access and rotate the key if it is exposed.
 
-Anyone who can read or edit this Dokploy Compose service through the UI or API
-can read file-mount content. Limit project access accordingly. Rotate the App
-key if it appears in a terminal, log, screenshot, ticket, or model conversation.
-
-From the checkout root, export your complete `.env`, then validate it on the
-host without network or database access:
+Validate and start the exact reviewed release:
 
 ```bash
 python3 tools/review_agent_admin.py capabilities
 python3 tools/review_agent_admin.py preflight
-```
-
-Both commands return bounded JSON. Preflight reads the host-side key path and
-prints no credential values.
-
-Compose mounts the file read-only into the gateway. Validate and start the stack:
-
-```bash
 docker compose config --quiet
 docker compose up -d --no-build
 docker compose ps
 ```
 
-Use `--build` for a reviewed local-source deployment. The App key stays in the
-private gateway. Workers receive no GitHub credential.
+Use `--build` only for an explicitly reviewed local-source deployment.
 
-## 3. Install and onboard
+## 3. Install the App
 
-Open the App's **Install App** page, choose **Only select repositories**, and
-select the test repository. The current runtime rejects **All repositories** so
-new repositories cannot become available implicitly.
+Open the App's **Install App** page and choose one scope:
 
-Selecting a repository grants the App access; it does not authorize Review
-Agent to review it. The next command creates that separate, audited enablement
-decision for one repository.
+- **All repositories** is the recommended organization-managed mode. One
+  approval covers current and future repositories without listing or enabling
+  them in advance.
+- **Only select repositories** keeps GitHub's own installation scope narrow.
+  It can use automatic activation inside that selection, or explicit Review
+  Agent onboarding for each repository.
 
-Run one command in the private gateway. Replace the operator placeholder with
-your GitHub login:
+Installing the App records provider state but does not approve model use. This
+is intentional: a public App installation cannot authorize itself.
+
+Find the installation ID in the installation URL or with:
+
+```bash
+docker compose exec review-github-gateway \
+  review-agent-admin installations list
+```
+
+## 4. Choose the activation policy
+
+### Organization-managed activation
+
+Approve the installation once:
+
+```bash
+docker compose exec review-github-gateway \
+  review-agent-admin github-app approve <installation-id> \
+  --actor "github:<operator>" \
+  --reason "approved organization-managed reviews"
+```
+
+The default mode is `automatic`. The command re-reads the live GitHub
+installation, verifies the exact App permission contract, and stores the
+operator identity and reason. It does not enumerate or pre-enable repositories.
+
+After this one approval, a developer with `write` or `admin` permission may
+post `/review` in any repository included by the GitHub installation. The first
+valid command verifies and enables only that repository. Later repositories use
+the same path automatically.
+
+### Explicit repository activation
+
+For a sensitive installation, keep the default explicit policy and onboard
+only the named repositories:
 
 ```bash
 docker compose exec review-github-gateway \
@@ -140,109 +177,103 @@ docker compose exec review-github-gateway \
   --actor "github:<operator>"
 ```
 
-The command finds the repository's App installation, reconciles GitHub's
-selected-repository inventory, and enables only the named repository. Review
-Agent reads `REVIEW_AGENT_PROFILE` from the running stack, so you do not need to
-copy the installation ID or profile into the command.
+This command is limited to **Only select repositories** installations. It
+reconciles the selected inventory and enables only the named repository for the
+deployed profile.
 
-You do not need the two lower-level `installations sync` and `repositories
-enable` commands for normal onboarding. They remain available for recovery and
-auditing.
+### Return to explicit mode
 
-GitHub App access and review enablement remain separate audited decisions. The
-onboarding command performs both steps in order for one named repository. It
-never enables the rest of the installation.
+To stop automatic activation:
 
-Changing the deployment profile leaves the previous audited decision intact,
-but that decision is not eligible under the new profile. An operator must
-approve the repository again for the deployed profile.
+```bash
+docker compose exec review-github-gateway \
+  review-agent-admin github-app approve <installation-id> \
+  --mode explicit \
+  --actor "github:<operator>" \
+  --reason "require explicit repository approval"
+```
 
-Run the onboarding command again after adding the repository to the App or when
-the service missed an installation webhook. The operation is safe to repeat.
+This immediately disables repositories that were enabled automatically.
+Repositories that an operator enabled explicitly retain their separate audited
+decision. A repository disabled with `repositories disable` becomes a durable
+manual override and is not silently re-enabled by a later command.
 
-Before sending a review request, verify the live deployment and one open pull
-request without calling the model or writing to GitHub:
+## 5. Verify the deployment
+
+Run the bounded health checks:
 
 ```bash
 docker compose exec hermes-review review-agent-admin doctor
+docker compose exec hermes-review review-agent-admin queues inspect
+docker compose exec review-github-gateway \
+  review-agent-admin installations list
+docker compose exec review-github-gateway \
+  review-agent-admin repositories list
+```
+
+For a newly approved automatic installation, `doctor` reports that repositories
+will activate after the first signed `/review` delivery. Zero enabled
+repositories is therefore a valid initial state. Requester authorization still
+gates whether the review itself runs.
+
+In an open same-repository pull request, post a new top-level comment as a user
+with current `write` or `admin` permission:
+
+```text
+/review
+```
+
+Verify:
+
+1. The command receives the configured acknowledgement reaction.
+2. GitHub shows one successful `issue_comment` webhook delivery.
+3. `repositories list` shows only the exact repository with
+   `trigger_mode: automatic`.
+4. One durable job and run reach a terminal publication or a deterministic
+   failure state.
+5. The published review belongs to the expected head SHA and is not duplicated.
+
+After automatic activation, the dry-run can prove current read and publication
+authority without another model call or GitHub write:
+
+```bash
 docker compose exec hermes-review \
   review-agent-admin smoke-test --dry-run \
   --repository <owner/repository> --pr <number>
 ```
 
-## 4. Verify one review
+## Disable or recover access
 
-On a same-repository pull request, post a new top-level `/review` comment as a
-user with current `write` or `admin` permission. Fork pull requests are rejected.
-
-Check:
-
-1. The command comment receives the configured acknowledgement reaction.
-2. GitHub shows a successful `issue_comment` webhook delivery.
-3. `docker compose logs --since 10m review-github-app-worker review-worker review-publisher` shows one accepted job and no unbounded retries.
-4. `review-agent-admin jobs list --limit 10` and `review-agent-memory runs` show one job and run.
-5. The private gateway logs source and publication traffic without exposing a token.
-6. The review comment appears on the same head SHA without duplicate parts.
-
-GitHub does not automatically redeliver every failed webhook. Use the App's
-delivery page to inspect or redeliver an event; the delivery ID is idempotent.
-
-## Disable a repository
+Disable one repository without changing the GitHub installation:
 
 ```bash
 docker compose exec review-github-gateway \
   review-agent-admin repositories disable <repository-id> \
   --actor "github:<operator>" \
-  --reason "pause automated reviews"
+  --reason "pause reviews for this repository"
 ```
 
-Disabling blocks new admission and invalidates current source and publication
-authorization. Use the `repository_id` returned by `github-app onboard`.
-Preserve audit rows when diagnosing an incident.
+Suspending or uninstalling the App fences every repository owned by that
+installation. Removing a selected repository fences that exact repository.
+GitHub access must be restored before Review Agent can use it again.
 
-## Recover access after a repository or profile change
-
-If the App was uninstalled, reinstall it with **Only select repositories**. If
-one repository was removed from the App, add only that repository again. If the
-deployment profile changed, deploy the reviewed profile first and confirm that
-`review-profile-install` completed successfully. Then rerun onboarding for
-every repository the owner approves under the current profile:
-
-```bash
-docker compose exec review-github-gateway \
-  review-agent-admin github-app onboard <owner/repository> \
-  --actor "github:<operator>" \
-  --reason "restore approved access for the deployed profile"
-docker compose exec hermes-review review-agent-admin doctor
-```
-
-On OpenShift, use the matching workloads:
-
-```bash
-oc rsh deployment/review-agent-github-gateway \
-  review-agent-admin github-app onboard <owner/repository> \
-  --actor "github:<operator>" \
-  --reason "restore approved access for the deployed profile"
-oc rsh deployment/hermes-review review-agent-admin doctor
-```
-
-Onboarding reconciles the current installation and is safe to repeat. It still
-enables only the named repository; restoring App access never enables the rest
-of the installation.
+In automatic mode, restored provider access becomes eligible on the next
+authorized `/review` unless an operator manually disabled the repository. In
+explicit mode, rerun `github-app onboard` for the named repository.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
 | Webhook returns `401` | GitHub and the deployment use different webhook secrets. |
-| Sync rejects the installation | Confirm **Only select repositories** and all four permissions above. |
-| `repository_onboarding_failed` | Run `doctor`, confirm the App is installed on the named repository with **Only select repositories**, and verify the App key and permissions. |
-| `repository_not_authorized` | Confirm the App selection, then rerun `github-app onboard` for the named repository. |
-| `doctor` reports no repository ready for this profile | Confirm the reviewed profile installation completed, then rerun `github-app onboard` for each approved repository. |
+| `installation_approval_failed` | Verify the installation ID, App key, active status, and four permissions above. |
+| A public installation cannot review | Expected: an operator must approve that installation first. |
+| `repository_onboarding_failed` | Explicit onboarding requires an **Only select repositories** installation that includes the named repository. |
+| `repository_not_authorized` | Confirm the installation is approved for automatic activation or explicitly onboard the repository. |
 | `sender_not_authorized` | The commenter needs current `write` or `admin` permission. |
 | `fork_source_not_supported` | Test with a branch in the selected base repository. |
-| `provider_authorization_denied` | Confirm the App is installed, active, and still includes the repository. |
-| Source or publication loses authority | Check the worker lease and whether the repository was disabled or removed. |
+| `provider_authorization_denied` | Confirm the App is active and still includes the exact repository. |
+| Source or publication loses authority | Check the worker lease and whether the repository, installation, or activation policy changed. |
 
 Use [Operations](./OPERATIONS.md#runbook) for queue diagnostics and
-[Security](./SECURITY.md) for the credential boundary.
+[Security](./SECURITY.md) for the credential and token boundaries.

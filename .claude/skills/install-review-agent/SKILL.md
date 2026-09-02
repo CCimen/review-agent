@@ -1,6 +1,6 @@
 ---
 name: install-review-agent
-description: Plan, deploy, verify, upgrade, or recover the self-hosted Review Agent, connect its GitHub App to explicitly selected repositories, and establish the initial quality baseline. Use for Review Agent installation, organization onboarding, Dokploy or Compose deployment, OpenShift setup, repository activation, readiness checks, smoke tests, initial quality reporting, upgrades, and rollback. Do not use to classify reviewer feedback or bypass owner, secret, OAuth, DNS, deployment, or live-review approval gates.
+description: Plan, deploy, verify, upgrade, or recover the self-hosted Review Agent, approve an organization-managed GitHub App installation or explicit repositories, and establish the initial quality baseline. Use for Review Agent installation, organization onboarding, Dokploy or Compose deployment, OpenShift setup, repository activation, readiness checks, smoke tests, initial quality reporting, upgrades, and rollback. Do not use to classify reviewer feedback or bypass owner, secret, OAuth, DNS, deployment, or live-review approval gates.
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -70,10 +70,11 @@ The last command returns the shipped behavior as bounded JSON.
   installation plan or report.
 - Never invent the account, repository, domain, profile, image digest, backup
   owner, or approval.
-- Keep GitHub installation access and Review Agent enablement separate. App
-  access alone never authorizes reviews.
-- Use **Only select repositories**. Do not broaden App permissions to clear an
-  error.
+- Keep GitHub installation access and Review Agent activation separate. App
+  access alone never authorizes reviews. Every new installation starts explicit.
+- Use **All repositories** only when the owner chose organization-managed
+  activation. Use **Only select repositories** for the explicit allowlist. Do
+  not broaden App scope or permissions merely to clear an error.
 - Deploy an immutable image digest or build an exact reviewed commit. Never
   deploy a floating tag.
 - Keep the reviewer advisory. Do not create a merge gate.
@@ -116,7 +117,7 @@ The last command returns the shipped behavior as bounded JSON.
    environment. It is local and non-mutating.
 
 Before any external write, show the exact image or commit, services, public
-route, selected repositories, repository enablement, secret names, migration,
+route, GitHub installation scope, activation policy, secret names, migration,
 backup owner, manual gates, verification, and rollback. Ask for approval if the
 user has not already authorized those exact mutations.
 
@@ -135,9 +136,10 @@ Request setup again only when that volume changed or authentication actually
 fails. Use `hermes model` for provider setup, then rerun the managed profile
 installer so the deployment-selected provider/model remains canonical.
 
-Pause for the human when GitHub owner approval, selected-repository approval,
-secret placement, DNS control, or Hermes model login cannot be completed with
-the authorized tools. State one exact next action and resume after confirmation.
+Pause for the human when GitHub owner approval, installation scope, Review Agent
+installation approval, secret placement, DNS control, or Hermes model login
+cannot be completed with the authorized tools. State one exact next action and
+resume after confirmation.
 
 ## Verify in layers
 
@@ -151,16 +153,25 @@ installation inventory and repository activation. On OpenShift, use
 `oc rsh deployment/review-agent-github-gateway review-agent-admin ...`,
 respectively.
 
-1. Run `review-agent-admin doctor` and `review-agent-admin queues inspect` in
-   `hermes-review`.
-2. Reconcile and enable each approved repository from the private gateway:
+1. List the installation from the private gateway, then choose one activation
+   policy. For the recommended organization-managed mode, approve the
+   installation once:
 
    ```bash
-   review-agent-admin github-app onboard <owner/name> \
-     --actor <audited-identity>
+   review-agent-admin installations list
+   review-agent-admin github-app approve <installation-id> \
+     --actor <audited-identity> \
+     --reason "approved organization-managed reviews"
    ```
-3. List durable repositories and confirm that the command enabled only the
-   approved names.
+
+   Keep the default explicit policy for a sensitive installation and use
+   `github-app onboard <owner/name> --actor <audited-identity>` for each approved
+   selected repository instead.
+2. Run `review-agent-admin doctor` and `review-agent-admin queues inspect` in
+   `hermes-review`.
+3. List installations and repositories. In automatic mode, confirm the
+   installation is `automatic`; zero repositories before the first signed
+   `/review` delivery is valid. Requester authorization still gates the review.
    Repository configuration is optional. If the team approved a local
    `.review-agent/` package, validate its checkout without network or database
    access before the configuration PR is merged:
@@ -173,7 +184,8 @@ respectively.
    Read only `instructions.md` and context files explicitly selected by
    `config.toml`; decisions must be indexed and stored under
    `.review-agent/decisions/`. Do not invent files or auto-discover Markdown.
-4. Run this in `hermes-review`:
+4. For an already activated or explicitly onboarded repository, run this in
+   `hermes-review`:
 
    ```bash
    review-agent-admin smoke-test --dry-run \
@@ -181,15 +193,17 @@ respectively.
    ```
 
    It must complete without a model call or GitHub write.
+   For a fresh automatic installation, run it after the first live `/review`
+   activates the exact repository.
 5. Confirm backups, the exact deployed digest or commit, schema readiness, App
-   identity and permissions, selected repository access, and private-service
-   isolation.
+   identity and permissions, activation policy, and private-service isolation.
 
-If a repository was removed and later reselected in the App, rerun
-`github-app onboard` for that exact repository. If `REVIEW_AGENT_PROFILE`
-changed, first deploy and verify the managed profile, then rerun onboarding for
-each repository the owner explicitly approves. App access alone never restores
-Review Agent enablement.
+If provider access is restored, automatic mode makes the repository eligible on
+its next authorized `/review`; a manual repository disable remains a durable
+override. In explicit mode, rerun `github-app onboard` for that exact repository.
+If `REVIEW_AGENT_PROFILE` changed, deploy and verify the managed profile before
+approving the installation or repositories under the new deployment contract.
+App access alone never authorizes model use.
 
 The operator commands already return JSON unless the command documents a
 different default. Do not add decorative `--json` flags.
@@ -238,7 +252,7 @@ Use this compact completion shape:
 ```text
 Status: ready | incomplete | failed
 Deployed: <exact release, commit, or image digest> in <environment>
-GitHub App: <App and installation IDs>; <enabled repositories>
+GitHub App: <App and installation IDs>; <activation policy>; <activated repositories>
 Runtime: <profile, provider/model policy, doctor and queue result>
 Acceptance: <dry-run result>; <live run and publication IDs or not approved>
 Recovery: <backup owner and rollback state>

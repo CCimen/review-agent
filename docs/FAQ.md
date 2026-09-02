@@ -84,12 +84,15 @@ workflow that merely started.
 
 ## How do I serve many repositories or a whole organization?
 
-Deploy once per environment, select repositories in the GitHub App installation,
-reconcile its inventory, and explicitly enable each repository.
-[Getting started](./GETTING_STARTED.md#onboard-many-repositories) walks
-through it. One deployment queues reviews across all onboarded repositories;
-[scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when wait time
-grows.
+Deploy once per environment, install the GitHub App on the organization, and
+approve that installation once for automatic activation. Current and future
+repositories included by the GitHub installation become usable on their first
+signed `/review` delivery; requester authorization still gates whether the
+review starts. No per-repository deployment command is required. New public App
+installations remain locked until an operator approves their exact installation
+ID. [Getting started](./GETTING_STARTED.md#serve-many-repositories) walks
+through it. One deployment queues reviews across all activated repositories;
+[scale workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when wait time grows.
 
 ## Can each repository have its own reviewer voice or rules?
 

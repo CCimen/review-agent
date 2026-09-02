@@ -57,7 +57,7 @@ class _DatabaseParameters:
 @dataclass(frozen=True, slots=True)
 class Capabilities:
     authentication: str = "github-app"
-    selected_repositories_only: bool = True
+    repository_activation: tuple[str, ...] = ("explicit", "automatic")
     fork_pull_requests: bool = False
     feedback: bool = True
     repository_profiles: str = "deployment-profile-only"
@@ -73,7 +73,7 @@ class Capabilities:
             "fork_pull_requests": self.fork_pull_requests,
             "repository_profiles": self.repository_profiles,
             "repository_guidance": self.repository_guidance,
-            "selected_repositories_only": self.selected_repositories_only,
+            "repository_activation": list(self.repository_activation),
             "trigger_mode": self.trigger_mode,
         }
 
@@ -421,8 +421,20 @@ def _validate_installations(
 def _validate_repositories(
     snapshot: operator_application.DeploymentHealth,
 ) -> None:
-    if snapshot.github_app.enabled_repositories < 1:
+    if (
+        snapshot.github_app.enabled_repositories < 1
+        and snapshot.github_app.automatic_installations < 1
+    ):
         raise ValueError("no available repository is enabled for this profile")
+
+
+def _repository_readiness_detail(
+    snapshot: operator_application.DeploymentHealth,
+) -> str:
+    enabled = snapshot.github_app.enabled_repositories
+    if enabled:
+        return f"{enabled} repository(s) are enabled"
+    return "Repositories will activate after the first signed /review delivery"
 
 
 def _validate_queues(
@@ -533,10 +545,7 @@ def doctor(
                 ),
                 _live_check(
                     "repositories",
-                    (
-                        f"{snapshot.github_app.enabled_repositories} "
-                        "repository(s) are enabled"
-                    ),
+                    _repository_readiness_detail(snapshot),
                     "No repository is ready for this deployment profile",
                     lambda: _validate_repositories(snapshot),
                 ),

@@ -229,6 +229,46 @@ def sync_github_app_installation(
         )
 
 
+def approve_github_app_installation(
+    runtime: PostgreSQLRuntime,
+    authenticator: app_auth.GitHubAppAuthenticator,
+    *,
+    provider_installation_id: int,
+    policy: postgres_github_app.RepositoryActivationPolicy,
+    actor: str,
+    reason: str,
+    now: datetime | None = None,
+) -> postgres_github_app.GitHubAppInstallation:
+    """Approve or restrict lazy repository activation for one installation."""
+    installation_id = _positive(
+        provider_installation_id, field="provider_installation_id"
+    )
+    metadata = app_inventory.read_installation_metadata(
+        authenticator,
+        provider_installation_id=installation_id,
+        now=now,
+    )
+    with runtime.transaction() as connection:
+        installation = postgres_github_app.sync_installation(
+            connection, metadata.definition
+        )
+        if installation.status is not metadata.status:
+            installation = postgres_github_app.set_installation_status(
+                connection,
+                installation_id=installation.id,
+                status=metadata.status,
+                actor=actor,
+                reason=reason,
+            )
+        return postgres_github_app.set_repository_activation_policy(
+            connection,
+            installation_id=installation.id,
+            policy=policy,
+            actor=actor,
+            reason=reason,
+        )
+
+
 def enable_github_app_repository(
     runtime: PostgreSQLRuntime,
     *,

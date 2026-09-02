@@ -19,16 +19,20 @@ merge authority.
 
 1. **Deploy the service** with Compose, Dokploy, Coolify, Portainer, or
    OpenShift: [deployment guide](docs/DEPLOYMENT.md).
-2. **Onboard a repository**: install the GitHub App on selected repositories,
-   then run one audited command in the private gateway:
+2. **Approve the GitHub App installation once**. The recommended
+   organization-managed mode covers current and future repositories without a
+   per-repository operator command:
 
    ```bash
    docker compose exec review-github-gateway \
-     review-agent-admin github-app onboard <owner/repository> \
-     --actor "github:<operator>"
+     review-agent-admin github-app approve <installation-id> \
+     --actor "github:<operator>" \
+     --reason "approved organization-managed reviews"
    ```
 
-   [Getting started](docs/GETTING_STARTED.md) shows the container-specific form.
+   New installations remain locked until this approval. An explicit
+   per-repository mode is also available; [Getting
+   started](docs/GETTING_STARTED.md) explains both choices.
 3. **Request a review** with a new top-level PR comment:
 
    ```text
@@ -67,7 +71,7 @@ search and task-based navigation. Key pages:
 | --- | --- |
 | Run your first review | [Getting started](docs/GETTING_STARTED.md) |
 | Deploy the service | [Deployment](docs/DEPLOYMENT.md) |
-| Install and enable the GitHub App | [GitHub App setup](docs/GITHUB_APP_PILOT.md) |
+| Install and approve the GitHub App | [GitHub App setup](docs/GITHUB_APP_PILOT.md) |
 | Set up with a coding agent | [AI-assisted setup](docs/AI_ASSISTED_SETUP.md) |
 | Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
@@ -106,6 +110,13 @@ either build locally or use an immutable release tag through
   arbitrary GitHub write access.
 
 ## Configuration
+
+> **Behavior TL;DR:** One deployment normally uses the neutral
+> `default-standard` profile for every approved organization and repository.
+> Teams customize a repository with its optional `.review-agent/` package.
+> Create another deployment profile only when an environment needs a different
+> shared identity or fixed review policy; GitHub App installation controls
+> access, not reviewer behavior.
 
 The reusable part is the review engine: webhook admission, bounded GitHub
 reads, PostgreSQL review state, deterministic publication, and operator

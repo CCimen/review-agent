@@ -123,8 +123,10 @@ def _parser() -> argparse.ArgumentParser:
         "inspect", help="Read bounded queue health counters."
     )
 
-    github_app = commands.add_parser("github-app", help="Prepare GitHub App setup.")
-    github_app_commands = github_app.add_subparsers(
+    github_app_parser = commands.add_parser(
+        "github-app", help="Prepare GitHub App setup."
+    )
+    github_app_commands = github_app_parser.add_subparsers(
         dest="github_app_command", required=True
     )
     registration = github_app_commands.add_parser(
@@ -147,6 +149,20 @@ def _parser() -> argparse.ArgumentParser:
     onboard.add_argument(
         "--reason", default="approved repository onboarding"
     )
+    approve = github_app_commands.add_parser(
+        "approve",
+        help="Approve one installation for automatic repository activation.",
+    )
+    approve.add_argument("installation_id", type=_positive_argument)
+    approve.add_argument(
+        "--mode",
+        choices=tuple(
+            policy.value for policy in github_app.RepositoryActivationPolicy
+        ),
+        default=github_app.RepositoryActivationPolicy.AUTOMATIC.value,
+    )
+    approve.add_argument("--actor", required=True)
+    approve.add_argument("--reason", required=True)
 
     installations = commands.add_parser(
         "installations", help="Inspect or reconcile GitHub App installations."
@@ -309,6 +325,9 @@ def _installation_json(
         "installation_id": installation.provider_installation_id,
         "issues_permission": installation.issues_permission.value,
         "pull_requests_permission": installation.pull_requests_permission.value,
+        "repository_activation": (
+            installation.repository_activation_policy.value
+        ),
         "repository_selection": installation.repository_selection.value,
         "status": installation.status.value,
     }
@@ -319,6 +338,7 @@ def _repository_json(
 ) -> dict[str, object]:
     return {
         "access": repository.access_state.value,
+        "automatic_activation_blocked": repository.automatic_activation_blocked,
         "enabled": repository.enabled,
         "profile": repository.profile_key,
         "repository": repository.full_name,
@@ -494,16 +514,7 @@ def _repository_change(args: argparse.Namespace) -> int:
         return 1
     finally:
         runtime.close()
-    _json(
-        {
-            "access": access.access_state.value,
-            "enabled": access.enabled,
-            "profile": access.profile_key,
-            "repository": access.full_name,
-            "repository_id": access.provider_repository_id,
-            "trigger_mode": access.trigger_mode.value,
-        }
-    )
+    _json(_repository_json(access))
     return 0
 
 
@@ -797,19 +808,55 @@ def _onboard_repository(args: argparse.Namespace) -> int:
     access = result.access
     _json(
         {
-            "access": access.access_state.value,
-            "enabled": access.enabled,
+            **_repository_json(access),
             "installation_id": (
                 result.reconciliation.installation.provider_installation_id
             ),
-            "profile": access.profile_key,
             "repositories_removed": result.reconciliation.repositories_removed,
             "repositories_seen": result.reconciliation.repositories_seen,
-            "repository": access.full_name,
-            "repository_id": access.provider_repository_id,
-            "trigger_mode": access.trigger_mode.value,
         }
     )
+    return 0
+
+
+def _approve_installation(args: argparse.Namespace) -> int:
+    try:
+        runtime = _runtime()
+    except (PostgreSQLRuntimeError, psycopg.Error):
+        _json_error(code="database_unavailable", retryable=True)
+        return os.EX_TEMPFAIL
+    try:
+        authenticator = operator_setup.github_app_authenticator(os.environ)
+        installation = operator_application.approve_github_app_installation(
+            runtime,
+            authenticator,
+            provider_installation_id=args.installation_id,
+            policy=github_app.RepositoryActivationPolicy(args.mode),
+            actor=args.actor,
+            reason=args.reason,
+        )
+    except (
+        app_auth.GitHubAppTokenRetryable,
+        app_inventory.GitHubAppInventoryRetryable,
+        PostgreSQLRuntimeError,
+        psycopg.OperationalError,
+    ):
+        _json_error(code="installation_approval_unavailable", retryable=True)
+        return os.EX_TEMPFAIL
+    except (
+        app_auth.GitHubAppConfigurationError,
+        app_auth.GitHubAppTokenPermanent,
+        app_inventory.GitHubAppInventoryPermanent,
+        github_app.GitHubAppStateError,
+        operator_application.OperatorInputError,
+        psycopg.Error,
+        ValueError,
+    ):
+        _json_error(code="installation_approval_failed", retryable=False)
+        return 1
+    finally:
+        runtime.close()
+    _json(_installation_json(installation))
     return 0
 
 
@@ -878,6 +925,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "github-app" and args.github_app_command == "onboard":
         return _onboard_repository(args)
+    if args.command == "github-app" and args.github_app_command == "approve":
+        return _approve_installation(args)
     if args.command == "installations" and args.installation_command == "list":
         try:
             limit = _page_limit(args.limit)

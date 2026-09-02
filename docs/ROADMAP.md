@@ -15,9 +15,10 @@ last_verified: 2026-09-02
 
 ## Core platform
 
-- **Trusted admission:** the GitHub App validates direct comment events,
-  requester permission, and selected-repository access before durable work is
-  admitted and the current base and head commits are pinned.
+- **Trusted admission:** the GitHub App validates direct comment events, an
+  operator-approved installation policy, exact repository access, and requester
+  permission before durable work is admitted and the current base and head
+  commits are pinned.
 - **Evidence-backed review:** Hermes receives bounded read tools, records
   coverage, challenges candidate findings, and keeps incomplete review depth
   visible.

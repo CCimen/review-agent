@@ -2,20 +2,20 @@
 sidebar_label: Getting started
 slug: /getting-started
 title: Getting started
-description: Deploy the shared reviewer, add a repository, and run the first review.
+description: Deploy the shared reviewer, approve an installation, and run the first review.
 status: current
-last_verified: 2026-08-26
+last_verified: 2026-09-02
 ---
 
 # Getting started
 
-> **Current** — One GitHub App installation owns admission, source access, and
-> deterministic publication for explicitly enabled repositories.
+> **TL;DR:** Approve one trusted GitHub App installation, then let current and
+> future repositories activate on their first signed `/review` delivery. Use
+> explicit mode only when an operator must approve repositories individually.
 
-Review Agent is deployed once per environment and serves repositories that an
-operator explicitly enables after App installation. Adding a repository changes
-configuration around that shared platform; it does not create another reviewer,
-database, or profile.
+Review Agent is deployed once per environment. An organization-managed
+installation needs one operator approval, not one command per repository.
+Adding a repository does not create another reviewer, database, or profile.
 The environment stores application state in one private PostgreSQL database.
 
 ## Before you begin
@@ -26,24 +26,29 @@ App on the repositories you want to review.
 The [deployment guide](./DEPLOYMENT.md) covers App creation, GitHub settings,
 Compose platforms, and OpenShift. This page keeps repository onboarding short.
 
-## 1. Install and enable the repository
+## 1. Install and approve the App
 
-Install the GitHub App with **Only select repositories** and choose the
-repository. Then onboard it from the private gateway:
+Install the GitHub App with **All repositories** for the recommended
+organization-managed mode. Then approve that installation once from the private
+gateway:
 
 ```bash
 docker compose exec review-github-gateway \
-  review-agent-admin github-app onboard <owner/repository> \
-  --actor "github:<operator>"
+  review-agent-admin github-app approve <installation-id> \
+  --actor "github:<operator>" \
+  --reason "approved organization-managed reviews"
 ```
 
-The command reconciles GitHub access and records the operator's approval for the
-named repository. A blank enabled set denies all review requests. [GitHub App
-setup](./GITHUB_APP_PILOT.md) shows the container-specific command.
+Every new installation starts in explicit mode, so installing a public App does
+not grant access to your model capacity. The approval command rechecks the live
+App permissions and records the operator decision. The first signed `/review`
+delivery then verifies and enables only that exact repository. Requester
+authorization still decides whether the review itself may run.
 
-The onboarding command replaces the lower-level installation-ID sync and
-repository-ID enable commands. Run it again after changing the App's selected
-repositories; it is safe to repeat.
+For a narrower allowlist, install with **Only select repositories** and keep the
+explicit policy. Run `github-app onboard <owner/repository>` for each repository
+the operator approves. [GitHub App setup](./GITHUB_APP_PILOT.md) explains both
+modes and the rollback command.
 
 ## 2. Add optional repository context
 
@@ -88,13 +93,15 @@ creates a new review round while the prior round remains historical context.
 If no comment appears, follow the [failure runbook](./OPERATIONS.md#runbook)
 rather than retrying blindly.
 
-## Onboard many repositories
+## Serve many repositories
 
-One deployment serves an entire organization. Select another repository in the
-App installation and run `github-app onboard` for its full name. No repository
-workflow or duplicated Actions secrets are required.
+One deployment serves an entire organization. In organization-managed mode,
+current and future repositories included by the GitHub installation need no
+operator command, repository workflow, or duplicated Actions secret. A
+developer with current `write` or `admin` permission posts `/review`; the
+gateway verifies the exact repository before admitting work.
 
-Every onboarded repository shares one queue, one PostgreSQL database, and one
+Every activated repository shares one queue, one PostgreSQL database, and one
 neutral reviewer baseline. PostgreSQL serializes reviews within a repository, so
 [scale review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when
 cross-repository wait time grows. Teams may add bounded repository-owned

@@ -81,6 +81,12 @@ class GitHubAppIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class VerifiedInstallationRepository:
+    provider_repository_id: int
+    full_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class _CachedToken:
     token: InstallationToken
     provider_installation_id: int
@@ -424,6 +430,47 @@ class GitHubAppTokenService:
             if self._bot_login is None:
                 self._bot_login = f"{self.app_identity().slug}[bot]"
             return self._bot_login
+
+    def verify_installation_repository(
+        self,
+        provider_installation_id: int,
+        provider_repository_id: int,
+        expected_full_name: str,
+    ) -> VerifiedInstallationRepository:
+        """Prove current installation access with one exact metadata-only token."""
+        if type(provider_installation_id) is not int or provider_installation_id < 1:
+            raise ValueError("provider_installation_id must be positive")
+        if type(provider_repository_id) is not int or provider_repository_id < 1:
+            raise ValueError("provider_repository_id must be positive")
+        expected = expected_full_name.strip()
+        if not expected or len(expected) > 260:
+            raise ValueError("expected_full_name is invalid")
+        token = self._authenticator.installation_token(
+            provider_installation_id,
+            repository_ids=(provider_repository_id,),
+            permissions={"metadata": "read"},
+        )
+        result = self._authenticator.installation_json(
+            f"/repositories/{provider_repository_id}", token
+        )
+        if not isinstance(result, Mapping):
+            raise GitHubAppTokenPermanent("GitHub repository metadata was invalid")
+        metadata = cast(Mapping[str, object], result)
+        identifier = metadata.get("id")
+        full_name = metadata.get("full_name")
+        if (
+            type(identifier) is not int
+            or identifier != provider_repository_id
+            or not isinstance(full_name, str)
+            or not full_name
+            or len(full_name) > 260
+            or full_name.casefold() != expected.casefold()
+        ):
+            raise GitHubAppTokenPermanent("GitHub repository identity did not match")
+        return VerifiedInstallationRepository(
+            provider_repository_id=identifier,
+            full_name=full_name,
+        )
 
     def token_for(
         self,

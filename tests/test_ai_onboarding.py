@@ -60,7 +60,24 @@ class AiOnboardingContractTests(unittest.TestCase):
 
         short = (ROOT / "website/static/llms.txt").read_text(encoding="utf-8")
         full = (ROOT / "website/static/llms-full.txt").read_text(encoding="utf-8")
+        public_contract = " ".join(
+            "\n".join(
+                [
+                    (ROOT / "README.md").read_text(encoding="utf-8"),
+                    (ROOT / "skills/install-review-agent/SKILL.md").read_text(
+                        encoding="utf-8"
+                    ),
+                    short,
+                    full,
+                ]
+            ).split()
+        ).casefold()
         self.assertIn("Authentication: GitHub App only", short)
+        self.assertIn("approve each installation once", short)
+        self.assertIn("first signed `/review` delivery", short)
+        self.assertIn("Requester authorization still gates the review", short)
+        self.assertNotIn("first authorized `/review`", public_contract)
+        self.assertNotIn("enable each repository separately", short)
         self.assertIn("REVIEW_AGENT_MODEL_PROVIDER", short)
         self.assertIn("use Deploy when the source revision changes", short)
         self.assertIn("AI-assisted setup", short)
@@ -126,11 +143,8 @@ class AiOnboardingContractTests(unittest.TestCase):
             all("maximum" not in definition for definition in runtime_properties.values())
         )
         self.assertIs(plan["deployment"]["advisory_only"], True)
-        self.assertEqual(plan["github"]["installation_mode"], "selected_repositories")
-        self.assertEqual(
-            {repository["trigger_mode"] for repository in plan["github"]["repositories"]},
-            {"manual"},
-        )
+        self.assertEqual(plan["github"]["installation_mode"], "organization_managed")
+        self.assertEqual(plan["github"]["repositories"], [])
 
     def test_public_setup_uses_runnable_operator_commands(self) -> None:
         setup = (ROOT / "docs/AI_ASSISTED_SETUP.md").read_text(encoding="utf-8")
@@ -165,6 +179,7 @@ class AiOnboardingContractTests(unittest.TestCase):
             "docker compose exec review-github-gateway review-agent-admin repositories list",
             setup,
         )
+        self.assertIn("github-app approve <installation-id>", combined)
         self.assertIn(
             "docker compose exec review-github-gateway review-agent-admin",
             skill,
@@ -202,25 +217,28 @@ class AiOnboardingContractTests(unittest.TestCase):
                     normalized_openshift_checks,
                 )
         recovery = github_app.split(
-            "## Recover access after a repository or profile change", 1
+            "## Disable or recover access", 1
         )[1].split("## Troubleshooting", 1)[0]
         normalized_recovery = " ".join(recovery.replace("\\\n", " ").split())
         self.assertIn(
-            "oc rsh deployment/review-agent-github-gateway "
-            "review-agent-admin github-app onboard <owner/repository>",
+            "automatic mode, restored provider access becomes eligible",
             normalized_recovery,
         )
         self.assertIn(
-            "oc rsh deployment/hermes-review review-agent-admin doctor",
+            "explicit mode, rerun `github-app onboard`",
             normalized_recovery,
         )
+        self.assertIn("oc rsh deployment/review-agent-github-gateway", github_app)
+        self.assertIn("oc rsh deployment/hermes-review", github_app)
         normalized_setup = " ".join(setup.replace("\\\n", " ").split())
         self.assertIn(
             "oc rsh deployment/hermes-review "
             "review-agent-memory quality --days 30 --repo <owner/repository>",
             normalized_setup,
         )
-        self.assertIn("removed and later reselected", skill)
+        self.assertIn(
+            "automatic mode makes the repository eligible", skill
+        )
         self.assertIn(
             "oc rsh deployment/review-agent-github-gateway review-agent-admin",
             skill,
@@ -274,6 +292,15 @@ class AiOnboardingContractTests(unittest.TestCase):
                 "owner/repository",
                 "--actor",
                 "github:operator",
+            ),
+            (
+                "github-app",
+                "approve",
+                "1",
+                "--actor",
+                "github:operator",
+                "--reason",
+                "approved organization installation",
             ),
         )
         for command in commands:

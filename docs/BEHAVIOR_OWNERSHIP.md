@@ -9,9 +9,21 @@ last_verified: 2026-09-02
 
 # Behavior ownership
 
-> **Current**: The deployment owns the neutral identity and fixed review
-> contract. Repositories may add bounded instructions, ordered technical
-> context, and typed decisions from the exact base commit.
+> **TL;DR:** Most organizations do not need their own profile. One deployment
+> normally uses the neutral `default-standard` profile for every approved
+> organization and repository. Each repository may add an optional
+> `.review-agent/` package for team instructions, explicitly selected technical
+> context, and accepted decisions. Create another deployment profile only when
+> an environment needs a different shared identity or fixed review policy.
+> GitHub App installation controls access; it does not select reviewer behavior.
+
+The effective review has three layers:
+
+| Layer | Scope | Owner |
+| --- | --- | --- |
+| Review engine | Every review | Deterministic authorization, snapshot, storage, tool, and publication code. Repository content cannot change it. |
+| Deployment profile | Every repository served by one environment | `SOUL.md` defines the neutral identity, `AGENTS.md` defines the fixed review contract, and `review-agent-pr/SKILL.md` defines the procedure. |
+| Repository package | One repository | `.review-agent/` adds local instructions, ordered platform context, and accepted decisions from the pull request's exact base commit. |
 
 The current deployment has one selected reviewer profile per environment.
 Change the canonical owner of a concern instead of adding repository-name

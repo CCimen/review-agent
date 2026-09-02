@@ -284,15 +284,14 @@ class GitHubAppProcessor:
     ) -> None:
         db = connection
         definition = _installation_definition(delivery)
-        if (
-            definition.repository_selection
-            is not github_app.RepositorySelection.SELECTED
-        ):
-            raise _Reject("unsupported_selection")
         action = delivery.action
         if action in {"created", "new_permissions_accepted"}:
             installation = github_app.sync_installation(db, definition)
-            if action == "created":
+            if (
+                action == "created"
+                and definition.repository_selection
+                is github_app.RepositorySelection.SELECTED
+            ):
                 for repository_id, full_name in _repositories(_payload(delivery)):
                     github_app.grant_repository_access(
                         db,
@@ -301,6 +300,7 @@ class GitHubAppProcessor:
                         full_name=full_name,
                         actor=actor,
                         reason="repository selected during App installation",
+                        trigger_mode=github_app.TriggerMode.AUTOMATIC,
                     )
             return
         installation = github_app.get_installation_by_provider_id(
@@ -330,8 +330,9 @@ class GitHubAppProcessor:
     ) -> None:
         db = connection
         payload = _payload(delivery)
-        if payload.get("repository_selection") != "selected":
-            raise _Reject("unsupported_selection")
+        raw_selection = payload.get("repository_selection")
+        if raw_selection not in {"selected", "all"}:
+            raise _Reject("invalid_normalized_payload")
         installation_provider_id = delivery.provider_installation_id
         if installation_provider_id is None:
             raise _Reject("invalid_normalized_payload")
@@ -340,6 +341,8 @@ class GitHubAppProcessor:
         )
         repositories = _repositories(payload)
         if delivery.action == "added":
+            if raw_selection == "all":
+                return
             for repository_id, full_name in repositories:
                 github_app.grant_repository_access(
                     db,
@@ -348,6 +351,7 @@ class GitHubAppProcessor:
                     full_name=full_name,
                     actor=actor,
                     reason="repository added to App installation",
+                    trigger_mode=github_app.TriggerMode.AUTOMATIC,
                 )
             return
         if delivery.action == "removed":

@@ -45,6 +45,11 @@ class RepositorySelection(StrEnum):
     ALL = "all"
 
 
+class RepositoryActivationPolicy(StrEnum):
+    EXPLICIT = "explicit"
+    AUTOMATIC = "automatic"
+
+
 class PermissionLevel(StrEnum):
     NONE = "none"
     READ = "read"
@@ -113,6 +118,10 @@ class GitHubAppInstallation:
     account_login: str
     account_type: AccountType
     repository_selection: RepositorySelection
+    repository_activation_policy: RepositoryActivationPolicy
+    activation_policy_actor: str | None
+    activation_policy_reason: str | None
+    activation_policy_changed_at: datetime | None
     status: InstallationStatus
     contents_permission: PermissionLevel
     issues_permission: PermissionLevel
@@ -142,6 +151,7 @@ class RepositoryAccessState:
     full_name: str
     access_state: RepositoryAccess
     enabled: bool
+    automatic_activation_blocked: bool
     trigger_mode: TriggerMode
     profile_key: str | None
     enabled_at: datetime | None
@@ -178,6 +188,7 @@ class GitHubAppAuthorization:
 @dataclass(frozen=True, slots=True)
 class GitHubAppAccessHealth:
     active_installations: int
+    automatic_installations: int
     invalid_active_installations: int
     repositories: int
     enabled_repositories: int
@@ -202,6 +213,10 @@ class _InstallationRow:
     account_login: str
     account_type: str
     repository_selection: str
+    repository_activation_policy: str
+    activation_policy_actor: str | None
+    activation_policy_reason: str | None
+    activation_policy_changed_at: datetime | None
     status: str
     contents_permission: str
     issues_permission: str
@@ -231,6 +246,7 @@ class _RepositoryAccessRow:
     full_name: str
     access_state: str
     enabled: bool
+    automatic_activation_blocked: bool
     trigger_mode: str
     profile_key: str | None
     enabled_at: datetime | None
@@ -257,16 +273,20 @@ class _RepositoryAccessEventRow:
 
 _INSTALLATION_COLUMNS = """
     id, provider_installation_id, account_id, account_login, account_type,
-    repository_selection, status, contents_permission, issues_permission,
-    pull_requests_permission, created_at, updated_at, suspended_at, deleted_at
+    repository_selection, repository_activation_policy,
+    activation_policy_actor, activation_policy_reason,
+    activation_policy_changed_at, status, contents_permission,
+    issues_permission, pull_requests_permission, created_at, updated_at,
+    suspended_at, deleted_at
 """
 
 _ACCESS_COLUMNS = """
     access.repository_id, access.installation_id,
     repository.provider_repository_id, repository.full_name,
-    access.access_state, access.enabled, access.trigger_mode, access.profile_key,
-    access.enabled_at, access.disabled_at, access.updated_by,
-    access.update_reason, access.updated_at
+    access.access_state, access.enabled, access.automatic_activation_blocked,
+    access.trigger_mode, access.profile_key, access.enabled_at,
+    access.disabled_at, access.updated_by, access.update_reason,
+    access.updated_at
 """
 
 
@@ -312,6 +332,12 @@ def _installation(row: _InstallationRow) -> GitHubAppInstallation:
         account_login=row.account_login,
         account_type=AccountType(row.account_type),
         repository_selection=RepositorySelection(row.repository_selection),
+        repository_activation_policy=RepositoryActivationPolicy(
+            row.repository_activation_policy
+        ),
+        activation_policy_actor=row.activation_policy_actor,
+        activation_policy_reason=row.activation_policy_reason,
+        activation_policy_changed_at=row.activation_policy_changed_at,
         status=InstallationStatus(row.status),
         contents_permission=PermissionLevel(row.contents_permission),
         issues_permission=PermissionLevel(row.issues_permission),
@@ -331,6 +357,7 @@ def _access(row: _RepositoryAccessRow) -> RepositoryAccessState:
         full_name=row.full_name,
         access_state=RepositoryAccess(row.access_state),
         enabled=row.enabled,
+        automatic_activation_blocked=row.automatic_activation_blocked,
         trigger_mode=TriggerMode(row.trigger_mode),
         profile_key=row.profile_key,
         enabled_at=row.enabled_at,
@@ -630,9 +657,12 @@ def access_health(
             count(*) FILTER (WHERE status = 'active'),
             count(*) FILTER (
                 WHERE status = 'active'
+                  AND repository_activation_policy = 'automatic'
+            ),
+            count(*) FILTER (
+                WHERE status = 'active'
                   AND (
-                    repository_selection <> 'selected'
-                    OR contents_permission <> 'read'
+                    contents_permission <> 'read'
                     OR issues_permission <> 'write'
                     OR pull_requests_permission <> 'write'
                   )
@@ -656,13 +686,14 @@ def access_health(
     if installation_row is None or repository_row is None:
         raise GitHubAppStateError("GitHub App access health could not be read")
     values = (*installation_row, *repository_row)
-    if len(values) != 4 or any(type(value) is not int for value in values):
+    if len(values) != 5 or any(type(value) is not int for value in values):
         raise GitHubAppStateError("GitHub App access health could not be read")
     return GitHubAppAccessHealth(
         active_installations=int(values[0]),
-        invalid_active_installations=int(values[1]),
-        repositories=int(values[2]),
-        enabled_repositories=int(values[3]),
+        automatic_installations=int(values[1]),
+        invalid_active_installations=int(values[2]),
+        repositories=int(values[3]),
+        enabled_repositories=int(values[4]),
     )
 
 
@@ -783,7 +814,6 @@ def authorize_review_admission(
           AND access.enabled
           AND access.profile_key = %s
           AND installation.status = 'active'
-          AND installation.repository_selection = 'selected'
           AND installation.contents_permission IN ('read', 'write')
           AND installation.issues_permission IN ('read', 'write')
           AND installation.pull_requests_permission IN ('read', 'write')
@@ -866,8 +896,9 @@ def grant_repository_access(
     full_name: str,
     actor: str,
     reason: str,
+    trigger_mode: TriggerMode = TriggerMode.MANUAL,
 ) -> RepositoryAccessState:
-    """Make one selected repository available without enabling reviews."""
+    """Make one installation repository available without enabling reviews."""
     _require_transaction(connection)
     installation = _lock_installation(
         connection, installation_id, exclusive=False
@@ -898,13 +929,18 @@ def grant_repository_access(
             profile_key, enabled_at, disabled_at, updated_by, update_reason,
             updated_at
         ) VALUES (
-            %s, %s, %s, false, 'manual', NULL, NULL,
+            %s, %s, %s, false, %s, NULL, NULL,
             CASE WHEN %s = 'available' THEN NULL ELSE CURRENT_TIMESTAMP END,
             %s, %s, CURRENT_TIMESTAMP
         )
         ON CONFLICT (repository_id) DO UPDATE SET
             installation_id = EXCLUDED.installation_id,
             access_state = EXCLUDED.access_state,
+            trigger_mode = CASE
+                WHEN review_agent.github_app_repository_access.automatic_activation_blocked
+                THEN review_agent.github_app_repository_access.trigger_mode
+                ELSE EXCLUDED.trigger_mode
+            END,
             enabled = CASE
                 WHEN review_agent.github_app_repository_access.installation_id
                      = EXCLUDED.installation_id
@@ -950,6 +986,7 @@ def grant_repository_access(
             repository.id,
             installation.id,
             access_state.value,
+            trigger_mode.value,
             access_state.value,
             updated_by,
             update_reason,
@@ -989,6 +1026,7 @@ def enable_repository(
         """
         UPDATE review_agent.github_app_repository_access
         SET enabled = true,
+            automatic_activation_blocked = false,
             trigger_mode = %s,
             profile_key = %s,
             enabled_at = CURRENT_TIMESTAMP,
@@ -1018,7 +1056,7 @@ def disable_repository(
     actor: str,
     reason: str,
 ) -> RepositoryAccessState:
-    """Disable review admission while retaining the selected-repository grant."""
+    """Disable review admission while retaining the installation grant."""
     _require_transaction(connection)
     current = _lock_repository_access(connection, repository_id)
     if current.access_state is not RepositoryAccess.AVAILABLE:
@@ -1027,12 +1065,18 @@ def disable_repository(
         """
         UPDATE review_agent.github_app_repository_access
         SET enabled = false,
+            automatic_activation_blocked = true,
+            trigger_mode = 'manual',
             disabled_at = CURRENT_TIMESTAMP,
             updated_by = %s,
             update_reason = %s,
             updated_at = CURRENT_TIMESTAMP
         WHERE repository_id = %s
-          AND enabled
+          AND (
+              enabled
+              OR NOT automatic_activation_blocked
+              OR trigger_mode <> 'manual'
+          )
         RETURNING repository_id
         """,
         (
@@ -1042,9 +1086,133 @@ def disable_repository(
         ),
     ).fetchone()
     state = get_repository_access(connection, repository_id)
-    if changed is not None:
+    if changed is not None and current.enabled:
         _record_event(connection, state, AccessEvent.DISABLED)
     return state
+
+
+def set_repository_activation_policy(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    installation_id: GitHubAppInstallationId,
+    policy: RepositoryActivationPolicy,
+    actor: str,
+    reason: str,
+) -> GitHubAppInstallation:
+    """Set whether one installation requires explicit or lazy repository approval."""
+    _require_transaction(connection)
+    installation = _lock_installation(connection, installation_id, exclusive=True)
+    if installation.status is InstallationStatus.DELETED:
+        raise GitHubAppStateError("a deleted installation cannot be approved")
+    if policy is RepositoryActivationPolicy.AUTOMATIC and (
+        installation.status is not InstallationStatus.ACTIVE
+        or installation.contents_permission is not PermissionLevel.READ
+        or installation.issues_permission is not PermissionLevel.WRITE
+        or installation.pull_requests_permission is not PermissionLevel.WRITE
+    ):
+        raise GitHubAppStateError(
+            "automatic repository activation requires an active review-capable installation"
+        )
+    if installation.repository_activation_policy is policy:
+        return installation
+
+    updated_by = _text(actor, "actor", 120)
+    update_reason = _text(reason, "reason", 500)
+    connection.execute(
+        """
+        UPDATE review_agent.github_app_installations
+        SET repository_activation_policy = %s,
+            activation_policy_actor = %s,
+            activation_policy_reason = %s,
+            activation_policy_changed_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = %s
+        """,
+        (policy.value, updated_by, update_reason, installation.id),
+    )
+    if policy is RepositoryActivationPolicy.EXPLICIT:
+        connection.execute(
+            """
+            WITH updated AS (
+                UPDATE review_agent.github_app_repository_access
+                SET enabled = false,
+                    disabled_at = CURRENT_TIMESTAMP,
+                    updated_by = %s,
+                    update_reason = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE installation_id = %s
+                  AND trigger_mode = 'automatic'
+                  AND enabled
+                RETURNING repository_id, installation_id, access_state, enabled,
+                          trigger_mode, profile_key, updated_by, update_reason
+            )
+            INSERT INTO review_agent.github_app_repository_access_events (
+                repository_id, installation_id, event_kind, access_state,
+                enabled, trigger_mode, profile_key, actor, reason, recorded_at
+            )
+            SELECT repository_id, installation_id, 'disabled', access_state,
+                   enabled, trigger_mode, profile_key, updated_by,
+                   update_reason, CURRENT_TIMESTAMP
+            FROM updated
+            """,
+            (updated_by, update_reason, installation.id),
+        )
+    return get_installation(connection, installation.id)
+
+
+def enable_automatic_repository(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    provider_installation_id: int,
+    provider_repository_id: int,
+    full_name: str,
+    profile_key: str,
+    actor: str,
+    reason: str,
+) -> RepositoryAccessState:
+    """Enable one provider-verified repository under an approved installation."""
+    _require_transaction(connection)
+    installation = get_installation_by_provider_id(
+        connection,
+        provider_installation_id,
+        for_update=True,
+    )
+    if (
+        installation.status is not InstallationStatus.ACTIVE
+        or installation.repository_activation_policy
+        is not RepositoryActivationPolicy.AUTOMATIC
+    ):
+        raise GitHubAppRepositoryUnauthorized(
+            "installation does not allow automatic repository activation"
+        )
+    access = grant_repository_access(
+        connection,
+        installation_id=installation.id,
+        provider_repository_id=provider_repository_id,
+        full_name=full_name,
+        actor=actor,
+        reason=reason,
+        trigger_mode=TriggerMode.AUTOMATIC,
+    )
+    if access.installation_id != installation.id:
+        raise GitHubAppRepositoryUnauthorized(
+            "repository belongs to another GitHub App installation"
+        )
+    if access.automatic_activation_blocked:
+        raise GitHubAppRepositoryUnauthorized(
+            "repository has an explicit automatic-activation block"
+        )
+    profile = _profile(profile_key)
+    if access.enabled and access.profile_key == profile:
+        return access
+    return enable_repository(
+        connection,
+        repository_id=access.repository_id,
+        profile_key=profile,
+        trigger_mode=TriggerMode.AUTOMATIC,
+        actor=actor,
+        reason=reason,
+    )
 
 
 def remove_repository_access(
@@ -1231,6 +1399,7 @@ def reconcile_selected_installation(
             full_name=repository.full_name,
             actor=updated_by,
             reason=update_reason,
+            trigger_mode=TriggerMode.AUTOMATIC,
         )
         if access.installation_id != installation.id:
             raise GitHubAppStateError(

@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.2.0-rc.1
+Runtime release selected by `llms.txt`: v0.2.0-rc.2
 
 ---
 
@@ -1697,7 +1697,7 @@ repository:
 docker run --rm --read-only \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.2.0-rc.1 \
+  ghcr.io/ccimen/review-agent:v0.2.0-rc.2 \
   repository-context validate /repo
 ```
 

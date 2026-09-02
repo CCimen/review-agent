@@ -98,7 +98,7 @@ repository:
 docker run --rm --read-only \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.2.0-rc.1 \
+  ghcr.io/ccimen/review-agent:v0.2.0-rc.2 \
   repository-context validate /repo
 ```
 

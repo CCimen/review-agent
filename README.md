@@ -166,6 +166,11 @@ human ownership. Keep those as separate controls.
 
 ## Development
 
+The [5 September production assessment](docs/assessments/2026-09-05/assessment.md)
+records the evidence behind the current improvement work. Beads epic
+`ra-quality-2026-09-614` owns priorities, phases, dependencies and implementation
+status; use `br show ra-quality-2026-09-614 --json` from this checkout to continue.
+
 Run the full validation bundle before shipping changes:
 
 ```bash

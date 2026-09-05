@@ -12,6 +12,12 @@ br ready --epic ra-quality-2026-09-614 --sort priority --json
 
 The `roi-NN` labels order implementation recommendations within this assessment; numeric priority also accounts for material failure and time-sensitive operating risks. Dependencies express prerequisites, not arbitrary sequencing. Deferred product integrations require an explicit decision before implementation. No live deployment, model switch, release, repository activation or scan is authorized merely by creating an issue. The source links below point to the assessed commit so later implementation does not rewrite the evidence.
 
+## Subsequent product direction: automatic improvements
+
+Later on 5 September, the owner requested an improvement loop that automatically evaluates and applies routine improvements, because repeated manual application would limit adoption. The planned direction is one-time scope enablement, automatic bounded evidence/candidate collection, replay and LLM-assisted evaluation, then versioned canary promotion with monitoring and rollback. LLM approval contributes evidence; deterministic policy and measured checks control application. Uncertain results and changes outside the enabled scope are escalated or left unapplied. No method guarantees absence of every future regression.
+
+This extends the quality-baseline work in Beads under `ra-quality-2026-09-614.2`. Beads owns the implementation slices and dependencies. The current runtime remains proposal-only; the recommendations below preserve the original assessment and do not describe automatic promotion as already implemented or enabled. No production automation or model invocation was started by recording this direction.
+
 ## Decision
 The architecture is suitable for a centrally operated service serving 200+ repositories. The evidence supports preparing a five-repository advisory pilot; it does not yet support organization-wide production acceptance or a promise that reviews finish within an hour. Repository count is not the capacity driver: arrival rate, PR size, concurrent model sessions, provider limits, and queue recovery are.
 

@@ -9,11 +9,13 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, Protocol, cast
 
 from ..source_control import (
     SameOriginHttpsRedirectHandler,
     is_github_rate_limit_error,
+    github_retry_at,
 )
 
 _API_ROOT = "https://api.github.com"
@@ -128,12 +130,14 @@ class GitHubPublicationError(RuntimeError):
         status: int | None = None,
         operation: str = "",
         retryable: bool = False,
+        retry_at: datetime | None = None,
     ) -> None:
         super().__init__(code)
         self.code = code
         self.status = status
         self.operation = operation
         self.retryable = retryable
+        self.retry_at = retry_at
 
 
 class GitHubPublicationAuthorityLost(GitHubPublicationError):
@@ -349,11 +353,16 @@ class GitHubIssueCommentGateway:
                     or exc.code in {408, 425, 429}
                     or 500 <= exc.code <= 599
                 )
+                retry_at = (
+                    github_retry_at(exc, rate_limited=rate_limited)
+                    if retryable
+                    else None
+                )
                 exc.close()
                 if (
                     method in _RETRYABLE_METHODS
                     and retryable
-                    and not rate_limited
+                    and retry_at is None
                     and attempt + 1 < self._max_attempts
                 ):
                     time.sleep(0.5 * (attempt + 1))
@@ -363,6 +372,7 @@ class GitHubIssueCommentGateway:
                     status=exc.code,
                     operation=operation,
                     retryable=retryable,
+                    retry_at=retry_at,
                 ) from exc
             except (urllib.error.URLError, TimeoutError) as exc:
                 raise GitHubPublicationError(

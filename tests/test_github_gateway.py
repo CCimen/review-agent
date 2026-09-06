@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import email.message
+from datetime import datetime, timedelta, timezone
 import io
 import json
 from contextlib import nullcontext
@@ -34,7 +35,7 @@ from review_agent_tools.github.gateway import (  # noqa: E402
 from review_agent_tools.github.gateway_client import (  # noqa: E402
     AuthorizedPublicationGateway,
     ReviewGitHubGatewayClient,
-    _error_reason,
+    _error_details,
 )
 from review_agent_tools.github.publication import (  # noqa: E402
     GitHubPublicationAuthorityLost,
@@ -433,6 +434,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             (409, {}, b"", False),
             (422, {}, b"", False),
             (500, {}, b"", True),
+            (503, {"Retry-After": "300"}, b"", True),
         )
         for status, raw_headers, body, expected_retryable in cases:
             headers = email.message.Message()
@@ -457,6 +459,10 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 with self.assertRaises(GitHubPublicationError) as raised:
                     gateway.get_pull_request("example/project", 1)
                 self.assertEqual(raised.exception.retryable, expected_retryable)
+                self.assertEqual(
+                    raised.exception.retry_at is not None,
+                    expected_retryable and (status in {403, 429} or "Retry-After" in raw_headers),
+                )
                 self.assertEqual(opener.open.call_count, 1)
                 self.assertTrue(provider_error.closed)
                 self.assertNotIn("installation-token", str(raised.exception))
@@ -956,6 +962,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         tokens.invalidate.assert_called_once_with(9001, purpose="publication")
 
     def test_publication_gateway_preserves_transport_retry_classification(self) -> None:
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         for retryable, expected in (
             (True, GitHubGatewayRetryable),
             (False, GitHubGatewayRejected),
@@ -969,6 +976,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 "github_http_503_get_pull_request" if retryable else "github_http_422_get_pull_request",
                 status=503 if retryable else 422,
                 retryable=retryable,
+                retry_at=retry_at if retryable else None,
             )
             service = ReviewPublicationGateway(
                 postgres=Mock(),
@@ -998,9 +1006,12 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                     "_require_authority",
                     return_value=scope,
                 ),
-                self.assertRaises(expected),
+                self.assertRaises(expected) as raised,
             ):
                 service.execute(request)
+
+            if isinstance(raised.exception, GitHubGatewayRetryable):
+                self.assertEqual(raised.exception.retry_at, retry_at)
 
     def test_publication_provider_call_fits_inside_client_deadline(self) -> None:
         runtime = Mock()
@@ -1143,6 +1154,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 "lease_generation": 7,
             }
         )
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
         for retryable, expected in (
             (True, GitHubGatewayRetryable),
             (False, GitHubGatewayRejected),
@@ -1171,11 +1183,15 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                         "provider failure",
                         status=503 if retryable else 422,
                         retryable=retryable,
+                        retry_at=retry_at if retryable else None,
                     ),
                 ),
-                self.assertRaises(expected),
+                self.assertRaises(expected) as raised,
             ):
                 service.read_review_source(request)
+
+            if isinstance(raised.exception, GitHubGatewayRetryable):
+                self.assertEqual(raised.exception.retry_at, retry_at)
 
     def test_source_retries_one_invalid_token_only_once(self) -> None:
         tokens = Mock()
@@ -1303,9 +1319,21 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
 
     def test_invalid_remote_reason_uses_database_safe_protocol_code(self) -> None:
         self.assertEqual(
-            _error_reason(b'{"reason":"Not Found"}'),
+            _error_details(b'{"reason":"Not Found"}')[0],
             "github_gateway_invalid_response",
         )
+
+    def test_malformed_gateway_retry_time_uses_a_one_minute_fallback(self) -> None:
+        for value in ("broken", "2026-09-06T00:00:00", 12):
+            with self.subTest(value=value):
+                before = datetime.now(timezone.utc)
+                reason, retry_at = _error_details(json.dumps({
+                    "reason": "github_read_unavailable", "retry_at": value,
+                }).encode())
+                self.assertEqual(reason, "github_read_unavailable")
+                assert retry_at is not None
+                self.assertGreaterEqual(retry_at, before + timedelta(minutes=1))
+                self.assertLessEqual(retry_at, datetime.now(timezone.utc) + timedelta(minutes=1))
 
     def test_pull_source_read_sends_only_run_and_worker_lease_identity(self) -> None:
         opener = _Opener(

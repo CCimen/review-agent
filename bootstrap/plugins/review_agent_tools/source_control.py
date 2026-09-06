@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from http.client import HTTPMessage
 import json
 import time
@@ -50,6 +52,43 @@ def is_github_rate_limit_error(exc: urllib.error.HTTPError) -> bool:
     if len(raw) > _MAX_ERROR_RESPONSE_BYTES:
         return False
     return b"secondary rate limit" in raw.lower()
+
+
+def github_retry_at(
+    exc: urllib.error.HTTPError, *, rate_limited: bool, now: datetime | None = None,
+) -> datetime | None:
+    """Retain GitHub's latest valid cooldown, or wait a minute without timing."""
+    observed_at = now or datetime.now(timezone.utc)
+    deadlines: list[datetime] = []
+    retry_after = exc.headers.get("retry-after")
+    if retry_after is not None:
+        try:
+            seconds = int(retry_after)
+        except ValueError:
+            try:
+                deadline = parsedate_to_datetime(retry_after)
+                if deadline.utcoffset() is not None and deadline > observed_at:
+                    deadlines.append(deadline.astimezone(timezone.utc))
+            except (TypeError, ValueError, OverflowError):
+                pass
+        else:
+            try:
+                if seconds > 0:
+                    deadlines.append(observed_at + timedelta(seconds=seconds))
+            except OverflowError:
+                pass
+    if exc.headers.get("x-ratelimit-remaining") == "0":
+        reset = exc.headers.get("x-ratelimit-reset")
+        if reset is not None:
+            try:
+                deadline = datetime.fromtimestamp(int(reset), timezone.utc)
+                if deadline > observed_at:
+                    deadlines.append(deadline)
+            except (ValueError, OverflowError, OSError):
+                pass
+    if deadlines:
+        return max(deadlines)
+    return observed_at + timedelta(minutes=1) if rate_limited else None
 
 
 def _credentialed_https_origin(url: str) -> tuple[str, str, int]:
@@ -114,11 +153,13 @@ class GitHubReadError(Exception):
         *,
         status: int | None = None,
         retryable: bool = False,
+        retry_at: datetime | None = None,
     ) -> None:
         super().__init__(message)
         self.kind = kind
         self.status = status
         self.retryable = retryable
+        self.retry_at = retry_at
 
 
 class GitHubReadClient:
@@ -183,8 +224,13 @@ class GitHubReadClient:
                     or exc.code in {408, 425, 429}
                     or 500 <= exc.code <= 599
                 )
+                retry_at = (
+                    github_retry_at(exc, rate_limited=rate_limited)
+                    if retryable
+                    else None
+                )
                 exc.close()
-                if retryable and not rate_limited and attempt + 1 < self._max_attempts:
+                if retryable and retry_at is None and attempt + 1 < self._max_attempts:
                     time.sleep(0.5 * (attempt + 1))
                     continue
                 if exc.code == 401:
@@ -199,6 +245,7 @@ class GitHubReadClient:
                         "GitHub rate-limited the read request",
                         status=exc.code,
                         retryable=True,
+                        retry_at=retry_at,
                     ) from exc
                 if exc.code == 403:
                     raise GitHubReadError(
@@ -221,6 +268,7 @@ class GitHubReadClient:
                     f"GitHub read failed with HTTP {exc.code}",
                     status=exc.code,
                     retryable=retryable,
+                    retry_at=retry_at,
                 ) from exc
             except urllib.error.URLError as exc:
                 raise GitHubReadError(

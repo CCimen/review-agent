@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import sys
@@ -513,7 +514,10 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
         self.publication_gateway.execute.assert_not_called()
 
     def test_retryable_gateway_failure_remains_typed_at_client(self) -> None:
-        self.gateway.failure = GitHubGatewayRetryable("github_read_unavailable")
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        self.gateway.failure = GitHubGatewayRetryable(
+            "github_read_unavailable", retry_at=retry_at,
+        )
         client = ReviewGitHubGatewayClient(self.base_url)
 
         with self.assertRaises(GitHubGatewayRetryable) as raised:
@@ -524,6 +528,7 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
             )
 
         self.assertEqual(raised.exception.reason, "github_read_unavailable")
+        self.assertEqual(raised.exception.retry_at, retry_at)
 
     def test_rejected_gateway_failure_remains_typed_at_client(self) -> None:
         self.gateway.failure = GitHubGatewayRejected("delivery_lease_lost")

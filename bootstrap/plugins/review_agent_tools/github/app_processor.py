@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from typing import Literal, cast
 
@@ -90,9 +90,10 @@ class _Reject(Exception):
 
 
 class _Retry(Exception):
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, retry_at: datetime | None = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.retry_at = retry_at
 
 
 class _WaitingForCapacity(Exception):
@@ -230,7 +231,9 @@ class GitHubAppProcessor:
                 waiting_for_capacity=True,
             )
         except _Retry as exc:
-            return self._retry(delivery, lease_owner, actor, exc.reason)
+            return self._retry(
+                delivery, lease_owner, actor, exc.reason, retry_at=exc.retry_at,
+            )
         except _Reject as exc:
             return self._finish(
                 delivery,
@@ -413,7 +416,7 @@ class GitHubAppProcessor:
                 lease_generation=delivery.lease_generation,
             )
         except GitHubGatewayRetryable as exc:
-            raise _Retry(exc.reason) from exc
+            raise _Retry(exc.reason, retry_at=exc.retry_at) from exc
         except GitHubGatewayRejected as exc:
             if exc.reason == "delivery_lease_lost":
                 return ProcessingResult(delivery.id, delivery.status, exc.reason)
@@ -502,7 +505,7 @@ class GitHubAppProcessor:
                 lease_generation=delivery.lease_generation,
             )
         except GitHubGatewayRetryable as exc:
-            raise _Retry(exc.reason) from exc
+            raise _Retry(exc.reason, retry_at=exc.retry_at) from exc
         except GitHubGatewayRejected as exc:
             if exc.reason == "delivery_lease_lost":
                 return ProcessingResult(delivery.id, delivery.status, exc.reason)
@@ -570,7 +573,7 @@ class GitHubAppProcessor:
                 status=acknowledgement_status,
             )
         except GitHubGatewayRetryable as exc:
-            raise _Retry(exc.reason) from exc
+            raise _Retry(exc.reason, retry_at=exc.retry_at) from exc
         except GitHubGatewayRejected as exc:
             if exc.reason == "delivery_lease_lost":
                 return ProcessingResult(delivery.id, delivery.status, exc.reason)
@@ -634,6 +637,7 @@ class GitHubAppProcessor:
         reason: str,
         *,
         waiting_for_capacity: bool = False,
+        retry_at: datetime | None = None,
     ) -> ProcessingResult:
         with self._postgres.transaction() as connection:
             updated = webhook_deliveries.retry_or_fail_delivery(
@@ -648,5 +652,16 @@ class GitHubAppProcessor:
                     if waiting_for_capacity else self._config.retry_delay
                 ),
                 waiting_for_capacity=waiting_for_capacity,
+                retry_at=retry_at,
+                review_expires_at=(
+                    delivery.received_at + self._config.admission_max_age
+                    if delivery.command_category is webhook_deliveries.CommandCategory.REVIEW
+                    else None
+                ),
+            )
+        if updated.status is webhook_deliveries.DeliveryStatus.RECEIVED:
+            logger.info(
+                "Delivery %s deferred until %s: %s", updated.id,
+                updated.available_at.isoformat(), reason,
             )
         return ProcessingResult(updated.id, updated.status, reason)

@@ -212,10 +212,10 @@ class PublicationWorker:
             logger.info("Failure status for review run %s posted", int(target.run_id))
         except GitHubPublicationError as exc:
             logger.warning(
-                "Failure status for review run %s could not be posted: %s",
+                "Failure status for review run %s could not be posted: %s; provider retry_at=%s",
                 int(target.run_id), exc.code,
+                exc.retry_at.isoformat() if exc.retry_at is not None else None,
             )
-            raise
         except review_runs.FailureStatusLeaseLost:
             logger.info("Failure status %s lost its lease", int(target.run_id))
         finally:

@@ -210,7 +210,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(409, {"reason": exc.reason})
             return
         except GitHubGatewayRetryable as exc:
-            self._write(503, {"reason": exc.reason})
+            self._write_retryable(exc)
             return
         except (PostgreSQLRuntimeError, psycopg.Error):
             self._write(503, {"reason": "github_gateway_database_unavailable"})
@@ -260,7 +260,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(409, {"reason": exc.reason})
             return
         except GitHubGatewayRetryable as exc:
-            self._write(503, {"reason": exc.reason})
+            self._write_retryable(exc)
             return
         except (PostgreSQLRuntimeError, psycopg.Error):
             self._write(503, {"reason": "github_gateway_database_unavailable"})
@@ -305,7 +305,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(409, {"reason": exc.reason})
             return
         except GitHubGatewayRetryable as exc:
-            self._write(503, {"reason": exc.reason})
+            self._write_retryable(exc)
             return
         except (PostgreSQLRuntimeError, psycopg.Error):
             self._write(503, {"reason": "github_gateway_database_unavailable"})
@@ -346,7 +346,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(409, {"reason": exc.reason})
             return
         except GitHubGatewayRetryable as exc:
-            self._write(503, {"reason": exc.reason})
+            self._write_retryable(exc)
             return
         except (PostgreSQLRuntimeError, psycopg.Error):
             self._write(503, {"reason": "github_gateway_database_unavailable"})
@@ -386,7 +386,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(409, {"reason": exc.reason})
             return
         except GitHubGatewayRetryable as exc:
-            self._write(503, {"reason": exc.reason})
+            self._write_retryable(exc)
             return
         except (PostgreSQLRuntimeError, psycopg.Error):
             self._write(503, {"reason": "github_gateway_database_unavailable"})
@@ -413,7 +413,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(409, {"reason": exc.reason})
             return
         except GitHubGatewayRetryable as exc:
-            self._write(503, {"reason": exc.reason})
+            self._write_retryable(exc)
             return
         except Exception as exc:
             logger.error("GitHub gateway operator status failed: %s", type(exc).__name__)
@@ -451,7 +451,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             self._write(409, {"reason": exc.reason})
             return
         except GitHubGatewayRetryable as exc:
-            self._write(503, {"reason": exc.reason})
+            self._write_retryable(exc)
             return
         except (PostgreSQLRuntimeError, psycopg.Error):
             self._write(503, {"reason": "github_gateway_database_unavailable"})
@@ -464,6 +464,12 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
 
     def _server(self) -> "GatewayServer":
         return cast(GatewayServer, self.server)
+
+    def _write_retryable(self, exc: GitHubGatewayRetryable) -> None:
+        value: dict[str, object] = {"reason": exc.reason}
+        if exc.retry_at is not None:
+            value["retry_at"] = exc.retry_at.isoformat()
+        self._write(503, value)
 
     def _write(self, status: int, value: Mapping[str, object]) -> None:
         body = json.dumps(value, separators=(",", ":")).encode("utf-8")

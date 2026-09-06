@@ -357,6 +357,7 @@ def publish_postgres_run_failure_status(
                 lease_generation=generation,
                 failure_code=exc.code,
                 retry_delay=retry_delay,
+                retry_at=exc.retry_at,
                 retryable=exc.retryable,
             )
         raise
@@ -540,7 +541,7 @@ def publish_postgres_publication(
     if not claim.acquired:
         return PostgresPublicationResult(
             publication_id=publication_id,
-            status=PublicationStatus.POSTING.value,
+            status=publication.status.value,
             published_parts=tuple(
                 PostgresPublishedPart(part.part_type, part.external_id)
                 for part in publication.parts
@@ -805,6 +806,7 @@ def publish_postgres_publication(
                 failure_code=exc.code,
                 retryable=exc.retryable,
                 retry_delay=retry_delay,
+                retry_at=exc.retry_at,
                 lease_owner=resolved_lease_owner,
                 lease_generation=resolved_lease_generation,
             )

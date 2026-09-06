@@ -257,7 +257,7 @@ class ReviewPublicationGateway:
             try:
                 result: PublicationResult = self._tokens.app_bot_login()
             except GitHubAppTokenRetryable as exc:
-                raise GitHubGatewayRetryable("app_identity_unavailable") from exc
+                raise GitHubGatewayRetryable("app_identity_unavailable", retry_at=exc.retry_at) from exc
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             self._require_authority(request)
@@ -385,7 +385,7 @@ class ReviewPublicationGateway:
                 )
                 return operation(token.value)
             except GitHubAppTokenRetryable as exc:
-                raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+                raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
@@ -403,7 +403,7 @@ class ReviewPublicationGateway:
                     else "github_publication_failed"
                 )
                 if exc.retryable:
-                    raise GitHubGatewayRetryable(reason) from exc
+                    raise GitHubGatewayRetryable(reason, retry_at=exc.retry_at) from exc
                 raise GitHubGatewayRejected(reason) from exc
 
 

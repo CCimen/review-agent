@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from collections.abc import Callable, Mapping
 import hashlib
 import re
@@ -79,9 +80,10 @@ class GitHubGatewayRejected(GitHubGatewayError):
 class GitHubGatewayRetryable(GitHubGatewayError):
     """A transient provider or internal dependency failure can be retried."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, retry_at: datetime | None = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.retry_at = retry_at
 
 
 def _positive(value: object, field: str) -> int:
@@ -817,7 +819,7 @@ class ReviewGitHubGateway:
                 access.provider_repository_id, purpose="publication"
             )
         except GitHubAppTokenRetryable as exc:
-            raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+            raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:
             raise GitHubGatewayRejected("provider_authorization_denied") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
@@ -839,7 +841,7 @@ class ReviewGitHubGateway:
         try:
             identity = self._tokens.app_identity()
         except GitHubAppTokenRetryable as exc:
-            raise GitHubGatewayRetryable("github_app_status_unavailable") from exc
+            raise GitHubGatewayRetryable("github_app_status_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:
             raise GitHubGatewayRejected("github_app_status_invalid") from exc
         return OperatorAppStatus(
@@ -916,7 +918,7 @@ class ReviewGitHubGateway:
                 token = self._tokens.token_for(provider_repository_id)
                 return operation(self._github_factory(token.value))
             except GitHubAppTokenRetryable as exc:
-                raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+                raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
@@ -927,7 +929,7 @@ class ReviewGitHubGateway:
                     attempt += 1
                     continue
                 if exc.retryable:
-                    raise GitHubGatewayRetryable("github_read_unavailable") from exc
+                    raise GitHubGatewayRetryable("github_read_unavailable", retry_at=exc.retry_at) from exc
                 if exc.kind in {"unauthorized", "forbidden"}:
                     raise GitHubGatewayRejected(
                         "provider_authorization_denied"
@@ -1040,7 +1042,7 @@ class ReviewGitHubGateway:
                     reason=f"verified repository for delivery {delivery_id}",
                 )
         except GitHubAppTokenRetryable as exc:
-            raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+            raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
         except GitHubAppTokenPermanent as exc:
             raise GitHubGatewayRejected("provider_authorization_denied") from exc
         except github_app.GitHubAppStateError as exc:
@@ -1059,7 +1061,7 @@ class ReviewGitHubGateway:
                 )
                 return operation(token.value)
             except GitHubAppTokenRetryable as exc:
-                raise GitHubGatewayRetryable("token_exchange_unavailable") from exc
+                raise GitHubGatewayRetryable("token_exchange_unavailable", retry_at=exc.retry_at) from exc
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
@@ -1077,7 +1079,7 @@ class ReviewGitHubGateway:
                     else "github_feedback_failed"
                 )
                 if exc.retryable:
-                    raise GitHubGatewayRetryable(reason) from exc
+                    raise GitHubGatewayRetryable(reason, retry_at=exc.retry_at) from exc
                 raise GitHubGatewayRejected(reason) from exc
 
     def _require_review_acknowledgement(

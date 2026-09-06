@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 import re
 from collections.abc import Sequence
 from typing import Literal, cast
@@ -415,10 +416,11 @@ class ReviewGitHubGatewayClient:
             raw = exc.read(_MAX_RESPONSE_BYTES + 1)
             status = exc.code
             exc.close()
+            reason, retry_at = _error_details(raw)
             if status == 409:
-                raise GitHubGatewayRejected(_error_reason(raw)) from exc
+                raise GitHubGatewayRejected(reason) from exc
             if status >= 500:
-                raise GitHubGatewayRetryable(_error_reason(raw)) from exc
+                raise GitHubGatewayRetryable(reason, retry_at=retry_at) from exc
             raise GitHubGatewayProtocolError(
                 f"gateway returned unexpected HTTP status {status}"
             ) from exc
@@ -495,6 +497,7 @@ class AuthorizedPublicationGateway:
                 status=status,
                 operation=_provider_operation_name(operation),
                 retryable=True,
+                retry_at=exc.retry_at,
             ) from exc
         except GitHubGatewayProtocolError as exc:
             raise GitHubPublicationError(
@@ -741,16 +744,26 @@ def _response_text(value: object, *, allow_empty: bool = False) -> str:
     return value
 
 
-def _error_reason(raw: bytes) -> str:
+def _error_details(raw: bytes) -> tuple[str, datetime | None]:
     if len(raw) > _MAX_RESPONSE_BYTES:
-        return "github_gateway_invalid_response"
+        return "github_gateway_invalid_response", None
     try:
         decoded = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return "github_gateway_invalid_response"
+        return "github_gateway_invalid_response", None
     if not isinstance(decoded, dict):
-        return "github_gateway_invalid_response"
+        return "github_gateway_invalid_response", None
     reason = cast(dict[str, object], decoded).get("reason")
     if not isinstance(reason, str) or not _FAILURE_REASON_RE.fullmatch(reason):
-        return "github_gateway_invalid_response"
-    return reason
+        return "github_gateway_invalid_response", None
+    retry_at = cast(dict[str, object], decoded).get("retry_at")
+    if retry_at is None:
+        return reason, None
+    if isinstance(retry_at, str):
+        try:
+            parsed = datetime.fromisoformat(retry_at)
+            if parsed.utcoffset() is not None:
+                return reason, parsed.astimezone(timezone.utc)
+        except (ValueError, OverflowError):
+            pass
+    return reason, datetime.now(timezone.utc) + timedelta(minutes=1)

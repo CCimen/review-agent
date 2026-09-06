@@ -1133,6 +1133,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             prepared = publications.prepare_publication(
                 connection, run_id=run_id, plan=self.plan(batch)
             )
+            connection.execute(
+                "UPDATE review_agent.publications SET delivery_available_at = statement_timestamp() "
+                "+ INTERVAL '30 days' WHERE id = %s", (prepared.id,),
+            )
             review_run_application.mark_superseded_in_transaction(
                 connection, run_id
             )
@@ -1445,6 +1449,82 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(result.status, "posting")
         self.assertEqual(github.comments, [])
 
+    def test_publication_cooldown_blocks_queue_and_explicit_claims_until_ready(self) -> None:
+        run_id, batch = self.start_recorded_run(request_key="provider-cooldown")
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch),
+            )
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.create_error = GitHubPublicationError(
+            "github_http_429", retryable=True, retry_at=retry_at,
+        )
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime, publication_id=int(prepared.id), github=github, max_comment_bytes=60_000,
+        )
+        self.assertEqual(result.status, "publish_failed")
+        restarted_github = FakePostgresPublicationGitHub(self.runtime)
+        parked = review_publication_application.publish_postgres_publication(
+            self.runtime, publication_id=int(prepared.id), github=restarted_github,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(parked.status, "publish_failed")
+        self.assertEqual(restarted_github.create_calls, 0)
+        with self.runtime.transaction() as connection:
+            stored = publications.get_publication(connection, prepared.id)
+            self.assertEqual(stored.delivery_attempt_count, 1)
+            timing = connection.execute(
+                "SELECT delivery_available_at FROM review_agent.publications WHERE id = %s",
+                (prepared.id,),
+            ).fetchone()
+            self.assertEqual(timing, (retry_at,))
+            self.assertIsNone(publications.claim_next_publication(
+                connection, lease_owner="restarted", lease_duration=timedelta(minutes=1),
+            ))
+            connection.execute(
+                "UPDATE review_agent.publications SET delivery_available_at = statement_timestamp() "
+                "WHERE id = %s", (prepared.id,),
+            )
+        recovered = review_publication_application.publish_postgres_publication(
+            self.runtime, publication_id=int(prepared.id), github=restarted_github,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(recovered.status, "posted")
+
+    def test_failure_status_cooldown_preserves_the_provider_deadline(self) -> None:
+        run_id, _ = self.start_recorded_run(request_key="failure-status-cooldown")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(connection, run_id, failure_code="review_deliver_error")
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.create_error = GitHubPublicationError(
+            "github_http_429", retryable=True, retry_at=retry_at,
+        )
+        worker = PublicationWorker(
+            self.runtime, github,
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
+                retry_delay=timedelta(seconds=30), poll_interval=timedelta(milliseconds=10),
+                max_comment_bytes=60_000,
+            ), lease_owner="publisher", stop_event=threading.Event(),
+        )
+        with self.assertLogs("review_agent_tools.publisher", level="WARNING") as logs:
+            worker.run(once=True)
+        self.assertIn("github_http_429", logs.output[0])
+        with self.runtime.transaction() as connection:
+            timing = connection.execute(
+                "SELECT failure_status_delivery_available_at FROM review_agent.review_runs WHERE id = %s",
+                (run_id,),
+            ).fetchone()
+            self.assertEqual(timing, (retry_at,))
+            self.assertIsNone(review_runs.claim_next_failure_status(
+                connection, lease_owner="restarted", lease_duration=timedelta(minutes=1),
+            ))
+            target = review_runs.failure_status_target(connection, run_id)
+            self.assertEqual(target.delivery_attempt_count, 1)
+            self.assertEqual(target.delivery_status, "publish_failed")
+
     def test_partial_github_failure_reclaims_only_unfinished_parts(self) -> None:
         run_id, batch = self.start_recorded_run(
             request_key="github:issue-comment:retry-failed-publication"
@@ -1461,6 +1541,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             publication_id=int(prepared.id),
             github=github,
             max_comment_bytes=60_000,
+            retry_delay=timedelta(0),
         )
         with self.runtime.transaction() as connection:
             failed_run = review_runs.get_run(connection, run_id)
@@ -2102,6 +2183,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         failed_run, _ = self.start_recorded_run(request_key="older-pending-failure")
         with self.runtime.transaction() as connection:
             review_runs.fail_run(connection, failed_run, failure_code="review_deliver_error")
+            connection.execute(
+                "UPDATE review_agent.review_runs SET failure_status_delivery_available_at = "
+                "statement_timestamp() + INTERVAL '30 days' WHERE id = %s", (failed_run,),
+            )
         newer_run, batch = self.start_recorded_run(request_key="newer-success")
         with self.runtime.transaction() as connection:
             prepared = publications.prepare_publication(

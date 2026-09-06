@@ -123,6 +123,7 @@ class _PublicationRow:
     rendered_hash: str
     status: str
     posting_started_at: datetime | None
+    delivery_available_at: datetime
     delivery_attempt_count: int
     delivery_max_attempts: int
     delivery_lease_owner: str | None
@@ -797,6 +798,7 @@ def _publication_row(
                    publication.rendered_blocks_schema_version,
                    publication.rendered_blocks, publication.rendered_hash,
                    publication.status, publication.posting_started_at,
+                   publication.delivery_available_at,
                    publication.delivery_attempt_count,
                    publication.delivery_max_attempts,
                    publication.delivery_lease_owner,
@@ -1053,6 +1055,11 @@ def claim_publication(
     clock = connection.execute("SELECT statement_timestamp()").fetchone()
     if clock is None or not isinstance(clock[0], datetime):
         raise PublicationStoreError("database clock could not be read")
+    if (
+        row.status in {PublicationStatus.GENERATED.value, PublicationStatus.PUBLISH_FAILED.value}
+        and row.delivery_available_at > clock[0]
+    ):
+        return PublicationClaim(publication=_stored(connection, row), acquired=False)
     expired = (
         row.status == PublicationStatus.POSTING.value
         and row.delivery_lease_expires_at is not None
@@ -1465,6 +1472,7 @@ def fail_publication(
     stale: bool = False,
     retryable: bool = True,
     retry_delay: timedelta = timedelta(seconds=30),
+    retry_at: datetime | None = None,
     lease_owner: str = _DIRECT_LEASE_OWNER,
     lease_generation: int | None = None,
 ) -> StoredPublication:
@@ -1523,7 +1531,7 @@ def fail_publication(
         SET status = %s, publish_failed_at = statement_timestamp(),
             failure_code = %s,
             delivery_available_at = CASE
-                WHEN %s THEN statement_timestamp() + %s
+                WHEN %s THEN GREATEST(statement_timestamp() + %s, %s::timestamptz)
                 ELSE delivery_available_at
             END,
             delivery_lease_owner = NULL,
@@ -1534,7 +1542,7 @@ def fail_publication(
             END
         WHERE id = %s AND status = 'posting'
         """,
-        (status.value, code, can_retry, retry_delay, can_retry, publication_id),
+        (status.value, code, can_retry, retry_delay, retry_at, can_retry, publication_id),
     )
     failed = _publication_row(connection, publication_id)
     if failed is None:

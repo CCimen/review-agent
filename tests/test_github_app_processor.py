@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 from typing import cast
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import psycopg
@@ -1042,6 +1042,60 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 "(SELECT count(*) FROM review_agent.review_jobs)"
             ).fetchone()
         self.assertEqual(counts, (0, 0))
+
+    def test_provider_cooldown_survives_processor_restart_without_extra_attempts(self) -> None:
+        self.enable_repository()
+        delivery_id = self.register("issue_comment", self.review_payload())
+        retry_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        gateway = Mock(spec=ReviewGitHubGateway)
+        gateway.authorize_review_delivery.side_effect = GitHubGatewayRetryable(
+            "github_read_unavailable", retry_at=retry_at,
+        )
+        result = self.processor(gateway=gateway).process_next(lease_owner="worker-1")
+        self.assertEqual(result.reason if result else None, "github_read_unavailable")
+        for _ in range(3):
+            self.assertIsNone(self.processor(gateway=gateway).process_next(lease_owner="restarted"))
+        gateway.authorize_review_delivery.assert_called_once()
+        with self.runtime.transaction() as connection:
+            stored = webhook_deliveries.get_delivery(connection, delivery_id)
+            self.assertEqual(stored.attempt_count, 1)
+            self.assertEqual(stored.available_at, retry_at)
+            self.assertIsNotNone(stored.normalized_payload)
+            connection.execute(
+                "UPDATE review_agent.github_webhook_deliveries "
+                "SET available_at = statement_timestamp() WHERE id = %s", (delivery_id,),
+            )
+        with patch.object(
+            app_processor.review_contract, "load_packaged_contract", return_value=self.contract,
+        ):
+            admitted = self.processor().process_next(lease_owner="restarted")
+        self.assertIsNotNone(admitted.run_id if admitted else None)
+
+    def test_cooldown_wakes_at_admission_expiry_without_an_early_provider_retry(self) -> None:
+        self.enable_repository()
+        delivery_id = self.register("issue_comment", self.review_payload())
+        gateway = Mock(spec=ReviewGitHubGateway)
+        gateway.authorize_review_delivery.side_effect = GitHubGatewayRetryable(
+            "github_read_unavailable", retry_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.github_webhook_deliveries "
+                "SET received_at = statement_timestamp() - INTERVAL '23 hours' WHERE id = %s",
+                (delivery_id,),
+            )
+        self.processor(gateway=gateway).process_next(lease_owner="worker")
+        with self.runtime.transaction() as connection:
+            stored = webhook_deliveries.get_delivery(connection, delivery_id)
+            self.assertEqual(stored.available_at, stored.received_at + timedelta(hours=24))
+            connection.execute(
+                "UPDATE review_agent.github_webhook_deliveries "
+                "SET received_at = statement_timestamp() - INTERVAL '25 hours', "
+                "available_at = statement_timestamp() WHERE id = %s", (delivery_id,),
+            )
+        expired = self.processor(gateway=gateway).process_next(lease_owner="restarted")
+        self.assertEqual(expired.reason if expired else None, "review_admission_expired")
+        gateway.authorize_review_delivery.assert_called_once()
 
     def test_queue_pressure_retries_without_leaving_a_run(self) -> None:
         self.enable_repository()

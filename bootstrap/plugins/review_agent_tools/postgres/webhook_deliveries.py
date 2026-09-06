@@ -691,6 +691,8 @@ def retry_or_fail_delivery(
     failure_code: str,
     retry_delay: timedelta,
     waiting_for_capacity: bool = False,
+    retry_at: datetime | None = None,
+    review_expires_at: datetime | None = None,
 ) -> WebhookDelivery:
     """Retry one exact lease; capacity waiting refunds only this claim attempt."""
     _require_transaction(connection)
@@ -726,7 +728,10 @@ def retry_or_fail_delivery(
                 END,
                 available_at = CASE
                     WHEN delivery.attempt_count - %(refund)s < delivery.max_attempts
-                    THEN statement_timestamp() + %(retry_delay)s
+                    THEN LEAST(
+                        GREATEST(statement_timestamp() + %(retry_delay)s, %(retry_at)s::timestamptz),
+                        %(review_expires_at)s::timestamptz
+                    )
                     ELSE delivery.available_at
                 END,
                 lease_owner = NULL,
@@ -754,6 +759,8 @@ def retry_or_fail_delivery(
             {
                 "refund": int(waiting_for_capacity),
                 "retry_delay": retry_delay,
+                "retry_at": retry_at,
+                "review_expires_at": review_expires_at,
                 "code": code,
                 "actor": failure_actor,
                 "delivery_id": resolved_id,

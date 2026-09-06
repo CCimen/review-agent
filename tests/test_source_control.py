@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import email.message
+from datetime import datetime, timedelta, timezone
 import io
 import json
 import sys
@@ -236,6 +237,43 @@ class GitHubReadClientTests(unittest.TestCase):
                 self.assertEqual(opener.open.call_count, 1)
                 self.assertTrue(terminal.closed)
 
+    def test_rate_limit_timing_uses_provider_deadlines_or_a_bounded_fallback(self) -> None:
+        now = datetime(2026, 9, 6, tzinfo=timezone.utc)
+        for headers, seconds in (
+            ({"Retry-After": "300"}, 300),
+            ({"Retry-After": "Sun, 06 Sep 2026 00:05:00 GMT"}, 300),
+            ({"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(now.timestamp()) + 600)}, 600),
+            ({"Retry-After": "300", "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(now.timestamp()) + 600)}, 600),
+            ({"Retry-After": "broken", "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "nan"}, 60),
+            ({"Retry-After": "9" * 100, "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "-1"}, 60),
+            ({"Retry-After": "0"}, 60),
+            ({"Retry-After": "-1"}, 60),
+            ({"Retry-After": "Sat, 05 Sep 2026 00:05:00 GMT"}, 60),
+            ({"Retry-After": "100000000"}, 100000000),
+            ({}, 60),
+        ):
+            with self.subTest(headers=headers):
+                deadline = source_control.github_retry_at(
+                    _http_error_with_headers(429, headers), rate_limited=True, now=now,
+                )
+                self.assertEqual(deadline, now + timedelta(seconds=seconds))
+
+    def test_unusable_retry_after_preserves_ordinary_transport_retries(self) -> None:
+        for value in ("0", "-1", "broken"):
+            with self.subTest(value=value):
+                opener = Mock(spec=urllib.request.OpenerDirector)
+                opener.open.side_effect = _http_error_with_headers(503, {"Retry-After": value})
+                client = source_control.GitHubReadClient(
+                    "", max_attempts=3, opener=cast(urllib.request.OpenerDirector, opener),
+                )
+                with (
+                    patch.object(source_control.time, "sleep"),
+                    self.assertRaises(source_control.GitHubReadError) as raised,
+                ):
+                    client.request("/repos/example/project")
+                self.assertIsNone(raised.exception.retry_at)
+                self.assertEqual(opener.open.call_count, 3)
+
     def test_request_distinguishes_rate_limits_from_authorization_denials(self) -> None:
         client = source_control.GitHubReadClient("")
 
@@ -253,8 +291,12 @@ class GitHubReadClientTests(unittest.TestCase):
                     max_attempts=3,
                     opener=cast(urllib.request.OpenerDirector, opener),
                 )
+                before = datetime.now(timezone.utc)
                 with self.assertRaises(source_control.GitHubReadError) as raised:
                     client.request("/repos/example/project")
+                self.assertIsNotNone(raised.exception.retry_at)
+                assert raised.exception.retry_at is not None
+                self.assertGreater(raised.exception.retry_at, before)
                 self.assertEqual(raised.exception.kind, "rate_limited")
                 self.assertTrue(raised.exception.retryable)
                 self.assertEqual(opener.open.call_count, 1)

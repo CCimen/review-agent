@@ -689,7 +689,7 @@ def complete_failure_status(
 def retry_failure_status(
     connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId,
     lease_owner: str, lease_generation: int, failure_code: str,
-    retry_delay: timedelta, retryable: bool = True,
+    retry_delay: timedelta, retryable: bool = True, retry_at: datetime | None = None,
 ) -> None:
     _require_transaction(connection)
     normalized_failure_code = failure_code.strip()
@@ -703,7 +703,8 @@ def retry_failure_status(
     changed = connection.execute(
         """UPDATE review_agent.review_runs SET
         failure_status_delivery_status = %s,
-        failure_status_delivery_available_at = CASE WHEN %s THEN NULL ELSE statement_timestamp() + %s END,
+        failure_status_delivery_available_at = CASE WHEN %s THEN NULL
+            ELSE GREATEST(statement_timestamp() + %s, %s::timestamptz) END,
         failure_status_delivery_lease_owner = NULL,
         failure_status_delivery_lease_expires_at = NULL,
         failure_status_delivery_last_heartbeat_at = NULL,
@@ -713,7 +714,7 @@ def retry_failure_status(
           AND failure_status_delivery_lease_owner = %s
           AND failure_status_delivery_lease_generation = %s
           AND failure_status_delivery_lease_expires_at > statement_timestamp()""",
-        ('failed' if exhausted else 'publish_failed', exhausted, retry_delay,
+        ('failed' if exhausted else 'publish_failed', exhausted, retry_delay, retry_at,
          normalized_failure_code, exhausted, run_id, lease_owner, lease_generation),
     ).rowcount
     if changed != 1:

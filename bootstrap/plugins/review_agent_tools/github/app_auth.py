@@ -25,6 +25,7 @@ from ..source_control import (
     SameOriginHttpsRedirectHandler,
     https_api_origin,
     is_github_rate_limit_error,
+    github_retry_at,
 )
 
 
@@ -55,6 +56,10 @@ class GitHubAppTokenError(RuntimeError):
 
 class GitHubAppTokenRetryable(GitHubAppTokenError):
     """Token exchange may succeed when retried later."""
+
+    def __init__(self, message: str, *, retry_at: datetime | None = None) -> None:
+        super().__init__(message)
+        self.retry_at = retry_at
 
 
 class GitHubAppTokenPermanent(GitHubAppTokenError):
@@ -325,15 +330,22 @@ class GitHubAppAuthenticator:
                     )
                 return json.loads(raw_result)
         except urllib.error.HTTPError as exc:
+            rate_limited = is_github_rate_limit_error(exc)
             retryable = (
                 exc.code in {408, 425, 429}
                 or exc.code >= 500
-                or is_github_rate_limit_error(exc)
+                or rate_limited
+            )
+            retry_at = (
+                github_retry_at(exc, rate_limited=rate_limited)
+                if retryable
+                else None
             )
             exc.close()
             if retryable:
                 raise GitHubAppTokenRetryable(
-                    "GitHub App request is temporarily unavailable"
+                    "GitHub App request is temporarily unavailable",
+                    retry_at=retry_at,
                 ) from exc
             raise GitHubAppTokenPermanent("GitHub rejected the App request") from exc
         except (urllib.error.URLError, TimeoutError) as exc:

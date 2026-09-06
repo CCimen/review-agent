@@ -2157,6 +2157,24 @@ log entry; its normalized payload is erased. After resolving capacity or worker
 availability, post a new `/review` comment to request another review. Redelivering
 the same webhook GUID does not reopen its receipt.
 
+GitHub cooldowns retain the `Retry-After` deadline (seconds or HTTP date) and,
+when the remaining quota is zero, the `X-RateLimit-Reset` time. App admission,
+publication, and failure-status retries wait until both the provider deadline
+and the normal retry delay have passed. PostgreSQL stores that time, so a process
+restart or explicit publication retry cannot bypass it. Waiting consumes no
+additional attempts; actual failed calls still use the bounded attempt budget.
+Rate limits without usable timing wait at least one minute. An ordinary transient
+error with unusable timing keeps its existing transport retry behavior. Review
+admission wakes at its configured age limit to expire without another GitHub call,
+even if the provider deadline is later. Valid provider deadlines are not shortened.
+To abandon a delayed publication, use `review-agent-admin jobs cancel <id>`; the
+publisher retires its terminal run without waiting for the cooldown. A newer
+successful review suppresses an older pending failure status, including one still
+in cooldown. Feedback acknowledgements honor the provider deadline and currently
+have no separate age limit. Permanent denials keep their terminal behavior. A failed
+failure-status delivery leaves the publisher running after its retry or terminal
+result is saved.
+
 Plan maximum database pool capacity with this formula:
 
 ```text

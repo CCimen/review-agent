@@ -602,6 +602,7 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
             {"retry-after": "60"},
             io.BytesIO(b"private"),
         )
+        before = datetime.now(timezone.utc)
         with (
             patch.object(
                 github_app,
@@ -609,11 +610,14 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
                 return_value=self.authorization,
             ),
             patch.object(self.service._opener, "open", side_effect=error),
-            self.assertRaises(app_auth.GitHubAppTokenRetryable),
+            self.assertRaises(app_auth.GitHubAppTokenRetryable) as raised,
         ):
             self.service.token_for(9001, now=NOW)
 
         self.assertTrue(error.fp.closed)
+        assert raised.exception.retry_at is not None
+        self.assertGreaterEqual(raised.exception.retry_at, before + timedelta(minutes=1))
+        self.assertLessEqual(raised.exception.retry_at, datetime.now(timezone.utc) + timedelta(minutes=1))
 
     def test_secondary_rate_limit_message_is_retryable_without_headers(self) -> None:
         error = urllib.error.HTTPError(

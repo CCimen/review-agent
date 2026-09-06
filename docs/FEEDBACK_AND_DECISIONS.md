@@ -4,7 +4,7 @@ slug: /feedback-and-decisions
 title: Feedback and design decisions
 description: Use review feedback to improve reviewer quality and record repository decisions that later changes must respect.
 status: current
-last_verified: 2026-08-28
+last_verified: 2026-09-06
 ---
 
 # Feedback and design decisions
@@ -34,6 +34,15 @@ review.
 The App reacts with `+1` after it stores valid feedback. It reacts with
 `confused` and posts one explanation for stale references or invalid commands.
 A changed code context requires a fresh review.
+
+If a later review reconciles duplicate references, feedback on an older duplicate
+reference targets the current canonical finding. Earlier decisions retain their
+original targets and audit records. Confirmed duplicates represent one issue, so
+a matching human suppression covers the group, including a newly recorded alias.
+Conflicting human decisions block a new grouping until adjudicated; separating
+a suppressed group requires a human to reopen it first.
+Changing group membership never creates a human decision or overrides the
+code-context, expiry, or accepted-ADR checks.
 
 ## Measure review quality
 

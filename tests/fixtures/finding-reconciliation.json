@@ -1,0 +1,65 @@
+{
+  "source": "https://github.com/eneo-ai/eneo/pull/721#issuecomment-5543756971",
+  "source_head": "f6daa7e8d33f1888eb2138c0ff96358258478e9a",
+  "known_equivalent": [
+    "F18",
+    "F21",
+    "F22"
+  ],
+  "known_independent": [
+    "F20"
+  ],
+  "records": [
+    {
+      "severity": "High (P1)",
+      "category": "performance",
+      "path": "backend/src/eneo/websites/domain/crawl_run_repo.py",
+      "line": 559,
+      "title": "One tenant can reserve the entire crawler pool",
+      "evidence": "The renamed `claim_dispatch_candidates` applies its tenant-rank predicate only when `tenant_concurrency_limit` is non-None. Its reconciliation caller passes `Settings.crawl_job_tenant_concurrency_limit`, whose new default is None, while this PR retires the prior tenant limit. The added admission test confirms that under the default tenant A claims every global slot and tenant B remains pending until an A crawl terminates.",
+      "impact": "One tenant's long-running crawls can still prevent every other tenant from starting work for up to the configured crawl duration.",
+      "smallest_fix": "Give the new tenant admission limit a finite effective default that preserves the previous per-tenant ceiling, while retaining an explicit deployment override. Add an admission test where tenant A reaches that cap with global capacity available and tenant B is admitted before any A run terminates.",
+      "reference": "F18"
+    },
+    {
+      "severity": "High (P1)",
+      "category": "performance",
+      "path": "backend/src/eneo/websites/domain/crawl_run_repo.py",
+      "line": 598,
+      "title": "One tenant can still reserve the entire crawl pool",
+      "evidence": "`claim_dispatch_candidates` applies `tenant_concurrency_limit` only when it is non-None. `reconcile_crawl_work` passes `Settings.crawl_job_tenant_concurrency_limit`, whose new default is None, while this PR retires the previous tenant limit. The added admission test confirms that under the default a first tenant claims every global slot and a later tenant remains pending until one of those crawls terminates.",
+      "impact": "A tenant that submits enough long crawls can occupy the entire crawler pool for up to a crawl duration, delaying every other tenant even though the prior default reserved capacity per tenant.",
+      "smallest_fix": "Give `crawl_job_tenant_concurrency_limit` a finite effective default that preserves the previous per-tenant ceiling (bounded by the global capacity), while keeping an explicit override for installations that want another value. Add an admission test where tenant A has enough pending runs to fill the pool and tenant B still receives a slot before any A run terminates.",
+      "reference": "F21"
+    },
+    {
+      "severity": "High (P1)",
+      "category": "performance",
+      "path": "backend/src/eneo/websites/domain/crawl_run_repo.py",
+      "line": 598,
+      "title": "One tenant can reserve the entire crawl pool",
+      "evidence": "`claim_dispatch_candidates` applies `tenant_concurrency_limit` only when it is non-None. `reconcile_crawl_work` passes `Settings.crawl_job_tenant_concurrency_limit`, whose new default is None, while this PR retires the previous tenant limit. The added admission test confirms that under the default a first tenant claims every global slot and a later tenant remains pending until one of those crawls terminates.",
+      "impact": "A tenant that submits enough long crawls can occupy the entire crawler pool for up to a crawl duration, delaying every other tenant even though the prior default reserved capacity per tenant.",
+      "smallest_fix": "Give `crawl_job_tenant_concurrency_limit` a finite effective default that preserves the previous per-tenant ceiling (bounded by the global capacity), while keeping an explicit override for installations that want another value. Add an admission test where tenant A has enough pending runs to fill the pool and tenant B still receives a slot before any A run terminates.",
+      "reference": "F22"
+    },
+    {
+      "severity": "Medium (P2)",
+      "category": "correctness",
+      "path": "backend/src/eneo/crawler/python_engine.py",
+      "line": 319,
+      "title": "The crawler rejects media types it is designed to fetch",
+      "evidence": "The new crawler sets every request to `Accept: text/html,application/json`. `_load_robots`, `_sitemap_urls`, and `_download_file` all use that session without an Accept override. A content-negotiating origin can therefore return 406 for text/plain robots (which this code treats as no policy) and for XML sitemaps or document responses (which become crawl failures).",
+      "impact": "On origins that enforce content negotiation, `obey_robots` can fail open and sitemap or linked-document ingestion can fail even though those resource types are supported by the crawler.",
+      "smallest_fix": "Advertise the actual crawler contract in the shared header\u2014for example HTML/JSON/XML plus a `*/*` fallback, matching the previous general-purpose crawler behavior. Add an engine-level HTTP test whose robots, sitemap, and document handlers return 406 unless their media type is acceptable, then verify the robots rule is enforced and the sitemap/document paths are consumed.",
+      "reference": "F20"
+    }
+  ],
+  "unknown_fields": [
+    "rule_id",
+    "symbol",
+    "anchor",
+    "recording_order",
+    "tool_calls"
+  ]
+}

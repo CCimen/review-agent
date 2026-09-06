@@ -122,6 +122,17 @@ def current_publication(
 ) -> PublicationTarget | None:
     """Lock the current posted GitHub publication for one repository pull request."""
     _require_transaction(connection)
+    connection.execute(
+        """
+        SELECT pull_request.id
+        FROM review_agent.pull_requests AS pull_request
+        JOIN review_agent.repositories AS repository ON repository.id = pull_request.repository_id
+        WHERE repository.provider = 'github' AND lower(repository.full_name) = lower(%s)
+          AND pull_request.number = %s
+        FOR NO KEY UPDATE OF pull_request
+        """,
+        (repository, pr_number),
+    ).fetchone()
     with connection.cursor(row_factory=class_row(PublicationTarget)) as cursor:
         row = cursor.execute(
             """
@@ -165,16 +176,22 @@ def current_finding(
                    occurrence.title,
                    occurrence.context_hash
             FROM review_agent.publication_findings AS publication_finding
+            JOIN review_agent.pull_request_finding_references AS requested
+              ON requested.pull_request_id = publication_finding.pull_request_id
+             AND requested.local_reference = %s
+            LEFT JOIN review_agent.pull_request_finding_groups AS member
+              ON member.pull_request_id = requested.pull_request_id
+             AND member.finding_id = requested.finding_id
             JOIN review_agent.finding_identities AS finding
               ON finding.id = publication_finding.finding_id
             JOIN review_agent.finding_occurrences AS occurrence
               ON occurrence.id = publication_finding.source_finding_occurrence_id
              AND occurrence.finding_id = publication_finding.finding_id
             WHERE publication_finding.publication_id = %s
-              AND publication_finding.local_reference = %s
+              AND publication_finding.finding_id = COALESCE(member.canonical_finding_id, requested.finding_id)
               AND publication_finding.outcome = 'current'
             """,
-            (publication_id, local_reference),
+            (local_reference, publication_id),
         ).fetchone()
     if row is None:
         return None

@@ -78,7 +78,7 @@ class ClosedFinding(TypedDict):
     fingerprint: str
     observation_id: int | None
     context_hash: str
-    verdict: Literal["resolved", "invalidated", "suppressed"]
+    verdict: Literal["resolved", "invalidated", "suppressed", "reconciled"]
     title: str
     evidence: str
 
@@ -361,6 +361,11 @@ def lifecycle_summary(
                     "suppressed by human decision",
                 )
             )
+        if grouped["reconciled"]:
+            clauses.append(ref_clause(
+                [item["local_reference"] for item in grouped["reconciled"]],
+                "reconciled as duplicates", "reconciled as duplicates",
+            ))
     if still_present:
         clauses.append(ref_clause(still_present, "still present", "still present"))
     if partially_resolved:
@@ -519,6 +524,7 @@ def _closed_by_verdict(
         "resolved": [],
         "invalidated": [],
         "suppressed": [],
+        "reconciled": [],
     }
     for item in items:
         grouped[item["verdict"]].append(item)
@@ -925,7 +931,9 @@ def render_review(
 
     if closed:
         closed_lines = [
-            "#### Closed since the previous review",
+            "#### Closed or reconciled findings"
+            if any(item["verdict"] == "reconciled" for item in closed)
+            else "#### Closed since the previous review",
         ]
         for item in closed:
             title = safe_text(item.get("title", ""), maximum=180)

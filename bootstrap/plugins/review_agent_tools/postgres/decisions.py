@@ -65,6 +65,11 @@ class _DecisionRow:
 
 
 @dataclass(frozen=True, slots=True)
+class _GroupDecisionRow(_DecisionRow):
+    target_finding_id: FindingId
+
+
+@dataclass(frozen=True, slots=True)
 class _IntentionalEvidenceRow:
     finding_decision_id: FindingDecisionId
     finding_id: FindingId
@@ -118,6 +123,23 @@ def _append_decision(
     occurrence_id: FindingOccurrenceId,
     definition: FindingDecisionDefinition,
 ) -> FindingDecision:
+    scope = connection.execute(
+        "SELECT pull_request_id, review_run_id FROM review_agent.finding_occurrences "
+        "WHERE id = %s AND finding_id = %s", (occurrence_id, finding_id),
+    ).fetchone()
+    if scope is None:
+        raise DecisionStoreError("decision occurrence does not belong to the selected finding")
+    # Match publication's PR -> run -> identity lock order. Group validation
+    # and activation must see a stable decision snapshot, even across PRs.
+    connection.execute(
+        "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE", (scope[0],),
+    ).fetchone()
+    connection.execute(
+        "SELECT id FROM review_agent.review_runs WHERE id = %s FOR UPDATE", (scope[1],),
+    ).fetchone()
+    connection.execute(
+        "SELECT id FROM review_agent.finding_identities WHERE id = %s FOR NO KEY UPDATE", (finding_id,),
+    ).fetchone()
     occurrence = connection.execute(
         """
         SELECT context_hash
@@ -372,12 +394,55 @@ def latest_suppression_decisions(
     current_run_id: ReviewRunId,
 ) -> dict[FindingId, SuppressionDecision]:
     """Load latest decisions and validate intentional evidence once per run."""
-    decisions = latest_decisions(connection, finding_ids=finding_ids)
-    intentional_ids = [
+    _require_transaction(connection)
+    unique_ids = sorted(set(finding_ids))
+    if not unique_ids:
+        return {}
+    with connection.cursor(row_factory=class_row(_GroupDecisionRow)) as cursor:
+        rows = cursor.execute(
+            """
+            SELECT requested.finding_id AS target_finding_id, decision.*
+            FROM unnest(%s::bigint[]) AS requested(finding_id)
+            JOIN review_agent.review_runs AS run ON run.id = %s
+            LEFT JOIN review_agent.pull_request_finding_groups AS member
+              ON member.pull_request_id = run.pull_request_id AND member.finding_id = requested.finding_id
+            LEFT JOIN review_agent.finding_group_changes AS pending
+              ON pending.review_run_id = run.id AND pending.finding_id = requested.finding_id
+            CROSS JOIN LATERAL (
+                SELECT COALESCE(pending.canonical_finding_id, member.canonical_finding_id,
+                                requested.finding_id) AS finding_id
+            ) AS root
+            JOIN LATERAL (
+                SELECT id, finding_id, finding_occurrence_id, decision, reason, actor,
+                       context_hash, adr_id, created_at, expires_at
+                FROM review_agent.finding_decisions
+                WHERE finding_id IN (
+                    SELECT root.finding_id
+                    UNION
+                    SELECT stored.finding_id
+                    FROM review_agent.pull_request_finding_groups AS stored
+                    WHERE stored.pull_request_id = run.pull_request_id
+                      AND stored.canonical_finding_id = root.finding_id
+                      AND NOT EXISTS (
+                          SELECT 1 FROM review_agent.finding_group_changes AS replacement
+                          WHERE replacement.review_run_id = run.id AND replacement.finding_id = stored.finding_id
+                      )
+                    UNION
+                    SELECT replacement.finding_id
+                    FROM review_agent.finding_group_changes AS replacement
+                    WHERE replacement.review_run_id = run.id AND replacement.canonical_finding_id = root.finding_id
+                )
+                ORDER BY id DESC LIMIT 1
+            ) AS decision ON true
+            """,
+            (unique_ids, current_run_id),
+        ).fetchall()
+    decisions = {row.target_finding_id: _decision(row) for row in rows}
+    intentional_ids = sorted({
         int(decision.id)
         for decision in decisions.values()
         if decision.decision is DecisionKind.INTENTIONAL_BY_DESIGN
-    ]
+    })
     current_evidence: set[FindingId] = set()
     if intentional_ids:
         context = decision_snapshots.load_context(
@@ -425,7 +490,7 @@ def latest_suppression_decisions(
     return {
         finding_id: SuppressionDecision(
             latest=decision,
-            intentional_evidence_current=finding_id in current_evidence,
+            intentional_evidence_current=decision.finding_id in current_evidence,
         )
         for finding_id, decision in decisions.items()
     }

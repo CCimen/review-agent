@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
-from typing import NewType
+from typing import NewType, cast
 
 from .review import ReviewRunId, resolve_review_path
 
@@ -22,6 +22,7 @@ FindingDecisionId = NewType("FindingDecisionId", int)
 MAX_FINDINGS_PER_REVIEW = 200
 MIN_FINGERPRINT_PREFIX = 8
 MIN_CONFIDENCE = 0.85
+FINDING_RELATIONSHIP_EVIDENCE_MAX = 600
 
 _RULE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,80}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{40,64}$")
@@ -30,6 +31,64 @@ _FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 
 class FindingDomainError(ValueError):
     """A finding value violates the persisted domain contract."""
+
+
+class FindingRelationshipKind(StrEnum):
+    SAME_ROOT_CAUSE = "same_root_cause"
+    DISTINCT = "distinct"
+
+
+@dataclass(frozen=True, slots=True)
+class FindingRelationship:
+    local_references: tuple[str, ...]
+    relationship: FindingRelationshipKind
+    evidence: str
+
+
+def resolve_finding_relationships(raw: object) -> tuple[FindingRelationship, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise FindingDomainError("finding_relationships must be an array")
+    values = cast(list[object], raw)
+    if len(values) > MAX_FINDINGS_PER_REVIEW:
+        raise FindingDomainError("too many finding relationships")
+    relationships: list[FindingRelationship] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, Mapping):
+            raise FindingDomainError("each finding relationship must be an object")
+        item = cast(Mapping[object, object], value)
+        if set(item) != {"local_references", "relationship", "evidence"}:
+            raise FindingDomainError("finding relationship fields are incomplete or unsupported")
+        try:
+            relationship = FindingRelationshipKind(str(item["relationship"]))
+        except ValueError as exc:
+            raise FindingDomainError("finding relationship is unsupported") from exc
+        references = item["local_references"]
+        if not isinstance(references, list):
+            raise FindingDomainError("local_references must be an array")
+        refs = cast(list[object], references)
+        minimum = 2 if relationship is FindingRelationshipKind.SAME_ROOT_CAUSE else 1
+        if not minimum <= len(refs) <= MAX_FINDINGS_PER_REVIEW:
+            raise FindingDomainError("finding relationship has an invalid number of references")
+        normalized: list[str] = []
+        for ref in refs:
+            if not isinstance(ref, str) or not re.fullmatch(r"F[1-9][0-9]*", ref):
+                raise FindingDomainError("finding references must be F1, F2, ...")
+            if ref in seen:
+                raise FindingDomainError(f"finding relationships overlap at {ref}")
+            seen.add(ref)
+            normalized.append(ref)
+        if len(seen) > MAX_FINDINGS_PER_REVIEW:
+            raise FindingDomainError("finding relationships contain too many references")
+        evidence = item["evidence"]
+        if not isinstance(evidence, str) or not evidence.strip():
+            raise FindingDomainError("finding relationship evidence is required")
+        if len(evidence) > FINDING_RELATIONSHIP_EVIDENCE_MAX:
+            raise FindingDomainError("finding relationship evidence is too long")
+        relationships.append(FindingRelationship(tuple(normalized), relationship, evidence.strip()))
+    return tuple(relationships)
 
 
 class Severity(StrEnum):

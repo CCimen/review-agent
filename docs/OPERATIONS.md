@@ -742,6 +742,23 @@ After a source update, redeploy. `review-profile-install` refreshes the managed
 profile, and `review-db-migrate` verifies and applies PostgreSQL migrations
 before the gateway starts.
 
+Finding reconciliation requires migration 016 and matching worker, gateway, and
+publisher versions. Capture a database backup before upgrading. A publication
+that reconciles duplicates adds the `reconciled` outcome, which older versions
+cannot interpret; rollback after this migration requires the matching prior
+database backup as well as the prior image. Preserve the audit records when
+recovering forward.
+
+If human finding decisions change while a proposed group awaits publication,
+the publisher marks that publication stale with `finding_decisions_changed`.
+Request a fresh `/review` so the reviewer sees the updated decisions. Because
+identities are repository-scoped, feedback on the same identity in another PR
+can also invalidate the pending group. If a newer review publishes its groups
+while an older GitHub write is in flight, the older publication becomes stale
+with `finding_groups_changed` and the newer groups remain current. A failed or
+stale publication never activates its proposed groups; a comment already sent
+to GitHub may still be visible.
+
 Run local bundle checks:
 
 ```bash

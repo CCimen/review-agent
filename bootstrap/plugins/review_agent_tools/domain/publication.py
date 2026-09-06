@@ -83,6 +83,7 @@ class PublicationFindingOutcome(StrEnum):
     INVALIDATED = "invalidated"
     SUPPRESSED = "suppressed"
     NOT_CHECKED = "not_checked"
+    RECONCILED = "reconciled"
 
 
 class PublicationReviewSide(StrEnum):

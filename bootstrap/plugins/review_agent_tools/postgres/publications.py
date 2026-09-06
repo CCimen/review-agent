@@ -34,6 +34,7 @@ from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
 from ..repository_decision_context import RepositoryDecisionContext
 from . import repository_decisions as postgres_repository_decisions
 from . import decisions as postgres_decisions
+from . import findings as postgres_findings
 
 
 class PublicationStoreError(ValueError):
@@ -46,6 +47,10 @@ class PublicationNotFound(PublicationStoreError):
 
 class PublicationConflict(PublicationStoreError):
     """Submitted publication facts conflict with the persisted review."""
+
+
+class PublicationFindingDecisionsChanged(PublicationStoreError):
+    """A human decision changed a root-cause proposal after it was frozen."""
 
 
 class InvalidPublicationTransition(PublicationStoreError):
@@ -269,6 +274,7 @@ class PublicationPreparationContext:
     dropped_reasons: tuple[tuple[int, str], ...]
     coverage: PreparationCoverage
     repository_decisions: RepositoryDecisionContext
+    reconciliations: tuple[postgres_findings.FindingReconciliation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -499,6 +505,9 @@ def preparation_context(
 
     return PublicationPreparationContext(
         run_id=int(run_id),
+        reconciliations=postgres_findings.finding_reconciliations(
+            connection, run_id=run_id, finding_ids=finding_ids,
+        ),
         repository=scope.repository,
         pr_number=scope.pr_number,
         base_sha=scope.base_sha,
@@ -1395,11 +1404,23 @@ def complete_publication(
 ) -> StoredPublication:
     """Mark delivery posted only after every exact part has an external ID."""
     _require_transaction(connection)
+    initial = _publication_row(connection, publication_id)
+    if initial is None:
+        raise PublicationNotFound("publication does not exist")
+    connection.execute(
+        "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE", (initial.pull_request_id,),
+    ).fetchone()
+    connection.execute(
+        "SELECT id FROM review_agent.review_runs WHERE id = %s FOR UPDATE", (initial.review_run_id,),
+    ).fetchone()
+    decisions_current = postgres_findings.finding_relationships_are_current(connection, run_id=initial.review_run_id)
     row = _publication_row(connection, publication_id, for_update=True)
     if row is None:
         raise PublicationNotFound("publication does not exist")
     if row.status == PublicationStatus.POSTED.value:
         return _stored(connection, row)
+    if not decisions_current:
+        raise PublicationFindingDecisionsChanged("human finding decisions changed after publication preparation")
     generation = (
         row.delivery_lease_generation
         if lease_generation is None
@@ -1460,6 +1481,7 @@ def complete_publication(
     posted = _publication_row(connection, publication_id)
     if posted is None:
         raise PublicationNotFound("publication disappeared during completion")
+    postgres_findings.activate_finding_relationships(connection, run_id=posted.review_run_id)
     return _stored(connection, posted)
 
 
@@ -1591,7 +1613,17 @@ def prepare_publication(
             "publication preparation requires a rendering-phase review run"
         )
 
+    reconciled_ids = {
+        item.finding_id for item in postgres_findings.finding_reconciliations(
+            connection, run_id=run_id,
+            finding_ids=tuple(FindingId(item.finding_id) for item in plan.findings),
+        )
+    }
     for finding in plan.findings:
+        if finding.outcome is PublicationFindingOutcome.RECONCILED and finding.finding_id not in reconciled_ids:
+            raise PublicationConflict("reconciled finding has no recorded root-cause relationship")
+        if finding.outcome is PublicationFindingOutcome.CURRENT and finding.finding_id in reconciled_ids:
+            raise PublicationConflict("a reconciled duplicate cannot be published as current")
         if (
             finding.outcome is PublicationFindingOutcome.CURRENT
             and finding.source_review_run_id != int(run_id)
@@ -1600,7 +1632,7 @@ def prepare_publication(
                 "current publication finding must come from the publication run"
             )
         if (
-            finding.outcome is not PublicationFindingOutcome.CURRENT
+            finding.outcome not in {PublicationFindingOutcome.CURRENT, PublicationFindingOutcome.RECONCILED}
             and finding.source_review_run_id == int(run_id)
         ):
             raise PublicationConflict(

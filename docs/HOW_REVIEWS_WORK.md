@@ -64,6 +64,20 @@ what the tools returned; they do not measure the reviewer's understanding.
 
 ## Publish deterministically
 
+When several references describe the same root cause, the reviewer can propose
+an explicit grouping with supporting evidence. Code keeps the oldest PR-local
+reference and publishes the others as **reconciled**, outside the current count.
+Separate defects remain separate even when they share a file or function. Exact
+duplicate claims block publication until reconciled; similar wording alone never
+causes an automatic merge.
+
+Grouping preserves every original identity, occurrence, and human decision. The
+new group takes effect only when publication succeeds. Later reviews reuse the
+canonical identity, and feedback on an older duplicate reference reaches the
+current canonical finding. The reviewer can split a mistaken group with explicit
+evidence, but a human must first reopen any active suppression that still matches
+the code context.
+
 Before writing, plugin code verifies that the pull request still has the exact
 reviewed head SHA. It renders stored findings into a stable summary and splits
 large output predictably. Optional GitHub suggestions are published only when

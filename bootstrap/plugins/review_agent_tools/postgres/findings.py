@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import psycopg
@@ -15,12 +15,15 @@ from ..domain.finding import (
     FindingDefinition,
     FindingId,
     FindingOccurrenceId,
+    FindingRelationship,
+    FindingRelationshipKind,
     MAX_FINDINGS_PER_REVIEW,
     FingerprintQuery,
     RepeatFinding,
     FindingCategory,
     Severity,
     require_unique_finding_identities,
+    suppression_is_active,
 )
 from ..domain.review import PullRequestId, RepositoryId, ReviewRunId
 
@@ -39,6 +42,10 @@ class FindingRunBusy(FindingStoreError):
 
 class FindingConflict(FindingStoreError):
     """Stored identity or occurrence data conflicts with the submitted fact."""
+
+
+class FindingGroupsChanged(FindingConflict):
+    """A newer publication changed the groups used by an in-flight plan."""
 
 
 class FindingPathNotChanged(FindingStoreError):
@@ -69,6 +76,24 @@ class FindingBatch:
     pull_request_id: PullRequestId
     run_id: ReviewRunId
     items: tuple[RecordedFinding, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FindingReconciliation:
+    finding_id: FindingId
+    canonical_finding_id: FindingId
+    canonical_reference: str
+    evidence: str
+
+
+@dataclass(frozen=True, slots=True)
+class _GroupMember:
+    finding_id: FindingId
+    local_reference: str
+    path: str
+    canonical_finding_id: FindingId
+    current_context_hash: str | None
+    dropped: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -540,6 +565,12 @@ def repeat_history(
                 WHERE occurrence.pull_request_id = %s
                   AND occurrence.repository_id = %s
                   AND occurrence.review_run_id <> %s
+                  AND NOT EXISTS (
+                      SELECT 1 FROM review_agent.pull_request_finding_groups AS member
+                      WHERE member.pull_request_id = occurrence.pull_request_id
+                        AND member.finding_id = occurrence.finding_id
+                        AND member.canonical_finding_id <> member.finding_id
+                  )
                 ORDER BY occurrence.finding_id, occurrence.observed_at DESC,
                          occurrence.id DESC
             ) AS latest
@@ -572,3 +603,304 @@ def repeat_history(
         )
         for row in rows
     )
+
+
+def stage_finding_relationships(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    relationships: tuple[FindingRelationship, ...],
+) -> None:
+    """Validate reviewer proposals and retain their exact publication audit."""
+    from . import decisions as postgres_decisions
+
+    _require_transaction(connection)
+    if not relationships:
+        return
+    scope = _scope(connection, run_id, for_write=True)
+    references = [ref for item in relationships for ref in item.local_references]
+    requested = connection.execute(
+        """
+        SELECT reference.finding_id, reference.local_reference,
+               COALESCE(member.canonical_finding_id, reference.finding_id)
+        FROM review_agent.pull_request_finding_references AS reference
+        LEFT JOIN review_agent.pull_request_finding_groups AS member
+          ON member.pull_request_id = reference.pull_request_id
+         AND member.finding_id = reference.finding_id
+        WHERE reference.pull_request_id = %s
+          AND reference.local_reference = ANY(%s::text[])
+        """,
+        (scope.pull_request_id, references),
+    ).fetchall()
+    by_reference = {str(row[1]): FindingId(int(row[0])) for row in requested}
+    missing = set(references).difference(by_reference)
+    if missing:
+        raise FindingConflict(
+            f"finding reference does not belong to this PR: {sorted(missing)[0]}"
+        )
+    roots = sorted({int(row[2]) for row in requested})
+    with connection.cursor(row_factory=class_row(_GroupMember)) as cursor:
+        rows = cursor.execute(
+            """
+            SELECT reference.finding_id, reference.local_reference, identity.path,
+                   COALESCE(member.canonical_finding_id, reference.finding_id) AS canonical_finding_id,
+                   occurrence.context_hash AS current_context_hash,
+                   COALESCE(reconciliation.final_decision = 'drop', false) AS dropped
+            FROM review_agent.pull_request_finding_references AS reference
+            JOIN review_agent.finding_identities AS identity ON identity.id = reference.finding_id
+            LEFT JOIN review_agent.pull_request_finding_groups AS member
+              ON member.pull_request_id = reference.pull_request_id
+             AND member.finding_id = reference.finding_id
+            LEFT JOIN review_agent.finding_occurrences AS occurrence
+              ON occurrence.review_run_id = %s AND occurrence.finding_id = reference.finding_id
+            LEFT JOIN review_agent.candidate_reconciliations AS reconciliation
+              ON reconciliation.review_run_id = occurrence.review_run_id
+             AND reconciliation.finding_occurrence_id = occurrence.id
+            WHERE reference.pull_request_id = %s
+              AND (reference.finding_id = ANY(%s::bigint[])
+                   OR member.canonical_finding_id = ANY(%s::bigint[]))
+            ORDER BY substring(reference.local_reference FROM 2)::integer
+            LIMIT %s
+            """,
+            (run_id, scope.pull_request_id, roots, roots, MAX_FINDINGS_PER_REVIEW + 1),
+        ).fetchall()
+    if len(rows) > MAX_FINDINGS_PER_REVIEW:
+        raise FindingConflict(
+            "finding relationships affect too many existing group members"
+        )
+    members = {row.finding_id: row for row in rows}
+    connection.execute(
+        "SELECT id FROM review_agent.finding_identities WHERE id = ANY(%s::bigint[]) "
+        "ORDER BY id FOR NO KEY UPDATE",
+        (sorted(members),),
+    ).fetchall()
+    decision_snapshot = postgres_decisions.latest_decisions(
+        connection, finding_ids=tuple(members)
+    )
+    decisions = postgres_decisions.latest_suppression_decisions(
+        connection,
+        finding_ids=tuple(FindingId(value) for value in roots),
+        current_run_id=run_id,
+    )
+    moment = datetime.now(timezone.utc)
+    affected: set[FindingId] = set()
+    changes: list[tuple[FindingId, FindingId, FindingId, str]] = []
+    for proposal in relationships:
+        selected = {by_reference[ref] for ref in proposal.local_references}
+        selected_roots = {
+            members[finding_id].canonical_finding_id for finding_id in selected
+        }
+        group = [row for row in rows if row.canonical_finding_id in selected_roots]
+        group_ids = {row.finding_id for row in group}
+        if affected.intersection(group_ids):
+            raise FindingConflict(
+                "finding relationships overlap through an existing group"
+            )
+        affected.update(group_ids)
+        current_contexts = {
+            row.current_context_hash
+            for row in group
+            if row.current_context_hash is not None
+        }
+        if not current_contexts:
+            raise FindingConflict(
+                "finding relationships require a finding rechecked in this run"
+            )
+        if len({row.path for row in group}) != 1 or len(current_contexts) != 1:
+            raise FindingConflict(
+                "finding relationships must share one path and current file version"
+            )
+        context_hash = next(iter(current_contexts))
+        dispositions: set[tuple[str, str | None]] = set()
+        suppressed = False
+        for root in selected_roots:
+            decision = decisions.get(root)
+            if decision is None or decision.latest.context_hash != context_hash:
+                continue
+            latest = decision.latest
+            if latest.expires_at is not None and latest.expires_at <= moment:
+                continue
+            active = suppression_is_active(
+                decision=latest.decision,
+                decision_context_hash=latest.context_hash,
+                current_context_hash=context_hash,
+                expires_at=latest.expires_at,
+                intentional_evidence_current=decision.intentional_evidence_current,
+                now=moment,
+            )
+            suppressed = suppressed or active
+            if active or latest.decision.value in {"reopen", "resolved"}:
+                dispositions.add((latest.decision.value, latest.adr_id))
+        if proposal.relationship is FindingRelationshipKind.SAME_ROOT_CAUSE:
+            if len(dispositions) > 1:
+                raise FindingConflict(
+                    "conflicting human decisions require human adjudication before grouping"
+                )
+            # Confirmed aliases represent one issue, so an existing human
+            # suppression covers even a newly recorded alias. Grouping cannot
+            # reopen that issue; splitting its scope requires a human reopen.
+            canonical = group[0]
+            if canonical.current_context_hash is None or canonical.dropped:
+                raise FindingConflict(
+                    f"record the rechecked canonical finding {canonical.local_reference} "
+                    "with its existing stable identity before grouping"
+                )
+            assigned = {row.finding_id: canonical.finding_id for row in group}
+        else:
+            if suppressed:
+                raise FindingConflict(
+                    "an active human suppression must be reopened by a human before splitting this group"
+                )
+            assigned = {finding_id: finding_id for finding_id in selected}
+            for root in selected_roots:
+                remaining = [
+                    row
+                    for row in group
+                    if row.canonical_finding_id == root
+                    and row.finding_id not in selected
+                ]
+                if remaining:
+                    assigned.update(
+                        {row.finding_id: remaining[0].finding_id for row in remaining}
+                    )
+        changes.extend(
+            (
+                row.finding_id,
+                row.canonical_finding_id,
+                assigned[row.finding_id],
+                proposal.evidence,
+            )
+            for row in group
+        )
+    connection.execute(
+        """
+        INSERT INTO review_agent.finding_group_changes (
+            review_run_id, pull_request_id, finding_id,
+            previous_canonical_finding_id, canonical_finding_id, evidence, latest_decision_id
+        )
+        SELECT %s, %s, incoming.finding_id, incoming.previous_id, incoming.canonical_id, incoming.evidence, incoming.decision_id
+        FROM unnest(%s::bigint[], %s::bigint[], %s::bigint[], %s::text[], %s::bigint[])
+          AS incoming(finding_id, previous_id, canonical_id, evidence, decision_id)
+        """,
+        (
+            run_id,
+            scope.pull_request_id,
+            [item[0] for item in changes],
+            [item[1] for item in changes],
+            [item[2] for item in changes],
+            [item[3] for item in changes],
+            [
+                decision_snapshot[item[0]].id if item[0] in decision_snapshot else None
+                for item in changes
+            ],
+        ),
+    )
+
+
+def finding_reconciliations(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    finding_ids: tuple[FindingId, ...],
+) -> tuple[FindingReconciliation, ...]:
+    """Read published groups, overlaid with this run's frozen proposals."""
+    _require_transaction(connection)
+    with connection.cursor(row_factory=class_row(FindingReconciliation)) as cursor:
+        return tuple(
+            cursor.execute(
+                """
+            SELECT requested.finding_id,
+                   COALESCE(pending.canonical_finding_id, member.canonical_finding_id) AS canonical_finding_id,
+                   reference.local_reference AS canonical_reference,
+                   COALESCE(pending.evidence, previous.evidence) AS evidence
+            FROM unnest(%s::bigint[]) AS requested(finding_id)
+            JOIN review_agent.review_runs AS run ON run.id = %s
+            LEFT JOIN review_agent.pull_request_finding_groups AS member
+              ON member.pull_request_id = run.pull_request_id AND member.finding_id = requested.finding_id
+            LEFT JOIN review_agent.finding_group_changes AS pending
+              ON pending.review_run_id = run.id AND pending.finding_id = requested.finding_id
+            LEFT JOIN review_agent.finding_group_changes AS previous
+              ON previous.review_run_id = member.review_run_id AND previous.finding_id = member.finding_id
+            JOIN review_agent.pull_request_finding_references AS reference
+              ON reference.pull_request_id = run.pull_request_id
+             AND reference.finding_id = COALESCE(pending.canonical_finding_id, member.canonical_finding_id)
+            WHERE reference.finding_id <> requested.finding_id
+            ORDER BY requested.finding_id
+            """,
+                (sorted(set(finding_ids)), run_id),
+            ).fetchall()
+        )
+
+
+def activate_finding_relationships(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId
+) -> None:
+    """Advance the PR projection atomically with its successful publication."""
+    _require_transaction(connection)
+    posted = connection.execute(
+        "SELECT 1 FROM review_agent.publications WHERE review_run_id = %s AND status = 'posted'",
+        (run_id,),
+    ).fetchone()
+    if posted is None:
+        raise FindingConflict("finding groups require a posted publication")
+    conflict = connection.execute(
+        """
+        SELECT change.finding_id
+        FROM review_agent.finding_group_changes AS change
+        LEFT JOIN review_agent.pull_request_finding_groups AS member
+          ON member.pull_request_id = change.pull_request_id AND member.finding_id = change.finding_id
+        WHERE change.review_run_id = %s
+          AND COALESCE(member.canonical_finding_id, change.finding_id) <> change.previous_canonical_finding_id
+        LIMIT 1
+        """,
+        (run_id,),
+    ).fetchone()
+    if conflict is not None:
+        raise FindingGroupsChanged(
+            "finding groups changed after publication preparation"
+        )
+    connection.execute(
+        """
+        INSERT INTO review_agent.pull_request_finding_groups (
+            pull_request_id, finding_id, canonical_finding_id, review_run_id
+        )
+        SELECT pull_request_id, finding_id, canonical_finding_id, review_run_id
+        FROM review_agent.finding_group_changes WHERE review_run_id = %s
+        ON CONFLICT (pull_request_id, finding_id) DO UPDATE
+        SET canonical_finding_id = EXCLUDED.canonical_finding_id, review_run_id = EXCLUDED.review_run_id
+        """,
+        (run_id,),
+    )
+
+
+def finding_relationships_are_current(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId
+) -> bool:
+    """Keep a pending group tied to the human decisions used to validate it."""
+    _require_transaction(connection)
+    # Decision appends take the same identity locks. Completion holds these
+    # until its projection commits, including for decisions from another PR.
+    connection.execute(
+        """
+        SELECT identity.id
+        FROM review_agent.finding_identities AS identity
+        JOIN review_agent.finding_group_changes AS change ON change.finding_id = identity.id
+        WHERE change.review_run_id = %s
+        ORDER BY identity.id FOR NO KEY UPDATE OF identity
+        """,
+        (run_id,),
+    ).fetchall()
+    changed = connection.execute(
+        """
+        SELECT 1 FROM review_agent.finding_group_changes AS change
+        LEFT JOIN LATERAL (
+            SELECT id FROM review_agent.finding_decisions
+            WHERE finding_id = change.finding_id ORDER BY id DESC LIMIT 1
+        ) AS latest ON true
+        WHERE change.review_run_id = %s
+          AND latest.id IS DISTINCT FROM change.latest_decision_id
+        LIMIT 1
+        """,
+        (run_id,),
+    ).fetchone()
+    return changed is None

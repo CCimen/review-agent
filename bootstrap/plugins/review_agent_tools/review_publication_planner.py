@@ -147,9 +147,9 @@ def _published_finding(item: PreparationFinding) -> PublishedFinding:
 
 
 def _closed(
-    item: PreviousPublicationFinding,
+    item: PreviousPublicationFinding | PreparationFinding,
     *,
-    verdict: Literal["resolved", "invalidated", "suppressed"],
+    verdict: Literal["resolved", "invalidated", "suppressed", "reconciled"],
     evidence: str,
 ) -> ClosedFinding:
     return {
@@ -300,11 +300,33 @@ def build_publication(
 ) -> PlannedPublication:
     """Resolve prior state, render bytes, and build the provider payloads."""
     dropped_reasons = dict(context.dropped_reasons)
+    reconciliations = {int(item.finding_id): item for item in context.reconciliations}
+    current_ids = {item.finding_id for item in context.current
+                   if item.occurrence_id not in context.dropped_occurrence_ids}
+    for item in context.current:
+        reconciliation = reconciliations.get(item.finding_id)
+        if reconciliation is not None and reconciliation.canonical_finding_id not in current_ids:
+            raise PublicationPlanningError(
+                f"record the rechecked canonical finding {reconciliation.canonical_reference} "
+                "with its existing stable identity before publishing a known duplicate"
+            )
     admitted = tuple(
         item
         for item in context.current
         if not item.suppressed and item.occurrence_id not in context.dropped_occurrence_ids
+        and item.finding_id not in reconciliations
     )
+    claims: dict[tuple[str, str, str, str], str] = {}
+    for item in admitted:
+        claim = (item.path, item.evidence, item.impact, item.smallest_fix)
+        prior_reference = claims.get(claim)
+        if prior_reference is not None:
+            raise PublicationPlanningError(
+                f"{prior_reference} and {item.local_reference} state the same claim; "
+                "reconcile their root cause before publishing; if they are independent, "
+                "a new review must record evidence distinguishing them"
+            )
+        claims[claim] = item.local_reference
     current_by_fingerprint = {item.fingerprint: item for item in admitted}
     previous_by_fingerprint = {item.fingerprint: item for item in context.previous}
     ignored_refs = frozenset(
@@ -312,7 +334,7 @@ def build_publication(
         for item in context.current
         if item.occurrence_id in context.dropped_occurrence_ids
         and item.fingerprint in previous_by_fingerprint
-    )
+    ) | frozenset(item.local_reference for item in context.previous if item.finding_id in reconciliations)
     verdicts, ignored = _previous_verdicts(
         previous_verdicts,
         current_references=frozenset(
@@ -326,6 +348,22 @@ def build_publication(
     still_present: list[str] = []
     partially_resolved: list[str] = []
     publication_findings: list[PublicationFindingInput] = []
+    reconciled_items = {
+        item.finding_id: item for item in (*context.previous, *context.current)
+        if item.finding_id in reconciliations
+    }
+    for item in reconciled_items.values():
+        reconciliation = reconciliations[item.finding_id]
+        evidence = compact_text(
+            f"Same root cause as {reconciliation.canonical_reference}. {reconciliation.evidence}",
+            maximum=PRIOR_VERDICT_EVIDENCE_MAX,
+        )
+        closed.append(_closed(item, verdict="reconciled", evidence=evidence))
+        publication_findings.append(PublicationFindingInput(
+            finding_id=item.finding_id, source_finding_occurrence_id=item.occurrence_id,
+            source_review_run_id=item.source_run_id, local_reference=item.local_reference,
+            outcome=PublicationFindingOutcome.RECONCILED, outcome_evidence=evidence,
+        ))
     for item in admitted:
         publication_findings.append(
             PublicationFindingInput(
@@ -338,6 +376,8 @@ def build_publication(
         )
 
     for previous in context.previous:
+        if previous.finding_id in reconciliations:
+            continue
         current = current_by_fingerprint.get(previous.fingerprint)
         matching_current = next(
             (

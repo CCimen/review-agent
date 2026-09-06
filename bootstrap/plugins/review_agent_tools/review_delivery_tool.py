@@ -114,6 +114,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
             postgres_runtime(),
             run_id=run_id,
             previous_verdicts=args.get("previous_verdicts"),
+            finding_relationships=args.get("finding_relationships"),
             feedback_enabled=configured.feedback_enabled,
             max_comment_bytes=configured.publish_max_bytes,
             delivery_max_attempts=configured.publication_max_attempts,
@@ -165,7 +166,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                     "run_id": run_id,
                     "error": str(exc),
                     "next_action": (
-                        "Align previous_verdicts with the recorded findings. Re-record "
+                        "Align finding_relationships and previous_verdicts with the recorded findings. Re-record "
                         "any omitted still-current finding or use not_checked when it "
                         "was not rechecked, then call review_agent_deliver again with "
                         "this same run_id."

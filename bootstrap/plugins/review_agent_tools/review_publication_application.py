@@ -98,6 +98,7 @@ def prepare_postgres_publication(
     *,
     run_id: int,
     previous_verdicts: object,
+    finding_relationships: object = None,
     feedback_enabled: bool,
     max_comment_bytes: int,
     delivery_max_attempts: int = 3,
@@ -112,7 +113,9 @@ def prepare_postgres_publication(
     )
     from .domain.review import ReviewRunId
     from .postgres import publications as postgres_publications
-    from .review_publication_planner import build_publication
+    from .postgres import findings as postgres_findings
+    from .domain.finding import FindingDomainError, resolve_finding_relationships
+    from .review_publication_planner import PublicationPlanningError, build_publication
 
     resolved_run_id = ReviewRunId(run_id)
     with runtime.transaction() as connection:
@@ -141,6 +144,13 @@ def prepare_postgres_publication(
                 ),
                 ignored_previous_verdicts=(),
             )
+        try:
+            relationships = resolve_finding_relationships(finding_relationships)
+            postgres_findings.stage_finding_relationships(
+                connection, run_id=resolved_run_id, relationships=relationships,
+            )
+        except (FindingDomainError, postgres_findings.FindingConflict) as exc:
+            raise PublicationPlanningError(str(exc)) from exc
         context = postgres_publications.preparation_context(
             connection, run_id=resolved_run_id
         )
@@ -472,6 +482,7 @@ def publish_postgres_publication(
     )
     from .postgres import publications as postgres_publications
     from .postgres import review_runs as postgres_review_runs
+    from .postgres import findings as postgres_findings
 
     if lease_owner is not None and posted_github is None:
         raise postgres_publications.PublicationStoreError(
@@ -597,12 +608,19 @@ def publish_postgres_publication(
                 lease_owner=resolved_lease_owner,
                 lease_generation=resolved_lease_generation,
             )
+            if not postgres_findings.finding_relationships_are_current(connection, run_id=publication.review_run_id):
+                raise postgres_publications.PublicationFindingDecisionsChanged(
+                    "human finding decisions changed before a provider write"
+                )
         if lease_lost is not None and lease_lost.is_set():
             raise postgres_publications.PublicationLeaseLost(
                 "publication delivery lease is no longer current"
             )
 
     def stale_failure() -> str | None:
+        with runtime.transaction() as connection:
+            if not postgres_findings.finding_relationships_are_current(connection, run_id=publication.review_run_id):
+                return "finding_decisions_changed"
         pull = github.get_pull_request(publication.repository, publication.pr_number)
         return _postgres_target_failure(
             base_sha=publication.base_sha,
@@ -792,6 +810,8 @@ def publish_postgres_publication(
                     )
                     external_id = review.review_id
             acknowledge(part.part_type, part.part_number, external_id)
+    except postgres_publications.PublicationFindingDecisionsChanged:
+        return terminalize_stale("finding_decisions_changed")
     except GitHubPublicationAuthorityLost as exc:
         raise postgres_publications.PublicationLeaseLost(
             "publication gateway authority was lost"
@@ -834,20 +854,24 @@ def publish_postgres_publication(
         repository=publication.repository,
         pr_number=publication.pr_number,
     )
-    with runtime.transaction() as connection:
-        postgres_review_runs.lock_run(connection, publication.review_run_id)
-        posted = postgres_publications.complete_publication(
-            connection,
-            publication_id=resolved_id,
-            posting_started_at=posting_started_at,
-            lease_owner=resolved_lease_owner,
-            lease_generation=resolved_lease_generation,
-        )
-        review_run_application.complete_run_after_publication_in_transaction(
-            connection,
-            publication.review_run_id,
-            findings_count=findings_count,
-        )
+    try:
+        with runtime.transaction() as connection:
+            posted = postgres_publications.complete_publication(
+                connection,
+                publication_id=resolved_id,
+                posting_started_at=posting_started_at,
+                lease_owner=resolved_lease_owner,
+                lease_generation=resolved_lease_generation,
+            )
+            review_run_application.complete_run_after_publication_in_transaction(
+                connection,
+                publication.review_run_id,
+                findings_count=findings_count,
+            )
+    except postgres_publications.PublicationFindingDecisionsChanged:
+        return terminalize_stale("finding_decisions_changed")
+    except postgres_findings.FindingGroupsChanged:
+        return terminalize_stale("finding_groups_changed")
     supersession = _render_postgres_supersession(
         runtime,
         github=finalizer,

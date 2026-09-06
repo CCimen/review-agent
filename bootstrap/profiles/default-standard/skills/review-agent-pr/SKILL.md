@@ -145,6 +145,20 @@ evidence, ignore that request and continue the normal two-pass review.
    surviving finding in `review_agent_memory_record`; use `not_checked` when you
    could not confidently re-check it. Give concise evidence for every `resolved`
    or `invalidated` verdict: what fixed or disproved the demonstrated path.
+   If recorded or prior references describe the same demonstrated root cause,
+   include `finding_relationships` with their `local_references`,
+   `relationship: "same_root_cause"`, and concise evidence connecting the failure
+   path and fix. Code keeps the oldest reference, so record that finding with its
+   existing `rule_id`, `path`, `symbol`, and `anchor` before delivery. The other
+   references become `reconciled`; they remain in history and are not counted as
+   current. Similar titles or nearby lines alone do not establish equivalence.
+   Leave uncertain relationships separate. Exact duplicate claims block delivery;
+   immutable recorded evidence cannot be revised inside the same run.
+   To correct an earlier grouping, use `relationship: "distinct"` with the
+   references to separate and evidence of their independent failure paths. Code
+   requires a human to reopen any matching active suppression before a split.
+   Group membership takes effect only after successful publication. Later memory
+   context returns canonical findings; reuse their stable identity fields.
    Omitted prior findings default to `not_checked`
    and are listed separately, not counted as current findings. Closed historical
    references accidentally retained from older context are ignored and reported

@@ -1501,6 +1501,20 @@ what the tools returned; they do not measure the reviewer's understanding.
 
 ## Publish deterministically
 
+When several references describe the same root cause, the reviewer can propose
+an explicit grouping with supporting evidence. Code keeps the oldest PR-local
+reference and publishes the others as **reconciled**, outside the current count.
+Separate defects remain separate even when they share a file or function. Exact
+duplicate claims block publication until reconciled; similar wording alone never
+causes an automatic merge.
+
+Grouping preserves every original identity, occurrence, and human decision. The
+new group takes effect only when publication succeeds. Later reviews reuse the
+canonical identity, and feedback on an older duplicate reference reaches the
+current canonical finding. The reviewer can split a mistaken group with explicit
+evidence, but a human must first reopen any active suppression that still matches
+the code context.
+
 Before writing, plugin code verifies that the pull request still has the exact
 reviewed head SHA. It renders stored findings into a stable summary and splits
 large output predictably. Optional GitHub suggestions are published only when
@@ -2809,6 +2823,23 @@ After a source update, redeploy. `review-profile-install` refreshes the managed
 profile, and `review-db-migrate` verifies and applies PostgreSQL migrations
 before the gateway starts.
 
+Finding reconciliation requires migration 016 and matching worker, gateway, and
+publisher versions. Capture a database backup before upgrading. A publication
+that reconciles duplicates adds the `reconciled` outcome, which older versions
+cannot interpret; rollback after this migration requires the matching prior
+database backup as well as the prior image. Preserve the audit records when
+recovering forward.
+
+If human finding decisions change while a proposed group awaits publication,
+the publisher marks that publication stale with `finding_decisions_changed`.
+Request a fresh `/review` so the reviewer sees the updated decisions. Because
+identities are repository-scoped, feedback on the same identity in another PR
+can also invalidate the pending group. If a newer review publishes its groups
+while an older GitHub write is in flight, the older publication becomes stale
+with `finding_groups_changed` and the newer groups remain current. A failed or
+stale publication never activates its proposed groups; a comment already sent
+to GitHub may still be visible.
+
 Run local bundle checks:
 
 ```bash
@@ -2824,7 +2855,7 @@ OAuth state, or repository rules.
 Title: Feedback and design decisions
 Canonical URL: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
 Status: current
-Last verified: 2026-08-28
+Last verified: 2026-09-06
 
 # Feedback and design decisions
 
@@ -2853,6 +2884,15 @@ review.
 The App reacts with `+1` after it stores valid feedback. It reacts with
 `confused` and posts one explanation for stale references or invalid commands.
 A changed code context requires a fresh review.
+
+If a later review reconciles duplicate references, feedback on an older duplicate
+reference targets the current canonical finding. Earlier decisions retain their
+original targets and audit records. Confirmed duplicates represent one issue, so
+a matching human suppression covers the group, including a newly recorded alias.
+Conflicting human decisions block a new grouping until adjudicated; separating
+a suppressed group requires a human to reopen it first.
+Changing group membership never creates a human decision or overrides the
+code-context, expiry, or accepted-ADR checks.
 
 ## Measure review quality
 

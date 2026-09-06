@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 import re
 
 from .domain.feedback import (
@@ -121,11 +122,12 @@ def record_postgres_feedback(
             )
 
         if isinstance(command, ReviewQualityFeedbackCommand):
-            if command.local_reference and postgres_feedback.current_finding(
+            quality_target = postgres_feedback.current_finding(
                 connection,
                 publication_id=publication.publication_id,
                 local_reference=command.local_reference,
-            ) is None:
+            ) if command.local_reference else None
+            if command.local_reference and quality_target is None:
                 postgres_feedback.complete_event(
                     connection,
                     event_id=resolved_event_id,
@@ -136,6 +138,8 @@ def record_postgres_feedback(
                     event_id=resolved_event_id,
                     local_reference=command.local_reference,
                 )
+            if quality_target is not None:
+                command = replace(command, local_reference=quality_target.local_reference)
             feedback_id = postgres_feedback.record_quality_feedback(
                 connection,
                 publication=publication,

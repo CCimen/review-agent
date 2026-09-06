@@ -333,7 +333,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
 
         for target in (
             "postgres_suggestions.load_context",
-            "postgres_decisions.latest_decisions",
+            "postgres_decisions.latest_suppression_decisions",
         ):
             with self.subTest(target=target), mock.patch(
                 "review_agent_tools.review_finding_application." + target,

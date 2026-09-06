@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 import threading
@@ -461,6 +462,8 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         findings: tuple[FindingInput, ...] | None = None,
         pr_number: int = 41,
     ) -> tuple[review_runs.ReviewRunId, review_finding_application.PostgresFindingBatch]:
+        inputs = findings if findings is not None else (self.finding(),)
+        paths = sorted({item.path for item in inputs} or {"backend/changed.py"})
         result = review_run_application.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
@@ -480,25 +483,27 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         review_run_application.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
-            files=(
+            files=tuple(
                 review_run_application.PostgresChangedFile(
-                    path="backend/changed.py", change_status="modified"
-                ),
+                    path=path, change_status="modified"
+                )
+                for path in paths
             ),
-            changed_files_reported=1,
+            changed_files_reported=len(paths),
             registration_complete=True,
         )
         batch = review_finding_application.record_postgres_findings(
             self.runtime,
             run_id=result.run.id,
             head_sha="a" * 40,
-            findings=findings if findings is not None else (self.finding(),),
-            changed_files=(
+            findings=inputs,
+            changed_files=tuple(
                 review_finding_application.ChangedFile(
-                    path="backend/changed.py",
+                    path=path,
                     context_hash="c" * 40,
                     context_hash_source="blob",
-                ),
+                )
+                for path in paths
             ),
         )
         with self.runtime.transaction() as connection:
@@ -510,6 +515,880 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ):
                 review_runs.advance_phase(connection, result.run.id, phase)
         return result.run.id, batch
+
+    def test_reconciles_observed_duplicates_and_preserves_independent_findings(
+        self,
+    ) -> None:
+        from review_agent_tools.postgres import feedback
+        from review_agent_tools import review_feedback_application
+        from review_agent_tools.feedback_commands import ReviewQualityFeedbackCommand
+        from review_agent_tools.domain.publication import PublicationId
+        from review_agent_tools.review_publication_planner import (
+            PublicationPlanningError,
+        )
+
+        corpus = json.loads(
+            (ROOT / "tests/fixtures/finding-reconciliation.json").read_text()
+        )
+        # Only presentation fields were observable; these stable identity fields
+        # are synthetic and do not claim to reproduce the live recording order.
+        inputs = {
+            item["reference"]: self.finding(
+                rule_id="performance.synthetic-" + item["reference"].lower(),
+                symbol="synthetic_symbol",
+                anchor="synthetic anchor " + item["reference"],
+                **{
+                    key: item[key]
+                    for key in (
+                        "path",
+                        "line",
+                        "title",
+                        "category",
+                        "evidence",
+                        "impact",
+                        "smallest_fix",
+                    )
+                },
+                severity=item["severity"].split()[0],
+            )
+            for item in corpus["records"]
+        }
+        nearby = self.finding(
+            path=inputs["F18"].path,
+            symbol=inputs["F18"].symbol,
+            evidence="A separate lease-expiry condition accepts already expired work.",
+            impact="Expired work is dispatched even with capacity available.",
+            smallest_fix="Reject expired leases in the dispatch predicate.",
+        )
+        first_run, first = self.start_recorded_run(
+            request_key="github:issue-comment:reconcile-prior",
+            findings=(inputs["F18"], inputs["F20"], nearby),
+        )
+        first_plan = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(first_run),
+            previous_verdicts=[],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=first_plan.publication_id,
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        run_id, current = self.start_recorded_run(
+            request_key="github:issue-comment:reconcile-current",
+            findings=(
+                inputs["F18"],
+                inputs["F21"],
+                inputs["F22"],
+                inputs["F20"],
+                nearby,
+            ),
+        )
+        with self.assertRaisesRegex(PublicationPlanningError, "same claim"):
+            review_publication_application.prepare_postgres_publication(
+                self.runtime,
+                run_id=int(run_id),
+                previous_verdicts=[],
+                feedback_enabled=True,
+                max_comment_bytes=60_000,
+            )
+        canonical = first.items[0]
+        aliases = current.items[1:3]
+        prepared = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=[],
+            finding_relationships=[
+                {
+                    "local_references": [
+                        canonical.local_reference,
+                        *(item.local_reference for item in aliases),
+                    ],
+                    "relationship": "same_root_cause",
+                    "evidence": "All three identify the missing tenant admission default and the same finite-limit fix.",
+                }
+            ],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(prepared.findings_count, 3)
+        with self.runtime.transaction() as connection:
+            stored = publications.get_publication(
+                connection, PublicationId(prepared.publication_id)
+            )
+            self.assertEqual(
+                {
+                    item.finding_id
+                    for item in stored.plan.findings
+                    if item.outcome.value == "current"
+                },
+                {int(item.finding_id) for item in first.items},
+            )
+            self.assertEqual(
+                {
+                    item.local_reference
+                    for item in stored.plan.findings
+                    if item.outcome.value == "reconciled"
+                },
+                {item.local_reference for item in aliases},
+            )
+            self.assertIn("reconciled", stored.plan.rendered_markdown)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.pull_request_finding_groups"
+                ).fetchone(),
+                (0,),
+            )
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=prepared.publication_id,
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        with self.runtime.transaction() as connection:
+            for alias in aliases:
+                target = feedback.current_finding(
+                    connection,
+                    publication_id=PublicationId(prepared.publication_id),
+                    local_reference=alias.local_reference,
+                )
+                assert target is not None
+                self.assertEqual(
+                    (target.finding_id, target.local_reference),
+                    (canonical.finding_id, canonical.local_reference),
+                )
+        quality = review_feedback_application.record_postgres_feedback(
+            self.runtime,
+            event_id="reconciled-quality-feedback",
+            repository="team/service",
+            pr_number=41,
+            command=ReviewQualityFeedbackCommand(
+                kind="review_quality",
+                category="scope_confusion",
+                reason="The duplicate reference now describes the canonical scope.",
+                local_reference=aliases[0].local_reference,
+            ),
+            actor_user_id=123,
+            authorization_version="sha256:" + "1" * 64,
+            source_comment_id=998,
+        )
+        self.assertEqual(quality.status.value, "recorded")
+        with self.runtime.transaction() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT local_reference FROM review_agent.review_quality_feedback WHERE id = %s",
+                    (quality.feedback_id,),
+                ).fetchone(),
+                (canonical.local_reference,),
+            )
+        next_run, repeated = self.start_recorded_run(
+            request_key="github:issue-comment:reconcile-repeat",
+            findings=(inputs["F18"],),
+        )
+        self.assertEqual(repeated.items[0].finding_id, canonical.finding_id)
+        self.assertEqual(repeated.items[0].fingerprint, canonical.fingerprint)
+        self.assertEqual(repeated.items[0].local_reference, canonical.local_reference)
+        history = review_finding_application.load_postgres_repeat_history(
+            self.runtime, run_id=next_run
+        )
+        self.assertEqual(
+            {item.local_reference for item in history},
+            {item.local_reference for item in first.items},
+        )
+        repeated_plan = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(next_run),
+            previous_verdicts=[
+                {
+                    "local_reference": item.local_reference,
+                    "verdict": "resolved",
+                    "evidence": "The changed admission path now rejects this independent case.",
+                }
+                for item in first.items[1:]
+            ],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(repeated_plan.findings_count, 1)
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=repeated_plan.publication_id,
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        resolved_run, _ = self.start_recorded_run(
+            request_key="github:issue-comment:reconcile-resolved",
+            findings=(),
+        )
+        resolved_plan = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(resolved_run),
+            previous_verdicts=[
+                {
+                    "local_reference": canonical.local_reference,
+                    "verdict": "resolved",
+                    "evidence": "The finite tenant admission default now covers the dispatch path.",
+                }
+            ],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(resolved_plan.findings_count, 0)
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=resolved_plan.publication_id,
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        reappeared_run, reappeared = self.start_recorded_run(
+            request_key="github:issue-comment:reconcile-reappeared",
+            findings=(inputs["F18"], inputs["F21"], inputs["F22"]),
+        )
+        self.assertEqual(reappeared.items[0].finding_id, canonical.finding_id)
+        reappeared_plan = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(reappeared_run),
+            previous_verdicts=[],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(reappeared_plan.findings_count, 1)
+        with self.runtime.transaction() as connection:
+            stored = publications.get_publication(
+                connection, PublicationId(reappeared_plan.publication_id)
+            )
+            self.assertEqual(
+                [
+                    item.local_reference
+                    for item in stored.plan.findings
+                    if item.outcome.value == "current"
+                ],
+                [canonical.local_reference],
+            )
+
+    def test_group_preserves_human_suppression_and_requires_reopen_before_split(
+        self,
+    ) -> None:
+        from review_agent_tools.domain.finding import resolve_decision
+        from review_agent_tools.postgres import decisions
+        from review_agent_tools.review_publication_planner import (
+            PublicationPlanningError,
+        )
+
+        inputs = (
+            self.finding(anchor="a", evidence="The first guard admits expired work."),
+            self.finding(
+                anchor="b", evidence="Expired work passes the admission guard."
+            ),
+        )
+        github = FakePostgresPublicationGitHub(self.runtime)
+
+        def publish(
+            run_id: review_runs.ReviewRunId, relationships: object = None
+        ) -> int:
+            prepared = review_publication_application.prepare_postgres_publication(
+                self.runtime,
+                run_id=int(run_id),
+                previous_verdicts=[],
+                finding_relationships=relationships,
+                feedback_enabled=True,
+                max_comment_bytes=60_000,
+            )
+            result = review_publication_application.publish_postgres_publication(
+                self.runtime,
+                publication_id=prepared.publication_id,
+                github=github,
+                max_comment_bytes=60_000,
+            )
+            self.assertEqual(result.status, "posted")
+            return prepared.findings_count
+
+        first_run, first = self.start_recorded_run(
+            request_key="github:issue-comment:group-feedback-1",
+            findings=inputs,
+        )
+        self.assertEqual(publish(first_run), 2)
+        canonical, alias = sorted(
+            first.items, key=lambda item: int(item.local_reference[1:])
+        )
+        with self.runtime.transaction() as connection:
+            original = decisions.append_operator_decision(
+                connection,
+                finding_id=alias.finding_id,
+                occurrence_id=alias.occurrence_id,
+                definition=resolve_decision(
+                    decision="false_positive",
+                    reason="The admission policy permits this case.",
+                    actor="github:maintainer",
+                    now=datetime.now(timezone.utc),
+                ),
+            )
+        expanded_inputs = (
+            *inputs,
+            self.finding(
+                anchor="c", evidence="The same admission guard lacks its expiry check."
+            ),
+        )
+        second_run, second = self.start_recorded_run(
+            request_key="github:issue-comment:group-feedback-2",
+            findings=expanded_inputs,
+        )
+        self.assertEqual(
+            publish(
+                second_run,
+                [
+                    {
+                        "local_references": [
+                            item.local_reference for item in second.items
+                        ],
+                        "relationship": "same_root_cause",
+                        "evidence": "All three observations identify the same admission guard.",
+                    }
+                ],
+            ),
+            0,
+        )
+        active = review_finding_application.load_postgres_active_suppression(
+            self.runtime,
+            finding_id=canonical.finding_id,
+            run_id=second_run,
+            context_hash="c" * 40,
+        )
+        self.assertEqual(active, original)
+        self.assertEqual(
+            review_finding_application.load_postgres_active_suppression(
+                self.runtime,
+                finding_id=second.items[2].finding_id,
+                run_id=second_run,
+                context_hash="c" * 40,
+            ),
+            original,
+        )
+        self.assertIsNone(
+            review_finding_application.load_postgres_active_suppression(
+                self.runtime,
+                finding_id=canonical.finding_id,
+                run_id=second_run,
+                context_hash="d" * 40,
+            )
+        )
+        third_run, current = self.start_recorded_run(
+            request_key="github:issue-comment:group-feedback-3",
+            findings=expanded_inputs,
+        )
+        split = [
+            {
+                "local_references": [alias.local_reference],
+                "relationship": "distinct",
+                "evidence": "The two guards apply to separate admission paths and need independent fixes.",
+            }
+        ]
+        with self.assertRaisesRegex(PublicationPlanningError, "reopened by a human"):
+            publish(third_run, split)
+        with self.runtime.transaction() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.finding_group_changes WHERE review_run_id = %s",
+                    (third_run,),
+                ).fetchone(),
+                (0,),
+            )
+            current_alias = next(
+                item for item in current.items if item.finding_id == alias.finding_id
+            )
+            decisions.append_operator_decision(
+                connection,
+                finding_id=alias.finding_id,
+                occurrence_id=current_alias.occurrence_id,
+                definition=resolve_decision(
+                    decision="reopen",
+                    reason="Recheck the two distinct admission paths.",
+                    actor="github:maintainer",
+                    now=datetime.now(timezone.utc),
+                ),
+            )
+        self.assertEqual(publish(third_run, split), 2)
+        with self.runtime.transaction() as connection:
+            history = decisions.decision_history(
+                connection, finding_id=alias.finding_id
+            )
+            self.assertEqual(history[0], original)
+            self.assertEqual(len(history), 2)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.finding_group_changes"
+                ).fetchone(),
+                (6,),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT finding_id, canonical_finding_id FROM review_agent.pull_request_finding_groups "
+                    "WHERE finding_id <> canonical_finding_id"
+                ).fetchall(),
+                [(second.items[2].finding_id, canonical.finding_id)],
+            )
+
+    def test_failed_publication_does_not_activate_a_finding_group(self) -> None:
+        from review_agent_tools.review_publication_planner import (
+            PublicationPlanningError,
+        )
+
+        inputs = (
+            self.finding(anchor="a", evidence="The first guard admits expired work."),
+            self.finding(
+                anchor="b", evidence="Expired work passes the admission guard."
+            ),
+        )
+        run_id, batch = self.start_recorded_run(findings=inputs)
+        relationships = [
+            {
+                "local_references": [item.local_reference for item in batch.items],
+                "relationship": "same_root_cause",
+                "evidence": "Both observations identify the same admission guard.",
+            }
+        ]
+        with self.assertRaisesRegex(
+            PublicationPlanningError, "does not belong to this PR"
+        ):
+            review_publication_application.prepare_postgres_publication(
+                self.runtime,
+                run_id=int(run_id),
+                previous_verdicts=[],
+                finding_relationships=[
+                    {
+                        **relationships[0],
+                        "local_references": [batch.items[0].local_reference, "F99"],
+                    }
+                ],
+                feedback_enabled=True,
+                max_comment_bytes=60_000,
+            )
+        prepared = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=[],
+            finding_relationships=relationships,
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.create_error = GitHubPublicationError(
+            "repository_not_authorized",
+            operation="create_issue_comment",
+            retryable=False,
+        )
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=prepared.publication_id,
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(result.status, "failed")
+        with self.runtime.transaction() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.pull_request_finding_groups"
+                ).fetchone(),
+                (0,),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.finding_group_changes"
+                ).fetchone(),
+                (2,),
+            )
+        next_run, _ = self.start_recorded_run(
+            request_key="github:issue-comment:group-failure-retry",
+            findings=inputs,
+        )
+        history = review_finding_application.load_postgres_repeat_history(
+            self.runtime, run_id=next_run
+        )
+        self.assertEqual(
+            {item.local_reference for item in history},
+            {item.local_reference for item in batch.items},
+        )
+
+    def test_alias_only_rereview_can_record_its_canonical_and_retry(self) -> None:
+        from review_agent_tools.review_publication_planner import (
+            PublicationPlanningError,
+        )
+
+        inputs = (
+            self.finding(anchor="a", evidence="The first guard admits expired work."),
+            self.finding(
+                anchor="b", evidence="Expired work passes the admission guard."
+            ),
+        )
+        first_run, first = self.start_recorded_run(findings=inputs)
+        prepared = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(first_run),
+            previous_verdicts=[],
+            finding_relationships=[
+                {
+                    "local_references": [item.local_reference for item in first.items],
+                    "relationship": "same_root_cause",
+                    "evidence": "Both observations identify the same guard.",
+                }
+            ],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=prepared.publication_id,
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        canonical_index = min(
+            range(len(first.items)),
+            key=lambda index: int(first.items[index].local_reference[1:]),
+        )
+        run_id, _ = self.start_recorded_run(
+            request_key="github:issue-comment:alias-only",
+            findings=(inputs[1 - canonical_index],),
+        )
+        with self.assertRaisesRegex(
+            PublicationPlanningError, "record the rechecked canonical finding F1"
+        ):
+            review_publication_application.prepare_postgres_publication(
+                self.runtime,
+                run_id=int(run_id),
+                previous_verdicts=[],
+                feedback_enabled=True,
+                max_comment_bytes=60_000,
+            )
+        history = review_finding_application.load_postgres_repeat_history(
+            self.runtime, run_id=run_id
+        )
+        canonical = next(
+            item
+            for item in history
+            if item.local_reference == first.items[canonical_index].local_reference
+        )
+        subject = review_run_application.RunSubject(
+            repository="team/service", pr_number=41, run_id=int(run_id)
+        )
+        review_run_application.reopen_live_finding_collection(
+            self.runtime,
+            subject,
+            expected_head_sha="a" * 40,
+        )
+        recorded = review_finding_application.record_postgres_findings(
+            self.runtime,
+            run_id=run_id,
+            head_sha="a" * 40,
+            findings=(
+                replace(
+                    inputs[canonical_index],
+                    rule_id=canonical.rule_id,
+                    symbol=canonical.symbol,
+                    anchor=canonical.anchor,
+                    path=canonical.path,
+                ),
+            ),
+            changed_files=(
+                review_finding_application.ChangedFile(
+                    path=canonical.path,
+                    context_hash="c" * 40,
+                    context_hash_source="blob",
+                ),
+            ),
+        )
+        self.assertEqual(
+            recorded.items[0].finding_id, first.items[canonical_index].finding_id
+        )
+        review_run_application.advance_live_phase(self.runtime, subject, "rendering")
+        retry = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=[],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(retry.findings_count, 1)
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=retry.publication_id,
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(result.status, "posted")
+
+    def test_newer_group_publication_survives_an_older_inflight_write(self) -> None:
+        inputs = (
+            self.finding(anchor="a", evidence="The first guard admits expired work."),
+            self.finding(
+                anchor="b", evidence="Expired work passes the admission guard."
+            ),
+        )
+        run_id, batch = self.start_recorded_run(findings=inputs)
+        relationships = [
+            {
+                "local_references": [item.local_reference for item in batch.items],
+                "relationship": "same_root_cause",
+                "evidence": "Both observations identify the same guard.",
+            }
+        ]
+        prepared = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=[],
+            finding_relationships=relationships,
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        create_comment = github.create_issue_comment
+        newer_publications: list[int] = []
+
+        def publish_newer_during_write(
+            repository: str, issue_number: int, body: str
+        ) -> IssueComment:
+            comment = create_comment(repository, issue_number, body)
+            if github.create_calls == 1:
+                with self.runtime.transaction() as connection:
+                    review_run_application.mark_superseded_in_transaction(
+                        connection, run_id
+                    )
+                newer_run, _ = self.start_recorded_run(
+                    request_key="github:issue-comment:newer-group",
+                    findings=inputs,
+                )
+                newer = review_publication_application.prepare_postgres_publication(
+                    self.runtime,
+                    run_id=int(newer_run),
+                    previous_verdicts=[],
+                    finding_relationships=relationships,
+                    feedback_enabled=True,
+                    max_comment_bytes=60_000,
+                )
+                result = review_publication_application.publish_postgres_publication(
+                    self.runtime,
+                    publication_id=newer.publication_id,
+                    github=github,
+                    max_comment_bytes=60_000,
+                )
+                self.assertEqual(result.status, "posted")
+                newer_publications.append(newer.publication_id)
+            return comment
+
+        with patch.object(
+            github, "create_issue_comment", side_effect=publish_newer_during_write
+        ):
+            result = review_publication_application.publish_postgres_publication(
+                self.runtime,
+                publication_id=prepared.publication_id,
+                github=github,
+                max_comment_bytes=60_000,
+            )
+        self.assertEqual(result.status, "stale")
+        with self.runtime.transaction() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT id FROM review_agent.publications WHERE status = 'posted' AND superseded_at IS NULL"
+                ).fetchall(),
+                [(newer_publications[0],)],
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT failure_code FROM review_agent.publications WHERE id = %s",
+                    (prepared.publication_id,),
+                ).fetchone(),
+                ("finding_groups_changed",),
+            )
+
+    def test_conflicting_human_decisions_block_a_proposed_group(self) -> None:
+        from review_agent_tools.domain.finding import resolve_decision
+        from review_agent_tools.postgres import decisions
+        from review_agent_tools.review_publication_planner import (
+            PublicationPlanningError,
+        )
+
+        run_id, batch = self.start_recorded_run(
+            findings=(
+                self.finding(
+                    anchor="a", evidence="The first guard admits expired work."
+                ),
+                self.finding(
+                    anchor="b", evidence="Expired work passes the admission guard."
+                ),
+            )
+        )
+        with self.runtime.transaction() as connection:
+            for finding, disposition in zip(
+                batch.items, ("false_positive", "reopen"), strict=True
+            ):
+                decisions.append_operator_decision(
+                    connection,
+                    finding_id=finding.finding_id,
+                    occurrence_id=finding.occurrence_id,
+                    definition=resolve_decision(
+                        decision=disposition,
+                        reason="Explicit disposition of this finding.",
+                        actor="github:maintainer",
+                        now=datetime.now(timezone.utc),
+                    ),
+                )
+        with self.assertRaisesRegex(
+            PublicationPlanningError, "conflicting human decisions"
+        ):
+            review_publication_application.prepare_postgres_publication(
+                self.runtime,
+                run_id=int(run_id),
+                previous_verdicts=[],
+                finding_relationships=[
+                    {
+                        "local_references": [
+                            item.local_reference for item in batch.items
+                        ],
+                        "relationship": "same_root_cause",
+                        "evidence": "Both observations identify the same guard.",
+                    }
+                ],
+                feedback_enabled=True,
+                max_comment_bytes=60_000,
+            )
+        with self.runtime.transaction() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.finding_group_changes"
+                ).fetchone(),
+                (0,),
+            )
+
+    def test_human_decision_after_preparation_invalidates_group_publication(
+        self,
+    ) -> None:
+        from review_agent_tools.domain.finding import resolve_decision
+        from review_agent_tools.postgres import decisions
+
+        run_id, batch = self.start_recorded_run(
+            findings=(
+                self.finding(
+                    anchor="a", evidence="The first guard admits expired work."
+                ),
+                self.finding(
+                    anchor="b", evidence="Expired work passes the admission guard."
+                ),
+            )
+        )
+        prepared = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=[],
+            finding_relationships=[
+                {
+                    "local_references": [item.local_reference for item in batch.items],
+                    "relationship": "same_root_cause",
+                    "evidence": "Both observations identify the same guard.",
+                }
+            ],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        with self.runtime.transaction() as connection:
+            decisions.append_operator_decision(
+                connection,
+                finding_id=batch.items[0].finding_id,
+                occurrence_id=batch.items[0].occurrence_id,
+                definition=resolve_decision(
+                    decision="false_positive",
+                    reason="A new human decision changes this group.",
+                    actor="github:maintainer",
+                    now=datetime.now(timezone.utc),
+                ),
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime,
+            publication_id=prepared.publication_id,
+            github=github,
+            max_comment_bytes=60_000,
+        )
+        self.assertEqual(result.status, "stale")
+        self.assertEqual(github.create_calls, 0)
+        with self.runtime.transaction() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.pull_request_finding_groups"
+                ).fetchone(),
+                (0,),
+            )
+
+    def test_human_decision_during_github_write_prevents_group_activation(self) -> None:
+        from review_agent_tools.domain.finding import resolve_decision
+        from review_agent_tools.postgres import decisions
+
+        run_id, batch = self.start_recorded_run(
+            findings=(
+                self.finding(
+                    anchor="a", evidence="The first guard admits expired work."
+                ),
+                self.finding(
+                    anchor="b", evidence="Expired work passes the admission guard."
+                ),
+            )
+        )
+        prepared = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=[],
+            finding_relationships=[
+                {
+                    "local_references": [item.local_reference for item in batch.items],
+                    "relationship": "same_root_cause",
+                    "evidence": "Both observations identify the same guard.",
+                }
+            ],
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        create_comment = github.create_issue_comment
+
+        def decide_during_write(
+            repository: str, issue_number: int, body: str
+        ) -> IssueComment:
+            comment = create_comment(repository, issue_number, body)
+            with self.runtime.transaction() as connection:
+                decisions.append_operator_decision(
+                    connection,
+                    finding_id=batch.items[0].finding_id,
+                    occurrence_id=batch.items[0].occurrence_id,
+                    definition=resolve_decision(
+                        decision="false_positive",
+                        reason="Human feedback arrived during the remote write.",
+                        actor="github:maintainer",
+                        now=datetime.now(timezone.utc),
+                    ),
+                )
+            return comment
+
+        with patch.object(
+            github, "create_issue_comment", side_effect=decide_during_write
+        ):
+            result = review_publication_application.publish_postgres_publication(
+                self.runtime,
+                publication_id=prepared.publication_id,
+                github=github,
+                max_comment_bytes=60_000,
+            )
+        self.assertEqual(result.status, "stale")
+        self.assertEqual(github.create_calls, 1)
+        with self.runtime.transaction() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.pull_request_finding_groups"
+                ).fetchone(),
+                (0,),
+            )
 
     @staticmethod
     def plan(
@@ -2410,7 +3289,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         assert count is not None
         self.assertEqual(count[0], 0)
 
-    def test_prepare_persists_every_explicit_finding_outcome(self) -> None:
+    def test_prepare_persists_current_and_prior_lifecycle_outcomes(self) -> None:
         prior_inputs = tuple(
             self.finding(
                 rule_id=f"correctness.prior-outcome-{index}",
@@ -2545,7 +3424,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
 
         self.assertEqual(
             {finding.outcome for finding in prepared.plan.findings},
-            set(PublicationFindingOutcome),
+            {PublicationFindingOutcome.CURRENT, PublicationFindingOutcome.RESOLVED,
+             PublicationFindingOutcome.INVALIDATED, PublicationFindingOutcome.SUPPRESSED,
+             PublicationFindingOutcome.NOT_CHECKED},
         )
 
 

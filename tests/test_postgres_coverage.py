@@ -489,7 +489,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                         )
                     before = postgres_coverage.summarize(connection, run_id)
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), (15,))
+                self.assertEqual(runner.apply_migrations(connection), (15, 16))
                 self.assertTrue(
                     runner.inspect_migrations(
                         connection, directory=previous

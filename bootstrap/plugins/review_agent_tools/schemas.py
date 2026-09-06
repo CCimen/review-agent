@@ -5,6 +5,7 @@ from typing import Any, cast
 from . import capacity
 from . import memory_validation as memory_contract
 from . import suggestion_validation as suggestion_contract
+from .domain.finding import FINDING_RELATIONSHIP_EVIDENCE_MAX, FindingRelationshipKind
 
 CHANGED_FILE_PAGE_MAX_ITEMS = 200
 SOURCE_PAGE_MAX_LINES = 400
@@ -374,6 +375,38 @@ REVIEW_AGENT_DELIVER = {
                 "type": "integer",
                 "minimum": 1,
                 "description": "The run_id returned by review_agent_begin for this review.",
+            },
+            "finding_relationships": {
+                "type": "array",
+                "maxItems": memory_contract.MAX_FINDINGS_PER_REVIEW,
+                "description": (
+                    "Explicit evidence-backed relationships between PR-local findings. "
+                    "For same_root_cause, code keeps the oldest reference; record that "
+                    "canonical finding with its existing stable identity in this run. "
+                    "Distinct splits a mistaken group; active human suppression must "
+                    "first be reopened by a human. Omit uncertain relationships. "
+                    "At most 200 references and affected group members in total."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "local_references": {
+                            "type": "array", "minItems": 1,
+                            "maxItems": memory_contract.MAX_FINDINGS_PER_REVIEW,
+                            "uniqueItems": True,
+                            "items": {"type": "string", "pattern": "^F[1-9][0-9]*$"},
+                        },
+                        "relationship": {
+                            "type": "string", "enum": [item.value for item in FindingRelationshipKind],
+                        },
+                        "evidence": {
+                            "type": "string", "minLength": 1,
+                            "maxLength": FINDING_RELATIONSHIP_EVIDENCE_MAX,
+                        },
+                    },
+                    "required": ["local_references", "relationship", "evidence"],
+                    "additionalProperties": False,
+                },
             },
             "previous_verdicts": {
                 "type": "array",

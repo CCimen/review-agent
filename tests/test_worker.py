@@ -9,6 +9,8 @@ import json
 import io
 from pathlib import Path
 import sys
+import subprocess
+import textwrap
 import tempfile
 import threading
 import unittest
@@ -731,6 +733,38 @@ class WorkerBoundaryTests(unittest.TestCase):
             engine_bundle_sha256="3" * 64,
             sha256="4" * 64,
         )
+
+
+class WorkerEntrypointLoggingTests(unittest.TestCase):
+    def test_entrypoints_emit_info_once_after_repeated_initialization(self) -> None:
+        for name in ("worker", "publisher"):
+            with self.subTest(entrypoint=name):
+                result = subprocess.run(
+                    [sys.executable, "-c", textwrap.dedent(f"""
+                        import logging
+                        import runpy
+                        from unittest.mock import patch
+                        module = runpy.run_path('tools/review_agent_{name}.py')
+                        with patch.object(
+                            module['ReviewAgentSettings'], 'from_environment',
+                            side_effect=RuntimeError('stop before configuration'),
+                        ):
+                            for _ in range(2):
+                                try:
+                                    module['main'](['--once'])
+                                except RuntimeError as exc:
+                                    assert str(exc) == 'stop before configuration'
+                        logging.getLogger('review_agent_tools.{name}').info('lifecycle visible')
+                        """)],
+                    cwd=PACKAGE_ROOT.parents[1],
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    result.stdout,
+                    f"INFO review_agent_tools.{name} lifecycle visible\n",
+                )
+                self.assertEqual(result.stderr, "")
 
 
 if __name__ == "__main__":

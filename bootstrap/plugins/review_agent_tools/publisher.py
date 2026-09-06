@@ -14,7 +14,7 @@ from typing import Protocol
 import psycopg
 
 from . import failure_codes, review_run_application
-from .github.publication import GitHubPublicationGateway
+from .github.publication import GitHubPublicationError, GitHubPublicationGateway
 from .postgres import publications, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
 from .review_publication_application import (
@@ -189,6 +189,7 @@ class PublicationWorker:
             return _ClaimedWork(failure_status=failure_claim.target)
 
     def _deliver_failure_status(self, target: review_runs.FailureStatusTarget) -> None:
+        logger.info("Delivering failure status for review run %s", int(target.run_id))
         stop = threading.Event()
         lost = threading.Event()
         heartbeat = threading.Thread(
@@ -208,6 +209,13 @@ class PublicationWorker:
                 lease_generation=target.delivery_lease_generation,
                 retry_delay=self._policy.retry_delay, lease_lost=lost,
             )
+            logger.info("Failure status for review run %s posted", int(target.run_id))
+        except GitHubPublicationError as exc:
+            logger.warning(
+                "Failure status for review run %s could not be posted: %s",
+                int(target.run_id), exc.code,
+            )
+            raise
         except review_runs.FailureStatusLeaseLost:
             logger.info("Failure status %s lost its lease", int(target.run_id))
         finally:
@@ -234,6 +242,10 @@ class PublicationWorker:
                 logger.warning("Failure status %s heartbeat deferred: %s", int(target.run_id), exc)
 
     def _deliver(self, publication: publications.StoredPublication) -> None:
+        logger.info(
+            "Delivering publication %s for review run %s",
+            int(publication.id), int(publication.review_run_id),
+        )
         heartbeat_stop = threading.Event()
         lease_lost = threading.Event()
         heartbeat = threading.Thread(
@@ -251,7 +263,7 @@ class PublicationWorker:
             posted_github = self._github.for_posted_publication(
                 publication_id=int(publication.id)
             )
-            publish_postgres_publication(
+            result = publish_postgres_publication(
                 self._runtime,
                 publication_id=int(publication.id),
                 github=github,
@@ -261,6 +273,14 @@ class PublicationWorker:
                 retry_delay=self._policy.retry_delay,
                 lease_lost=lease_lost,
                 posted_github=posted_github,
+            )
+            logger.log(
+                logging.WARNING if result.status in {
+                    publications.PublicationStatus.FAILED,
+                    publications.PublicationStatus.PUBLISH_FAILED,
+                } else logging.INFO,
+                "Publication %s for review run %s finished with status %s",
+                int(publication.id), int(publication.review_run_id), result.status,
             )
         except publications.PublicationLeaseLost:
             logger.info("Publication %s lost its lease", int(publication.id))

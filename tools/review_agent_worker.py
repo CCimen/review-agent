@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import timedelta
+import logging
 import os
 from pathlib import Path
 import signal
@@ -102,6 +103,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="claim at most one job")
     args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO, stream=sys.stdout,
+        format="%(levelname)s %(name)s %(message)s",
+    )
 
     stop = threading.Event()
 

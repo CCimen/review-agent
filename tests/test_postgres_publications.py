@@ -2079,9 +2079,18 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             ), lease_owner="fairness-worker", stop_event=threading.Event(),
         )
 
-        worker.run(once=True)
-        worker.run(once=True)
+        with self.assertLogs("review_agent_tools.publisher", level="INFO") as logs:
+            worker.run(once=True)
+            worker.run(once=True)
 
+        messages = [record.getMessage() for record in logs.records]
+        for expected in (
+            f"Delivering publication {prepared.id} for review run {active_run}",
+            f"Publication {prepared.id} for review run {active_run} finished with status posted",
+            f"Delivering failure status for review run {failed_run}",
+            f"Failure status for review run {failed_run} posted",
+        ):
+            self.assertIn(expected, messages)
         with self.runtime.transaction() as connection:
             publication = publications.get_publication(connection, prepared.id)
             failure = review_runs.failure_status_target(connection, failed_run)

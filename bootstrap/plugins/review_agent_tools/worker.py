@@ -323,8 +323,9 @@ class ReviewWorker:
     @staticmethod
     def _log_claim(claimed: ClaimedReview) -> None:
         logger.info(
-            "Claimed review job %s at lease generation %s",
+            "Claimed review job %s for review run %s at lease generation %s",
             claimed.job.id,
+            claimed.job.review_run_id,
             claimed.job.lease_generation,
         )
 
@@ -443,8 +444,9 @@ class ReviewWorker:
             current = jobs.get_job(connection, claimed.job.id)
         if current.status is not jobs.ReviewJobStatus.LEASED:
             logger.info(
-                "Review job %s finished with status %s",
+                "Review job %s for review run %s finished with status %s",
                 claimed.job.id,
+                claimed.job.review_run_id,
                 current.status,
             )
             return

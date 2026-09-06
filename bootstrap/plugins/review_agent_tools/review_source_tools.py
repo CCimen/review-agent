@@ -620,15 +620,15 @@ def _pr_diff_from_patches(
             next_action=next_action,
         )
     # Fully returned files are complete exposure; only a file actually cut at the
-    # byte budget is recorded truncated. Files left out entirely stay unseen so the
+    # character budget contributes a partial range. Omitted files stay unseen so the
     # reviewer can fetch them by path and complete coverage honestly.
     review_run_application.record_live_diff_result(
         postgres_runtime(),
         subject,
         review_run_application.DiffExposure(
             exposed_paths=tuple(assembled.exposed_paths),
-            truncated_paths=tuple(assembled.truncated_paths),
             unavailable_paths=tuple(assembled.unavailable_paths),
+            page=assembled.page,
         ),
     )
     if path and assembled.unavailable_paths:
@@ -768,7 +768,7 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
             ),
             review_run_application.DiffExposure(
                 exposed_paths=tuple(assembled.exposed_paths),
-                truncated_paths=tuple(assembled.truncated_paths),
+                page=assembled.page,
             ),
         )
         return page_output(

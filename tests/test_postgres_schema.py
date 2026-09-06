@@ -1159,6 +1159,23 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "review_run_files_unavailable_reason_ck",
         )
 
+        for total_chars, ranges in (
+            ("NULL", "{[0,10)}"),
+            ("10", "{}"),
+            ("10", "{[0,11)}"),
+        ):
+            with self.subTest(total_chars=total_chars, ranges=ranges):
+                self.assert_rejected(
+                    """
+                    UPDATE review_agent.review_run_files
+                    SET diff_content_sha256 = repeat('a', 64),
+                        diff_total_chars = %s, diff_read_ranges = '%s'
+                    WHERE id = %d;
+                    """
+                    % (total_chars, ranges, run_file_id),
+                    "review_run_files_diff_ranges_ck",
+                )
+
     def test_publication_current_state_and_coach_scope_are_deduplicated(self) -> None:
         repository_id = self.repository(501, "team/publish")
         pull_request_id = self.pull_request(repository_id, 18)

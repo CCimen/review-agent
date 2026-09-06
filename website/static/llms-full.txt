@@ -321,7 +321,7 @@ result.
 Title: Deploy Review Agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/deployment
 Status: current
-Last verified: 2026-09-02
+Last verified: 2026-09-06
 
 # Deploy Review Agent
 
@@ -746,6 +746,12 @@ the new template until every old application pod is gone.
 
 
 ### Rollback boundary
+
+Migration 015 adds diff-page evidence to existing run-file rows. It preserves
+complete observations and leaves older truncated observations incomplete until
+the diff is read again. Keep the added columns when recovering; no data removal
+or reverse migration is needed. The previous coverage queries remain compatible,
+but an image rollback still requires the release-specific checks below.
 
 Roll back only to the exact prior Review Agent digest named in the release
 record. That record must include the post-migration schema version and a receipt
@@ -1436,7 +1442,7 @@ If one of these is unknown, report the setup as incomplete instead of guessing.
 Title: How reviews work
 Canonical URL: https://ccimen.github.io/review-agent/docs/how-reviews-work
 Status: current
-Last verified: 2026-08-27
+Last verified: 2026-09-06
 
 # How reviews work
 
@@ -1486,6 +1492,12 @@ Coverage remains explicit. Changed paths and source ranges are pageable, and an
 oversized path diff returns an exact continuation position. If GitHub's provider
 limits or a resource guard still prevents complete inspection, the reviewer
 reports incomplete coverage instead of implying a clean or complete review.
+
+Diff coverage accumulates across pages and retries within the same review run.
+A path becomes complete only after the tools have returned its entire diff.
+Missing ranges stay incomplete, and pages from different diff text cannot be
+combined. Source-file reads do not count as diff exposure. These counts describe
+what the tools returned; they do not measure the reviewer's understanding.
 
 ## Publish deterministically
 

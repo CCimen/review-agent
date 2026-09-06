@@ -4,7 +4,7 @@ slug: /how-reviews-work
 title: How reviews work
 description: The trusted path from a review request to deterministic GitHub publication.
 status: current
-last_verified: 2026-08-27
+last_verified: 2026-09-06
 ---
 
 # How reviews work
@@ -55,6 +55,12 @@ Coverage remains explicit. Changed paths and source ranges are pageable, and an
 oversized path diff returns an exact continuation position. If GitHub's provider
 limits or a resource guard still prevents complete inspection, the reviewer
 reports incomplete coverage instead of implying a clean or complete review.
+
+Diff coverage accumulates across pages and retries within the same review run.
+A path becomes complete only after the tools have returned its entire diff.
+Missing ranges stay incomplete, and pages from different diff text cannot be
+combined. Source-file reads do not count as diff exposure. These counts describe
+what the tools returned; they do not measure the reviewer's understanding.
 
 ## Publish deterministically
 

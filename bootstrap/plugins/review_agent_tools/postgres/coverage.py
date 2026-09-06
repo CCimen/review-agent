@@ -13,6 +13,7 @@ from ..domain.review import (
     ChangedFileDefinition,
     CoverageState,
     DiffObservation,
+    DiffPage,
     DiffState,
     FileReadDefinition,
     ReviewRunId,
@@ -637,6 +638,65 @@ def record_diff_observation(
         ),
     ).fetchall()
     return len(updated)
+
+
+def record_diff_page(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    page: DiffPage,
+) -> None:
+    """Union matching-content exposure under the existing run and file locks."""
+    _require_transaction(connection)
+    _run_for_write(connection, run_id, exclusive=False)
+    with connection.cursor(row_factory=class_row(_RunFileRow)) as cursor:
+        row = cursor.execute(
+            """
+            SELECT id, path, change_status, previous_path, is_changed_path,
+                   domain, review_mode, diff_state
+            FROM review_agent.review_run_files
+            WHERE review_run_id = %s AND path = %s AND is_changed_path
+            FOR UPDATE
+            """,
+            (run_id, page.path),
+        ).fetchone()
+    if row is None:
+        raise CoverageFileNotFound(
+            f"diff page path is not registered as changed: {page.path}"
+        )
+    # A complete observation is authoritative even without stored page ranges.
+    if row.diff_state == DiffState.COMPLETE.value:
+        return
+    connection.execute(
+        """
+        WITH exposure AS (
+            SELECT id,
+                CASE WHEN diff_content_sha256 = %(content_sha256)s
+                          AND diff_total_chars = %(total_chars)s
+                     THEN diff_read_ranges ELSE '{}'::int8multirange END
+                + int8multirange(int8range(%(start_char)s, %(end_char)s, '[)')) AS ranges
+            FROM review_agent.review_run_files WHERE id = %(file_id)s
+        )
+        UPDATE review_agent.review_run_files AS file
+        SET diff_content_sha256 = %(content_sha256)s,
+            diff_total_chars = %(total_chars)s,
+            diff_read_ranges = exposure.ranges,
+            diff_state = CASE WHEN exposure.ranges @> int8range(0, %(total_chars)s, '[)')
+                              THEN %(complete)s ELSE %(truncated)s END,
+            unavailable_reason = NULL,
+            diff_observed_at = statement_timestamp()
+        FROM exposure WHERE file.id = exposure.id
+        """,
+        {
+            "content_sha256": page.content_sha256,
+            "total_chars": page.total_chars,
+            "start_char": page.start_char,
+            "end_char": page.end_char,
+            "file_id": row.id,
+            "complete": DiffState.COMPLETE.value,
+            "truncated": DiffState.TRUNCATED.value,
+        },
+    )
 
 
 def summarize(

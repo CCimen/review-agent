@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import sys
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from threading import Barrier, Event
 
@@ -17,20 +20,25 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools.domain.review import (  # noqa: E402
     CoverageState,
+    DiffPage,
     DiffState,
     FileDomain,
     FileSide,
     ReviewDomainError,
     ReviewMode,
     ReviewRunId,
+    ReviewPhase,
     ReviewStatus,
     resolve_file_read,
+    resolve_changed_file,
+    resolve_diff_observation,
 )
 from review_agent_tools.postgres import coverage as postgres_coverage  # noqa: E402
 from review_agent_tools.postgres import review_runs as postgres_review_runs  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools import review_run_application  # noqa: E402
+from review_agent_tools.diff_render import assemble_rendered_diff  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 
 
@@ -307,6 +315,205 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                     ),
                 ),
             )
+
+    def test_all_diff_pages_complete_coverage_after_restart(self) -> None:
+        run_id = self.start_run()
+        review_run_application.register_postgres_changed_files(
+            self.runtime,
+            run_id=run_id,
+            files=(self.changed_file("src/a.py"),),
+            changed_files_reported=1,
+            registration_complete=True,
+        )
+        with self.runtime.transaction() as connection:
+            postgres_review_runs.advance_phase(
+                connection, run_id, ReviewPhase.FETCHING_PR
+            )
+            postgres_review_runs.advance_phase(
+                connection, run_id, ReviewPhase.COLLECTING_DIFF
+            )
+        subject = review_run_application.RunSubject("team/coverage", 21, run_id)
+        text = (
+            "diff --git a/src/a.py b/src/a.py\n"
+            "--- a/src/a.py\n+++ b/src/a.py\n@@ -0,0 +1 @@\n+" + "å" * 2500 + "\n"
+        )
+        returned: list[str] = []
+        for start in range(0, len(text), 500):
+            assembled = assemble_rendered_diff(
+                text,
+                only_path="src/a.py" if start else None,
+                max_chars=500,
+                start_char=start,
+            )
+            returned.append(assembled.text)
+            exposure = review_run_application.DiffExposure(
+                exposed_paths=tuple(assembled.exposed_paths),
+                page=assembled.page,
+            )
+            for _ in range(2):
+                review_run_application.record_live_diff_result(
+                    self.runtime, subject, exposure
+                )
+            self.runtime.close()
+            self.runtime = PostgreSQLRuntime(PostgresDatabaseUrl(DSN))
+            self.addCleanup(self.runtime.close)
+            self.runtime.open()
+        self.assertEqual("".join(returned), text)
+        summary = review_run_application.summarize_postgres_coverage(
+            self.runtime, run_id
+        )
+        self.assertEqual(summary.state, CoverageState.COMPLETE)
+
+    def test_diff_page_gaps_retries_and_content_changes_remain_incomplete(self) -> None:
+        run_id = self.start_run()
+        review_run_application.register_postgres_changed_files(
+            self.runtime,
+            run_id=run_id,
+            files=(self.changed_file("src/a.py"),),
+            changed_files_reported=1,
+            registration_complete=True,
+        )
+
+        def record(start: int, end: int, digest: str = "a" * 64) -> CoverageState:
+            with self.runtime.transaction() as connection:
+                postgres_coverage.record_diff_page(
+                    connection,
+                    run_id=run_id,
+                    page=DiffPage("src/a.py", digest, start, end, 100),
+                )
+                return postgres_coverage.summarize(connection, run_id).state
+
+        # Last page alone, retries and overlapping prefixes leave the middle unread.
+        for start, end in ((80, 100), (80, 100), (0, 30), (10, 40)):
+            self.assertEqual(record(start, end), CoverageState.INCOMPLETE)
+        # A different rendering must not fill a gap in the original content.
+        self.assertEqual(record(40, 80, "b" * 64), CoverageState.INCOMPLETE)
+        self.assertEqual(record(0, 40), CoverageState.INCOMPLETE)
+        self.assertEqual(record(40, 80), CoverageState.INCOMPLETE)
+        self.assertEqual(record(80, 100), CoverageState.COMPLETE)
+        self.assertEqual(record(80, 100), CoverageState.COMPLETE)
+        self.assertEqual(record(40, 80, "b" * 64), CoverageState.COMPLETE)
+
+        with self.runtime.transaction() as connection:
+            postgres_review_runs.mark_superseded(connection, run_id)
+        with self.assertRaises(postgres_coverage.CoverageRunNotActive):
+            record(0, 10)
+        new_run = review_run_application.start_postgres_review(
+            self.runtime,
+            replace(
+                self.request(),
+                head_sha="c" * 40,
+                request_key="github:issue-comment:2002",
+            ),
+        )
+        self.assertIsInstance(new_run, postgres_review_runs.StartedRun)
+        run_id = new_run.run.id
+        review_run_application.register_postgres_changed_files(
+            self.runtime,
+            run_id=run_id,
+            files=(self.changed_file("src/a.py"),),
+            changed_files_reported=1,
+            registration_complete=True,
+        )
+        self.assertEqual(record(40, 100), CoverageState.INCOMPLETE)
+
+    def test_concurrent_diff_pages_do_not_lose_exposure(self) -> None:
+        run_id = self.start_run()
+        review_run_application.register_postgres_changed_files(
+            self.runtime,
+            run_id=run_id,
+            files=(self.changed_file("src/a.py"),),
+            changed_files_reported=1,
+            registration_complete=True,
+        )
+        barrier = Barrier(2)
+
+        def record(start: int) -> None:
+            with self.runtime.transaction() as connection:
+                barrier.wait(timeout=5)
+                postgres_coverage.record_diff_page(
+                    connection,
+                    run_id=run_id,
+                    page=DiffPage("src/a.py", "a" * 64, start, start + 50, 100),
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(record, start) for start in (0, 50)]
+            for future in futures:
+                future.result(timeout=5)
+        summary = review_run_application.summarize_postgres_coverage(
+            self.runtime, run_id
+        )
+        self.assertEqual(summary.state, CoverageState.COMPLETE)
+
+    def test_diff_page_migration_preserves_legacy_coverage_and_writes(self) -> None:
+        self.runtime.close()
+        with psycopg.connect(DSN, autocommit=True) as connection:
+            connection.execute("DROP SCHEMA review_agent CASCADE")
+        with tempfile.TemporaryDirectory() as temp:
+            previous = Path(temp)
+            for source in runner.MIGRATION_DIRECTORY.glob("*.sql"):
+                if int(source.name[:3]) < 15:
+                    shutil.copy2(source, previous / source.name)
+            with psycopg.connect(DSN) as connection:
+                runner.apply_migrations(connection, directory=previous)
+                with connection.transaction():
+                    admitted = review_run_application.admit_postgres_review_in_transaction(
+                        connection,
+                        self.request(),
+                        priority=1,
+                        max_attempts=3,
+                        active_job_limit=10,
+                    )
+                    run_id = admitted.run.run.id
+                    postgres_coverage.insert_changed_files(
+                        connection,
+                        run_id=run_id,
+                        files=tuple(
+                            resolve_changed_file(path=path, change_status="modified")
+                            for path in ("complete.py", "partial.py")
+                        ),
+                        changed_files_reported=2,
+                        registration_complete=True,
+                    )
+                    for path, state in (
+                        ("complete.py", DiffState.COMPLETE),
+                        ("partial.py", DiffState.TRUNCATED),
+                    ):
+                        postgres_coverage.record_diff_observation(
+                            connection,
+                            run_id=run_id,
+                            observation=resolve_diff_observation(
+                                paths=(path,), state=state
+                            ),
+                        )
+                    before = postgres_coverage.summarize(connection, run_id)
+            with psycopg.connect(DSN) as connection:
+                self.assertEqual(runner.apply_migrations(connection), (15,))
+                self.assertTrue(
+                    runner.inspect_migrations(
+                        connection, directory=previous
+                    ).database_ahead
+                )
+                with connection.transaction():
+                    self.assertEqual(
+                        postgres_coverage.summarize(connection, run_id), before
+                    )
+                    # Previous code can still write ordinary observations after upgrade.
+                    postgres_coverage.record_diff_observation(
+                        connection,
+                        run_id=run_id,
+                        observation=resolve_diff_observation(
+                            paths=("partial.py",), state=DiffState.TRUNCATED
+                        ),
+                    )
+                    for path in ("complete.py", "partial.py"):
+                        postgres_coverage.record_diff_page(
+                            connection,
+                            run_id=run_id,
+                            page=DiffPage(path, "a" * 64, 50, 100, 100),
+                        )
+                    self.assertEqual(postgres_coverage.summarize(connection, run_id), before)
 
     def test_coverage_write_lock_orders_before_supersession(self) -> None:
         run_id = self.start_run()

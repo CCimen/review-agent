@@ -13,6 +13,7 @@ from psycopg.rows import TupleRow
 from . import changed_files, failure_codes
 from .domain.review import (
     ChangedFileDefinition,
+    DiffPage,
     DiffState,
     FileDomain,
     FileSide as PostgresFileSide,
@@ -853,12 +854,6 @@ def record_live_diff_result(
             )
             if exposure.exposed_paths
             else None,
-            resolve_diff_observation(
-                paths=exposure.truncated_paths,
-                state=DiffState.TRUNCATED,
-            )
-            if exposure.truncated_paths
-            else None,
         )
         if observation is not None
     )
@@ -873,6 +868,10 @@ def record_live_diff_result(
                 connection,
                 run_id=ReviewRunId(subject.run_id),
                 observation=observation,
+            )
+        if exposure.page is not None:
+            postgres_coverage.record_diff_page(
+                connection, run_id=ReviewRunId(subject.run_id), page=exposure.page
             )
 
 
@@ -964,6 +963,6 @@ class FileContextResult(Generic[PullPayload]):
 @dataclass(frozen=True, slots=True)
 class DiffExposure:
     exposed_paths: tuple[str, ...] = ()
-    truncated_paths: tuple[str, ...] = ()
     unavailable_paths: tuple[str, ...] = ()
     unavailable_reason: str = "patch_unavailable"
+    page: DiffPage | None = None

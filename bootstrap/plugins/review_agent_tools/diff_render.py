@@ -11,14 +11,17 @@ return ``None`` so the caller can point the reviewer at the file-read tool.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 
 try:
     from .changed_files import ChangedFile
+    from .domain.review import DiffPage
     from .memory_validation import ReviewMemoryError, normalize_path
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
     from changed_files import ChangedFile
+    from domain.review import DiffPage
     from memory_validation import ReviewMemoryError, normalize_path
 
 
@@ -31,7 +34,7 @@ class AssembledDiff:
     text: str
     # Files whose full synthesized diff was returned (complete diff exposure).
     exposed_paths: list[str]
-    # Files included but cut at the byte budget (genuine per-path truncation).
+    # Files only partially exposed by this response.
     truncated_paths: list[str]
     # Files whose patch GitHub omitted (binary / too large); need review_agent_pr_file.
     unavailable_paths: list[str]
@@ -40,10 +43,11 @@ class AssembledDiff:
     # truncated, or their coverage could never complete.
     more_paths_available: bool
     path_present: bool
-    # Exact continuation for an oversized path. Coverage stays conservatively
-    # truncated because independent pages are not persisted as a complete set.
+    # Exact continuation for an oversized path.
     next_start_char: int | None = None
     path_total_chars: int | None = None
+    # Every partial path response carries evidence for durable coverage.
+    page: DiffPage | None = None
 
 
 @dataclass(frozen=True)
@@ -367,6 +371,15 @@ def _assemble_chunks(
                 path_present=True,
                 next_start_char=end_char if end_char < len(match.text) else None,
                 path_total_chars=len(match.text),
+                page=DiffPage(
+                    path=only_path,
+                    content_sha256=hashlib.sha256(
+                        match.text.encode("utf-8")
+                    ).hexdigest(),
+                    start_char=start_char,
+                    end_char=end_char,
+                    total_chars=len(match.text),
+                ),
             )
         return AssembledDiff(
             match.text,
@@ -383,11 +396,21 @@ def _assemble_chunks(
     truncated: list[str] = []
     used = 0
     more = False
+    page = None
     for chunk in chunks:
         if used + len(chunk.text) > max_chars:
             if not parts:
                 parts.append(chunk.text[:max_chars])
                 truncated.append(chunk.path)
+                page = DiffPage(
+                    path=chunk.path,
+                    content_sha256=hashlib.sha256(
+                        chunk.text.encode("utf-8")
+                    ).hexdigest(),
+                    start_char=0,
+                    end_char=max_chars,
+                    total_chars=len(chunk.text),
+                )
             more = True
             break
         parts.append(chunk.text)
@@ -401,6 +424,7 @@ def _assemble_chunks(
         unavailable,
         more,
         path_present=True,
+        page=page,
     )
 
 

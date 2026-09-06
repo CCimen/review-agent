@@ -129,6 +129,30 @@ class DiffObservation:
     unavailable_reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class DiffPage:
+    """One exposed half-open character range of an exact path diff."""
+
+    path: str
+    content_sha256: str
+    start_char: int
+    end_char: int
+    total_chars: int
+
+    def __post_init__(self) -> None:
+        resolve_review_path(self.path)
+        if re.fullmatch(r"[0-9a-f]{64}", self.content_sha256) is None:
+            raise ReviewDomainError("diff page requires a SHA-256 content digest")
+        if (
+            any(
+                isinstance(value, bool)
+                for value in (self.start_char, self.end_char, self.total_chars)
+            )
+            or not 0 <= self.start_char < self.end_char <= self.total_chars < 2**63
+        ):
+            raise ReviewDomainError("diff page requires a nonempty range within its extent")
+
+
 def _normalize_json(value: object) -> JsonValue:
     if value is None or isinstance(value, (bool, str)):
         return value

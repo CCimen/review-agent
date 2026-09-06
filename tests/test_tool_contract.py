@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -606,6 +607,84 @@ class ToolContractTests(unittest.TestCase):
 
                 self.assertEqual(result["diff_source"], "per_file_patch")
                 fallback.assert_called_once()
+
+    def test_diff_pages_carry_exact_exposure_from_both_sources(self) -> None:
+        patch_text = "@@ -0,0 +1 @@\n+" + "å" * 4000 + "\n"
+        text = (
+            "diff --git a/big.py b/big.py\n--- /dev/null\n+++ b/big.py\n" + patch_text
+        )
+        pull = {"changed_files": 1}
+        for state in ("ok", "diff_unavailable"):
+            client = Mock()
+            client.get_review_diff.return_value = SimpleNamespace(
+                state=state,
+                body=text.encode("utf-8"),
+                truncated=False,
+            )
+            source = SimpleNamespace(
+                run_id=41,
+                lease=SimpleNamespace(job_id=7, lease_generation=3),
+                client=client,
+            )
+            index = SimpleNamespace(
+                files=[
+                    {
+                        "path": "big.py",
+                        "previous_path": None,
+                        "status": "added",
+                        "patch_state": "available",
+                        "patch": patch_text,
+                    }
+                ],
+                index_state="complete",
+            )
+            with (
+                self.subTest(state=state),
+                patch.object(
+                    review_source_tools, "gateway_source_session", return_value=source
+                ),
+                patch.object(
+                    review_source_tools,
+                    "pull_request_identity",
+                    return_value=(self.repository, 1, pull),
+                ),
+                patch.object(
+                    review_source_tools, "review_run_snapshot", return_value=pull
+                ),
+                patch.object(
+                    review_source_tools,
+                    "_enumerate_changed_file_index",
+                    return_value=index,
+                ),
+                patch.object(
+                    review_source_tools,
+                    "postgres_runtime",
+                    return_value=self._runtime(),
+                ),
+                patch.object(
+                    review_run_application, "record_live_diff_result"
+                ) as record,
+            ):
+                result = json.loads(
+                    review_source_tools.pr_diff.__wrapped__(
+                        {
+                            "run_id": 41,
+                            "path": "big.py",
+                            "max_chars": 1000,
+                            "start_char": 1000,
+                        }
+                    )
+                )
+            self.assertEqual(result["diff"], text[1000:2000])
+            self.assertEqual(result["next_start_char"], 2000)
+            self.assertTrue(result["truncated"])
+            record.assert_called_once()
+            exposure = record.call_args.args[2]
+            self.assertEqual(exposure.page.path, "big.py")
+            self.assertEqual(exposure.page.start_char, 1000)
+            self.assertEqual(exposure.page.end_char, 2000)
+            self.assertEqual(exposure.page.total_chars, len(text))
+            self.assertEqual(exposure.page.content_sha256, hashlib.sha256(text.encode("utf-8")).hexdigest())
 
     def test_terminal_per_file_handoff_records_only_registered_paths(self) -> None:
         source = SimpleNamespace(run_id=41)

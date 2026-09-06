@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
 status: current
-last_verified: 2026-09-02
+last_verified: 2026-09-06
 ---
 
 import Tabs from '@theme/Tabs';
@@ -444,6 +444,12 @@ the new template until every old application pod is gone.
 </Tabs>
 
 ### Rollback boundary
+
+Migration 015 adds diff-page evidence to existing run-file rows. It preserves
+complete observations and leaves older truncated observations incomplete until
+the diff is read again. Keep the added columns when recovering; no data removal
+or reverse migration is needed. The previous coverage queries remain compatible,
+but an image rollback still requires the release-specific checks below.
 
 Roll back only to the exact prior Review Agent digest named in the release
 record. That record must include the post-migration schema version and a receipt

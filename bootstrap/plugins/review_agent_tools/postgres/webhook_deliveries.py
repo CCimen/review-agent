@@ -659,6 +659,28 @@ def finish_delivery(
     return _delivery(row)
 
 
+def review_admission_expired(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    delivery_id: int,
+    maximum_age: timedelta,
+) -> bool:
+    """Evaluate a review request's admission deadline using the ledger clock."""
+    _require_transaction(connection)
+    resolved_id = _integer(delivery_id, field="delivery_id", minimum=1)
+    if maximum_age <= timedelta(0):
+        raise WebhookDeliveryError("maximum_age must be positive")
+    row = connection.execute(
+        "SELECT command_category = 'review' "
+        "AND received_at + %s <= statement_timestamp() "
+        "FROM review_agent.github_webhook_deliveries WHERE id = %s",
+        (maximum_age, resolved_id),
+    ).fetchone()
+    if row is None:
+        raise DeliveryNotFound("webhook delivery does not exist")
+    return bool(row[0])
+
+
 def retry_or_fail_delivery(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -668,8 +690,9 @@ def retry_or_fail_delivery(
     actor: str,
     failure_code: str,
     retry_delay: timedelta,
+    waiting_for_capacity: bool = False,
 ) -> WebhookDelivery:
-    """Retry one exact lease or fail it after its caller-set attempt budget."""
+    """Retry one exact lease; capacity waiting refunds only this claim attempt."""
     _require_transaction(connection)
     resolved_id = _integer(delivery_id, field="delivery_id", minimum=1)
     owner = _actor(lease_owner, field="lease_owner")
@@ -679,56 +702,64 @@ def retry_or_fail_delivery(
     if retry_delay < timedelta(0):
         raise WebhookDeliveryError("retry_delay must not be negative")
 
+    if waiting_for_capacity and code != "review_waiting_for_capacity":
+        raise WebhookDeliveryError("capacity waiting requires its explicit failure code")
+    if waiting_for_capacity:
+        current = get_delivery(connection, resolved_id)
+        if current.command_category is not CommandCategory.REVIEW:
+            raise WebhookDeliveryError("only review deliveries can wait for capacity")
+
     with connection.cursor(row_factory=class_row(_DeliveryRow)) as cursor:
         row = cursor.execute(
             f"""
             UPDATE review_agent.github_webhook_deliveries AS delivery
-            SET status = CASE
-                    WHEN delivery.attempt_count < delivery.max_attempts
+            SET attempt_count = delivery.attempt_count - %(refund)s,
+                status = CASE
+                    WHEN delivery.attempt_count - %(refund)s < delivery.max_attempts
                     THEN 'received'
                     ELSE 'failed'
                 END,
                 normalized_payload = CASE
-                    WHEN delivery.attempt_count < delivery.max_attempts
+                    WHEN delivery.attempt_count - %(refund)s < delivery.max_attempts
                     THEN delivery.normalized_payload
                     ELSE NULL
                 END,
                 available_at = CASE
-                    WHEN delivery.attempt_count < delivery.max_attempts
-                    THEN statement_timestamp() + %s
+                    WHEN delivery.attempt_count - %(refund)s < delivery.max_attempts
+                    THEN statement_timestamp() + %(retry_delay)s
                     ELSE delivery.available_at
                 END,
                 lease_owner = NULL,
                 lease_expires_at = NULL,
                 last_heartbeat_at = NULL,
-                failure_code = %s,
-                failure_actor = %s,
+                failure_code = %(code)s,
+                failure_actor = %(actor)s,
                 completed_by = CASE
-                    WHEN delivery.attempt_count < delivery.max_attempts
+                    WHEN delivery.attempt_count - %(refund)s < delivery.max_attempts
                     THEN NULL
-                    ELSE %s
+                    ELSE %(actor)s
                 END,
                 processed_at = CASE
-                    WHEN delivery.attempt_count < delivery.max_attempts
+                    WHEN delivery.attempt_count - %(refund)s < delivery.max_attempts
                     THEN NULL
                     ELSE statement_timestamp()
                 END
-            WHERE delivery.id = %s
+            WHERE delivery.id = %(delivery_id)s
               AND delivery.status = 'processing'
-              AND delivery.lease_owner = %s
-              AND delivery.lease_generation = %s
+              AND delivery.lease_owner = %(owner)s
+              AND delivery.lease_generation = %(generation)s
               AND delivery.lease_expires_at > statement_timestamp()
             RETURNING {_DELIVERY_COLUMNS}
             """,
-            (
-                retry_delay,
-                code,
-                failure_actor,
-                failure_actor,
-                resolved_id,
-                owner,
-                generation,
-            ),
+            {
+                "refund": int(waiting_for_capacity),
+                "retry_delay": retry_delay,
+                "code": code,
+                "actor": failure_actor,
+                "delivery_id": resolved_id,
+                "owner": owner,
+                "generation": generation,
+            },
         ).fetchone()
     if row is None:
         raise DeliveryLeaseLost(get_delivery(connection, resolved_id))

@@ -153,6 +153,16 @@ def main(argv: list[str] | None = None) -> int:
                 active_job_limit=_positive_integer(
                     "REVIEW_AGENT_ACTIVE_JOB_LIMIT", "100"
                 ),
+                admission_max_age=timedelta(
+                    seconds=_positive_integer(
+                        "REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS", "86400"
+                    )
+                ),
+                capacity_retry_delay=timedelta(
+                    seconds=_positive_integer(
+                        "REVIEW_AGENT_GITHUB_APP_CAPACITY_RETRY_SECONDS", "300"
+                    )
+                ),
                 contract_environment=review_contract.deployment_environment(
                     os.environ
                 ),

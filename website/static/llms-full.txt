@@ -2106,7 +2106,16 @@ load and worker behavior:
 All values are optional and have deployable defaults:
 
 - `REVIEW_AGENT_ACTIVE_JOB_LIMIT` — default `100`. Maximum queued, leased, and
-  publication-waiting reviews; admission returns HTTP 429 at capacity.
+  publication-waiting reviews. At capacity, the App worker retains the accepted
+  webhook intent and retries admission without consuming processing attempts.
+- `REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS` — default `86400` (24 hours).
+  Review requests that reach the App worker after this deadline fail with
+  `review_admission_expired`. This bounds active intent retention during capacity
+  waits or an App worker outage. Changing the setting applies to pending requests.
+- `REVIEW_AGENT_GITHUB_APP_CAPACITY_RETRY_SECONDS` — default `300` (five minutes).
+  Interval between capacity checks. Each attempt reauthorizes the request through
+  GitHub; the default permits about 24 permission/snapshot reads per hour per
+  waiting review, plus token exchanges when needed.
 - `REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS` — default `900`. Wait time that
   offsets one priority point.
 - `REVIEW_AGENT_JOB_MAX_ATTEMPTS` — default `3`. Review-worker attempt budget.
@@ -2138,6 +2147,15 @@ All values are optional and have deployable defaults:
   part, not a finding cap.
 - `REVIEW_AGENT_POSTGRES_MAX_CONNECTIONS` — default `200` for the bundled
   Compose database. External PostgreSQL deployments own this setting.
+
+Capacity waits appear in App worker logs as `status=received` with
+`reason=review_waiting_for_capacity`. Admission rechecks current authorization and
+the PR subject on every attempt. Lock contention uses `review_admission_busy` and
+keeps the normal bounded processing-attempt budget. An expired request leaves a
+terminal delivery receipt and a `status=failed reason=review_admission_expired`
+log entry; its normalized payload is erased. After resolving capacity or worker
+availability, post a new `/review` comment to request another review. Redelivering
+the same webhook GUID does not reopen its receipt.
 
 Plan maximum database pool capacity with this formula:
 

@@ -217,6 +217,78 @@ class PostgreSQLWebhookDeliveryTests(unittest.TestCase):
         self.assertIsNone(failed.normalized_payload)
         self.assertEqual(failed.failure_actor, "processor:webhook-worker-2")
 
+    def test_capacity_wait_preserves_prior_failures_at_the_attempt_limit(self) -> None:
+        with psycopg.connect(DSN) as connection, connection.transaction():
+            webhook_deliveries.register_delivery(
+                connection, definition=self.definition(), max_attempts=2
+            )
+            first = webhook_deliveries.claim_next_delivery(
+                connection, lease_owner="worker", lease_duration=timedelta(minutes=1)
+            )
+            assert first is not None
+            webhook_deliveries.retry_or_fail_delivery(
+                connection, delivery_id=first.id, lease_owner="worker",
+                lease_generation=first.lease_generation, actor="worker",
+                failure_code="admission_busy", retry_delay=timedelta(0),
+            )
+            second = webhook_deliveries.claim_next_delivery(
+                connection, lease_owner="worker", lease_duration=timedelta(minutes=1)
+            )
+            assert second is not None
+            self.assertEqual(second.attempt_count, 2)
+            with self.assertRaisesRegex(webhook_deliveries.WebhookDeliveryError, "failure code"):
+                webhook_deliveries.retry_or_fail_delivery(
+                    connection, delivery_id=second.id, lease_owner="worker",
+                    lease_generation=second.lease_generation, actor="worker",
+                    failure_code="admission_busy", retry_delay=timedelta(minutes=5),
+                    waiting_for_capacity=True,
+                )
+            deferred = webhook_deliveries.retry_or_fail_delivery(
+                connection, delivery_id=second.id, lease_owner="worker",
+                lease_generation=second.lease_generation, actor="worker",
+                failure_code="review_waiting_for_capacity", retry_delay=timedelta(minutes=5),
+                waiting_for_capacity=True,
+            )
+            self.assertEqual(deferred.status, "received")
+            self.assertEqual(deferred.attempt_count, 1)
+            self.assertIsNotNone(deferred.normalized_payload)
+            self.assertIsNone(webhook_deliveries.claim_next_delivery(
+                connection, lease_owner="next-worker", lease_duration=timedelta(minutes=1)
+            ))
+            remaining = connection.execute(
+                "SELECT available_at - statement_timestamp() "
+                "FROM review_agent.github_webhook_deliveries WHERE id = %s",
+                (deferred.id,),
+            ).fetchone()
+            assert remaining is not None
+            self.assertGreater(remaining[0], timedelta(minutes=4))
+
+    def test_capacity_wait_rejects_a_live_non_review_lease(self) -> None:
+        with psycopg.connect(DSN) as connection, connection.transaction():
+            webhook_deliveries.register_delivery(
+                connection,
+                definition=replace(
+                    self.definition(), command_category=webhook_deliveries.CommandCategory.FEEDBACK
+                ),
+                max_attempts=2,
+            )
+            claimed = webhook_deliveries.claim_next_delivery(
+                connection, lease_owner="worker", lease_duration=timedelta(minutes=1)
+            )
+            assert claimed is not None
+            with self.assertRaisesRegex(webhook_deliveries.WebhookDeliveryError, "only review"):
+                webhook_deliveries.retry_or_fail_delivery(
+                    connection, delivery_id=claimed.id, lease_owner="worker",
+                    lease_generation=claimed.lease_generation, actor="worker",
+                    failure_code="review_waiting_for_capacity", retry_delay=timedelta(minutes=5),
+                    waiting_for_capacity=True,
+                )
+            live = webhook_deliveries.require_live_delivery(
+                connection, delivery_id=claimed.id, lease_owner="worker",
+                lease_generation=claimed.lease_generation,
+            )
+            self.assertEqual(live.attempt_count, 1)
+
     def test_expired_lease_recovery_requeues_then_fails_at_attempt_limit(self) -> None:
         with psycopg.connect(DSN) as connection:
             with connection.transaction():

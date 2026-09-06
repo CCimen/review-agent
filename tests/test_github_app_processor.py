@@ -245,6 +245,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         *,
         acknowledgement_failure: bool = False,
         feedback_acknowledgement_protocol_failure: bool = False,
+        capacity_retry_delay: timedelta = timedelta(0),
     ) -> app_processor.GitHubAppProcessor:
         client = github or _GitHub()
         gateway_service = ReviewGitHubGateway(
@@ -277,6 +278,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 active_job_limit=100,
                 contract_environment={},
                 retry_delay=timedelta(0),
+                capacity_retry_delay=capacity_retry_delay,
             ),
         )
 
@@ -708,6 +710,44 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(counts, (1, 1))
         self.assertEqual(repository_name, ("CCimen/review-agent",))
 
+    def test_review_admission_expires_after_its_deadline(self) -> None:
+        self.enable_repository()
+        expired_id = self.register("issue_comment", self.review_payload())
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.github_webhook_deliveries "
+                "SET received_at = statement_timestamp() - interval '25 hours' WHERE id = %s",
+                (expired_id,),
+            )
+        expired = self.processor().process_next(lease_owner="worker-expired")
+        self.assertEqual(expired.status if expired else None, "failed")
+        self.assertEqual(expired.reason if expired else None, "review_admission_expired")
+        with self.runtime.transaction() as connection:
+            expired_delivery = webhook_deliveries.get_delivery(connection, expired_id)
+        self.assertIsNone(expired_delivery.normalized_payload)
+        self.assertIsNotNone(expired_delivery.processed_at)
+
+    def test_admission_lock_failures_exhaust_the_attempt_budget(self) -> None:
+        self.enable_repository()
+        busy_id = self.register("issue_comment", self.review_payload())
+        with (
+            patch.object(
+                app_processor.review_contract, "load_packaged_contract", return_value=self.contract
+            ),
+            patch.object(
+                app_processor, "admit_postgres_review_in_transaction",
+                side_effect=jobs.ReviewJobBusy("busy"),
+            ),
+        ):
+            for expected in ("received", "received", "failed"):
+                busy = self.processor().process_next(lease_owner="worker-busy")
+                self.assertEqual(busy.status if busy else None, expected)
+                self.assertEqual(busy.reason if busy else None, "review_admission_busy")
+        with self.runtime.transaction() as connection:
+            busy_delivery = webhook_deliveries.get_delivery(connection, busy_id)
+        self.assertEqual(busy_delivery.attempt_count, 3)
+        self.assertIsNone(busy_delivery.normalized_payload)
+
     def test_approved_all_repository_installation_activates_exact_repo_on_first_review(
         self,
     ) -> None:
@@ -1006,6 +1046,12 @@ class GitHubAppProcessorTests(unittest.TestCase):
     def test_queue_pressure_retries_without_leaving_a_run(self) -> None:
         self.enable_repository()
         delivery_id = self.register("issue_comment", self.review_payload())
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.github_webhook_deliveries "
+                "SET received_at = statement_timestamp() - interval '2 hours' WHERE id = %s",
+                (delivery_id,),
+            )
 
         with (
             patch.object(
@@ -1019,11 +1065,23 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 side_effect=jobs.ReviewQueueFull("full"),
             ),
         ):
-            result = self.processor().process_next(lease_owner="worker-1")
+            delayed = self.processor(capacity_retry_delay=timedelta(minutes=5))
+            waiting = delayed.process_next(lease_owner="worker-delayed")
+            self.assertEqual(waiting.status if waiting else None, "received")
+            self.assertIsNone(delayed.process_next(lease_owner="worker-too-soon"))
+            with self.runtime.transaction() as connection:
+                connection.execute(
+                    "UPDATE review_agent.github_webhook_deliveries "
+                    "SET available_at = statement_timestamp() WHERE id = %s",
+                    (delivery_id,),
+                )
+            for attempt in range(4):
+                result = self.processor().process_next(lease_owner=f"worker-{attempt}")
+                self.assertEqual(result.status if result else None, "received")
 
         self.assertEqual(result.delivery_id if result else None, delivery_id)
         self.assertEqual(result.status if result else None, "received")
-        self.assertEqual(result.reason if result else None, "review_queue_unavailable")
+        self.assertEqual(result.reason if result else None, "review_waiting_for_capacity")
         with self.runtime.transaction() as connection:
             delivery = webhook_deliveries.get_delivery(connection, delivery_id)
             counts = connection.execute(
@@ -1031,7 +1089,21 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 "(SELECT count(*) FROM review_agent.review_jobs)"
             ).fetchone()
         self.assertIsNotNone(delivery.normalized_payload)
+        self.assertEqual(delivery.attempt_count, 0)
         self.assertEqual(counts, (0, 0))
+
+        with patch.object(
+            app_processor.review_contract, "load_packaged_contract", return_value=self.contract
+        ):
+            admitted = self.processor().process_next(lease_owner="worker-after-restart")
+            self.assertEqual(admitted.status if admitted else None, "accepted")
+            self.assertIsNone(self.processor().process_next(lease_owner="worker-next"))
+        with self.runtime.transaction() as connection:
+            counts = connection.execute(
+                "SELECT (SELECT count(*) FROM review_agent.review_runs), "
+                "(SELECT count(*) FROM review_agent.review_jobs)"
+            ).fetchone()
+        self.assertEqual(counts, (1, 1))
 
 
 if __name__ == "__main__":

@@ -64,6 +64,14 @@ class ProcessorConfig:
     # Provider authorization and snapshot reads fit inside this lease.
     lease_duration: timedelta = timedelta(minutes=5)
     retry_delay: timedelta = timedelta(seconds=30)
+    capacity_retry_delay: timedelta = timedelta(minutes=5)
+    admission_max_age: timedelta = timedelta(hours=24)
+
+    def __post_init__(self) -> None:
+        if self.admission_max_age <= timedelta(0):
+            raise ValueError("admission_max_age must be positive")
+        if self.capacity_retry_delay < timedelta(0):
+            raise ValueError("capacity_retry_delay must not be negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +93,10 @@ class _Retry(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class _WaitingForCapacity(Exception):
+    """Admission has made no processing attempt while the review queue is full."""
 
 
 def _object(value: object, field: str) -> Mapping[str, JsonValue]:
@@ -208,6 +220,14 @@ class GitHubAppProcessor:
                 actor,
                 webhook_deliveries.TerminalStatus.FAILED,
                 "github_gateway_invalid_response",
+            )
+        except _WaitingForCapacity:
+            return self._retry(
+                delivery,
+                lease_owner,
+                actor,
+                "review_waiting_for_capacity",
+                waiting_for_capacity=True,
             )
         except _Retry as exc:
             return self._retry(delivery, lease_owner, actor, exc.reason)
@@ -372,6 +392,20 @@ class GitHubAppProcessor:
         lease_owner: str,
         actor: str,
     ) -> ProcessingResult:
+        with self._postgres.transaction() as connection:
+            expired = webhook_deliveries.review_admission_expired(
+                connection,
+                delivery_id=delivery.id,
+                maximum_age=self._config.admission_max_age,
+            )
+        if expired:
+            return self._finish(
+                delivery,
+                lease_owner,
+                actor,
+                webhook_deliveries.TerminalStatus.FAILED,
+                "review_admission_expired",
+            )
         try:
             authorized = self._gateway.authorize_review_delivery(
                 delivery_id=delivery.id,
@@ -432,8 +466,10 @@ class GitHubAppProcessor:
                 )
         except github_app.GitHubAppRepositoryUnauthorized as exc:
             raise _Reject("repository_not_authorized") from exc
-        except (jobs.ReviewQueueFull, jobs.ReviewJobBusy) as exc:
-            raise _Retry("review_queue_unavailable") from exc
+        except jobs.ReviewQueueFull as exc:
+            raise _WaitingForCapacity from exc
+        except jobs.ReviewJobBusy as exc:
+            raise _Retry("review_admission_busy") from exc
 
         try:
             self._gateway.acknowledge_review(
@@ -596,6 +632,8 @@ class GitHubAppProcessor:
         lease_owner: str,
         actor: str,
         reason: str,
+        *,
+        waiting_for_capacity: bool = False,
     ) -> ProcessingResult:
         with self._postgres.transaction() as connection:
             updated = webhook_deliveries.retry_or_fail_delivery(
@@ -605,6 +643,10 @@ class GitHubAppProcessor:
                 lease_generation=delivery.lease_generation,
                 actor=actor,
                 failure_code=reason,
-                retry_delay=self._config.retry_delay,
+                retry_delay=(
+                    self._config.capacity_retry_delay
+                    if waiting_for_capacity else self._config.retry_delay
+                ),
+                waiting_for_capacity=waiting_for_capacity,
             )
         return ProcessingResult(updated.id, updated.status, reason)

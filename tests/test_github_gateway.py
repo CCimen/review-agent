@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import email.message
+import base64
 from datetime import datetime, timedelta, timezone
 import io
 import json
@@ -129,7 +130,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
     @staticmethod
     def _scope() -> ReviewRunScope:
         return ReviewRunScope(
-            run=Mock(),
+            run=Mock(id=51),
             provider_repository_id=9001,
             repository="CCimen/review-agent",
             pr_number=42,
@@ -1144,6 +1145,37 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
 
         self.assertEqual(authorize.call_count, 2)
         read.assert_called_once_with(github, scope)
+
+    def test_cached_file_reads_still_check_authority_and_tokens(self) -> None:
+        github = Mock()
+        github.request_json.return_value = {
+            "type": "file", "encoding": "base64", "size": 6,
+            "content": base64.b64encode(b"first\n").decode("ascii"),
+        }
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        service = ReviewGitHubGateway(
+            postgres=Mock(), tokens=tokens, profile="default-standard",
+            github_factory=Mock(return_value=github),
+        )
+        scope = self._scope()
+        request = ReviewSourceRequest.from_mapping({
+            "operation": "file", "run_id": 51, "job_id": 61, "lease_generation": 7,
+            "path": "a.py", "side": "head", "start_line": 1, "max_lines": 1, "max_chars": 1000,
+        })
+        with patch.object(
+            ReviewGitHubGateway, "_require_source_authority",
+            side_effect=(scope, scope, scope, GitHubGatewayRejected("review_job_lease_lost"),
+                         GitHubGatewayRejected("repository_not_authorized")),
+        ) as authority:
+            service.read_review_source(request)
+            with self.assertRaises(GitHubGatewayRejected):
+                service.read_review_source(request)
+            with self.assertRaises(GitHubGatewayRejected):
+                service.read_review_source(request)
+        self.assertEqual(authority.call_count, 5)
+        self.assertEqual(tokens.token_for.call_count, 2)
+        self.assertEqual(github.request_json.call_count, 1)
 
     def test_source_gateway_preserves_transport_retry_classification(self) -> None:
         request = ReviewSourceRequest.from_mapping(

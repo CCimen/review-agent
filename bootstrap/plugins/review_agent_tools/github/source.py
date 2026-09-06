@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import OrderedDict
+from threading import Lock
 import base64
 import binascii
 from typing import Any, Mapping, cast
@@ -18,10 +20,61 @@ JsonObject = dict[str, Any]
 # endpoint, whose response must stay within one gateway request's memory budget.
 # This bounds one source read, not the number of files or total review depth.
 _GITHUB_RAW_FILE_MAX_BYTES = 2_000_000
+# Retain at most two maximum-size files: under 1.5% of the gateway's 256 MiB
+# budget, separate from concurrent request allocations. Entry count bounds keys.
+_FILE_CACHE_MAX_BYTES = 2 * _GITHUB_RAW_FILE_MAX_BYTES
+_FILE_CACHE_MAX_ENTRIES = 32
 
 
 class GitHubSourceError(ValueError):
     """GitHub returned source data that does not match the durable subject."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewFileKey:
+    provider_repository_id: int
+    commit_sha: str
+    path: str
+
+
+class ReviewFileCache:
+    """Process-local immutable bytes shared by concurrent gateway requests.
+
+    Every access still requires fresh gateway authority and token checks.
+    Eviction or process exit releases entries; misses may fetch concurrently.
+    """
+
+    def __init__(
+        self, *, max_bytes: int = _FILE_CACHE_MAX_BYTES,
+        max_entries: int = _FILE_CACHE_MAX_ENTRIES,
+    ) -> None:
+        if max_bytes < 1 or max_entries < 1:
+            raise ValueError("file cache bounds must be positive")
+        self._max_bytes = max_bytes
+        self._max_entries = max_entries
+        self._bytes = 0
+        self._entries: OrderedDict[ReviewFileKey, bytes] = OrderedDict()
+        self._lock = Lock()
+
+    def get(self, key: ReviewFileKey) -> bytes | None:
+        with self._lock:
+            raw = self._entries.get(key)
+            if raw is not None:
+                self._entries.move_to_end(key)
+            return raw
+
+    def put(self, key: ReviewFileKey, raw: bytes) -> None:
+        if len(raw) > self._max_bytes:
+            return
+        with self._lock:
+            previous = self._entries.pop(key, None)
+            if previous is not None:
+                self._bytes -= len(previous)
+            self._entries[key] = raw
+            self._bytes += len(raw)
+            while self._bytes > self._max_bytes or len(self._entries) > self._max_entries:
+                _, evicted = self._entries.popitem(last=False)
+                self._bytes -= len(evicted)
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,6 +381,7 @@ def read_review_file_page(
     start_line: int,
     max_lines: int,
     max_chars: int,
+    cache: ReviewFileCache | None = None,
 ) -> ReviewFilePage:
     """Return one bounded source page without returning the complete file to Hermes."""
     repository = urllib.parse.quote(scope.repository, safe="/")
@@ -337,34 +391,43 @@ def read_review_file_page(
     revision = scope.head_sha if side == "head" else scope.base_sha
     ref = urllib.parse.quote(revision, safe="")
     endpoint = f"/repos/{repository}/contents/{encoded_path}?ref={ref}"
-    try:
-        value = github.request_json(endpoint, max_bytes=2_000_000)
-    except GitHubReadError as exc:
-        if exc.kind == "not_found":
-            return _terminal_file(scope, side, "not_found_at_revision", start_line)
-        raise
-    metadata = _object(value, "GitHub returned invalid file metadata")
-    if metadata.get("type") != "file":
-        return _terminal_file(scope, side, "not_regular", start_line)
-    raw_content = metadata.get("content")
-    if metadata.get("encoding") == "base64" and isinstance(raw_content, str):
+    key = ReviewFileKey(
+        provider_repository_id=scope.provider_repository_id,
+        commit_sha=revision,
+        path=path,
+    )
+    raw = cache.get(key) if cache is not None else None
+    if raw is None:
         try:
-            raw = base64.b64decode(raw_content, validate=False)
-        except (ValueError, binascii.Error) as exc:
-            raise GitHubSourceError("GitHub returned invalid file content") from exc
-    else:
-        size = metadata.get("size")
-        if type(size) is not int or size > _GITHUB_RAW_FILE_MAX_BYTES:
-            return _terminal_file(scope, side, "too_large", start_line)
-        raw, truncated, _ = github.request(
-            endpoint,
-            accept="application/vnd.github.raw+json",
-            max_bytes=_GITHUB_RAW_FILE_MAX_BYTES,
-        )
-        if truncated:
-            return _terminal_file(scope, side, "too_large", start_line)
-    if b"\x00" in raw[:8192]:
-        return _terminal_file(scope, side, "binary", start_line)
+            value = github.request_json(endpoint, max_bytes=2_000_000)
+        except GitHubReadError as exc:
+            if exc.kind == "not_found":
+                return _terminal_file(scope, side, "not_found_at_revision", start_line)
+            raise
+        metadata = _object(value, "GitHub returned invalid file metadata")
+        if metadata.get("type") != "file":
+            return _terminal_file(scope, side, "not_regular", start_line)
+        raw_content = metadata.get("content")
+        if metadata.get("encoding") == "base64" and isinstance(raw_content, str):
+            try:
+                raw = base64.b64decode(raw_content, validate=False)
+            except (ValueError, binascii.Error) as exc:
+                raise GitHubSourceError("GitHub returned invalid file content") from exc
+        else:
+            size = metadata.get("size")
+            if type(size) is not int or size > _GITHUB_RAW_FILE_MAX_BYTES:
+                return _terminal_file(scope, side, "too_large", start_line)
+            raw, truncated, _ = github.request(
+                endpoint,
+                accept="application/vnd.github.raw+json",
+                max_bytes=_GITHUB_RAW_FILE_MAX_BYTES,
+            )
+            if truncated:
+                return _terminal_file(scope, side, "too_large", start_line)
+        if b"\x00" in raw[:8192]:
+            return _terminal_file(scope, side, "binary", start_line)
+        if cache is not None:
+            cache.put(key, raw)
     # Preserve line boundaries without accepting invalid bytes. Surrogate escapes
     # let a bounded page ignore invalid data outside the requested page while the
     # fragment actually returned below still fails closed.
@@ -405,6 +468,8 @@ def read_review_file_page(
 
 
 __all__ = [
+    "ReviewFileCache",
+    "ReviewFileKey",
     "GitHubReadError",
     "GitHubSourceError",
     "ReviewFilePage",

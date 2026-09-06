@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import replace
 import sys
 import unittest
 from pathlib import Path
@@ -17,7 +18,7 @@ class ReviewSourceFilePageTests(unittest.TestCase):
     @staticmethod
     def _scope() -> ReviewRunScope:
         return ReviewRunScope(
-            run=Mock(),
+            run=Mock(id=51),
             provider_repository_id=9001,
             repository="example-org/example-repository",
             pr_number=42,
@@ -61,6 +62,54 @@ class ReviewSourceFilePageTests(unittest.TestCase):
         self.assertEqual((page.complete_lines, page.total_lines), (1, 3))
         github.request.assert_not_called()
 
+    def test_cached_pages_are_scoped_to_repository_commit_and_path(self) -> None:
+        github = Mock()
+        github.request_json.return_value = self._contents(
+            content=base64.b64encode(b"first\nsecond\n").decode("ascii"), size=13,
+        )
+        cache = source.ReviewFileCache()
+        scope = self._scope()
+        first = source.read_review_file_page(
+            github, scope, path="a.py", side="head", start_line=1, max_lines=1,
+            max_chars=100, cache=cache,
+        )
+        second = source.read_review_file_page(
+            github, scope, path="a.py", side="head", start_line=2, max_lines=1,
+            max_chars=100, cache=cache,
+        )
+        self.assertEqual((first.content, second.content), ("1: first", "2: second"))
+        source.read_review_file_page(
+            github, replace(scope, run=Mock(id=52)), path="a.py", side="head",
+            start_line=1, max_lines=1, max_chars=100, cache=cache,
+        )
+        self.assertEqual(github.request_json.call_count, 1)
+        for other, path, side in (
+            (replace(scope, provider_repository_id=9002), "a.py", "head"),
+            (replace(scope, head_sha="c" * 40), "a.py", "head"),
+            (scope, "b.py", "head"),
+            (scope, "a.py", "base"),
+        ):
+            source.read_review_file_page(
+                github, other, path=path, side=side, start_line=1, max_lines=1,
+                max_chars=100, cache=cache,
+            )
+        self.assertEqual(github.request_json.call_count, 5)
+
+    def test_file_cache_evicts_least_recent_reads_within_both_memory_bounds(self) -> None:
+        for max_bytes, max_entries in ((4, 10), (100, 2), (1, 10)):
+            with self.subTest(max_bytes=max_bytes, max_entries=max_entries):
+                github = Mock()
+                github.request_json.return_value = self._contents(
+                    content=base64.b64encode(b"a\n").decode("ascii"), size=2,
+                )
+                cache = source.ReviewFileCache(max_bytes=max_bytes, max_entries=max_entries)
+                for path in ("a.py", "b.py", "a.py", "c.py", "a.py", "b.py"):
+                    source.read_review_file_page(
+                        github, self._scope(), path=path, side="head", start_line=1,
+                        max_lines=1, max_chars=100, cache=cache,
+                    )
+                self.assertEqual(github.request_json.call_count, 6 if max_bytes == 1 else 4)
+
     def test_raw_file_within_the_gateway_memory_budget_is_pageable(self) -> None:
         github = Mock()
         github.request_json.return_value = self._contents(
@@ -70,6 +119,7 @@ class ReviewSourceFilePageTests(unittest.TestCase):
         )
         github.request.return_value = (b"line one\nline two\n", False, {})
 
+        cache = source.ReviewFileCache()
         page = source.read_review_file_page(
             github,
             self._scope(),
@@ -78,6 +128,7 @@ class ReviewSourceFilePageTests(unittest.TestCase):
             start_line=1,
             max_lines=200,
             max_chars=1_000,
+            cache=cache,
         )
 
         self.assertEqual(page.state, "ok")
@@ -87,6 +138,13 @@ class ReviewSourceFilePageTests(unittest.TestCase):
             github.request.call_args.kwargs["accept"],
             "application/vnd.github.raw+json",
         )
+        repeated = source.read_review_file_page(
+            github, self._scope(), path="frontend/schema.d.ts", side="head",
+            start_line=2, max_lines=1, max_chars=1_000, cache=cache,
+        )
+        self.assertEqual(repeated.content, "2: line two")
+        self.assertEqual(github.request_json.call_count, 1)
+        self.assertEqual(github.request.call_count, 1)
 
     def test_provider_size_and_truncation_return_a_terminal_state(self) -> None:
         for metadata, response in (

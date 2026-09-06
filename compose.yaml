@@ -276,7 +276,7 @@ services:
       REVIEW_AGENT_GITHUB_APP_ID: "${REVIEW_AGENT_GITHUB_APP_ID:?set REVIEW_AGENT_GITHUB_APP_ID}"
       REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE: /run/secrets/github-app-private-key.pem
       API_SERVER_KEY: "${API_SERVER_KEY:?set API_SERVER_KEY}"
-      # Eight worst-case changed-file responses stay within the 256 MiB service budget.
+      # Limit the 256 MiB service to eight concurrent bounded responses plus a 4 MB file cache.
       REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS: "${REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS:-8}"
       REVIEW_AGENT_PROFILE: "${REVIEW_AGENT_PROFILE:-default-standard}"
       REVIEW_AGENT_MODEL_PROVIDER: "${REVIEW_AGENT_MODEL_PROVIDER:-openai-codex}"

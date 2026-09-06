@@ -36,6 +36,7 @@ from .app_auth import (
 from .source import (
     GitHubSourceError,
     ReviewFilePage,
+    ReviewFileCache,
     ReviewPullSource,
     ReviewSourceBytes,
     read_changed_files_page,
@@ -606,6 +607,7 @@ class ReviewGitHubGateway:
         self._profile = _text(profile, "profile", 80)
         self._github_factory = github_factory or _gateway_github_client
         self._feedback_factory = feedback_factory or _gateway_feedback_client
+        self._file_cache = ReviewFileCache()
 
     def authorize_review_delivery(
         self,
@@ -782,6 +784,7 @@ class ReviewGitHubGateway:
                     start_line=start_line,
                     max_lines=max_lines,
                     max_chars=max_chars,
+                    cache=self._file_cache,
                 )
         result = self._provider_source(scope.provider_repository_id, operation)
         self._require_source_authority(

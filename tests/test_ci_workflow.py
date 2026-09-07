@@ -780,6 +780,82 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("cyclonedx-bom==7.3.1", tool_lock)
         self.assertIn("--hash=sha256:", tool_lock)
 
+    def test_release_policy_step_preserves_checker_failure_and_evidence(self):
+        jobs = mapping(workflow(RELEASE_WORKFLOW)["jobs"])
+        step = named_step(
+            mapping(jobs["evidence"]), "Enforce image vulnerability policy"
+        )
+        for fixed_version, expected_status in (("6.5.8", 1), ("", 0)):
+            with (
+                self.subTest(fixed_version=fixed_version),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                temporary = Path(directory)
+                (temporary / "scripts").symlink_to(
+                    ROOT / "scripts", target_is_directory=True
+                )
+                evidence = temporary / "release-sbom"
+                evidence.mkdir()
+                reports = temporary / "vulnerability-reports"
+                reports.mkdir()
+                (temporary / "release-image-critical-exceptions.json").write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "scope": "release-image",
+                            "expires_on": "2099-01-01",
+                            "exceptions": [],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                for platform in ("amd64", "arm64"):
+                    (reports / f"vulnerability-linux-{platform}.json").write_text(
+                        json.dumps(
+                            {
+                                "Results": [
+                                    {
+                                        "Target": "Python",
+                                        "Vulnerabilities": [
+                                            {
+                                                "Severity": "HIGH",
+                                                "FixedVersion": fixed_version,
+                                                "VulnerabilityID": "CVE-2099-0001",
+                                                "PkgName": "tornado",
+                                                "InstalledVersion": "6.5.7",
+                                            }
+                                        ],
+                                    }
+                                ]
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                completed = subprocess.run(
+                    ["bash", "-e", "-c", str(step["run"])],
+                    cwd=temporary,
+                    env={
+                        **os.environ,
+                        "AMD64_SCAN_OUTCOME": "success",
+                        "ARM64_SCAN_OUTCOME": "success",
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    expected_status, completed.returncode, completed.stderr
+                )
+                policy = json.loads(
+                    (evidence / "VULNERABILITY-POLICY.json").read_text()
+                )
+                self.assertEqual(
+                    2 if fixed_version else 0, policy["blocking_vulnerabilities"]
+                )
+                self.assertEqual(
+                    not fixed_version, (evidence / "VULNERABILITY-SUMMARY.md").is_file()
+                )
+
     def test_release_vulnerability_gate_scans_each_exact_platform_digest(self):
         jobs = mapping(workflow(RELEASE_WORKFLOW)["jobs"])
         evidence_job = mapping(jobs["evidence"])

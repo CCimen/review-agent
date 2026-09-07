@@ -9,13 +9,13 @@ ENV REVIEW_AGENT_HERMES_IMAGE=${HERMES_IMAGE}
 USER root
 # A digest pin makes the upstream filesystem reproducible, but security fixes
 # published after that image was built still need to be applied to the release
-# candidate. Review Agent does not expose Hermes' npm-based terminal tooling,
-# so remove that package manager rather than carry an unused executable tree.
+# candidate. The configured review gateway uses Python; Hermes' frontend builds
+# and npm-based tools are disabled. Remove their unused dependency trees.
 RUN apt-get -o Acquire::Retries=3 update \
     && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 upgrade \
         -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
-        /usr/local/lib/node_modules/npm \
+        /usr/local/lib/node_modules/npm /opt/hermes/node_modules \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/uvx
 COPY --chmod=0755 --from=review_agent_uv /usr/local/bin/uv /usr/local/bin/uv
 COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt

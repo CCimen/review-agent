@@ -11,7 +11,8 @@ image=$1
 docker run --rm --entrypoint sh "$image" -c \
     'command -v curl >/dev/null && command -v uv >/dev/null && \
      ! command -v uvx >/dev/null && ! command -v gh >/dev/null && \
-     ! command -v npm >/dev/null && ! command -v npx >/dev/null'
+     ! command -v npm >/dev/null && ! command -v npx >/dev/null && \
+     test ! -d /opt/hermes/node_modules'
 
 for entrypoint in \
     review-agent-admission \

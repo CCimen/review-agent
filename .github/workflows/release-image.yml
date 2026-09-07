@@ -228,7 +228,8 @@ jobs:
             --markdown-output release-sbom/VULNERABILITY-SUMMARY.md \
             vulnerability-reports/vulnerability-linux-amd64.json \
             vulnerability-reports/vulnerability-linux-arm64.json \
-            | tee release-sbom/VULNERABILITY-POLICY.json
+            > release-sbom/VULNERABILITY-POLICY.json
+          cat release-sbom/VULNERABILITY-POLICY.json
 
       - name: Add scan reports to release evidence
         env:

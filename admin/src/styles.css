@@ -701,6 +701,15 @@ p {
   font-size: var(--step-2);
   font-weight: 600;
 }
+.worker-events {
+  scroll-margin-top: var(--space-5);
+}
+.worker-events-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding-block: 4px;
+}
 .ops-table .subtext .copy code {
   font-size: 1em;
 }

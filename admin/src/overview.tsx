@@ -339,7 +339,7 @@ export function OverviewPage() {
             value={data ? data.active_requests : null}
           />
           <Stat
-            label="Live review workers"
+            label="Online review workers"
             value={data ? data.live_review_workers : null}
           />
           <Stat

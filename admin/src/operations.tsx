@@ -19,7 +19,7 @@ import {
 } from "./ui";
 
 const workerStates: Record<WorkerInstance["state"], string> = {
-  running: "Running",
+  running: "Online",
   draining: "Draining",
   stopped: "Stopped",
   unresponsive: "Unresponsive",
@@ -79,12 +79,12 @@ function Workers({
           <thead>
             <tr>
               <th scope="col">Worker</th>
-              <th scope="col">State</th>
+              <th scope="col">Availability</th>
               <th scope="col" className="numeric">
                 Capacity
               </th>
               <th scope="col" className="numeric">
-                Active leases
+                Assigned jobs
               </th>
               <th scope="col">Last heartbeat</th>
               <th scope="col">Events</th>
@@ -109,7 +109,7 @@ function Workers({
                 </th>
                 <td>
                   <span className="mobile-label" aria-hidden="true">
-                    State
+                    Availability
                   </span>
                   <span className={`status ${workerTone[worker.state]}`}>
                     {workerStates[worker.state]}
@@ -123,17 +123,20 @@ function Workers({
                 </td>
                 <td className="numeric">
                   <span className="mobile-label" aria-hidden="true">
-                    Active leases
+                    Assigned jobs
                   </span>
                   {worker.active_leases === null ? (
                     <span
                       className="unknown"
                       title="Several retained processes share this lease owner"
                     >
-                      Shared
+                      Unknown
                     </span>
                   ) : (
                     number.format(worker.active_leases)
+                  )}
+                  {worker.state === "running" && worker.active_leases === 0 && (
+                    <span className="subtext">Idle</span>
                   )}
                 </td>
                 <td>
@@ -144,13 +147,14 @@ function Workers({
                   <span className="subtext">{time(worker.last_seen_at)}</span>
                 </td>
                 <td>
-                  <button
-                    className="text-button"
+                  <a
+                    className="worker-events-link"
+                    href="#worker-events"
                     onClick={() => onInspect(worker.id)}
                   >
-                    View
-                    <span className="sr-only">{` events for ${worker.id}`}</span>
-                  </button>
+                    View events
+                    <span className="sr-only">{` for ${worker.id}`}</span>
+                  </a>
                 </td>
               </tr>
             ))}
@@ -164,9 +168,10 @@ function Workers({
         </p>
       )}
       <p className="panel-note">
-        A worker is marked unresponsive after {staleAfter} seconds without a
-        heartbeat. That means this database stopped hearing from it, not that
-        its container failed.
+        Online means the worker is sending heartbeats. An online worker with
+        zero assigned jobs is idle. Capacity is its maximum concurrent job
+        count. A worker is marked unresponsive after {staleAfter} seconds
+        without a heartbeat; this does not confirm that its container stopped.
       </p>
     </div>
   );
@@ -354,10 +359,12 @@ export function OperationsPage() {
         <>
           <div className="stat-grid live">
             <Stat
-              label="Workers running"
+              label="Workers online"
               value={running}
               hint={
-                data.workers_truncated ? "Among shown instances" : undefined
+                data.workers_truncated
+                  ? "Among shown instances"
+                  : "Sending heartbeats"
               }
             />
             <Stat
@@ -378,7 +385,7 @@ export function OperationsPage() {
 
           <Section
             title="Workers"
-            description="Processes that have reported to this database."
+            description="Availability shows worker presence. Assigned jobs show their current work."
           >
             <Workers
               workers={data.workers}
@@ -418,12 +425,20 @@ export function OperationsPage() {
             </p>
           </Section>
 
-          <Section
-            title="Events"
-            description="Process lifecycle and review handoff. These records carry no output, prompts, or provider responses — use your container platform for full logs."
+          <div
+            id="worker-events"
+            className="worker-events"
+            tabIndex={-1}
+            role="region"
+            aria-label="Worker events"
           >
-            <Events workerId={workerId} clear={() => setWorkerId("")} />
-          </Section>
+            <Section
+              title="Events"
+              description="Process lifecycle and review handoff. These records carry no output, prompts, or provider responses — use your container platform for full logs."
+            >
+              <Events workerId={workerId} clear={() => setWorkerId("")} />
+            </Section>
+          </div>
         </>
       )}
     </>

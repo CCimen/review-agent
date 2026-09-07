@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from .domain.feedback import resolve_repository
+from .domain.review import ReviewRunId
 from .postgres import admin_operations, admin_reporting
 from .postgres.runtime import PostgreSQLRuntime
 
@@ -78,6 +79,21 @@ def history(
 def _bounds(*, days: int, limit: int) -> None:
     if not 1 <= days <= 90 or not 1 <= limit <= 100:
         raise ValueError("days must be 1–90 and limit must be 1–100")
+
+
+def review_detail(
+    runtime: PostgreSQLRuntime, *, run_id: int, before_id: int | None = None
+) -> admin_reporting.ReviewDetail | None:
+    if run_id < 1 or (before_id is not None and before_id < 1):
+        raise ValueError("Request ID and cursor must be positive")
+    with runtime.transaction() as connection:
+        connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        return admin_reporting.review_detail(
+            connection,
+            run_id=ReviewRunId(run_id),
+            before_id=before_id,
+            now=datetime.now(timezone.utc),
+        )
 
 
 def report_window(

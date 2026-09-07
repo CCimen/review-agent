@@ -590,6 +590,70 @@
         }
       }
     },
+    "/api/history/{run_id}": {
+      "get": {
+        "summary": "Review Detail",
+        "operationId": "review_detail_api_history__run_id__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/pull-requests": {
       "get": {
         "summary": "Pull Requests",
@@ -1776,6 +1840,24 @@
         ],
         "title": "PasswordChange"
       },
+      "PublicationLink": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "url"
+        ],
+        "title": "PublicationLink"
+      },
       "PullRequestGroup": {
         "properties": {
           "pull_request_id": {
@@ -2064,6 +2146,74 @@
           "latest_failed_prs"
         ],
         "title": "RepositoryTotals"
+      },
+      "ReviewDetail": {
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/HistoryItem"
+          },
+          "markdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markdown"
+          },
+          "content_truncated": {
+            "type": "boolean",
+            "title": "Content Truncated"
+          },
+          "publication_links": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationLink"
+            },
+            "type": "array",
+            "title": "Publication Links"
+          },
+          "links_truncated": {
+            "type": "boolean",
+            "title": "Links Truncated"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryItem"
+            },
+            "type": "array",
+            "title": "Requests"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item",
+          "markdown",
+          "content_truncated",
+          "publication_links",
+          "links_truncated",
+          "requests",
+          "next_cursor",
+          "generated_at"
+        ],
+        "title": "ReviewDetail"
       },
       "ReviewUsage": {
         "properties": {

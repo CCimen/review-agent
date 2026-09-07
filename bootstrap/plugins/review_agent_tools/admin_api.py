@@ -8,7 +8,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Path as PathParameter,
+    Query,
+    Request,
+)
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -137,6 +145,19 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    def review_detail(
+        run_id: Annotated[int, PathParameter(ge=1, le=9223372036854775807)],
+        before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
+    ) -> admin_reporting.ReviewDetail:
+        result = admin_application.review_detail(
+            runtime, run_id=run_id, before_id=before_id
+        )
+        if result is None:
+            raise HTTPException(
+                404, "This review request was not found in retained history."
+            )
+        return result
+
     def pull_requests(
         days: Days = 30,
         start: datetime | None = None,
@@ -217,6 +238,7 @@ def create_app(
     app.add_exception_handler(RequestValidationError, invalid_request)
     router.add_api_route("/api/repositories", repositories, methods=["GET"])
     router.add_api_route("/api/history", history, methods=["GET"])
+    router.add_api_route("/api/history/{run_id}", review_detail, methods=["GET"])
     router.add_api_route("/api/pull-requests", pull_requests, methods=["GET"])
     router.add_api_route("/api/overview", overview, methods=["GET"])
     router.add_api_route(
@@ -237,6 +259,9 @@ def create_app(
     app.add_api_route("/healthz", health, methods=["GET"], include_in_schema=False)
     app.add_api_route("/", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/history", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route(
+        "/history/{run_id}", index, methods=["GET"], include_in_schema=False
+    )
     app.add_api_route("/overview", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/operations", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/users", index, methods=["GET"], include_in_schema=False)

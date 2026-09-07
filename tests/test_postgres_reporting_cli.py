@@ -162,7 +162,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
         )
 
-    def publish_run(
+    def prepare_publication(
         self,
         run: review_runs.StartedRun,
         batch: review_finding_application.PostgresFindingBatch,
@@ -213,9 +213,18 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
         )
         with self.runtime.transaction() as connection:
-            prepared = publications.prepare_publication(
+            return publications.prepare_publication(
                 connection, run_id=run.run.id, plan=plan
             )
+
+    def publish_run(
+        self,
+        run: review_runs.StartedRun,
+        batch: review_finding_application.PostgresFindingBatch,
+        *,
+        key_character: str,
+    ) -> publications.Publication:
+        prepared = self.prepare_publication(run, batch, key_character=key_character)
         with self.runtime.transaction() as connection:
             claim = publications.claim_publication(connection, prepared.id)
         assert claim.publication.posting_started_at is not None
@@ -296,6 +305,12 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual((beyond.items, beyond.total), ((), 2))
         filtered = admin_application.repositories(self.runtime, search="example-org")
         self.assertEqual(filtered.total, 1)
+        # Keep fixtures away from the exclusive window end across host/DB clocks.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET started_at = %s",
+                (datetime.now(timezone.utc) - timedelta(seconds=2),),
+            )
         first = admin_application.history(self.runtime, limit=1)
         second = admin_application.history(
             self.runtime, limit=1, before_id=first.next_cursor
@@ -316,6 +331,11 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             with self.runtime.transaction() as connection:
                 review_runs.fail_run(connection, run.run.id, failure_code="review_failed")
         other = self.start(pr_number=92, request_suffix="group-other")
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET started_at = %s",
+                (datetime.now(timezone.utc) - timedelta(seconds=2),),
+            )
         first_page = admin_application.pull_requests(self.runtime, limit=1)
         second_page = admin_application.pull_requests(self.runtime, limit=1, before_id=first_page.next_cursor)
         self.assertEqual((first_page.total, second_page.total), (2, 2))
@@ -373,7 +393,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ).fetchone()
         assert row is not None and row[0] is not None
         posted_at = row[0]
-        now = datetime.now(timezone.utc)
+        # Bound the report after the recorded event, independent of host/DB clock skew.
+        now = posted_at + timedelta(seconds=1)
         with self.runtime.transaction() as connection:
             report = admin_operations.overview(
                 connection, start=posted_at, end=now, now=now
@@ -402,7 +423,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             (15, 1, 1),
         )
         self.assertIsNotNone(report.window.median_publication_seconds)
-        history = admin_application.history(self.runtime)
+        history = admin_application.history(self.runtime, start=now - timedelta(days=30), end=now)
         self.assertEqual(
             (
                 history.items[0].usage.reported_attempts,
@@ -416,9 +437,95 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual((after_request.items, after_request.total), ((), 0))
         unknown = self.start(pr_number=85, request_suffix="usage-unknown")
         self.assertIsNone(
-            admin_application.history(self.runtime).items[0].usage.total_tokens
+            admin_application.history(
+                self.runtime, start=now - timedelta(days=30),
+                end=unknown.run.started_at + timedelta(seconds=1),
+            ).items[0].usage.total_tokens
         )
         self.assertNotEqual(unknown.run.id, run.run.id)
+
+    def test_admin_reader_returns_exact_published_snapshot_and_excludes_drafts(self) -> None:
+        from review_agent_tools import admin_application
+
+        first = self.start(pr_number=94, request_suffix="reader-published")
+        published = self.publish_run(
+            first, self.record_finding(first, findings=()), key_character="1"
+        )
+        second = self.start(pr_number=94, request_suffix="reader-draft", head_sha="c" * 40)
+        draft = self.prepare_publication(
+            second, self.record_finding(second, findings=(), head_sha="c" * 40), key_character="2"
+        )
+        other = self.start(pr_number=95, request_suffix="reader-other")
+        with self.runtime.transaction() as connection:
+            # Direct URLs must survive the overview's maximum reporting period.
+            connection.execute(
+                "UPDATE review_agent.review_runs SET started_at = started_at - interval '120 days' WHERE id = %s",
+                (first.run.id,),
+            )
+            claim = publications.claim_publication(connection, draft.id)
+            assert claim.publication.posting_started_at is not None
+            publications.acknowledge_part(
+                connection, publication_id=draft.id,
+                part_type=PublicationPartType.SUMMARY, part_number=1, external_id=12345,
+                posting_started_at=claim.publication.posting_started_at,
+            )
+        detail = admin_application.review_detail(self.runtime, run_id=int(first.run.id))
+        assert detail is not None
+        self.assertEqual(detail.item.id, first.run.id)
+        self.assertEqual(detail.markdown, "## Review\n\nExact persisted review.\n")
+        self.assertFalse(detail.content_truncated)
+        self.assertEqual(detail.publication_links[0].url,
+                         f"https://github.com/{self.repository}/pull/94#issuecomment-{900 + int(first.run.id)}")
+        self.assertEqual([item.id for item in detail.requests], [second.run.id, first.run.id])
+        self.assertFalse(detail.item.is_latest)
+        self.assertNotIn(other.run.id, [item.id for item in detail.requests])
+        pending = admin_application.review_detail(self.runtime, run_id=int(second.run.id))
+        assert pending is not None
+        self.assertIsNone(pending.markdown)
+        self.assertEqual(pending.publication_links, ())
+        self.assertIsNone(admin_application.review_detail(self.runtime, run_id=999999))
+        with self.runtime.transaction() as connection:
+            publications.complete_publication(
+                connection, publication_id=draft.id,
+                posting_started_at=claim.publication.posting_started_at,
+            )
+        historical = admin_application.review_detail(self.runtime, run_id=int(first.run.id))
+        assert historical is not None
+        self.assertTrue(historical.item.publication_superseded)
+        self.assertEqual(historical.markdown, detail.markdown)
+        self.assertEqual(historical.publication_links, detail.publication_links)
+        # The reader bounds content without mutating the frozen publication.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.publications SET rendered_markdown = repeat('x', 200001) WHERE id = %s",
+                (published.id,),
+            )
+        bounded = admin_application.review_detail(self.runtime, run_id=int(first.run.id))
+        assert bounded is not None and bounded.markdown is not None
+        self.assertEqual(len(bounded.markdown), 200000)
+        self.assertTrue(bounded.content_truncated)
+
+    def test_admin_reader_pages_pr_history_without_losing_selected_review(self) -> None:
+        from review_agent_tools import admin_application
+
+        runs: list[review_runs.StartedRun] = []
+        for index in range(22):
+            run = self.start(pr_number=96, request_suffix=f"reader-page-{index}")
+            runs.append(run)
+            with self.runtime.transaction() as connection:
+                review_runs.fail_run(connection, run.run.id, failure_code="review_failed")
+        self.start(pr_number=97, request_suffix="reader-page-other")
+        selected = int(runs[0].run.id)
+        first = admin_application.review_detail(self.runtime, run_id=selected)
+        assert first is not None
+        self.assertEqual(len(first.requests), 20)
+        self.assertEqual(first.item.id, selected)
+        second = admin_application.review_detail(self.runtime, run_id=selected, before_id=first.next_cursor)
+        assert second is not None
+        self.assertEqual([item.id for item in second.requests], [runs[1].run.id, runs[0].run.id])
+        self.assertEqual(second.item.id, selected)
+        self.assertIsNone(second.next_cursor)
+        self.assertTrue(all(item.pr_number == 96 for item in (*first.requests, *second.requests)))
 
     def test_worker_presence_expires_and_events_remain_bounded(self) -> None:
         import threading

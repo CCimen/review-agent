@@ -141,6 +141,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/history/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Review Detail */
+        get: operations["review_detail_api_history__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/pull-requests": {
         parameters: {
             query?: never;
@@ -516,6 +533,13 @@ export interface components {
              */
             password: string;
         };
+        /** PublicationLink */
+        PublicationLink: {
+            /** Label */
+            label: string;
+            /** Url */
+            url: string;
+        };
         /** PullRequestGroup */
         PullRequestGroup: {
             /** Pull Request Id */
@@ -630,6 +654,27 @@ export interface components {
             active_requests: number;
             /** Latest Failed Prs */
             latest_failed_prs: number;
+        };
+        /** ReviewDetail */
+        ReviewDetail: {
+            item: components["schemas"]["HistoryItem"];
+            /** Markdown */
+            markdown: string | null;
+            /** Content Truncated */
+            content_truncated: boolean;
+            /** Publication Links */
+            publication_links: components["schemas"]["PublicationLink"][];
+            /** Links Truncated */
+            links_truncated: boolean;
+            /** Requests */
+            requests: components["schemas"]["HistoryItem"][];
+            /** Next Cursor */
+            next_cursor: number | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
         };
         /** ReviewUsage */
         ReviewUsage: {
@@ -1031,6 +1076,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_detail_api_history__run_id__get: {
+        parameters: {
+            query?: {
+                before_id?: number | null;
+            };
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewDetail"];
                 };
             };
             /** @description Validation Error */

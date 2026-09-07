@@ -185,7 +185,7 @@ def repositories(
     )
 
 
-_HISTORY_QUERY = """
+_HISTORY_SELECT = """
             SELECT run.id, pr.id AS pull_request_id,
                 (SELECT prior_subject.head_sha FROM review_agent.review_runs prior
                  JOIN review_agent.review_subjects prior_subject ON prior_subject.id = prior.review_subject_id
@@ -218,6 +218,11 @@ _HISTORY_QUERY = """
             JOIN review_agent.review_subjects AS subject ON subject.id = run.review_subject_id
             LEFT JOIN review_agent.review_jobs AS job ON job.review_run_id = run.id
             LEFT JOIN review_agent.publications AS pub ON pub.review_run_id = run.id
+"""
+
+_HISTORY_QUERY = (
+    _HISTORY_SELECT
+    + """
             WHERE (%(repository)s::text IS NULL OR lower(repo.full_name) = lower(%(repository)s))
               AND (%(pr)s::integer IS NULL OR pr.number = %(pr)s)
               AND (CASE WHEN %(status)s = 'active' THEN run.status = 'running'
@@ -231,6 +236,7 @@ _HISTORY_QUERY = """
                    ))
                    OR (%(status)s = 'superseded' AND run.status = 'superseded'))
                 """
+)
 
 
 def history(
@@ -326,6 +332,89 @@ def _history_items(
             usage=usage.get(row.id, ReviewUsage(0, 0, None, None, None)),
         )
         for row in selected
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationLink:
+    label: str
+    url: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewDetail:
+    item: HistoryItem
+    markdown: str | None
+    content_truncated: bool
+    publication_links: tuple[PublicationLink, ...]
+    links_truncated: bool
+    requests: tuple[HistoryItem, ...]
+    next_cursor: int | None
+    generated_at: datetime
+
+
+def review_detail(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    run_id: ReviewRunId,
+    before_id: int | None,
+    now: datetime,
+) -> ReviewDetail | None:
+    with connection.cursor(row_factory=class_row(HistoryRow)) as cursor:
+        selected = cursor.execute(
+            _HISTORY_SELECT + " WHERE run.id = %s", (run_id,)
+        ).fetchone()
+        if selected is None:
+            return None
+        rows = cursor.execute(
+            _HISTORY_SELECT
+            + " WHERE run.pull_request_id = %s AND (%s::bigint IS NULL OR run.id < %s)"
+            " ORDER BY run.id DESC LIMIT 21",
+            (selected.pull_request_id, before_id, before_id),
+        ).fetchall()
+    items = _history_items(connection, [selected, *rows[:20]])
+    # Read only the frozen, fully published result, never a generated draft or
+    # model response. Bound retained content independently of publisher policy.
+    publication = connection.execute(
+        """SELECT id, left(rendered_markdown, 200000), length(rendered_markdown) > 200000
+           FROM review_agent.publications
+           WHERE review_run_id = %s AND pull_request_id = %s
+             AND status = 'posted' AND posted_at IS NOT NULL""",
+        (run_id, selected.pull_request_id),
+    ).fetchone()
+    links: list[PublicationLink] = []
+    link_rows: list[TupleRow] = []
+    if publication is not None:
+        link_rows = connection.execute(
+            """SELECT part_type, part_number, external_id
+               FROM review_agent.publication_parts
+               WHERE publication_id = %s AND status = 'posted' AND external_id IS NOT NULL
+               ORDER BY CASE WHEN part_type = 'summary' THEN 0
+                             WHEN part_type = 'continuation' THEN 1 ELSE 2 END, part_number
+               LIMIT 101""",
+            (publication[0],),
+        ).fetchall()
+        pr_url = f"https://github.com/{selected.repository}/pull/{selected.pr_number}"
+        for part_type, part_number, external_id in link_rows[:100]:
+            suggestion = part_type == "suggestion_review"
+            label = (
+                "Open suggested changes on GitHub"
+                if suggestion
+                else "Open published review on GitHub"
+                if part_type == "summary"
+                else f"Open review part {part_number} on GitHub"
+            )
+            anchor = "pullrequestreview" if suggestion else "issuecomment"
+            links.append(PublicationLink(label, f"{pr_url}#{anchor}-{external_id}"))
+    return ReviewDetail(
+        item=items[0],
+        markdown=publication[1] if publication else None,
+        content_truncated=bool(publication and publication[2]),
+        publication_links=tuple(links),
+        links_truncated=len(link_rows) > 100,
+        requests=items[1:],
+        next_cursor=int(rows[19].id) if len(rows) > 20 else None,
+        generated_at=now,
     )
 
 

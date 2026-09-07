@@ -1,6 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import {
+  createBrowserRouter,
+  RouterProvider,
+  ScrollRestoration,
+} from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { APIError } from "./api";
@@ -18,12 +22,28 @@ const client = new QueryClient({
   },
 });
 
+const router = createBrowserRouter([
+  {
+    path: "*",
+    element: (
+      <>
+        <App />
+        <ScrollRestoration
+          getKey={(location) =>
+            location.pathname === "/history"
+              ? location.pathname + location.search
+              : location.key
+          }
+        />
+      </>
+    ),
+  },
+]);
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 );

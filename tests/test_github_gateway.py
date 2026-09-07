@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import email.message
 import base64
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import io
 import json
@@ -1155,7 +1156,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         service = ReviewGitHubGateway(
             postgres=Mock(), tokens=tokens, profile="default-standard",
             github_factory=Mock(return_value=github),
-            graph_policy=GraphPolicy(frozenset({9001})),
+            graph_policy=GraphPolicy(enabled=True),
         )
         request = ReviewSourceRequest.from_mapping({
             "operation": "archive", "run_id": 51, "job_id": 61, "lease_generation": 7,
@@ -1188,10 +1189,47 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 }))
         tokens.token_for.assert_not_called()
 
+    def test_graph_access_follows_current_review_repository_authorization(self) -> None:
+        runtime = Mock()
+        runtime.transaction.return_value = nullcontext(Mock())
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        github = Mock()
+        github.request_archive.return_value = b"archive"
+        service = ReviewGitHubGateway(
+            postgres=runtime, tokens=tokens, profile="default-standard",
+            github_factory=Mock(return_value=github),
+            graph_policy=GraphPolicy.from_environment({"REVIEW_AGENT_CODE_GRAPH_ENABLED": "true"}),
+        )
+        identity = {"run_id": 51, "job_id": 61, "lease_generation": 7}
+        subject_request = ReviewSourceRequest.from_mapping({**identity, "operation": "graph_subject"})
+        archive_request = ReviewSourceRequest.from_mapping({**identity, "operation": "archive"})
+        with (
+            patch.object(gateway_module.jobs, "require_live_lease"),
+            patch.object(gateway_module.review_runs, "get_run_scope") as run_scope,
+            patch.object(gateway_module.github_app, "authorize_review_read") as authorize,
+        ):
+            for scope in (self._scope(), replace(self._scope(), provider_repository_id=9002,
+                                                repository="example/another", head_sha="c" * 40)):
+                run_scope.return_value = scope
+                subject = service.read_review_source(subject_request)
+                self.assertTrue(subject.enabled)
+                self.assertEqual(subject.repository_id, scope.provider_repository_id)
+                self.assertEqual(service.read_review_source(archive_request), b"archive")
+                self.assertEqual(github.request_archive.call_args.args, (scope.repository, scope.head_sha))
+            authorize.side_effect = gateway_module.github_app.GitHubAppRepositoryUnauthorized("disabled")
+            github.reset_mock()
+            tokens.reset_mock()
+            for request in (subject_request, archive_request):
+                with self.assertRaisesRegex(GitHubGatewayRejected, "repository_not_authorized"):
+                    service.read_review_source(request)
+            github.request_archive.assert_not_called()
+            tokens.token_for.assert_not_called()
+
     def test_cloud_embeddings_require_opt_in_and_fresh_authority_after_provider_io(self) -> None:
         service = ReviewGitHubGateway(
             postgres=Mock(), tokens=Mock(), profile="default-standard",
-            graph_policy=GraphPolicy(frozenset({9001}), "openai", "synthetic-test-key"),
+            graph_policy=GraphPolicy(enabled=True, embeddings="openai", openai_api_key="synthetic-test-key"),
         )
         identity = GraphIdentity(51, 61, 7)
         request = {"model": "text-embedding-3-small", "input": ["public function metadata"]}

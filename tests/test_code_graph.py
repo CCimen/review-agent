@@ -83,15 +83,18 @@ class GraphContractTests(unittest.TestCase):
             self.assertEqual(resolved["results"][0]["target_resolution"], "unresolved")
 
     def test_graph_and_cloud_access_require_explicit_configuration(self) -> None:
-        self.assertFalse(GraphPolicy.from_environment({}).allows(91))
+        self.assertFalse(GraphPolicy.from_environment({}).enabled)
+        self.assertFalse(GraphPolicy.from_environment({
+            "REVIEW_AGENT_CODE_GRAPH_ENABLED": "false",
+            "REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS": "openai",
+        }).enabled)
         policy = GraphPolicy.from_environment({
-            "REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS": "91,92",
+            "REVIEW_AGENT_CODE_GRAPH_ENABLED": "true",
         })
-        self.assertTrue(policy.allows(91))
-        self.assertFalse(policy.allows(93))
+        self.assertTrue(policy.enabled)
         self.assertEqual(policy.embeddings, "none")
         configured = GraphPolicy.from_environment({
-            "REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS": "91",
+            "REVIEW_AGENT_CODE_GRAPH_ENABLED": "true",
             "REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS": "openai",
             "REVIEW_AGENT_OPENAI_API_KEY": "synthetic-test-key",
         })
@@ -99,9 +102,11 @@ class GraphContractTests(unittest.TestCase):
         self.assertNotIn("synthetic-test-key", repr(configured))
         with self.assertRaises(GraphError):
             GraphPolicy.from_environment({
-                "REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS": "91",
+                "REVIEW_AGENT_CODE_GRAPH_ENABLED": "true",
                 "REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS": "openai",
             })
+        with self.assertRaises(GraphError):
+            GraphPolicy.from_environment({"REVIEW_AGENT_CODE_GRAPH_ENABLED": "treu"})
 
     def test_graph_identity_cannot_supply_repository_or_revision(self) -> None:
         values = {"run_id": 1, "job_id": 2, "lease_generation": 3}

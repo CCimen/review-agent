@@ -755,7 +755,7 @@ class ReviewGitHubGateway:
         if request.operation in {"graph_subject", "archive"}:
             subject = GraphSubject(
                 scope.provider_repository_id, scope.repository, scope.head_sha,
-                self._graph_policy.allows(scope.provider_repository_id),
+                self._graph_policy.enabled,
                 self._graph_policy.embeddings,
             )
             if request.operation == "graph_subject":
@@ -824,12 +824,12 @@ class ReviewGitHubGateway:
     def embed_code_graph(
         self, identity: GraphIdentity, payload: Mapping[str, object]
     ) -> dict[str, object]:
-        scope = self._require_source_authority(
+        self._require_source_authority(
             run_id=identity.run_id, job_id=identity.job_id,
             lease_generation=identity.lease_generation,
         )
         policy = self._graph_policy
-        if (not policy.allows(scope.provider_repository_id)
+        if (not policy.enabled
                 or policy.embeddings != "openai" or not policy.openai_api_key):
             raise GitHubGatewayRejected("code_graph_embeddings_disabled")
         texts = embedding_inputs(payload)

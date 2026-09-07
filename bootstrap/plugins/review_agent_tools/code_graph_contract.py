@@ -87,28 +87,21 @@ class GraphSubject:
 
 @dataclass(frozen=True, slots=True)
 class GraphPolicy:
-    repository_ids: frozenset[int] = frozenset()
+    enabled: bool = False
     embeddings: EmbeddingMode = "none"
     openai_api_key: str = field(default="", repr=False)
 
-    def allows(self, repository_id: int) -> bool:
-        return repository_id in self.repository_ids
-
     @classmethod
     def from_environment(cls, environment: Mapping[str, str]) -> GraphPolicy:
-        raw = environment.get("REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS", "").strip()
-        if not raw:
+        enabled = environment.get("REVIEW_AGENT_CODE_GRAPH_ENABLED", "false").strip().lower()
+        if enabled not in {"true", "false"}:
+            raise GraphError("code graph enabled must be true or false")
+        if enabled == "false":
             return cls()
-        try:
-            ids = frozenset(int(part.strip()) for part in raw.split(","))
-        except ValueError as exc:
-            raise GraphError("code graph repository IDs must be positive integers") from exc
-        if any(value < 1 for value in ids):
-            raise GraphError("code graph repository IDs must be positive integers")
         mode = environment.get("REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS", "none").strip()
         if mode not in {"none", "openai"}:
             raise GraphError("code graph embeddings must be none or openai")
         key = environment.get("REVIEW_AGENT_OPENAI_API_KEY", "").strip()
         if mode == "openai" and not key:
             raise GraphError("OpenAI embeddings require REVIEW_AGENT_OPENAI_API_KEY")
-        return cls(ids, cast(EmbeddingMode, mode), key if mode == "openai" else "")
+        return cls(True, cast(EmbeddingMode, mode), key if mode == "openai" else "")

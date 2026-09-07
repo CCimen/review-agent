@@ -11,7 +11,8 @@ last_verified: 2026-09-07
 
 The code graph helps a reviewer find relevant code beyond the changed files.
 It returns candidate paths, symbols, and line ranges for source inspection.
-It is off by default and is included in the v0.4.0-rc.1 prerelease. Install the
+It is off by default. The deployment switch described here is available from
+v0.4.0-rc.2. Install the
 matching image and review profile when enabling the pilot.
 
 Structural queries find known symbols, callers, callees, references, and possible
@@ -27,15 +28,21 @@ The supplied deployment overlay supports Compose. It has not been qualified for
 OpenShift or multi-instance graph service operation. Keep one graph service per
 cache volume. Normal review services do not depend on its health or startup.
 
-1. Choose repositories already authorized by the GitHub App and enabled for
-   Review Agent. Put their numeric GitHub repository IDs in the deployment
-   environment. This setting grants no additional GitHub access:
+1. Enable the deployment capability in Dokploy's Environment settings (or the
+   deployment's private `.env` file). It defaults to `false`, including when the
+   overlay is loaded:
 
    ```dotenv
-   REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS=123456,789012
+   REVIEW_AGENT_CODE_GRAPH_ENABLED=true
    REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=none
    REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES=10737418240
    ```
+
+   This applies to every repository already authorized by the GitHub App and
+   enabled for Review Agent. Newly enabled repositories are included automatically;
+   no repository IDs or second repository list are needed. Existing repository
+   disablement, installation revocation, profile, and worker-lease checks still
+   apply to graph access.
 
 2. For description searches, set `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai`
    and add `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or
@@ -54,7 +61,21 @@ cache volume. Normal review services do not depend on its health or startup.
    when installing a new image and profile. The commands above do not replace
    draining reviews, backup, profile installation, or migration checks.
 
-4. Request an authorized `/review` on a selected repository. Its begin response
+   For Dokploy's raw Compose editor, merge the overlay into the existing Compose
+   definition once. Given a local copy of that definition as `compose.yaml`,
+   generate the merged template with:
+
+   ```bash
+   docker compose -f compose.yaml -f compose.code-graph.yaml config \
+     --no-interpolate --no-path-resolution > compose.dokploy.yaml
+   ```
+
+   Save that template in the raw Compose editor, preserving the deployment's
+   existing ingress, mounts, networks, and volumes. Environment references remain
+   references; supply their values through Dokploy Environment. Subsequent on/off
+   changes only require the environment switch and normal service recreation.
+
+4. Request an authorized `/review` on an enabled repository. Its begin response
    starts preparation in the background. The first review can finish before the
    graph is ready; subsequent reviews can reuse it. Inspect graph service logs
    and the returned `code_graph` status during the pilot.
@@ -63,10 +84,17 @@ Repository content cannot enable graphs, choose a provider, or grant permission
 to upload metadata. These are operator settings. There is no embedding API key
 in the reviewer prompt, graph service, parser environment, or graph volume.
 
+When upgrading from v0.4.0-rc.1, remove `REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS`
+and set `REVIEW_AGENT_CODE_GRAPH_ENABLED=true` to enable the feature. The old
+ID list is no longer used. Leaving the new switch unset keeps graphs disabled.
+
 ## Freshness and reuse
 
 Preparation follows review requests, rather than a timer. Each retained graph
 belongs to a GitHub repository ID, exact head SHA, and indexer configuration.
+With OpenAI enabled, individual code symbols receive embeddings; a repository
+does not receive one shared vector. Enabling the feature does not immediately
+index every repository: preparation starts when each repository is reviewed.
 Branches at the same commit share a snapshot. Different commits retain separate
 graphs while cache space permits, so simultaneous PRs cannot select each other's
 code. Every query rechecks the live worker lease and repository authorization.
@@ -116,8 +144,9 @@ Allow at least another 4.25 GiB of free working space for bounded staging and
 journal files. The cache limit is configurable; the parser and response limits
 are resource guards. They do not limit which PRs the normal reviewer can review.
 
-To disable the pilot, empty the repository ID setting or remove the overlay and
-recreate the affected services through the normal deployment procedure. Keep the
+To disable the pilot, set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate
+the affected services through the normal deployment procedure. Removing the
+overlay also stops the graph service. Keep the
 cache volume if reuse is useful. It contains derived repository metadata and
 vectors; removing it does not remove reviews, findings, or feedback.
 

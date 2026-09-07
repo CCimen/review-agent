@@ -82,7 +82,9 @@ const failureSentences: Record<string, string> = {
   cancelled: "The request was cancelled",
 };
 export const failureSentence = (code: string) =>
-  failureSentences[code] ?? code.replaceAll("_", " ");
+  code
+    ? (failureSentences[code] ?? code.replaceAll("_", " "))
+    : "No cause recorded";
 
 /** Request IDs, commit SHAs and worker IDs exist to be pasted into another
  *  tool. Selecting a wrapped <code> by hand is the friction this removes. */

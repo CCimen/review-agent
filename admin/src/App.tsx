@@ -469,11 +469,13 @@ function ReviewRow({
           </span>
           <span className="subtext">
             {item.state === "published"
-              ? `${item.findings_count ?? "Unknown"} findings${item.coverage.state !== "complete" ? " · Limited coverage" : ""}`
+              ? `${item.findings_count === null ? "Unknown" : number.format(item.findings_count)} finding${item.findings_count === 1 ? "" : "s"}${item.coverage.state !== "complete" ? " · Limited coverage" : ""}`
               : item.recovered
                 ? "Later review published"
-                : item.state === "failed" && item.is_latest
-                  ? "Latest request · check cause"
+                : item.state === "failed"
+                  ? item.is_latest
+                    ? "Latest request · check cause"
+                    : failureSentence(item.failure_code ?? "")
                   : item.phase.replaceAll("_", " ")}
           </span>
         </span>

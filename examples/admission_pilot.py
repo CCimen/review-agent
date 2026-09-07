@@ -24,6 +24,8 @@ def claim_jobs(
     When no tenant override is supplied, each tenant may run at most two jobs.
     A pending job whose lease has expired must never be dispatched.
     """
+    if tenant_limit is None:
+        tenant_limit = 2
     running = [job for job in jobs if job.running and job.expires_at > now]
     available = max(global_limit - len(running), 0)
     by_tenant: dict[str, int] = {}
@@ -35,7 +37,7 @@ def claim_jobs(
         if job.running or len(claimed) >= available:
             continue
         count = by_tenant.get(job.tenant, 0)
-        if tenant_limit is not None and count >= tenant_limit:
+        if count >= tenant_limit:
             continue
         claimed.append(job)
         by_tenant[job.tenant] = count + 1

@@ -14,7 +14,7 @@ It returns candidate paths, symbols, and line ranges for source inspection.
 It is off by default. The deployment switch described here is available from
 v0.4.0-rc.2. Install the
 matching image and review profile when enabling the pilot.
-Use v0.4.0-rc.3 or newer for queued preparation and recovery of interrupted
+Use v0.4.0-rc.4 or newer for queued preparation and recovery of interrupted
 embeddings.
 
 Structural queries find known symbols, callers, callees, references, and possible

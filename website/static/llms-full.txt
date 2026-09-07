@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.4.0-rc.3
+Runtime release selected by `llms.txt`: v0.4.0-rc.4
 
 ---
 
@@ -1766,7 +1766,7 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.4.0-rc.2 \
+  ghcr.io/ccimen/review-agent:v0.4.0-rc.4 \
   repository-context validate /repo
 ```
 
@@ -1896,7 +1896,7 @@ It returns candidate paths, symbols, and line ranges for source inspection.
 It is off by default. The deployment switch described here is available from
 v0.4.0-rc.2. Install the
 matching image and review profile when enabling the pilot.
-Use v0.4.0-rc.3 or newer for queued preparation and recovery of interrupted
+Use v0.4.0-rc.4 or newer for queued preparation and recovery of interrupted
 embeddings.
 
 Structural queries find known symbols, callers, callees, references, and possible

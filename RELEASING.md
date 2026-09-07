@@ -16,8 +16,9 @@ you publish the GitHub release.
   canonical gate against the exact tagged candidate before publishing an image.
 - Confirm the public docs, generated LLM files, and installation-skill mirrors
   are current.
-- Update `REVISION` in `scripts/generate_llms_docs.py`, regenerate both LLM
-  files, and commit them before tagging.
+- Update `REVISION` in `scripts/generate_llms_docs.py` and the image example in
+  `docs/REPOSITORY_CONTEXT.md` to the same release. Regenerate both LLM files
+  and commit them before tagging.
 - Do not push a new public release revision to `main` before its release
   workflow succeeds. The Pages workflow verifies that the declared release has
   an attached `IMAGE-DIGESTS.txt`; an early push fails without replacing the

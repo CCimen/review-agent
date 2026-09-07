@@ -10,7 +10,14 @@ import {
 } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { APIError, read, write } from "./api";
-import type { Account, HistoryItem, HistoryPage, RepositoryPage } from "./api";
+import type {
+  Account,
+  HistoryItem,
+  HistoryPage,
+  PullRequestGroup,
+  PullRequestPage,
+  RepositoryPage,
+} from "./api";
 
 import { Login, MyAccount, Users } from "./accounts";
 import { OverviewPage } from "./overview";
@@ -434,33 +441,21 @@ function RunDetails({ item }: { item: HistoryItem }) {
   );
 }
 
-function ReviewRow({
-  item,
-  repositoryHref,
-}: {
-  item: HistoryItem;
-  repositoryHref: string | null;
-}) {
+function ReviewRow({ item }: { item: HistoryItem }) {
   const [open, setOpen] = useState(false);
   const panelId = `review-${item.id}`;
   return (
     <div className={open ? "review-row open" : "review-row"}>
       <div className="review-row-head">
         <span className="request-identity">
-          <span className="run-name">
-            {repositoryHref && (
-              <>
-                <Link to={repositoryHref}>{item.repository}</Link>{" "}
-              </>
-            )}
-            <a href={pullRequestURL(item)} target="_blank" rel="noreferrer">
-              {repositoryHref ? `#${item.pr_number}` : `PR #${item.pr_number}`}
-              <span className="sr-only"> on GitHub (opens in a new tab)</span>
-            </a>
-          </span>
+          <span className="run-name">Request #{item.id}</span>
           <span className="subtext">
-            Request #{item.id} · <code>{item.head_sha.slice(0, 10)}</code>
-            {!item.is_latest ? " · Earlier request" : ""}
+            <code>{item.head_sha.slice(0, 10)}</code>
+            {item.previous_head_sha !== null
+              ? item.previous_head_sha === item.head_sha
+                ? " · Same head as previous request"
+                : " · New head since previous request"
+              : " · First request"}
           </span>
         </span>
         <span className="review-result">
@@ -507,6 +502,117 @@ function ReviewRow({
   );
 }
 
+function PullRequestRow({
+  group,
+  filters,
+  repositoryHref,
+}: {
+  group: PullRequestGroup;
+  filters: string;
+  repositoryHref: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [beforeId, setBeforeId] = useState<number | null>(null);
+  const item = group.latest;
+  const panelId = `pr-${group.pull_request_id}`;
+  const requestParams = new URLSearchParams(filters);
+  requestParams.set("repository", item.repository);
+  requestParams.set("pr_number", String(item.pr_number));
+  requestParams.delete("before_id");
+  if (beforeId !== null) requestParams.set("before_id", String(beforeId));
+  const requests = useQuery({
+    queryKey: ["history", requestParams.toString()],
+    queryFn: ({ signal }) =>
+      read<HistoryPage>(`/api/history?${requestParams}`, signal),
+    enabled: open,
+  });
+  return (
+    <section className="pr-group">
+      <div className="review-row-head">
+        <span className="request-identity">
+          <span className="run-name">
+            {repositoryHref && (
+              <>
+                <Link to={repositoryHref}>{item.repository}</Link>{" "}
+              </>
+            )}
+            <a href={pullRequestURL(item)} target="_blank" rel="noreferrer">
+              PR #{item.pr_number}
+              <span className="sr-only"> on GitHub (opens in a new tab)</span>
+            </a>
+          </span>
+          <span className="subtext">
+            {number.format(group.matching_requests)} matching request
+            {group.matching_requests === 1 ? "" : "s"}
+            {group.total_requests !== group.matching_requests
+              ? ` · ${number.format(group.total_requests)} total`
+              : ""}
+          </span>
+        </span>
+        <span className="review-result">
+          <span className={`status ${item.state}`}>
+            {stateLabels[item.state]}
+          </span>
+          <span className="subtext">
+            {item.is_latest ? "Latest request" : "Latest matching request"} · #
+            {item.id}
+          </span>
+        </span>
+        <time className="review-time" dateTime={item.started_at}>
+          {time(item.started_at)}
+        </time>
+        <button
+          className="expand-button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? "Hide" : "Requests"}
+          <span className="sr-only">
+            {" "}
+            for {item.repository} PR #{item.pr_number}
+          </span>
+        </button>
+      </div>
+      <div id={panelId} hidden={!open} className="pr-requests">
+        {open && (
+          <>
+            <Freshness query={requests} />
+            {requests.data?.items.map((request) => (
+              <ReviewRow key={request.id} item={request} />
+            ))}
+            {requests.data?.items.length === 0 && (
+              <p className="notice">No requests still match these filters.</p>
+            )}
+            {requests.data &&
+              (beforeId !== null || requests.data.next_cursor !== null) && (
+                <div className="pagination">
+                  <button
+                    className="secondary"
+                    disabled={beforeId === null}
+                    onClick={() => setBeforeId(null)}
+                  >
+                    Newest requests
+                  </button>
+                  <span>Up to 50 requests per page</span>
+                  <button
+                    className="secondary"
+                    disabled={requests.data.next_cursor === null}
+                    onClick={() =>
+                      setBeforeId(requests.data?.next_cursor ?? null)
+                    }
+                  >
+                    Older requests
+                  </button>
+                </div>
+              )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function History() {
   const { params, days, update } = useFilters();
   const repository = params.get("repository") ?? "";
@@ -528,9 +634,9 @@ function History() {
     setPrDraft(params.get("pr_number") ?? "");
   }, [params]);
   const query = useQuery({
-    queryKey: ["history", queryParams.toString()],
+    queryKey: ["pull-requests", queryParams.toString()],
     queryFn: ({ signal }) =>
-      read<HistoryPage>(`/api/history?${queryParams}`, signal),
+      read<PullRequestPage>(`/api/pull-requests?${queryParams}`, signal),
   });
   function repositoryURL(name: string) {
     return `/history?${new URLSearchParams({ repository: name, days: String(days), status })}`;
@@ -545,7 +651,10 @@ function History() {
       <div className="page-heading">
         <div>
           <h1>{repository || "Review history"}</h1>
-          <p>Every review request, from admission to its published result.</p>
+          <p>
+            Pull requests and their review history, from admission to
+            publication.
+          </p>
         </div>
       </div>
       <div className="toolbar history-toolbar">
@@ -601,7 +710,7 @@ function History() {
       {query.data && (
         <p className="result-count">
           Showing {number.format(query.data.items.length)} of{" "}
-          {number.format(query.data.total)} review request
+          {number.format(query.data.total)} pull request
           {query.data.total === 1 ? "" : "s"}
           {repository ? ` for ${repository}` : ""}.
         </p>
@@ -610,16 +719,17 @@ function History() {
         (query.data.items.length ? (
           <div className="review-list panel">
             <div className="list-labels" aria-hidden="true">
-              <span>Pull request / review request</span>
-              <span>Result</span>
+              <span>Pull request</span>
+              <span>Latest matching result</span>
               <span>Started</span>
             </div>
-            {query.data.items.map((item) => (
-              <ReviewRow
-                key={item.id}
-                item={item}
+            {query.data.items.map((group) => (
+              <PullRequestRow
+                key={`${group.pull_request_id}:${queryParams}`}
+                group={group}
+                filters={queryParams.toString()}
                 repositoryHref={
-                  repository ? null : repositoryURL(item.repository)
+                  repository ? null : repositoryURL(group.latest.repository)
                 }
               />
             ))}
@@ -645,7 +755,7 @@ function History() {
               disabled={!params.has("before_id")}
               onClick={() => update({ before_id: "" })}
             >
-              Newest requests
+              Newest pull requests
             </button>
             <span>Newest first · up to 50 per page</span>
             <button
@@ -655,7 +765,7 @@ function History() {
                 update({ before_id: String(query.data?.next_cursor) })
               }
             >
-              Older requests
+              Older pull requests
             </button>
           </div>
         )}

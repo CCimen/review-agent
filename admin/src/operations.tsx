@@ -166,23 +166,30 @@ function Queue({
   consumers,
 }: {
   queue: QueueStatus;
-  consumers: number;
+  consumers: number | null;
 }) {
   const stuck = queue.expired_leases > 0 || queue.failed > 0;
   const backlog = queue.due > 0;
   // An empty queue means "drained" only if something is running to drain it.
   // With no live worker the honest reading is that we cannot tell.
-  const tone = consumers === 0 ? "unknown" : backlog ? "queued" : "published";
-  const label =
-    consumers === 0
-      ? backlog
-        ? `${number.format(queue.due)} due · no workers`
-        : "No workers reporting"
+  const tone =
+    consumers === null || consumers === 0
+      ? "unknown"
       : backlog
-        ? `${number.format(queue.due)} due`
-        : queue.waiting
-          ? "Scheduled"
-          : "Clear";
+        ? "queued"
+        : "published";
+  const label =
+    consumers === null
+      ? "Worker list incomplete"
+      : consumers === 0
+        ? backlog
+          ? `${number.format(queue.due)} due · no workers`
+          : "No workers reporting"
+        : backlog
+          ? `${number.format(queue.due)} due`
+          : queue.waiting
+            ? "Scheduled"
+            : "Clear";
   return (
     <div className={stuck ? "queue panel attention-panel" : "queue panel"}>
       <div className="queue-head">
@@ -335,8 +342,21 @@ export function OperationsPage() {
       {data && (
         <>
           <div className="stat-grid live">
-            <Stat label="Workers running" value={running} />
-            <Stat label="Unresponsive" value={unresponsive} attention />
+            <Stat
+              label="Workers running"
+              value={running}
+              hint={
+                data.workers_truncated ? "Among shown instances" : undefined
+              }
+            />
+            <Stat
+              label="Unresponsive"
+              value={unresponsive}
+              hint={
+                data.workers_truncated ? "Among shown instances" : undefined
+              }
+              attention
+            />
             <Stat label="Work due now" value={due} />
             <Stat
               label="Reporting instances"
@@ -362,12 +382,26 @@ export function OperationsPage() {
             description="Work waiting to be claimed. Due means the availability deadline has passed; repository scheduling and authorization can still delay a claim."
           >
             <div className="queue-grid">
-              {[...data.queues].sort(byPipeline).map((queue) => (
-                <Queue key={queue.kind} queue={queue} consumers={running} />
-              ))}
+              {[...data.queues].sort(byPipeline).map((queue) => {
+                const consumers = data.workers.filter(
+                  (worker) =>
+                    worker.kind === queue.kind && worker.state === "running",
+                ).length;
+                return (
+                  <Queue
+                    key={queue.kind}
+                    queue={queue}
+                    consumers={
+                      consumers === 0 && data.workers_truncated
+                        ? null
+                        : consumers
+                    }
+                  />
+                );
+              })}
             </div>
             <p className="stat-note">
-              {running === 0
+              {running === 0 && !data.workers_truncated
                 ? "No worker is reporting, so an empty queue does not mean work is being drained. Provider cooldowns held outside these queues are not shown here."
                 : "Provider cooldowns that are not stored in these queues are not shown here."}
             </p>

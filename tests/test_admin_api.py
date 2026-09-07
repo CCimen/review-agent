@@ -64,6 +64,7 @@ class AdminAPITests(unittest.TestCase):
             "/api/me",
             "/api/repositories",
             "/api/history",
+            "/api/pull-requests",
             "/api/overview",
             "/api/operations",
             "/api/operations/events",
@@ -122,6 +123,7 @@ class AdminAPITests(unittest.TestCase):
         self.login("viewer@example.com")
         self.assertEqual(self.client.get("/api/me").json()["role"], "viewer")
         self.assertEqual(self.client.get("/api/history").status_code, 200)
+        self.assertEqual(self.client.get("/api/pull-requests").status_code, 200)
         self.assertEqual(self.client.get("/api/overview").status_code, 200)
         self.assertEqual(self.client.get("/api/operations").status_code, 403)
         self.assertEqual(self.client.get("/api/operations/events").status_code, 403)
@@ -156,9 +158,10 @@ class AdminAPITests(unittest.TestCase):
             "repository=invalid",
             "before_id=-1",
         ):
-            self.assertEqual(
-                self.client.get(f"/api/history?{query}").status_code, 422, query
-            )
+            for path in ("/api/history", "/api/pull-requests"):
+                self.assertEqual(
+                    self.client.get(f"{path}?{query}").status_code, 422, query
+                )
 
     def test_overview_window_and_empty_operations(self) -> None:
         self.login()

@@ -56,6 +56,8 @@ class RepositoryPage:
 @dataclass(frozen=True, slots=True)
 class HistoryRow:
     id: ReviewRunId
+    pull_request_id: int
+    previous_head_sha: str | None
     repository: str
     pr_number: int
     base_sha: str
@@ -183,21 +185,13 @@ def repositories(
     )
 
 
-def history(
-    connection: psycopg.Connection[TupleRow],
-    *,
-    since: datetime,
-    until: datetime,
-    now: datetime,
-    days: int,
-    repository: str | None,
-    status: HistoryStatus,
-    pr_number: int | None,
-    limit: int,
-    before_id: int | None,
-) -> HistoryPage:
-    query = """
-            SELECT run.id, repo.full_name AS repository, pr.number AS pr_number,
+_HISTORY_QUERY = """
+            SELECT run.id, pr.id AS pull_request_id,
+                (SELECT prior_subject.head_sha FROM review_agent.review_runs prior
+                 JOIN review_agent.review_subjects prior_subject ON prior_subject.id = prior.review_subject_id
+                 WHERE prior.pull_request_id = pr.id AND prior.id < run.id
+                 ORDER BY prior.id DESC LIMIT 1) AS previous_head_sha,
+                repo.full_name AS repository, pr.number AS pr_number,
                 subject.base_sha, subject.head_sha,
                 CASE WHEN run.status = 'failed' THEN 'failed'
                      WHEN run.status = 'superseded' THEN 'superseded'
@@ -237,6 +231,22 @@ def history(
                    ))
                    OR (%(status)s = 'superseded' AND run.status = 'superseded'))
                 """
+
+
+def history(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    since: datetime,
+    until: datetime,
+    now: datetime,
+    days: int,
+    repository: str | None,
+    status: HistoryStatus,
+    pr_number: int | None,
+    limit: int,
+    before_id: int | None,
+) -> HistoryPage:
+    query = _HISTORY_QUERY
     parameters = {
         "repository": repository,
         "pr": pr_number,
@@ -256,7 +266,21 @@ def history(
             + " AND (%(before)s::bigint IS NULL OR run.id < %(before)s) ORDER BY run.id DESC LIMIT %(limit)s",
             parameters,
         ).fetchall()
-    selected = rows[:limit]
+    items = _history_items(connection, rows[:limit])
+    return HistoryPage(
+        items,
+        int(items[-1].id) if len(rows) > limit else None,
+        now,
+        days,
+        since,
+        until,
+        total[0],
+    )
+
+
+def _history_items(
+    connection: psycopg.Connection[TupleRow], selected: list[HistoryRow]
+) -> tuple[HistoryItem, ...]:
     usage_rows = connection.execute(
         """
         SELECT job.review_run_id, job.lease_generation, count(u.job_id),
@@ -275,9 +299,11 @@ def history(
     summaries = postgres_coverage.summarize_many(
         connection, tuple(row.id for row in selected)
     )
-    items = tuple(
+    return tuple(
         HistoryItem(
             id=row.id,
+            pull_request_id=row.pull_request_id,
+            previous_head_sha=row.previous_head_sha,
             repository=row.repository,
             pr_number=row.pr_number,
             base_sha=row.base_sha,
@@ -301,12 +327,99 @@ def history(
         )
         for row in selected
     )
-    return HistoryPage(
-        items,
-        int(items[-1].id) if len(rows) > limit else None,
+
+
+@dataclass(frozen=True, slots=True)
+class PullRequestGroup:
+    pull_request_id: int
+    matching_requests: int
+    total_requests: int
+    latest: HistoryItem
+
+
+@dataclass(frozen=True, slots=True)
+class PullRequestPage:
+    items: tuple[PullRequestGroup, ...]
+    total: int
+    next_cursor: int | None
+    generated_at: datetime
+    window_start: datetime
+    window_end: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class _GroupRow:
+    pull_request_id: int
+    matching_requests: int
+    latest_id: ReviewRunId
+    total_requests: int
+
+
+def pull_requests(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    since: datetime,
+    until: datetime,
+    now: datetime,
+    repository: str | None,
+    status: HistoryStatus,
+    pr_number: int | None,
+    limit: int,
+    before_id: int | None,
+) -> PullRequestPage:
+    parameters = {
+        "repository": repository,
+        "status": status,
+        "pr": pr_number,
+        "since": since,
+        "until": until,
+        "before": before_id,
+        "limit": limit + 1,
+    }
+    grouped = (
+        "WITH matching AS ("
+        + _HISTORY_QUERY
+        + """), grouped AS (
+        SELECT pull_request_id, count(*) AS matching_requests, max(id) AS latest_id
+        FROM matching GROUP BY pull_request_id
+    ) """
+    )
+    total = connection.execute(
+        grouped + "SELECT count(*) FROM grouped", parameters
+    ).fetchone()
+    assert total is not None
+    with connection.cursor(row_factory=class_row(_GroupRow)) as cursor:
+        groups = cursor.execute(
+            grouped
+            + """
+            SELECT g.*, (SELECT count(*) FROM review_agent.review_runs r
+                WHERE r.pull_request_id = g.pull_request_id) AS total_requests
+            FROM grouped g
+            WHERE (%(before)s::bigint IS NULL OR latest_id < %(before)s)
+            ORDER BY latest_id DESC LIMIT %(limit)s
+        """,
+            parameters,
+        ).fetchall()
+    selected = groups[:limit]
+    with connection.cursor(row_factory=class_row(HistoryRow)) as cursor:
+        rows = cursor.execute(
+            _HISTORY_QUERY + " AND run.id = ANY(%(ids)s)",
+            {**parameters, "ids": [group.latest_id for group in selected]},
+        ).fetchall()
+    details = {item.id: item for item in _history_items(connection, rows)}
+    return PullRequestPage(
+        tuple(
+            PullRequestGroup(
+                g.pull_request_id,
+                g.matching_requests,
+                g.total_requests,
+                details[g.latest_id],
+            )
+            for g in selected
+        ),
+        total[0],
+        int(selected[-1].latest_id) if len(groups) > limit else None,
         now,
-        days,
         since,
         until,
-        total[0],
     )

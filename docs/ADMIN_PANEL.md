@@ -33,7 +33,13 @@ started in that period:
 | Active now | Queued, running, or publishing requests, regardless of their age. |
 | Latest failures | PRs whose newest request failed within the selected period. |
 
-History shows the exact base and head commits, worker attempts, timestamps,
+History groups matching requests under each pull request before pagination.
+Expand a PR to page through its requests. The summary shows the latest matching
+request; filtered historical results are labeled accordingly. Each request shows
+whether its head commit matches the immediately preceding request, including
+requests outside the current filters.
+
+Request details show the exact base and head commits, worker attempts, timestamps,
 failure codes, findings count, and diff coverage. A later success marks an
 earlier failure as recovered without removing it from history. Published reviews
 may have incomplete coverage; publication does not mean that a PR is approved.
@@ -45,20 +51,20 @@ email and role filters currently apply to the displayed account page.
 ## Reporting and operations API
 
 The source candidate exposes the following authenticated endpoints for admin
-clients. The overview and operations data are available in the backend; their
-frontend pages can be built against `admin/openapi.json` and the generated
+clients. The frontend uses `admin/openapi.json` and the generated
 `admin/src/api.generated.ts` contract.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |
 | `GET /api/overview` | Viewer or admin | Lifetime and selected-period totals, UTC daily publications, publication latency, recent failure reasons, and reporting review workers and capacity. |
 | `GET /api/repositories` | Viewer or admin | Paginated repositories, `total` matching repositories, and aggregate `totals` across every matching repository. |
+| `GET /api/pull-requests` | Viewer or admin | Paginated PR groups, total matching PRs, matching and lifetime request counts, and the latest matching request. |
 | `GET /api/history` | Viewer or admin | Paginated requests, `total` matching requests before the cursor is applied, and per-request token usage. |
 | `GET /api/operations` | Admin | Worker presence and capacity, active leases, and webhook, review, and publication queue counts. |
 | `GET /api/operations/events` | Admin | Structured process and review events, with optional `worker_id` and `before_id` filters. |
 | `GET /api/users` | Admin | `AccountPage`: `items`, `total`, `admin_count`, `disabled_count`, and `has_more`. |
 
-Overview, repositories, and history accept either `days` (1–90; default 30), or
+Overview, repositories, PR groups, and history accept either `days` (1–90; default 30), or
 both `start` and `end` as RFC 3339 timestamps with timezone offsets. Explicit
 ranges override `days`, span at most 366 days, include the start, and exclude the
 end. Responses return the normalized `window_start` and `window_end`; clients
@@ -110,7 +116,8 @@ subscription billing, remaining quota, and monetary cost cannot be inferred from
 these token counts.
 
 List limits are 1–100. Repository and account offsets are bounded at 10,000;
-history and events use descending ID cursors. The users endpoint now returns an
+history and events use descending ID cursors. PR groups use the ID of their
+latest matching request, with totals calculated before the cursor is applied. The users endpoint now returns an
 object instead of an array, so deploy the generated frontend and API together.
 Upgrade the main worker image as well as the admin image after applying schema
 18 to begin collecting presence and usage.

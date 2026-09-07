@@ -303,6 +303,36 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual((first.total, second.total), (2, 2))
         self.assertNotEqual(first.items[0].id, second.items[0].id)
 
+    def test_admin_groups_requests_before_pagination_and_preserves_commit_context(self) -> None:
+        from review_agent_tools import admin_application
+
+        first = None
+        last = None
+        for index in range(20):
+            run = self.start(pr_number=91, request_suffix=f"group-{index}", head_sha=("a" if index < 19 else "b") * 40)
+            if first is None:
+                first = run
+            last = run
+            with self.runtime.transaction() as connection:
+                review_runs.fail_run(connection, run.run.id, failure_code="review_failed")
+        other = self.start(pr_number=92, request_suffix="group-other")
+        first_page = admin_application.pull_requests(self.runtime, limit=1)
+        second_page = admin_application.pull_requests(self.runtime, limit=1, before_id=first_page.next_cursor)
+        self.assertEqual((first_page.total, second_page.total), (2, 2))
+        self.assertEqual(first_page.items[0].latest.id, other.run.id)
+        group = second_page.items[0]
+        self.assertEqual((group.matching_requests, group.total_requests), (20, 20))
+        assert first is not None and last is not None
+        self.assertEqual(group.latest.id, last.run.id)
+        self.assertEqual(group.latest.previous_head_sha, "a" * 40)
+        self.assertEqual(group.latest.head_sha, "b" * 40)
+        filtered = admin_application.pull_requests(self.runtime, status="failed")
+        self.assertEqual((filtered.total, filtered.items[0].matching_requests), (1, 20))
+        older = admin_application.history(self.runtime, repository=self.repository, pr_number=91, before_id=int(last.run.id), limit=1)
+        self.assertEqual(older.items[0].previous_head_sha, older.items[0].head_sha)
+        empty = admin_application.pull_requests(self.runtime, before_id=1)
+        self.assertEqual((empty.items, empty.total), ((), 2))
+
     def test_admin_usage_and_publication_time_are_independent_of_request_time(
         self,
     ) -> None:

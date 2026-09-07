@@ -137,6 +137,31 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    def pull_requests(
+        days: Days = 30,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        limit: Limit = 50,
+        repository: Repository = None,
+        status: admin_reporting.HistoryStatus = "all",
+        pr_number: Annotated[int | None, Query(ge=1, le=2147483647)] = None,
+        before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
+    ) -> admin_reporting.PullRequestPage:
+        try:
+            return admin_application.pull_requests(
+                runtime,
+                days=days,
+                start=start,
+                end=end,
+                limit=limit,
+                repository=repository,
+                status=status,
+                pr_number=pr_number,
+                before_id=before_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     def overview(
         days: Days = 30,
         start: datetime | None = None,
@@ -192,6 +217,7 @@ def create_app(
     app.add_exception_handler(RequestValidationError, invalid_request)
     router.add_api_route("/api/repositories", repositories, methods=["GET"])
     router.add_api_route("/api/history", history, methods=["GET"])
+    router.add_api_route("/api/pull-requests", pull_requests, methods=["GET"])
     router.add_api_route("/api/overview", overview, methods=["GET"])
     router.add_api_route(
         "/api/operations",

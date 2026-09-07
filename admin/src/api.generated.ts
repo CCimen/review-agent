@@ -4,1095 +4,1168 @@
  */
 
 export interface paths {
-  "/api/auth/login": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Auth:Cookie.Login */
+        post: operations["auth_cookie_login_api_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Auth:Cookie.Login */
-    post: operations["auth_cookie_login_api_auth_login_post"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/auth/logout": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Auth:Cookie.Logout */
+        post: operations["auth_cookie_logout_api_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Auth:Cookie.Logout */
-    post: operations["auth_cookie_logout_api_auth_logout_post"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/me": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_api_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Me */
-    get: operations["me_api_me_get"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/users": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_users_get"];
+        put?: never;
+        /** Create User */
+        post: operations["create_user_api_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List Users */
-    get: operations["list_users_api_users_get"];
-    put?: never;
-    /** Create User */
-    post: operations["create_user_api_users_post"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/users/{user_id}": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update User */
+        patch: operations["update_user_api_users__user_id__patch"];
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update User */
-    patch: operations["update_user_api_users__user_id__patch"];
-    trace?: never;
-  };
-  "/api/account/password": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/account/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Password */
+        post: operations["change_password_api_account_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Change Password */
-    post: operations["change_password_api_account_password_post"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/repositories": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Repositories */
+        get: operations["repositories_api_repositories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Repositories */
-    get: operations["repositories_api_repositories_get"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/history": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History */
+        get: operations["history_api_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** History */
-    get: operations["history_api_history_get"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/overview": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/pull-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pull Requests */
+        get: operations["pull_requests_api_pull_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Overview */
-    get: operations["overview_api_overview_get"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/operations": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Overview */
+        get: operations["overview_api_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Operations */
-    get: operations["operations_api_operations_get"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/api/operations/events": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/api/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operations */
+        get: operations["operations_api_operations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Events */
-    get: operations["events_api_operations_events_get"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
+    "/api/operations/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Events */
+        get: operations["events_api_operations_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-  schemas: {
-    /** Account */
-    Account: {
-      /**
-       * Id
-       * Format: uuid
-       */
-      id: string;
-      /** Email */
-      email: string;
-      role: components["schemas"]["Role"];
-      /** Active */
-      active: boolean;
+    schemas: {
+        /** Account */
+        Account: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Email */
+            email: string;
+            role: components["schemas"]["Role"];
+            /** Active */
+            active: boolean;
+        };
+        /** AccountPage */
+        AccountPage: {
+            /** Items */
+            items: components["schemas"]["Account"][];
+            /** Total */
+            total: number;
+            /** Admin Count */
+            admin_count: number;
+            /** Disabled Count */
+            disabled_count: number;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** AccountUpdate */
+        AccountUpdate: {
+            role?: components["schemas"]["Role"] | null;
+            /** Active */
+            active?: boolean | null;
+            /** Password */
+            password?: string | null;
+        };
+        /** ActivityCounts */
+        ActivityCounts: {
+            /** Requests */
+            requests: number;
+            /** Published Reviews */
+            published_reviews: number;
+            /** Reviewed Prs */
+            reviewed_prs: number;
+            /** Failed Requests */
+            failed_requests: number;
+            /** Prompt Tokens */
+            prompt_tokens: number | null;
+            /** Completion Tokens */
+            completion_tokens: number | null;
+            /** Total Tokens */
+            total_tokens: number | null;
+            /** Reported Attempts */
+            reported_attempts: number;
+            /** Median Publication Seconds */
+            median_publication_seconds: number | null;
+            /** P95 Publication Seconds */
+            p95_publication_seconds: number | null;
+        };
+        /** ActivityDay */
+        ActivityDay: {
+            /**
+             * Date
+             * Format: date-time
+             */
+            date: string;
+            /** Published Reviews */
+            published_reviews: number;
+        };
+        /** Body_auth_cookie_login_api_auth_login_post */
+        Body_auth_cookie_login_api_auth_login_post: {
+            /** Grant Type */
+            grant_type?: string | null;
+            /** Username */
+            username: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+            /**
+             * Scope
+             * @default
+             */
+            scope: string;
+            /** Client Id */
+            client_id?: string | null;
+            /**
+             * Client Secret
+             * Format: password
+             */
+            client_secret?: string | null;
+        };
+        /**
+         * CoverageState
+         * @enum {string}
+         */
+        CoverageState: "unknown" | "incomplete" | "complete";
+        /** CoverageSummary */
+        CoverageSummary: {
+            state: components["schemas"]["CoverageState"];
+            /** Changed Files Reported */
+            changed_files_reported: number | null;
+            /** Changed Files Registered */
+            changed_files_registered: number;
+            /** Registration Complete */
+            registration_complete: boolean;
+            /** Changed Paths With Complete Diff */
+            changed_paths_with_complete_diff: number;
+            /** Changed Paths With Source Reads */
+            changed_paths_with_source_reads: number;
+            /** Supporting Context Paths Read */
+            supporting_context_paths_read: number;
+            /** Context Ranges Read */
+            context_ranges_read: number;
+            /** Unseen Paths */
+            unseen_paths: number;
+            /** Unavailable Paths */
+            unavailable_paths: number;
+            /** Truncated Paths */
+            truncated_paths: number;
+        };
+        /** ErrorModel */
+        ErrorModel: {
+            /** Detail */
+            detail: string | {
+                [key: string]: string;
+            };
+        };
+        /** FailureCount */
+        FailureCount: {
+            /** Failure Code */
+            failure_code: string;
+            /** Requests */
+            requests: number;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HistoryItem */
+        HistoryItem: {
+            /** Id */
+            id: number;
+            /** Pull Request Id */
+            pull_request_id: number;
+            /** Previous Head Sha */
+            previous_head_sha: string | null;
+            /** Repository */
+            repository: string;
+            /** Pr Number */
+            pr_number: number;
+            /** Base Sha */
+            base_sha: string;
+            /** Head Sha */
+            head_sha: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "publishing" | "published" | "failed" | "superseded";
+            /** Phase */
+            phase: string;
+            /** Findings Count */
+            findings_count: number | null;
+            /** Failure Code */
+            failure_code: string | null;
+            /** Job Failure Code */
+            job_failure_code: string | null;
+            /** Attempt Count */
+            attempt_count: number;
+            /** Max Attempts */
+            max_attempts: number | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Last Heartbeat At
+             * Format: date-time
+             */
+            last_heartbeat_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Posted At */
+            posted_at: string | null;
+            /** Publication Superseded */
+            publication_superseded: boolean;
+            /** Is Latest */
+            is_latest: boolean;
+            /** Recovered */
+            recovered: boolean;
+            usage: components["schemas"]["ReviewUsage"];
+            coverage: components["schemas"]["CoverageSummary"];
+        };
+        /** HistoryPage */
+        HistoryPage: {
+            /** Items */
+            items: components["schemas"]["HistoryItem"][];
+            /** Next Cursor */
+            next_cursor: number | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Window Days */
+            window_days: number;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Total */
+            total: number;
+        };
+        /** NewAccount */
+        NewAccount: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+            /** @default viewer */
+            role: components["schemas"]["Role"];
+        };
+        /** Operations */
+        Operations: {
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Stale After Seconds */
+            stale_after_seconds: number;
+            /** Workers */
+            workers: components["schemas"]["WorkerInstance"][];
+            /** Workers Truncated */
+            workers_truncated: boolean;
+            /** Queues */
+            queues: components["schemas"]["QueueStatus"][];
+        };
+        /** Overview */
+        Overview: {
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Retained Since */
+            retained_since: string | null;
+            /** Repository Count */
+            repository_count: number;
+            /** Active Requests */
+            active_requests: number;
+            /** Started Attempts */
+            started_attempts: number;
+            /** Reported Attempts */
+            reported_attempts: number;
+            /** Live Review Workers */
+            live_review_workers: number;
+            /** Review Capacity */
+            review_capacity: number;
+            lifetime: components["schemas"]["ActivityCounts"];
+            window: components["schemas"]["ActivityCounts"];
+            /** Daily Publications */
+            daily_publications: components["schemas"]["ActivityDay"][];
+            /** Recent Failure Reasons */
+            recent_failure_reasons: components["schemas"]["FailureCount"][];
+        };
+        /** PasswordChange */
+        PasswordChange: {
+            /**
+             * Current Password
+             * Format: password
+             */
+            current_password: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+        };
+        /** PullRequestGroup */
+        PullRequestGroup: {
+            /** Pull Request Id */
+            pull_request_id: number;
+            /** Matching Requests */
+            matching_requests: number;
+            /** Total Requests */
+            total_requests: number;
+            latest: components["schemas"]["HistoryItem"];
+        };
+        /** PullRequestPage */
+        PullRequestPage: {
+            /** Items */
+            items: components["schemas"]["PullRequestGroup"][];
+            /** Total */
+            total: number;
+            /** Next Cursor */
+            next_cursor: number | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+        };
+        /** QueueStatus */
+        QueueStatus: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "review" | "publisher" | "webhook";
+            /** Waiting */
+            waiting: number;
+            /** Due */
+            due: number;
+            /** Delayed */
+            delayed: number;
+            /** Leased */
+            leased: number;
+            /** Expired Leases */
+            expired_leases: number;
+            /** Failed */
+            failed: number;
+            /** Oldest Waiting At */
+            oldest_waiting_at: string | null;
+            /** Next Available At */
+            next_available_at: string | null;
+        };
+        /** RepositoryActivity */
+        RepositoryActivity: {
+            /** Repository */
+            repository: string;
+            /** Prs Reviewed */
+            prs_reviewed: number;
+            /** Published Requests */
+            published_requests: number;
+            /** Failed Requests */
+            failed_requests: number;
+            /** Active Requests */
+            active_requests: number;
+            /** Latest Failed Prs */
+            latest_failed_prs: number;
+            /** Last Activity At */
+            last_activity_at: string | null;
+        };
+        /** RepositoryPage */
+        RepositoryPage: {
+            /** Items */
+            items: components["schemas"]["RepositoryActivity"][];
+            /** Has More */
+            has_more: boolean;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Window Days */
+            window_days: number;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Total */
+            total: number;
+            totals: components["schemas"]["RepositoryTotals"];
+        };
+        /** RepositoryTotals */
+        RepositoryTotals: {
+            /** Prs Reviewed */
+            prs_reviewed: number;
+            /** Published Requests */
+            published_requests: number;
+            /** Failed Requests */
+            failed_requests: number;
+            /** Active Requests */
+            active_requests: number;
+            /** Latest Failed Prs */
+            latest_failed_prs: number;
+        };
+        /** ReviewUsage */
+        ReviewUsage: {
+            /** Started Attempts */
+            started_attempts: number;
+            /** Reported Attempts */
+            reported_attempts: number;
+            /** Prompt Tokens */
+            prompt_tokens: number | null;
+            /** Completion Tokens */
+            completion_tokens: number | null;
+            /** Total Tokens */
+            total_tokens: number | null;
+        };
+        /**
+         * Role
+         * @enum {string}
+         */
+        Role: "viewer" | "admin";
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
+        };
+        /** WorkerEvent */
+        WorkerEvent: {
+            /** Id */
+            id: number;
+            /**
+             * Worker Id
+             * Format: uuid
+             */
+            worker_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Event
+             * @enum {string}
+             */
+            event: "started" | "draining" | "stopped" | "review_started" | "review_returned" | "usage_unavailable";
+            /** Review Run Id */
+            review_run_id: number | null;
+            /** Job Id */
+            job_id: number | null;
+        };
+        /** WorkerEventPage */
+        WorkerEventPage: {
+            /** Items */
+            items: components["schemas"]["WorkerEvent"][];
+            /** Next Cursor */
+            next_cursor: number | null;
+        };
+        /** WorkerInstance */
+        WorkerInstance: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "review" | "publisher" | "webhook";
+            /** Lease Owner */
+            lease_owner: string;
+            /** Capacity */
+            capacity: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "running" | "draining" | "stopped" | "unresponsive";
+            /** Active Leases */
+            active_leases: number | null;
+        };
     };
-    /** AccountPage */
-    AccountPage: {
-      /** Items */
-      items: components["schemas"]["Account"][];
-      /** Total */
-      total: number;
-      /** Admin Count */
-      admin_count: number;
-      /** Disabled Count */
-      disabled_count: number;
-      /** Has More */
-      has_more: boolean;
-    };
-    /** AccountUpdate */
-    AccountUpdate: {
-      role?: components["schemas"]["Role"] | null;
-      /** Active */
-      active?: boolean | null;
-      /** Password */
-      password?: string | null;
-    };
-    /** ActivityCounts */
-    ActivityCounts: {
-      /** Requests */
-      requests: number;
-      /** Published Reviews */
-      published_reviews: number;
-      /** Reviewed Prs */
-      reviewed_prs: number;
-      /** Failed Requests */
-      failed_requests: number;
-      /** Prompt Tokens */
-      prompt_tokens: number | null;
-      /** Completion Tokens */
-      completion_tokens: number | null;
-      /** Total Tokens */
-      total_tokens: number | null;
-      /** Reported Attempts */
-      reported_attempts: number;
-      /** Median Publication Seconds */
-      median_publication_seconds: number | null;
-      /** P95 Publication Seconds */
-      p95_publication_seconds: number | null;
-    };
-    /** ActivityDay */
-    ActivityDay: {
-      /**
-       * Date
-       * Format: date-time
-       */
-      date: string;
-      /** Published Reviews */
-      published_reviews: number;
-    };
-    /** Body_auth_cookie_login_api_auth_login_post */
-    Body_auth_cookie_login_api_auth_login_post: {
-      /** Grant Type */
-      grant_type?: string | null;
-      /** Username */
-      username: string;
-      /**
-       * Password
-       * Format: password
-       */
-      password: string;
-      /**
-       * Scope
-       * @default
-       */
-      scope: string;
-      /** Client Id */
-      client_id?: string | null;
-      /**
-       * Client Secret
-       * Format: password
-       */
-      client_secret?: string | null;
-    };
-    /**
-     * CoverageState
-     * @enum {string}
-     */
-    CoverageState: "unknown" | "incomplete" | "complete";
-    /** CoverageSummary */
-    CoverageSummary: {
-      state: components["schemas"]["CoverageState"];
-      /** Changed Files Reported */
-      changed_files_reported: number | null;
-      /** Changed Files Registered */
-      changed_files_registered: number;
-      /** Registration Complete */
-      registration_complete: boolean;
-      /** Changed Paths With Complete Diff */
-      changed_paths_with_complete_diff: number;
-      /** Changed Paths With Source Reads */
-      changed_paths_with_source_reads: number;
-      /** Supporting Context Paths Read */
-      supporting_context_paths_read: number;
-      /** Context Ranges Read */
-      context_ranges_read: number;
-      /** Unseen Paths */
-      unseen_paths: number;
-      /** Unavailable Paths */
-      unavailable_paths: number;
-      /** Truncated Paths */
-      truncated_paths: number;
-    };
-    /** ErrorModel */
-    ErrorModel: {
-      /** Detail */
-      detail:
-        | string
-        | {
-            [key: string]: string;
-          };
-    };
-    /** FailureCount */
-    FailureCount: {
-      /** Failure Code */
-      failure_code: string;
-      /** Requests */
-      requests: number;
-    };
-    /** HTTPValidationError */
-    HTTPValidationError: {
-      /** Detail */
-      detail?: components["schemas"]["ValidationError"][];
-    };
-    /** HistoryItem */
-    HistoryItem: {
-      /** Id */
-      id: number;
-      /** Repository */
-      repository: string;
-      /** Pr Number */
-      pr_number: number;
-      /** Base Sha */
-      base_sha: string;
-      /** Head Sha */
-      head_sha: string;
-      /**
-       * State
-       * @enum {string}
-       */
-      state:
-        | "queued"
-        | "running"
-        | "publishing"
-        | "published"
-        | "failed"
-        | "superseded";
-      /** Phase */
-      phase: string;
-      /** Findings Count */
-      findings_count: number | null;
-      /** Failure Code */
-      failure_code: string | null;
-      /** Job Failure Code */
-      job_failure_code: string | null;
-      /** Attempt Count */
-      attempt_count: number;
-      /** Max Attempts */
-      max_attempts: number | null;
-      /**
-       * Started At
-       * Format: date-time
-       */
-      started_at: string;
-      /**
-       * Last Heartbeat At
-       * Format: date-time
-       */
-      last_heartbeat_at: string;
-      /** Completed At */
-      completed_at: string | null;
-      /** Posted At */
-      posted_at: string | null;
-      /** Publication Superseded */
-      publication_superseded: boolean;
-      /** Is Latest */
-      is_latest: boolean;
-      /** Recovered */
-      recovered: boolean;
-      usage: components["schemas"]["ReviewUsage"];
-      coverage: components["schemas"]["CoverageSummary"];
-    };
-    /** HistoryPage */
-    HistoryPage: {
-      /** Items */
-      items: components["schemas"]["HistoryItem"][];
-      /** Next Cursor */
-      next_cursor: number | null;
-      /**
-       * Generated At
-       * Format: date-time
-       */
-      generated_at: string;
-      /** Window Days */
-      window_days: number;
-      /**
-       * Window Start
-       * Format: date-time
-       */
-      window_start: string;
-      /**
-       * Window End
-       * Format: date-time
-       */
-      window_end: string;
-      /** Total */
-      total: number;
-    };
-    /** NewAccount */
-    NewAccount: {
-      /**
-       * Email
-       * Format: email
-       */
-      email: string;
-      /**
-       * Password
-       * Format: password
-       */
-      password: string;
-      /** @default viewer */
-      role: components["schemas"]["Role"];
-    };
-    /** Operations */
-    Operations: {
-      /**
-       * Generated At
-       * Format: date-time
-       */
-      generated_at: string;
-      /** Stale After Seconds */
-      stale_after_seconds: number;
-      /** Workers */
-      workers: components["schemas"]["WorkerInstance"][];
-      /** Workers Truncated */
-      workers_truncated: boolean;
-      /** Queues */
-      queues: components["schemas"]["QueueStatus"][];
-    };
-    /** Overview */
-    Overview: {
-      /**
-       * Generated At
-       * Format: date-time
-       */
-      generated_at: string;
-      /**
-       * Window Start
-       * Format: date-time
-       */
-      window_start: string;
-      /**
-       * Window End
-       * Format: date-time
-       */
-      window_end: string;
-      /** Retained Since */
-      retained_since: string | null;
-      /** Repository Count */
-      repository_count: number;
-      /** Active Requests */
-      active_requests: number;
-      /** Started Attempts */
-      started_attempts: number;
-      /** Reported Attempts */
-      reported_attempts: number;
-      /** Live Review Workers */
-      live_review_workers: number;
-      /** Review Capacity */
-      review_capacity: number;
-      lifetime: components["schemas"]["ActivityCounts"];
-      window: components["schemas"]["ActivityCounts"];
-      /** Daily Publications */
-      daily_publications: components["schemas"]["ActivityDay"][];
-      /** Recent Failure Reasons */
-      recent_failure_reasons: components["schemas"]["FailureCount"][];
-    };
-    /** PasswordChange */
-    PasswordChange: {
-      /**
-       * Current Password
-       * Format: password
-       */
-      current_password: string;
-      /**
-       * Password
-       * Format: password
-       */
-      password: string;
-    };
-    /** QueueStatus */
-    QueueStatus: {
-      /**
-       * Kind
-       * @enum {string}
-       */
-      kind: "review" | "publisher" | "webhook";
-      /** Waiting */
-      waiting: number;
-      /** Due */
-      due: number;
-      /** Delayed */
-      delayed: number;
-      /** Leased */
-      leased: number;
-      /** Expired Leases */
-      expired_leases: number;
-      /** Failed */
-      failed: number;
-      /** Oldest Waiting At */
-      oldest_waiting_at: string | null;
-      /** Next Available At */
-      next_available_at: string | null;
-    };
-    /** RepositoryActivity */
-    RepositoryActivity: {
-      /** Repository */
-      repository: string;
-      /** Prs Reviewed */
-      prs_reviewed: number;
-      /** Published Requests */
-      published_requests: number;
-      /** Failed Requests */
-      failed_requests: number;
-      /** Active Requests */
-      active_requests: number;
-      /** Latest Failed Prs */
-      latest_failed_prs: number;
-      /** Last Activity At */
-      last_activity_at: string | null;
-    };
-    /** RepositoryPage */
-    RepositoryPage: {
-      /** Items */
-      items: components["schemas"]["RepositoryActivity"][];
-      /** Has More */
-      has_more: boolean;
-      /**
-       * Generated At
-       * Format: date-time
-       */
-      generated_at: string;
-      /** Window Days */
-      window_days: number;
-      /**
-       * Window Start
-       * Format: date-time
-       */
-      window_start: string;
-      /**
-       * Window End
-       * Format: date-time
-       */
-      window_end: string;
-      /** Total */
-      total: number;
-      totals: components["schemas"]["RepositoryTotals"];
-    };
-    /** RepositoryTotals */
-    RepositoryTotals: {
-      /** Prs Reviewed */
-      prs_reviewed: number;
-      /** Published Requests */
-      published_requests: number;
-      /** Failed Requests */
-      failed_requests: number;
-      /** Active Requests */
-      active_requests: number;
-      /** Latest Failed Prs */
-      latest_failed_prs: number;
-    };
-    /** ReviewUsage */
-    ReviewUsage: {
-      /** Started Attempts */
-      started_attempts: number;
-      /** Reported Attempts */
-      reported_attempts: number;
-      /** Prompt Tokens */
-      prompt_tokens: number | null;
-      /** Completion Tokens */
-      completion_tokens: number | null;
-      /** Total Tokens */
-      total_tokens: number | null;
-    };
-    /**
-     * Role
-     * @enum {string}
-     */
-    Role: "viewer" | "admin";
-    /** ValidationError */
-    ValidationError: {
-      /** Location */
-      loc: (string | number)[];
-      /** Message */
-      msg: string;
-      /** Error Type */
-      type: string;
-      /** Input */
-      input?: unknown;
-      /** Context */
-      ctx?: Record<string, never>;
-    };
-    /** WorkerEvent */
-    WorkerEvent: {
-      /** Id */
-      id: number;
-      /**
-       * Worker Id
-       * Format: uuid
-       */
-      worker_id: string;
-      /**
-       * Occurred At
-       * Format: date-time
-       */
-      occurred_at: string;
-      /**
-       * Event
-       * @enum {string}
-       */
-      event:
-        | "started"
-        | "draining"
-        | "stopped"
-        | "review_started"
-        | "review_returned"
-        | "usage_unavailable";
-      /** Review Run Id */
-      review_run_id: number | null;
-      /** Job Id */
-      job_id: number | null;
-    };
-    /** WorkerEventPage */
-    WorkerEventPage: {
-      /** Items */
-      items: components["schemas"]["WorkerEvent"][];
-      /** Next Cursor */
-      next_cursor: number | null;
-    };
-    /** WorkerInstance */
-    WorkerInstance: {
-      /**
-       * Id
-       * Format: uuid
-       */
-      id: string;
-      /**
-       * Kind
-       * @enum {string}
-       */
-      kind: "review" | "publisher" | "webhook";
-      /** Lease Owner */
-      lease_owner: string;
-      /** Capacity */
-      capacity: number;
-      /**
-       * Started At
-       * Format: date-time
-       */
-      started_at: string;
-      /**
-       * Last Seen At
-       * Format: date-time
-       */
-      last_seen_at: string;
-      /**
-       * State
-       * @enum {string}
-       */
-      state: "running" | "draining" | "stopped" | "unresponsive";
-      /** Active Leases */
-      active_leases: number | null;
-    };
-  };
-  responses: never;
-  parameters: never;
-  requestBodies: never;
-  headers: never;
-  pathItems: never;
+    responses: never;
+    parameters: never;
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-  auth_cookie_login_api_auth_login_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    auth_cookie_login_api_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["Body_auth_cookie_login_api_auth_login_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody: {
-      content: {
-        "application/x-www-form-urlencoded": components["schemas"]["Body_auth_cookie_login_api_auth_login_post"];
-      };
+    auth_cookie_logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing token or inactive user. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
     };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    me_api_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          "application/json": unknown;
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
         };
-      };
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorModel"];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
     };
-  };
-  auth_cookie_logout_api_auth_logout_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    list_users_api_users_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    create_user_api_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          "application/json": unknown;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewAccount"];
+            };
         };
-      };
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
-        content?: never;
-      };
-      /** @description Missing token or inactive user. */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
     };
-  };
-  me_api_me_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    update_user_api_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    change_password_api_account_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          "application/json": components["schemas"]["Account"];
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
         };
-      };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-  };
-  list_users_api_users_get: {
-    parameters: {
-      query?: {
-        offset?: number;
-        limit?: number;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
+    repositories_api_repositories_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                search?: string;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
+    history_api_history_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                repository?: string | null;
+                status?: "all" | "active" | "published" | "failed" | "latest_failed" | "superseded";
+                pr_number?: number | null;
+                before_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          "application/json": components["schemas"]["AccountPage"];
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
     };
-  };
-  create_user_api_users_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    pull_requests_api_pull_requests_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                start?: string | null;
+                end?: string | null;
+                limit?: number;
+                repository?: string | null;
+                status?: "all" | "active" | "published" | "failed" | "latest_failed" | "superseded";
+                pr_number?: number | null;
+                before_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullRequestPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["NewAccount"];
-      };
+    overview_api_overview_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Overview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    responses: {
-      /** @description Successful Response */
-      201: {
-        headers: {
-          [name: string]: unknown;
+    operations_api_operations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
         };
-        content: {
-          "application/json": components["schemas"]["Account"];
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operations"];
+                };
+            };
         };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
     };
-  };
-  update_user_api_users__user_id__patch: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        user_id: string;
-      };
-      cookie?: never;
+    events_api_operations_events_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                worker_id?: string | null;
+                before_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerEventPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
     };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["AccountUpdate"];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Account"];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
-    };
-  };
-  change_password_api_account_password_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["PasswordChange"];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
-    };
-  };
-  repositories_api_repositories_get: {
-    parameters: {
-      query?: {
-        days?: number;
-        start?: string | null;
-        end?: string | null;
-        limit?: number;
-        search?: string;
-        offset?: number;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RepositoryPage"];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
-    };
-  };
-  history_api_history_get: {
-    parameters: {
-      query?: {
-        days?: number;
-        start?: string | null;
-        end?: string | null;
-        limit?: number;
-        repository?: string | null;
-        status?:
-          | "all"
-          | "active"
-          | "published"
-          | "failed"
-          | "latest_failed"
-          | "superseded";
-        pr_number?: number | null;
-        before_id?: number | null;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HistoryPage"];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
-    };
-  };
-  overview_api_overview_get: {
-    parameters: {
-      query?: {
-        days?: number;
-        start?: string | null;
-        end?: string | null;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Overview"];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
-    };
-  };
-  operations_api_operations_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["Operations"];
-        };
-      };
-    };
-  };
-  events_api_operations_events_get: {
-    parameters: {
-      query?: {
-        limit?: number;
-        worker_id?: string | null;
-        before_id?: number | null;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["WorkerEventPage"];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
-        };
-      };
-    };
-  };
 }

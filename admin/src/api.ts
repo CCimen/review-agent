@@ -1,6 +1,8 @@
 import type { components } from "./api.generated";
 
 export type RepositoryPage = components["schemas"]["RepositoryPage"];
+export type PullRequestGroup = components["schemas"]["PullRequestGroup"];
+export type PullRequestPage = components["schemas"]["PullRequestPage"];
 export type HistoryPage = components["schemas"]["HistoryPage"];
 export type HistoryItem = components["schemas"]["HistoryItem"];
 export type AccountPage = components["schemas"]["AccountPage"];

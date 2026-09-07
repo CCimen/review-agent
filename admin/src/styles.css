@@ -883,6 +883,7 @@ tbody tr:hover {
   color: var(--muted);
   padding-block: var(--space-3);
 }
+.pr-group + .pr-group,
 .review-row + .review-row {
   border-top: 1px solid var(--line);
 }
@@ -920,7 +921,7 @@ select,
 .review-result {
   min-width: 0;
 }
-.review-row time {
+.review-time {
   color: var(--muted);
   font-size: var(--step-0);
   font-variant-numeric: tabular-nums;
@@ -1524,7 +1525,7 @@ footer {
     display: inline;
     font-weight: 400;
   }
-  .review-row .expand-button {
+  .review-row-head .expand-button {
     grid-column: 2;
     grid-row: 2 / span 2;
     align-self: center;
@@ -1697,4 +1698,13 @@ footer {
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 24%);
     --shadow: 0 2px 4px rgb(0 0 0 / 28%), 0 12px 28px -12px rgb(0 0 0 / 60%);
   }
+}
+
+.pr-requests {
+  border-top: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  margin: 0 var(--space-4) var(--space-4);
+}
+.pr-requests > .freshness {
+  padding-inline: var(--space-4);
 }

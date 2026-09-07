@@ -235,14 +235,7 @@ function Failures({
   );
 }
 
-function Tokens({
-  counts,
-  startedAttempts,
-}: {
-  counts: ActivityCounts;
-  startedAttempts: number;
-}) {
-  const gap = startedAttempts - counts.reported_attempts;
+function Tokens({ counts }: { counts: ActivityCounts }) {
   return (
     <>
       <div className="stat-grid">
@@ -251,25 +244,13 @@ function Tokens({
         <Stat label="Total tokens" value={counts.total_tokens} />
         <Stat
           label="Attempts reporting usage"
-          value={`${number.format(counts.reported_attempts)} of ${number.format(startedAttempts)}`}
+          value={counts.reported_attempts}
         />
       </div>
-      {startedAttempts === 0 ? (
+      {counts.total_tokens === null && (
         <p className="stat-note">
-          No review attempts started in this period, so there is no usage to
-          report.
-        </p>
-      ) : gap > 0 ? (
-        <p className="notice">
-          {`${number.format(gap)} of ${number.format(startedAttempts)} attempts recorded no usage.`}{" "}
-          An attempt can finish before calling the model, and interrupted or
-          invalid responses stay unknown rather than counting as zero. Earlier
-          reviews are not backfilled.
-        </p>
-      ) : (
-        <p className="stat-note">
-          Every started attempt reported usage. That means each lease returned a
-          figure, not that provider billing was independently verified.
+          No usage was recorded in this period. Interrupted or invalid responses
+          remain unknown, and earlier reviews are not backfilled.
         </p>
       )}
       <p className="stat-note">
@@ -408,10 +389,7 @@ export function OverviewPage() {
             title="Token usage"
             description="Model usage recorded for review attempts in this period."
           >
-            <Tokens
-              counts={data.window}
-              startedAttempts={data.started_attempts}
-            />
+            <Tokens counts={data.window} />
           </Section>
 
           <Section
@@ -423,6 +401,13 @@ export function OverviewPage() {
             }
           >
             <Activity counts={data.lifetime} />
+            <p className="stat-note">
+              {number.format(data.reported_attempts)} of{" "}
+              {number.format(data.started_attempts)} lifetime job attempts
+              reported token usage. Missing usage remains unknown; some leases
+              can finish before calling the model. Recording coverage does not
+              verify provider billing.
+            </p>
             <p className="stat-note">
               Median publication{" "}
               {duration(data.lifetime.median_publication_seconds) ?? "—"}

@@ -240,6 +240,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertNotIn("--critical-exceptions", enforce_command)
         for manifest in (
             "requirements.txt",
+            "requirements-admin.txt",
+            "admin/package-lock.json",
             "install/package-lock.json",
             "website/package-lock.json",
         ):
@@ -256,6 +258,16 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertEqual("/dev/null", policy["ignorefile"])
         self.assertNotIn("list-all-pkgs", policy)
         self.assertEqual(["vuln"], mapping(policy["scan"])["scanners"])
+        pip_patterns = [
+            pattern.removeprefix("pip:")
+            for pattern in cast(list[str], mapping(policy["scan"])["file-patterns"])
+            if pattern.startswith("pip:")
+        ]
+        for manifest in ("requirements-admin.txt", "requirements-code-graph.txt"):
+            self.assertTrue(
+                any(re.search(pattern, manifest) for pattern in pip_patterns),
+                f"Trivy must discover {manifest}",
+            )
         self.assertEqual(True, mapping(policy["pkg"])["include-dev-deps"])
         self.assertEqual(False, mapping(policy["vulnerability"])["ignore-unfixed"])
 

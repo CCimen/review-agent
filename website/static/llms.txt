@@ -21,6 +21,7 @@ Repository guidance: repositories may opt into `.review-agent/config.toml`, one 
 - Operations: https://ccimen.github.io/review-agent/docs/operations
 - Feedback and design decisions: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
 - Repository context: https://ccimen.github.io/review-agent/docs/repository-context
+- Optional admin panel (source preview): https://ccimen.github.io/review-agent/docs/admin-panel
 - Security: https://ccimen.github.io/review-agent/docs/security
 
 ## Coding-agent handoff

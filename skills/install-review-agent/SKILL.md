@@ -95,6 +95,9 @@ Read only the material needed for the requested platform:
 - `docs/REPOSITORY_CONTEXT.md` for optional repository-owned instructions,
   technical context, and typed decisions;
 - `docs/OPERATIONS.md` for updates, recovery, and backup checks;
+- `docs/ADMIN_PANEL.md` when the owner requests the optional statistics and
+  account-management panel; match both image versions and have the owner enter
+  the first password in the container terminal, never the installation plan;
 - `docs/SECURITY.md` for credential and network boundaries.
 
 Prepare the source checkout once:

@@ -24,6 +24,7 @@ const sidebars: SidebarsConfig = {
         'docs/BEHAVIOR_OWNERSHIP',
         'docs/REPOSITORY_CONTEXT',
         'docs/CODE_GRAPH',
+        'docs/ADMIN_PANEL',
       ],
     },
     {

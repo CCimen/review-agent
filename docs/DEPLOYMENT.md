@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
 status: current
-last_verified: 2026-09-06
+last_verified: 2026-09-07
 ---
 
 import Tabs from '@theme/Tabs';
@@ -13,7 +13,8 @@ import TabItem from '@theme/TabItem';
 # Deploy Review Agent
 
 > **TL;DR**: Choose a released image or build locally, provide PostgreSQL and a
-> least-privilege GitHub App, then expose only the admission endpoint. Tune
+> least-privilege GitHub App, then expose the admission endpoint. The optional
+> [admin panel](ADMIN_PANEL.md) uses a separate authenticated hostname. Tune
 > bounded worker concurrency before adding replicas. Queue limits protect shared
 > compute and do not limit PR size.
 
@@ -24,6 +25,11 @@ import TabItem from '@theme/TabItem';
 One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
 gateway, Hermes `8642`, and PostgreSQL off the shared proxy network.
+
+The optional [admin panel](ADMIN_PANEL.md) adds a separate image and one service
+on port `8090` in the same deployment. It provides repository statistics, review
+history, email/password login, and basic user roles. It is currently a source
+preview; use its documented version and account-creation requirements.
 
 The GitHub App receives review commands directly. The private gateway uses its
 key for bounded source and publication operations; Hermes and the publisher do
@@ -201,11 +207,12 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 
    :::warning[Keep private services off the proxy]
    Do not route `hermes-review`, `review-worker`, `review-publisher`,
-   `review-github-gateway`, or `review-postgres`. Only admission belongs on the
-   ingress network.
+   `review-github-gateway`, or `review-postgres`. Admission and the optional
+   authenticated admin panel are the only services on the ingress network.
    :::
    In Dokploy **Advanced > Networks**, detach every service except
-   `review-admission` from `dokploy-network`. Leave **Enable Isolated
+   `review-admission` and an explicitly enabled `review-admin` from
+   `dokploy-network`. Leave **Enable Isolated
    Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
    declares the private database, runtime, egress, and GitHub-control networks.
 5. Connect the selected provider and restart Hermes:

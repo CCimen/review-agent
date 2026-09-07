@@ -241,6 +241,39 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             )
         return posted
 
+    def test_admin_counts_requests_separately_and_keeps_recovered_failures(self) -> None:
+        from review_agent_tools import admin_application
+
+        failed = self.start(pr_number=17, request_suffix="admin-failed")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(connection, failed.run.id, failure_code="review_failed")
+        for suffix, key in (("first", "d"), ("again", "e")):
+            run = self.start(pr_number=17, request_suffix=f"admin-{suffix}", policy_revision=suffix)
+            batch = self.record_finding(run, findings=())
+            self.publish_run(run, batch, key_character=key)
+        active = self.start(pr_number=18, request_suffix="admin-active")
+        # Current work must remain visible even when it started before the period.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET started_at = started_at - interval '40 days' WHERE id = %s",
+                (active.run.id,),
+            )
+        page = admin_application.repositories(self.runtime, days=7)
+        self.assertEqual(len(page.items), 1)
+        repo = page.items[0]
+        self.assertEqual((repo.prs_reviewed, repo.published_requests, repo.failed_requests), (1, 2, 1))
+        self.assertEqual((repo.active_requests, repo.latest_failed_prs), (1, 0))
+        history = admin_application.history(self.runtime, days=7, repository=self.repository, status="failed")
+        self.assertEqual([item.id for item in history.items], [failed.run.id])
+        self.assertTrue(history.items[0].recovered)
+        self.assertFalse(history.items[0].is_latest)
+        first = admin_application.history(self.runtime, days=7, limit=1)
+        second = admin_application.history(self.runtime, days=7, limit=1, before_id=first.next_cursor)
+        self.assertNotEqual(first.items[0].id, second.items[0].id)
+        self.assertEqual(first.items[0].coverage.state.value, "incomplete")
+        active_page = admin_application.history(self.runtime, days=7, status="active")
+        self.assertEqual([item.id for item in active_page.items], [active.run.id])
+
     def test_live_context_filters_before_limit_and_resolves_repeat_suppression(
         self,
     ) -> None:

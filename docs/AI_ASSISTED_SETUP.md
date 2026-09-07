@@ -53,6 +53,12 @@ The validated installation plan records the remaining non-secret choices. This
 keeps the conversation focused on real owner decisions instead of asking you to
 translate the deployment guide.
 
+For an optional operator UI, also request the [admin panel](ADMIN_PANEL.md).
+It is currently a source preview, so a release-based installation must wait for
+a qualified release containing both images. The agent can prepare the optional
+Compose service and hostname; the owner enters the first account password in
+the container terminal. Do not add account passwords to the non-secret plan.
+
 ## Configure only one repository
 
 If Review Agent is already deployed, give a coding agent this shorter assignment:

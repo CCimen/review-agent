@@ -136,6 +136,7 @@ class _FileIdRow:
 
 @dataclass(frozen=True, slots=True)
 class _SummaryRow:
+    review_run_id: ReviewRunId
     changed_files_reported: int | None
     registration_complete: bool
     changed_files_registered: int
@@ -703,12 +704,24 @@ def summarize(
     connection: psycopg.Connection[TupleRow], run_id: ReviewRunId
 ) -> CoverageSummary:
     """Summarize normalized coverage without treating source reads as diff."""
+    summaries = summarize_many(connection, (run_id,))
+    if run_id not in summaries:
+        raise CoverageError("review run does not exist")
+    return summaries[run_id]
+
+
+def summarize_many(
+    connection: psycopg.Connection[TupleRow], run_ids: tuple[ReviewRunId, ...]
+) -> dict[ReviewRunId, CoverageSummary]:
+    """Read coverage for a bounded report page in one query."""
     _require_transaction(connection)
+    if not run_ids:
+        return {}
     with connection.cursor(row_factory=class_row(_SummaryRow)) as cursor:
-        row = cursor.execute(
+        rows = cursor.execute(
             """
             SELECT
-                run.changed_files_reported,
+                run.id AS review_run_id, run.changed_files_reported,
                 run.changed_file_registration_complete AS registration_complete,
                 count(DISTINCT file.id) FILTER (
                     WHERE file.is_changed_path
@@ -737,13 +750,15 @@ def summarize(
                 ON file.review_run_id = run.id
             LEFT JOIN review_agent.review_file_reads AS read
                 ON read.review_run_file_id = file.id
-            WHERE run.id = %s
+            WHERE run.id = ANY(%s::bigint[])
             GROUP BY run.id
             """,
-            (run_id,),
-        ).fetchone()
-    if row is None:
-        raise CoverageError("review run does not exist")
+            ([int(run_id) for run_id in run_ids],),
+        ).fetchall()
+    return {row.review_run_id: _summary(row) for row in rows}
+
+
+def _summary(row: _SummaryRow) -> CoverageSummary:
     state = (
         CoverageState.UNKNOWN
         if row.changed_files_reported is None

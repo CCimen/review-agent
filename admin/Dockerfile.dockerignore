@@ -1,0 +1,13 @@
+*
+!requirements-admin.txt
+!admin/
+!admin/**
+!bootstrap/
+!bootstrap/plugins/
+!bootstrap/plugins/review_agent_tools/
+!bootstrap/plugins/review_agent_tools/**
+admin/node_modules/
+admin/dist/
+admin/*.tsbuildinfo
+**/__pycache__/
+**/*.py[cod]

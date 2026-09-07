@@ -1,0 +1,48 @@
+# Optional operator panel. Include this file alongside compose.yaml.
+services:
+  review-admin:
+    image: ${REVIEW_AGENT_ADMIN_IMAGE:-review-agent-admin:local}
+    build:
+      context: .
+      dockerfile: admin/Dockerfile
+    restart: unless-stopped
+    environment:
+      REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_RUNTIME_DATABASE_URL:?set REVIEW_AGENT_RUNTIME_DATABASE_URL}"
+      REVIEW_AGENT_ADMIN_PUBLIC_URL: "${REVIEW_AGENT_ADMIN_PUBLIC_URL:?set REVIEW_AGENT_ADMIN_PUBLIC_URL}"
+    depends_on:
+      review-db-migrate:
+        condition: service_completed_successfully
+      review-postgres:
+        condition: service_healthy
+    expose:
+      - "8090"
+    networks:
+      - review-database
+      - review-ingress
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${REVIEW_AGENT_INGRESS_NETWORK:-dokploy-network}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+          pids: 64
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"

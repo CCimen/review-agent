@@ -3,7 +3,7 @@
 Use a prerelease when the App-only path, multi-repository scale, backup
 recovery, capacity, or the arm64 runtime lacks evidence for the intended
 release claim. An alternate model provider is required only when its support is
-claimed in that release. GitHub publishes the matching GHCR image only after
+claimed in that release. GitHub publishes the matching GHCR images only after
 you publish the GitHub release.
 
 ## Before a release
@@ -43,6 +43,7 @@ tagged commit:
 
 ```bash
 ./scripts/check_bundle.sh
+sh ./scripts/check_admin.sh
 npm --prefix website run build
 python3 scripts/check_docs.py --build-dir website/build
 python3 scripts/generate_llms_docs.py --check
@@ -61,25 +62,31 @@ git diff --check
    shipped behavior, setup path, validation evidence, known gaps, and rollback.
 3. Wait for **Publish container image**. It verifies the tag and generated
    release documentation, runs `CI / required` against that exact source, then
-   publishes `linux/amd64` and `linux/arm64`. A failed Python, PostgreSQL, image
+   publishes `review-agent` and `review-agent-admin` for `linux/amd64` and
+   `linux/arm64`. A failed Python, PostgreSQL, image
    smoke, or dependency check blocks publication. The workflow
-   creates registry SBOM and provenance attestations, then scans both exact
-   published platform digests. A failed platform scan fails the release workflow;
+   creates registry SBOM and provenance attestations for both images, then scans
+   all four exact published platform digests. A failed platform scan fails the release workflow;
    retain its reports for triage and do not deploy the affected digest. Evidence
    generation and scanning have read-only repository and package access. Only
    after those checks pass does a separate job verify the closed file set,
    checksums, source SHA, and published image digest, attest and attach the
    files, then update the release notes with the generated vulnerability
    summary. The exact published amd64 digest also passes the normal runtime
-   image smoke contract before the release is qualified for deployment.
+   image smoke contract, and the admin digest passes its separate runtime smoke
+   contract before the release is qualified for deployment. The admin image does
+   not inherit the Hermes image's temporary critical-vulnerability exceptions.
    A prerelease does not update `latest`; a stable release does.
 4. Confirm the release contains per-platform CycloneDX JSON, SPDX JSON, and
-   readable tables; the focused Python-runtime CycloneDX file; both
-   `vulnerability-linux-*.json` reports; `VULNERABILITY-POLICY.json`;
+   readable tables for both images; their focused Python-runtime CycloneDX files;
+   both `vulnerability-linux-*.json` and both `vulnerability-admin-linux-*.json`
+   reports; `VULNERABILITY-POLICY.json`;
    `VULNERABILITY-SUMMARY.md`; `IMAGE-DIGESTS.txt`; `SOURCE-SHA.txt`; and
    `SBOM-SHA256SUMS.txt`. Confirm
-   `ghcr.io/ccimen/review-agent:<tag>` resolves to the recorded workflow digest.
-   Make the package public in GitHub Package settings if anonymous pulls are
+   each of `ghcr.io/ccimen/review-agent:<tag>` and
+   `ghcr.io/ccimen/review-agent-admin:<tag>` resolves to its recorded workflow
+   digest. `IMAGE-DIGESTS.txt` has six entries: a manifest and two platform
+   digests per image. Make each package public in GitHub Package settings if anonymous pulls are
    part of the release.
 5. Verify downloaded inventory files before using them:
 

@@ -13,3 +13,6 @@ website/node_modules/
 install/node_modules/
 website/.docusaurus/
 website/build/
+admin/node_modules/
+admin/dist/
+admin/*.tsbuildinfo

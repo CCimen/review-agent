@@ -64,6 +64,7 @@ jobs:
       id-token: write
     outputs:
       image_digest: ${{ steps.push.outputs.digest }}
+      admin_image_digest: ${{ steps.push-admin.outputs.digest }}
     steps:
       - name: Check out verified source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -124,6 +125,35 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
+      - name: Create admin image metadata
+        id: meta-admin
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051
+        with:
+          images: ${{ env.IMAGE_NAME }}-admin
+          tags: |
+            type=raw,value=${{ github.event.release.tag_name }}
+            type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
+
+      - name: Build and publish admin image
+        id: push-admin
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: admin/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-admin.outputs.tags }}
+          labels: ${{ steps.meta-admin.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest published admin image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}-admin
+          subject-digest: ${{ steps.push-admin.outputs.digest }}
+          push-to-registry: true
+
   evidence:
     name: Generate and scan release evidence
     needs: [verify, publish]
@@ -163,25 +193,35 @@ jobs:
           SYFT_CMD: ${{ steps.syft.outputs.cmd }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}
+          EXPECTED_ADMIN_IMAGE_DIGEST: ${{ needs.publish.outputs.admin_image_digest }}
           CYCLONEDX_SPEC_VERSION: "1.7"
         run: |
           scripts/generate_release_sbom.sh \
-            "$IMAGE_NAME" "$RELEASE_TAG" release-sbom
+            "$IMAGE_NAME" "$RELEASE_TAG" release-sbom "${IMAGE_NAME}-admin"
 
       - name: Record release platform digests
         run: |
           mkdir -p vulnerability-reports
-          amd64_image="$(awk '$2 == "linux/amd64" {print $4}' \
+          amd64_image="$(awk '$1 == "review-agent" && $2 == "linux/amd64" {print $4}' \
             release-sbom/IMAGE-DIGESTS.txt)"
-          arm64_image="$(awk '$2 == "linux/arm64" {print $4}' \
+          arm64_image="$(awk '$1 == "review-agent" && $2 == "linux/arm64" {print $4}' \
             release-sbom/IMAGE-DIGESTS.txt)"
           test -n "$amd64_image"
           test -n "$arm64_image"
           echo "AMD64_IMAGE=${amd64_image}" >> "$GITHUB_ENV"
           echo "ARM64_IMAGE=${arm64_image}" >> "$GITHUB_ENV"
+          admin_amd64_image="$(awk '$1 == "review-agent-admin" && $2 == "linux/amd64" {print $4}' release-sbom/IMAGE-DIGESTS.txt)"
+          admin_arm64_image="$(awk '$1 == "review-agent-admin" && $2 == "linux/arm64" {print $4}' release-sbom/IMAGE-DIGESTS.txt)"
+          test -n "$admin_amd64_image"
+          test -n "$admin_arm64_image"
+          echo "ADMIN_AMD64_IMAGE=${admin_amd64_image}" >> "$GITHUB_ENV"
+          echo "ADMIN_ARM64_IMAGE=${admin_arm64_image}" >> "$GITHUB_ENV"
 
       - name: Smoke exact linux/amd64 release image
         run: bash ./scripts/check_image.sh "$AMD64_IMAGE"
+
+      - name: Smoke exact linux/amd64 admin image
+        run: sh ./scripts/check_admin_image.sh "$ADMIN_AMD64_IMAGE"
 
       - name: Scan linux/amd64 image vulnerabilities
         id: scan-amd64
@@ -206,6 +246,30 @@ jobs:
           version: v0.74.0
           skip-setup-trivy: true
 
+      - name: Scan linux/amd64 admin image vulnerabilities
+        id: scan-admin-amd64
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: ${{ env.ADMIN_AMD64_IMAGE }}
+          trivy-config: trivy.yaml
+          output: vulnerability-reports/vulnerability-admin-linux-amd64.json
+          version: v0.74.0
+          skip-setup-trivy: true
+
+      - name: Scan linux/arm64 admin image vulnerabilities
+        id: scan-admin-arm64
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: ${{ env.ADMIN_ARM64_IMAGE }}
+          trivy-config: trivy.yaml
+          output: vulnerability-reports/vulnerability-admin-linux-arm64.json
+          version: v0.74.0
+          skip-setup-trivy: true
+
       - name: Retain image vulnerability reports
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -220,14 +284,23 @@ jobs:
         env:
           AMD64_SCAN_OUTCOME: ${{ steps.scan-amd64.outcome }}
           ARM64_SCAN_OUTCOME: ${{ steps.scan-arm64.outcome }}
+          ADMIN_AMD64_SCAN_OUTCOME: ${{ steps.scan-admin-amd64.outcome }}
+          ADMIN_ARM64_SCAN_OUTCOME: ${{ steps.scan-admin-arm64.outcome }}
         run: |
           test "$AMD64_SCAN_OUTCOME" = success
           test "$ARM64_SCAN_OUTCOME" = success
+          test "$ADMIN_AMD64_SCAN_OUTCOME" = success
+          test "$ADMIN_ARM64_SCAN_OUTCOME" = success
+          python3 scripts/check_trivy_report.py \
+            vulnerability-reports/vulnerability-admin-linux-amd64.json \
+            vulnerability-reports/vulnerability-admin-linux-arm64.json
           python3 scripts/check_trivy_report.py \
             --critical-exceptions release-image-critical-exceptions.json \
             --markdown-output release-sbom/VULNERABILITY-SUMMARY.md \
             vulnerability-reports/vulnerability-linux-amd64.json \
             vulnerability-reports/vulnerability-linux-arm64.json \
+            vulnerability-reports/vulnerability-admin-linux-amd64.json \
+            vulnerability-reports/vulnerability-admin-linux-arm64.json \
             > release-sbom/VULNERABILITY-POLICY.json
           cat release-sbom/VULNERABILITY-POLICY.json
 
@@ -276,6 +349,7 @@ jobs:
       - name: Verify release evidence
         env:
           EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}
+          EXPECTED_ADMIN_IMAGE_DIGEST: ${{ needs.publish.outputs.admin_image_digest }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
         run: |
@@ -294,6 +368,15 @@ jobs:
             "review-agent-python-runtime-${RELEASE_TAG}-linux-amd64.cyclonedx.json"
             vulnerability-linux-amd64.json
             vulnerability-linux-arm64.json
+            "review-agent-admin-${RELEASE_TAG}-linux-amd64.cyclonedx.json"
+            "review-agent-admin-${RELEASE_TAG}-linux-amd64.spdx.json"
+            "review-agent-admin-${RELEASE_TAG}-linux-amd64.table.txt"
+            "review-agent-admin-${RELEASE_TAG}-linux-arm64.cyclonedx.json"
+            "review-agent-admin-${RELEASE_TAG}-linux-arm64.spdx.json"
+            "review-agent-admin-${RELEASE_TAG}-linux-arm64.table.txt"
+            "review-agent-admin-python-runtime-${RELEASE_TAG}-linux-amd64.cyclonedx.json"
+            vulnerability-admin-linux-amd64.json
+            vulnerability-admin-linux-arm64.json
           )
           checksum_files=(
             IMAGE-DIGESTS.txt
@@ -329,12 +412,23 @@ jobs:
           while IFS= read -r line; do
             digest_lines+=("$line")
           done < release-sbom/IMAGE-DIGESTS.txt
-          test "${#digest_lines[@]}" -eq 3
+          test "${#digest_lines[@]}" -eq 6
           test "${digest_lines[0]}" = \
             "review-agent manifest ${image_name}:${RELEASE_TAG} ${image_name}@${EXPECTED_IMAGE_DIGEST}"
           for index_and_architecture in "1 amd64" "2 arm64"; do
             read -r index architecture <<<"$index_and_architecture"
             prefix="review-agent linux/${architecture} ${image_name}:${RELEASE_TAG} ${image_name}@sha256:"
+            [[ "${digest_lines[$index]}" == "$prefix"* ]]
+            digest="${digest_lines[$index]#"$prefix"}"
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          done
+          [[ "$EXPECTED_ADMIN_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          admin_image_name="${image_name}-admin"
+          test "${digest_lines[3]}" = \
+            "review-agent-admin manifest ${admin_image_name}:${RELEASE_TAG} ${admin_image_name}@${EXPECTED_ADMIN_IMAGE_DIGEST}"
+          for index_and_architecture in "4 amd64" "5 arm64"; do
+            read -r index architecture <<<"$index_and_architecture"
+            prefix="review-agent-admin linux/${architecture} ${admin_image_name}:${RELEASE_TAG} ${admin_image_name}@sha256:"
             [[ "${digest_lines[$index]}" == "$prefix"* ]]
             digest="${digest_lines[$index]#"$prefix"}"
             [[ "$digest" =~ ^[0-9a-f]{64}$ ]]

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "$#" -ne 3 ]]; then
-    echo "usage: generate_release_sbom.sh <image> <release-tag> <output-directory>" >&2
+if [[ "$#" -ne 4 ]]; then
+    echo "usage: generate_release_sbom.sh <image> <release-tag> <output-directory> <admin-image>" >&2
     exit 2
 fi
 
@@ -10,9 +10,11 @@ root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 image="$1"
 release_tag="$2"
 output_dir="$3"
+admin_image="$4"
 
 : "${SYFT_CMD:?SYFT_CMD must point to the pinned Syft executable}"
 : "${EXPECTED_IMAGE_DIGEST:?EXPECTED_IMAGE_DIGEST must be the published manifest digest}"
+: "${EXPECTED_ADMIN_IMAGE_DIGEST:?EXPECTED_ADMIN_IMAGE_DIGEST must be the admin manifest digest}"
 : "${CYCLONEDX_SPEC_VERSION:?CYCLONEDX_SPEC_VERSION is required}"
 
 python3 "$root/scripts/validate_release_tag.py" "$release_tag"
@@ -42,8 +44,6 @@ else
 fi
 output_dir="$(cd "$output_dir" && pwd)"
 
-image_ref="$image:$release_tag"
-manifest_ref="$image@$EXPECTED_IMAGE_DIGEST"
 
 require_digest() {
     local label="$1"
@@ -54,9 +54,6 @@ require_digest() {
     fi
 }
 
-require_digest "expected manifest digest" "$EXPECTED_IMAGE_DIGEST"
-raw_manifest="$(docker buildx imagetools inspect "$manifest_ref" --raw)"
-manifest_digest="$EXPECTED_IMAGE_DIGEST"
 
 platform_digest() {
     local architecture="$1"
@@ -84,62 +81,74 @@ validate_image_sbom() {
 }
 
 declare -a checksum_assets=("IMAGE-DIGESTS.txt")
-amd64_digest_ref=""
+: >"$output_dir/IMAGE-DIGESTS.txt"
 
-printf 'review-agent manifest %s %s@%s\n' \
-    "$image_ref" "$image" "$manifest_digest" \
-    >"$output_dir/IMAGE-DIGESTS.txt"
+generate_image_sboms() {
+    local component="$1" image="$2" manifest_digest="$3" runtime_python="$4"
+    local image_ref="$image:$release_tag" manifest_ref="$image@$manifest_digest"
+    local raw_manifest architecture digest digest_ref prefix runtime_asset
+    require_digest "$component manifest digest" "$manifest_digest"
+    raw_manifest="$(docker buildx imagetools inspect "$manifest_ref" --raw)"
+    local amd64_digest_ref=""
 
-for architecture in amd64 arm64; do
-    digest="$(platform_digest "$architecture")"
-    require_digest "linux/$architecture digest" "$digest"
-    digest_ref="$image@$digest"
-    if [[ "$architecture" == "amd64" ]]; then
-        amd64_digest_ref="$digest_ref"
-    fi
-    prefix="review-agent-${release_tag}-linux-${architecture}"
-
-    printf 'review-agent linux/%s %s %s\n' \
-        "$architecture" "$image_ref" "$digest_ref" \
+    printf '%s manifest %s %s@%s\n' \
+        "$component" "$image_ref" "$image" "$manifest_digest" \
         >>"$output_dir/IMAGE-DIGESTS.txt"
 
-    "$SYFT_CMD" "registry:$digest_ref" \
-        --platform "linux/$architecture" \
-        -q \
-        -o "cyclonedx-json=$output_dir/${prefix}.cyclonedx.json" \
-        -o "spdx-json=$output_dir/${prefix}.spdx.json" \
-        -o "syft-table=$output_dir/${prefix}.table.txt"
-    validate_image_sbom "$prefix"
-    checksum_assets+=(
-        "${prefix}.cyclonedx.json"
-        "${prefix}.spdx.json"
-        "${prefix}.table.txt"
-    )
-done
+    for architecture in amd64 arm64; do
+        digest="$(platform_digest "$architecture")"
+        require_digest "linux/$architecture digest" "$digest"
+        digest_ref="$image@$digest"
+        if [[ "$architecture" == "amd64" ]]; then
+            amd64_digest_ref="$digest_ref"
+        fi
+        prefix="${component}-${release_tag}-linux-${architecture}"
 
-runtime_asset="review-agent-python-runtime-${release_tag}-linux-amd64.cyclonedx.json"
-docker run --rm \
-    --platform linux/amd64 \
-    --user "$(id -u):$(id -g)" \
-    -e HOME=/tmp/review-agent-cyclonedx-home \
-    -e CYCLONEDX_SPEC_VERSION \
-    -v "$output_dir:/out" \
-    -v "$root/scripts/generate_python_runtime_sbom.sh:/cdx/generate-python-runtime-sbom.sh:ro" \
-    -v "$root/requirements-release-sbom.txt:/cdx/requirements-release-sbom.txt:ro" \
-    --entrypoint /bin/sh \
-    "$amd64_digest_ref" \
-    /cdx/generate-python-runtime-sbom.sh "/out/$runtime_asset"
+        printf '%s linux/%s %s %s\n' \
+            "$component" "$architecture" "$image_ref" "$digest_ref" \
+            >>"$output_dir/IMAGE-DIGESTS.txt"
 
-jq -e --arg spec "$CYCLONEDX_SPEC_VERSION" '
-  .bomFormat == "CycloneDX"
-  and .specVersion == $spec
-  and ((.components // []) | length > 0)
-' "$output_dir/$runtime_asset" >/dev/null
-checksum_assets+=("$runtime_asset")
+        "$SYFT_CMD" "registry:$digest_ref" \
+            --platform "linux/$architecture" \
+            -q \
+            -o "cyclonedx-json=$output_dir/${prefix}.cyclonedx.json" \
+            -o "spdx-json=$output_dir/${prefix}.spdx.json" \
+            -o "syft-table=$output_dir/${prefix}.table.txt"
+        validate_image_sbom "$prefix"
+        checksum_assets+=(
+            "${prefix}.cyclonedx.json"
+            "${prefix}.spdx.json"
+            "${prefix}.table.txt"
+        )
+    done
+
+    runtime_asset="${component}-python-runtime-${release_tag}-linux-amd64.cyclonedx.json"
+    docker run --rm \
+        --platform linux/amd64 \
+        --user "$(id -u):$(id -g)" \
+        -e HOME=/tmp/review-agent-cyclonedx-home \
+        -e CYCLONEDX_SPEC_VERSION \
+        -v "$output_dir:/out" \
+        -v "$root/scripts/generate_python_runtime_sbom.sh:/cdx/generate-python-runtime-sbom.sh:ro" \
+        -v "$root/requirements-release-sbom.txt:/cdx/requirements-release-sbom.txt:ro" \
+        --entrypoint /bin/sh \
+        "$amd64_digest_ref" \
+        /cdx/generate-python-runtime-sbom.sh "/out/$runtime_asset" "$runtime_python"
+
+    jq -e --arg spec "$CYCLONEDX_SPEC_VERSION" '
+      .bomFormat == "CycloneDX"
+      and .specVersion == $spec
+      and ((.components // []) | length > 0)
+    ' "$output_dir/$runtime_asset" >/dev/null
+    checksum_assets+=("$runtime_asset")
+}
+
+generate_image_sboms review-agent "$image" "$EXPECTED_IMAGE_DIGEST" /opt/hermes/.venv/bin/python
+generate_image_sboms review-agent-admin "$admin_image" "$EXPECTED_ADMIN_IMAGE_DIGEST" /opt/admin-venv/bin/python
 
 (
     cd "$output_dir"
     sha256sum -- "${checksum_assets[@]}" >SBOM-SHA256SUMS.txt
 )
 
-echo "Generated release SBOMs for $image_ref from $manifest_ref"
+echo "Generated release SBOMs for both images at $release_tag"

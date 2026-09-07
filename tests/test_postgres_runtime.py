@@ -110,7 +110,7 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
         readiness = runtime.open()
 
         self.assertEqual(readiness.server_version // 10_000, 17)
-        self.assertEqual(readiness.applied_migration_version, 16)
+        self.assertEqual(readiness.applied_migration_version, 17)
         self.assertFalse(readiness.database_ahead)
         with runtime.transaction() as connection:
             isolation = connection.execute("SHOW transaction_isolation").fetchone()
@@ -192,7 +192,11 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
                 runner.MIGRATION_DIRECTORY / "016_finding_root_cause_groups.sql",
                 current / "016_finding_root_cause_groups.sql",
             )
-            (current / "017_newer.sql").write_text(
+            shutil.copy2(
+                runner.MIGRATION_DIRECTORY / "017_admin_accounts.sql",
+                current / "017_admin_accounts.sql",
+            )
+            (current / "018_newer.sql").write_text(
                 "CREATE TABLE review_agent.newer_runtime_probe "
                 "(id integer PRIMARY KEY);\n",
                 encoding="utf-8",
@@ -204,7 +208,7 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
 
         readiness = runtime.open()
 
-        self.assertEqual(readiness.applied_migration_version, 17)
+        self.assertEqual(readiness.applied_migration_version, 18)
         self.assertTrue(readiness.database_ahead)
 
     def test_open_fails_closed_when_migrations_are_pending(self) -> None:

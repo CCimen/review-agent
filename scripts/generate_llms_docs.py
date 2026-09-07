@@ -123,6 +123,7 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
         f"- Operations: {BASE_URL}/docs/operations",
         f"- Feedback and design decisions: {BASE_URL}/docs/feedback-and-decisions",
         f"- Repository context: {BASE_URL}/docs/repository-context",
+        f"- Optional admin panel (source preview): {BASE_URL}/docs/admin-panel",
         f"- Security: {BASE_URL}/docs/security",
         "",
         "## Coding-agent handoff",

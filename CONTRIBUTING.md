@@ -5,7 +5,7 @@ credentials or personal data. Install the pinned development tools alongside
 the runtime dependencies:
 
 ```bash
-python3 -m pip install --requirement requirements.txt --requirement requirements-dev.txt
+python3 -m pip install --requirement requirements-admin.txt --requirement requirements-dev.txt
 npm install --global pyright@1.1.408
 ```
 
@@ -16,6 +16,13 @@ is available, and always when database or durable workflow behavior changes:
 ./scripts/check_bundle.sh
 ./scripts/check_postgres_schema.sh
 ```
+
+Admin frontend work also requires Node.js 24 and `sh ./scripts/check_admin.sh`.
+The script checks the committed OpenAPI schema and generated TypeScript types,
+then builds the frontend. After an intentional API change, regenerate them with
+`python3 tools/generate_admin_openapi.py > admin/openapi.json` and
+`npm --prefix admin run generate`. Authentication tests use the disposable
+PostgreSQL environment in `check_postgres_schema.sh`.
 
 Repository rulesets should require the stable `CI / required` check. That check
 passes only after the Python, PostgreSQL, and container-image jobs succeed.

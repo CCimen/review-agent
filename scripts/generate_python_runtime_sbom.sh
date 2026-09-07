@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 1 ]; then
-    printf '%s\n' "usage: generate_python_runtime_sbom.sh /out/<name>.cyclonedx.json" >&2
+if [ "$#" -ne 2 ]; then
+    printf '%s\n' "usage: generate_python_runtime_sbom.sh /out/<name>.cyclonedx.json <runtime-python>" >&2
     exit 2
 fi
 
@@ -17,7 +17,11 @@ esac
 
 : "${CYCLONEDX_SPEC_VERSION:?CYCLONEDX_SPEC_VERSION is required}"
 
-runtime_python=/opt/hermes/.venv/bin/python
+runtime_python=$2
+case "$runtime_python" in
+    /opt/hermes/.venv/bin/python|/opt/admin-venv/bin/python) ;;
+    *) echo "Unsupported release runtime Python" >&2; exit 2 ;;
+esac
 runtime_distributions=/tmp/review-agent-runtime-distributions.json
 tool_venv=/tmp/review-agent-cyclonedx-tool
 tool_requirements=/cdx/requirements-release-sbom.txt

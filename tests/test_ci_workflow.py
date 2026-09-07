@@ -262,7 +262,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
     def test_fast_quality_tools_are_pinned_and_cover_production_entrypoints(self):
         self.assertEqual(
             DEVELOPMENT_REQUIREMENTS.read_text(encoding="utf-8"),
-            "ruff==0.14.4\n",
+            "ruff==0.14.4\nhttpx2==2.12.0\n",
         )
         ruff = mapping(tomllib.loads(RUFF_CONFIG.read_text(encoding="utf-8")))
         self.assertEqual("py311", ruff["target-version"])
@@ -638,6 +638,15 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "review-agent-python-runtime-v1.2.3-linux-amd64.cyclonedx.json",
             "vulnerability-linux-amd64.json",
             "vulnerability-linux-arm64.json",
+            "review-agent-admin-v1.2.3-linux-amd64.cyclonedx.json",
+            "review-agent-admin-v1.2.3-linux-amd64.spdx.json",
+            "review-agent-admin-v1.2.3-linux-amd64.table.txt",
+            "review-agent-admin-v1.2.3-linux-arm64.cyclonedx.json",
+            "review-agent-admin-v1.2.3-linux-arm64.spdx.json",
+            "review-agent-admin-v1.2.3-linux-arm64.table.txt",
+            "review-agent-admin-python-runtime-v1.2.3-linux-amd64.cyclonedx.json",
+            "vulnerability-admin-linux-amd64.json",
+            "vulnerability-admin-linux-arm64.json",
         ]
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
@@ -656,6 +665,9 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     review-agent manifest {image_name}:{release_tag} {image_name}@{manifest_digest}
                     review-agent linux/amd64 {image_name}:{release_tag} {image_name}@{amd64_digest}
                     review-agent linux/arm64 {image_name}:{release_tag} {image_name}@{arm64_digest}
+                    review-agent-admin manifest {image_name}-admin:{release_tag} {image_name}-admin@sha256:{'f' * 64}
+                    review-agent-admin linux/amd64 {image_name}-admin:{release_tag} {image_name}-admin@{amd64_digest}
+                    review-agent-admin linux/arm64 {image_name}-admin:{release_tag} {image_name}-admin@{arm64_digest}
                     """
                 ),
                 encoding="utf-8",
@@ -678,6 +690,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             environment.update(
                 {
                     "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,
                     "GITHUB_REPOSITORY": "example/review-agent",
                     "RELEASE_TAG": release_tag,
                     "SOURCE_SHA": expected_source,
@@ -831,6 +844,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                         ),
                         encoding="utf-8",
                     )
+                for platform in ("amd64", "arm64"):
+                    (reports / f"vulnerability-admin-linux-{platform}.json").write_text(
+                        json.dumps({"Results": [{"Target": "Python", "Vulnerabilities": []}]}),
+                        encoding="utf-8",
+                    )
                 completed = subprocess.run(
                     ["bash", "-e", "-c", str(step["run"])],
                     cwd=temporary,
@@ -838,6 +856,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                         **os.environ,
                         "AMD64_SCAN_OUTCOME": "success",
                         "ARM64_SCAN_OUTCOME": "success",
+                        "ADMIN_AMD64_SCAN_OUTCOME": "success",
+                        "ADMIN_ARM64_SCAN_OUTCOME": "success",
                     },
                     capture_output=True,
                     text=True,
@@ -879,6 +899,9 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     review-agent manifest ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@sha256:{'c' * 64}
                     review-agent linux/amd64 ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@{amd64_digest}
                     review-agent linux/arm64 ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@{arm64_digest}
+                    review-agent-admin manifest ghcr.io/example/review-agent-admin:v1.2.3 ghcr.io/example/review-agent-admin@sha256:{'f' * 64}
+                    review-agent-admin linux/amd64 ghcr.io/example/review-agent-admin:v1.2.3 ghcr.io/example/review-agent-admin@{amd64_digest}
+                    review-agent-admin linux/arm64 ghcr.io/example/review-agent-admin:v1.2.3 ghcr.io/example/review-agent-admin@{arm64_digest}
                     """
                 ),
                 encoding="utf-8",
@@ -904,6 +927,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 [
                     "AMD64_IMAGE=ghcr.io/example/review-agent@" + amd64_digest,
                     "ARM64_IMAGE=ghcr.io/example/review-agent@" + arm64_digest,
+                    "ADMIN_AMD64_IMAGE=ghcr.io/example/review-agent-admin@" + amd64_digest,
+                    "ADMIN_ARM64_IMAGE=ghcr.io/example/review-agent-admin@" + arm64_digest,
                 ],
                 github_environment.read_text(encoding="utf-8").splitlines(),
             )
@@ -918,6 +943,16 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 "Scan linux/arm64 image vulnerabilities",
                 "${{ env.ARM64_IMAGE }}",
                 "vulnerability-reports/vulnerability-linux-arm64.json",
+            ),
+            (
+                "Scan linux/amd64 admin image vulnerabilities",
+                "${{ env.ADMIN_AMD64_IMAGE }}",
+                "vulnerability-reports/vulnerability-admin-linux-amd64.json",
+            ),
+            (
+                "Scan linux/arm64 admin image vulnerabilities",
+                "${{ env.ADMIN_ARM64_IMAGE }}",
+                "vulnerability-reports/vulnerability-admin-linux-arm64.json",
             ),
         )
         for name, image_ref, report in scans:
@@ -943,7 +978,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         enforce = named_step(evidence_job, "Enforce image vulnerability policy")
         self.assertEqual("${{ always() }}", enforce["if"])
         self.assertEqual(
-            {"AMD64_SCAN_OUTCOME", "ARM64_SCAN_OUTCOME"},
+            {"AMD64_SCAN_OUTCOME", "ARM64_SCAN_OUTCOME", "ADMIN_AMD64_SCAN_OUTCOME", "ADMIN_ARM64_SCAN_OUTCOME"},
             set(mapping(enforce["env"])),
         )
         enforce_command = str(enforce["run"])
@@ -1040,7 +1075,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     if arguments[:3] == ["buildx", "imagetools", "inspect"]:
                         if arguments[-1] != "--raw":
                             raise SystemExit("only the immutable raw manifest may be read")
-                        if arguments[3] != os.environ["EXPECTED_MANIFEST_REF"]:
+                        if arguments[3] not in (os.environ["EXPECTED_MANIFEST_REF"], os.environ["EXPECTED_ADMIN_MANIFEST_REF"]):
                             raise SystemExit("manifest was not selected by immutable digest")
                         print(os.environ["RAW_MANIFEST"])
                         raise SystemExit(0)
@@ -1051,7 +1086,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                             for index, value in enumerate(arguments)
                             if arguments[index - 1] == "-v" and value.endswith(":/out")
                         )
-                        output_name = Path(arguments[-1]).name
+                        output_name = Path(arguments[-2]).name
                         target = Path(output_mount) / output_name
                         target.write_text(
                             json.dumps(
@@ -1115,6 +1150,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     "CALLS_LOG": str(calls),
                     "CYCLONEDX_SPEC_VERSION": "1.7",
                     "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,
+                    "EXPECTED_ADMIN_MANIFEST_REF": "ghcr.io/example/review-agent-admin@sha256:" + "f" * 64,
                     "EXPECTED_MANIFEST_REF": (
                         f"ghcr.io/example/review-agent@{manifest_digest}"
                     ),
@@ -1129,6 +1166,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     "ghcr.io/example/review-agent",
                     "v1.2.3",
                     str(output),
+                    "ghcr.io/example/review-agent-admin",
                 ],
                 check=False,
                 capture_output=True,
@@ -1157,6 +1195,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 [
                     f"registry:ghcr.io/example/review-agent@{amd64_digest}",
                     f"registry:ghcr.io/example/review-agent@{arm64_digest}",
+                    f"registry:ghcr.io/example/review-agent-admin@{amd64_digest}",
+                    f"registry:ghcr.io/example/review-agent-admin@{arm64_digest}",
                 ],
                 syft_sources,
             )
@@ -1164,12 +1204,12 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 call for call in recorded_calls if call[:2] == ["docker", "run"]
             )
             self.assertEqual(
-                f"ghcr.io/example/review-agent@{amd64_digest}", runtime_call[-3]
+                f"ghcr.io/example/review-agent@{amd64_digest}", runtime_call[-4]
             )
             checksums = (output / "SBOM-SHA256SUMS.txt").read_text(
                 encoding="utf-8"
             )
-            self.assertEqual(8, len(checksums.splitlines()))
+            self.assertEqual(15, len(checksums.splitlines()))
             checksum_check = subprocess.run(
                 ["sha256sum", "--check", "SBOM-SHA256SUMS.txt"],
                 cwd=output,
@@ -1207,6 +1247,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 {
                     "CYCLONEDX_SPEC_VERSION": "1.7",
                     "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,
                     "PATH": f"{temporary}{os.pathsep}{environment['PATH']}",
                     "RAW_MANIFEST": json.dumps(base_manifest),
                     "SYFT_CMD": str(syft),
@@ -1218,6 +1259,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     "ghcr.io/example/review-agent",
                     "v1.2.3",
                     str(temporary / "output"),
+                    "ghcr.io/example/review-agent-admin",
                 ],
                 check=False,
                 capture_output=True,

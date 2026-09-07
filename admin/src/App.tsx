@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   Link,
@@ -6,6 +6,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
   useSearchParams,
 } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,14 +15,16 @@ import { APIError, read, write } from "./api";
 import type { Account, HistoryItem, HistoryPage, RepositoryPage } from "./api";
 
 import { Login, MyAccount, Users } from "./accounts";
+import { Stat, number } from "./ui";
 
-const number = new Intl.NumberFormat();
 const dateTime = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
 const time = (value: string | null) =>
   value ? dateTime.format(new Date(value)) : "—";
+const pullRequestURL = (item: Pick<HistoryItem, "repository" | "pr_number">) =>
+  `https://github.com/${item.repository}/pull/${item.pr_number}`;
 const stateLabels: Record<HistoryItem["state"], string> = {
   queued: "Queued",
   running: "Reviewing",
@@ -125,6 +128,22 @@ function Repositories() {
     queryFn: ({ signal }) =>
       read<RepositoryPage>(`/api/repositories?${queryParams}`, signal),
   });
+  const totals = (query.data?.items ?? []).reduce(
+    (sum, repo) => ({
+      prs_reviewed: sum.prs_reviewed + repo.prs_reviewed,
+      published_requests: sum.published_requests + repo.published_requests,
+      failed_requests: sum.failed_requests + repo.failed_requests,
+      active_requests: sum.active_requests + repo.active_requests,
+      latest_failed_prs: sum.latest_failed_prs + repo.latest_failed_prs,
+    }),
+    {
+      prs_reviewed: 0,
+      published_requests: 0,
+      failed_requests: 0,
+      active_requests: 0,
+      latest_failed_prs: 0,
+    },
+  );
   function submit(event: FormEvent) {
     event.preventDefault();
     update({ search: draft.trim() });
@@ -161,103 +180,163 @@ function Repositories() {
         <Period days={days} change={(value) => update({ days: value })} />
       </div>
       <Freshness query={query} />
+      {query.data && query.data.items.length > 0 && (
+        <>
+          <div className="stat-grid">
+            <Stat label="Repositories" value={query.data.items.length} />
+            <Stat label="PRs reviewed" value={totals.prs_reviewed} />
+            <Stat label="Published reviews" value={totals.published_requests} />
+            <Stat label="Failed requests" value={totals.failed_requests} />
+            <Stat label="Active now" value={totals.active_requests} />
+            <Stat
+              label="Needs attention"
+              value={totals.latest_failed_prs}
+              attention
+            />
+          </div>
+          <p className="stat-note">
+            {`Totals cover ${
+              query.data.has_more || offset > 0 ? "the" : "all"
+            } ${query.data.items.length} ${
+              query.data.items.length === 1 ? "repository" : "repositories"
+            }${query.data.has_more || offset > 0 ? " on this page" : ""}`}
+            {search ? ` matching “${search}”` : ""} over the last {days} days.
+            “Needs attention” counts PRs whose most recent request failed.
+          </p>
+        </>
+      )}
       {query.data &&
         (query.data.items.length ? (
-          <div
-            className="table-scroll"
-            tabIndex={0}
-            role="region"
-            aria-label="Repository statistics"
-          >
-            <table>
-              <caption>
-                Requests started in the last {days} days. Active work is the
-                current total.
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Repository</th>
-                  <th scope="col" className="numeric">
-                    PRs reviewed
-                  </th>
-                  <th scope="col" className="numeric">
-                    Published reviews
-                  </th>
-                  <th scope="col" className="numeric">
-                    Failed requests
-                  </th>
-                  <th scope="col" className="numeric">
-                    Active now
-                  </th>
-                  <th scope="col">Latest failures</th>
-                </tr>
-              </thead>
-              <tbody>
-                {query.data.items.map((repo) => (
-                  <tr key={repo.repository}>
-                    <th scope="row">
-                      <Link to={historyURL(repo.repository)}>
-                        {repo.repository}
-                      </Link>
-                      <span className="subtext">
-                        {repo.last_activity_at
-                          ? `Last activity ${time(repo.last_activity_at)}`
-                          : "No activity in this period"}
-                      </span>
+          <div className="panel">
+            <div
+              className="table-scroll"
+              tabIndex={0}
+              role="region"
+              aria-label="Repository statistics"
+            >
+              {/* Keep table semantics when the rows reflow on small screens. */}
+              <table className="repository-table" role="table">
+                <caption>
+                  Requests started in the last {days} days. Active work is the
+                  current total.
+                </caption>
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th scope="col" role="columnheader">
+                      Repository
                     </th>
-                    <td className="numeric">
-                      {number.format(repo.prs_reviewed)}
-                    </td>
-                    <td className="numeric">
-                      <Link
-                        aria-label={`${repo.published_requests} published reviews for ${repo.repository}`}
-                        to={historyURL(repo.repository, "published")}
-                      >
-                        {number.format(repo.published_requests)}
-                      </Link>
-                    </td>
-                    <td className="numeric">
-                      <Link
-                        aria-label={`${repo.failed_requests} failed requests for ${repo.repository}`}
-                        to={historyURL(repo.repository, "failed")}
-                      >
-                        {number.format(repo.failed_requests)}
-                      </Link>
-                    </td>
-                    <td className="numeric">
-                      <Link
-                        aria-label={`${repo.active_requests} active reviews for ${repo.repository}`}
-                        to={historyURL(repo.repository, "active")}
-                      >
-                        {number.format(repo.active_requests)}
-                      </Link>
-                    </td>
-                    <td>
-                      {repo.latest_failed_prs ? (
-                        <Link
-                          className="attention"
-                          to={historyURL(repo.repository, "latest_failed")}
-                        >
-                          {number.format(repo.latest_failed_prs)} PR
-                          {repo.latest_failed_prs === 1 ? "" : "s"} to check
-                        </Link>
-                      ) : (
-                        <span className="muted">None in period</span>
-                      )}
-                    </td>
+                    <th scope="col" role="columnheader" className="numeric">
+                      PRs reviewed
+                    </th>
+                    <th scope="col" role="columnheader" className="numeric">
+                      Published reviews
+                    </th>
+                    <th scope="col" role="columnheader" className="numeric">
+                      Failed requests
+                    </th>
+                    <th scope="col" role="columnheader" className="numeric">
+                      Active now
+                    </th>
+                    <th scope="col" role="columnheader">
+                      Latest failures
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody role="rowgroup">
+                  {query.data.items.map((repo) => (
+                    <tr key={repo.repository} role="row">
+                      <th scope="row" role="rowheader">
+                        <Link to={historyURL(repo.repository)}>
+                          {repo.repository}
+                        </Link>
+                        <span className="subtext">
+                          {repo.last_activity_at
+                            ? `Last activity ${time(repo.last_activity_at)}`
+                            : "No activity in this period"}
+                        </span>
+                      </th>
+                      <td className="numeric" role="cell">
+                        <span className="mobile-label" aria-hidden="true">
+                          PRs reviewed
+                        </span>
+                        <span className="metric-value">
+                          {number.format(repo.prs_reviewed)}
+                        </span>
+                      </td>
+                      <td className="numeric" role="cell">
+                        <span className="mobile-label" aria-hidden="true">
+                          Published reviews
+                        </span>
+                        <Link
+                          aria-label={`${repo.published_requests} published reviews for ${repo.repository}`}
+                          to={historyURL(repo.repository, "published")}
+                        >
+                          {number.format(repo.published_requests)}
+                        </Link>
+                      </td>
+                      <td className="numeric" role="cell">
+                        <span className="mobile-label" aria-hidden="true">
+                          Failed requests
+                        </span>
+                        <Link
+                          aria-label={`${repo.failed_requests} failed requests for ${repo.repository}`}
+                          to={historyURL(repo.repository, "failed")}
+                        >
+                          {number.format(repo.failed_requests)}
+                        </Link>
+                      </td>
+                      <td className="numeric" role="cell">
+                        <span className="mobile-label" aria-hidden="true">
+                          Active now
+                        </span>
+                        <Link
+                          aria-label={`${repo.active_requests} active reviews for ${repo.repository}`}
+                          to={historyURL(repo.repository, "active")}
+                        >
+                          {number.format(repo.active_requests)}
+                        </Link>
+                      </td>
+                      <td className="latest-failures" role="cell">
+                        <span className="mobile-label" aria-hidden="true">
+                          Latest failures
+                        </span>
+                        {repo.latest_failed_prs ? (
+                          <Link
+                            className="attention"
+                            to={historyURL(repo.repository, "latest_failed")}
+                          >
+                            {number.format(repo.latest_failed_prs)} PR
+                            {repo.latest_failed_prs === 1 ? "" : "s"} to check
+                          </Link>
+                        ) : (
+                          <span className="muted">None in period</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           <Empty>
-            {search
-              ? "Try another repository name or clear the search."
-              : "Repositories appear after they have been registered by Review Agent. Request a review on GitHub to create review activity."}
+            {search ? (
+              <>
+                No repository matches “{search}”. Try another name, or{" "}
+                <button
+                  className="text-button inline"
+                  onClick={() => update({ search: "" })}
+                >
+                  clear the search
+                </button>
+                .
+              </>
+            ) : (
+              "Repositories appear after they have been registered by Review Agent. Request a review on GitHub to create review activity."
+            )}
           </Empty>
         ))}
-      {query.data && (
+      {query.data && (offset > 0 || query.data.has_more) && (
         <div className="pagination">
           <button
             className="secondary"
@@ -405,14 +484,74 @@ function RunDetails({ item }: { item: HistoryItem }) {
           PR.
         </p>
       )}
-      <a
-        href={`https://github.com/${item.repository}/pull/${item.pr_number}`}
-        target="_blank"
-        rel="noreferrer"
-      >
+      <a href={pullRequestURL(item)} target="_blank" rel="noreferrer">
         Open PR and review results on GitHub
         <span className="sr-only"> (opens in a new tab)</span>
       </a>
+    </div>
+  );
+}
+
+function ReviewRow({
+  item,
+  repositoryHref,
+}: {
+  item: HistoryItem;
+  repositoryHref: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelId = `review-${item.id}`;
+  return (
+    <div className={open ? "review-row open" : "review-row"}>
+      <div className="review-row-head">
+        <span className="request-identity">
+          <span className="run-name">
+            {repositoryHref && (
+              <>
+                <Link to={repositoryHref}>{item.repository}</Link>{" "}
+              </>
+            )}
+            <a href={pullRequestURL(item)} target="_blank" rel="noreferrer">
+              {repositoryHref ? `#${item.pr_number}` : `PR #${item.pr_number}`}
+              <span className="sr-only"> on GitHub (opens in a new tab)</span>
+            </a>
+          </span>
+          <span className="subtext">
+            Request #{item.id} · <code>{item.head_sha.slice(0, 10)}</code>
+            {!item.is_latest ? " · Earlier request" : ""}
+          </span>
+        </span>
+        <span className="review-result">
+          <span className={`status ${item.state}`}>
+            {stateLabels[item.state]}
+          </span>
+          <span className="subtext">
+            {item.state === "published"
+              ? `${item.findings_count ?? "Unknown"} findings${item.coverage.state !== "complete" ? " · Limited coverage" : ""}`
+              : item.recovered
+                ? "Later review published"
+                : item.state === "failed" && item.is_latest
+                  ? "Latest request · check cause"
+                  : item.phase.replaceAll("_", " ")}
+          </span>
+        </span>
+        <time className="review-time" dateTime={item.started_at}>
+          <span className="mobile-label">Started </span>
+          {time(item.started_at)}
+        </time>
+        <button
+          className="expand-button"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen((value) => !value)}
+        >
+          Details
+          <span className="sr-only">{` for request #${item.id}`}</span>
+        </button>
+      </div>
+      <div id={panelId} hidden={!open}>
+        <RunDetails item={item} />
+      </div>
     </div>
   );
 }
@@ -442,6 +581,9 @@ function History() {
     queryFn: ({ signal }) =>
       read<HistoryPage>(`/api/history?${queryParams}`, signal),
   });
+  function repositoryURL(name: string) {
+    return `/history?${new URLSearchParams({ repository: name, days: String(days), status })}`;
+  }
   return (
     <>
       <Link className="back-link" to={`/?days=${days}`}>
@@ -503,50 +645,30 @@ function History() {
         </p>
       )}
       <Freshness query={query} />
+      {query.data && query.data.items.length > 0 && (
+        <p className="result-count">
+          {number.format(query.data.items.length)} review request
+          {query.data.items.length === 1 ? "" : "s"}
+          {repository ? ` for ${repository}` : ""}
+          {query.data.next_cursor !== null ? " on this page" : ""}
+        </p>
+      )}
       {query.data &&
         (query.data.items.length ? (
-          <div className="review-list">
+          <div className="review-list panel">
             <div className="list-labels" aria-hidden="true">
               <span>Pull request / review request</span>
               <span>Result</span>
               <span>Started</span>
             </div>
             {query.data.items.map((item) => (
-              <details key={item.id} className="review-row">
-                <summary>
-                  <span>
-                    <span className="run-name">
-                      {repository
-                        ? `PR #${item.pr_number}`
-                        : `${item.repository} #${item.pr_number}`}
-                    </span>
-                    <span className="subtext">
-                      Request #{item.id} ·{" "}
-                      <code>{item.head_sha.slice(0, 10)}</code>
-                      {!item.is_latest ? " · Earlier request" : ""}
-                    </span>
-                  </span>
-                  <span>
-                    <span className={`status ${item.state}`}>
-                      {stateLabels[item.state]}
-                    </span>
-                    <span className="subtext">
-                      {item.state === "published"
-                        ? `${item.findings_count ?? "Unknown"} findings${item.coverage.state !== "complete" ? " · Limited coverage" : ""}`
-                        : item.recovered
-                          ? "Later review published"
-                          : item.state === "failed" && item.is_latest
-                            ? "Latest request · check cause"
-                            : item.phase.replaceAll("_", " ")}
-                    </span>
-                  </span>
-                  <time dateTime={item.started_at}>
-                    {time(item.started_at)}
-                  </time>
-                  <span className="expand-label">Details</span>
-                </summary>
-                <RunDetails item={item} />
-              </details>
+              <ReviewRow
+                key={item.id}
+                item={item}
+                repositoryHref={
+                  repository ? null : repositoryURL(item.repository)
+                }
+              />
             ))}
           </div>
         ) : (
@@ -554,27 +676,28 @@ function History() {
             Change the state or reporting period, or request a review on GitHub.
           </Empty>
         ))}
-      {query.data && (
-        <div className="pagination">
-          <button
-            className="secondary"
-            disabled={!params.has("before_id")}
-            onClick={() => update({ before_id: "" })}
-          >
-            Newest requests
-          </button>
-          <span>Newest first · up to 50 per page</span>
-          <button
-            className="secondary"
-            disabled={query.data.next_cursor === null}
-            onClick={() =>
-              update({ before_id: String(query.data?.next_cursor) })
-            }
-          >
-            Older requests
-          </button>
-        </div>
-      )}
+      {query.data &&
+        (params.has("before_id") || query.data.next_cursor !== null) && (
+          <div className="pagination">
+            <button
+              className="secondary"
+              disabled={!params.has("before_id")}
+              onClick={() => update({ before_id: "" })}
+            >
+              Newest requests
+            </button>
+            <span>Newest first · up to 50 per page</span>
+            <button
+              className="secondary"
+              disabled={query.data.next_cursor === null}
+              onClick={() =>
+                update({ before_id: String(query.data?.next_cursor) })
+              }
+            >
+              Older requests
+            </button>
+          </div>
+        )}
       <p className="footnote">
         A request can include several worker attempts. Review states and
         findings describe the recorded commit. GitHub remains the place to read
@@ -586,12 +709,17 @@ function History() {
 
 export function App() {
   const client = useQueryClient();
+  const { pathname } = useLocation();
+  const main = useRef<HTMLElement>(null);
   const me = useQuery({
     queryKey: ["me"],
     queryFn: ({ signal }) => read<Account>("/api/me", signal),
     retry: false,
   });
   const signedOut = me.error instanceof APIError && me.error.status === 401;
+  useEffect(() => {
+    main.current?.focus();
+  }, [pathname, me.data?.id]);
   useEffect(() => {
     if (signedOut)
       client.removeQueries({
@@ -611,8 +739,15 @@ export function App() {
   if (!me.data)
     return (
       <main className="login-page">
-        <span className="brand">Review Agent</span>
-        <Freshness query={me} />
+        <div className="login-card">
+          <span className="brand">
+            <span className="brand-mark" aria-hidden="true">
+              RA
+            </span>
+            Review Agent
+          </span>
+          <Freshness query={me} />
+        </div>
       </main>
     );
   const current = me.data;
@@ -623,6 +758,9 @@ export function App() {
       </a>
       <header className="app-header">
         <Link className="brand" to="/">
+          <span className="brand-mark" aria-hidden="true">
+            RA
+          </span>
           Review Agent
         </Link>
         <nav aria-label="Main navigation">
@@ -643,7 +781,7 @@ export function App() {
           </button>
         </div>
       </header>
-      <main id="main" tabIndex={-1}>
+      <main id="main" ref={main} tabIndex={-1}>
         {logout.isError && (
           <p className="notice error" role="alert">
             Could not sign out. Please try again.

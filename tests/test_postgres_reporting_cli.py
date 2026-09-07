@@ -274,6 +274,200 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         active_page = admin_application.history(self.runtime, days=7, status="active")
         self.assertEqual([item.id for item in active_page.items], [active.run.id])
 
+    def test_admin_totals_cover_matching_rows_beyond_the_page(self) -> None:
+        from review_agent_tools import admin_application
+
+        self.start(pr_number=81, request_suffix="totals-one")
+        self.start(pr_number=82, request_suffix="totals-two")
+        with self.runtime.transaction() as connection:
+            registry.ensure_repository(
+                connection,
+                registry.RepositoryDefinition(
+                    provider="github",
+                    provider_repository_id=931,
+                    full_name="another/repository",
+                ),
+            )
+        page = admin_application.repositories(self.runtime, limit=1)
+        self.assertEqual(page.total, 2)
+        self.assertEqual(page.totals.active_requests, 2)
+        self.assertEqual(page.items[0].active_requests, 0)
+        beyond = admin_application.repositories(self.runtime, limit=1, offset=5)
+        self.assertEqual((beyond.items, beyond.total), ((), 2))
+        filtered = admin_application.repositories(self.runtime, search="example-org")
+        self.assertEqual(filtered.total, 1)
+        first = admin_application.history(self.runtime, limit=1)
+        second = admin_application.history(
+            self.runtime, limit=1, before_id=first.next_cursor
+        )
+        self.assertEqual((first.total, second.total), (2, 2))
+        self.assertNotEqual(first.items[0].id, second.items[0].id)
+
+    def test_admin_usage_and_publication_time_are_independent_of_request_time(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+        from review_agent_tools.postgres import admin_operations, jobs
+        from review_agent_tools.worker_telemetry import TokenUsage, record_usage
+
+        run = self.start(pr_number=84, request_suffix="usage-window")
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(
+                connection,
+                review_run_id=run.run.id,
+                priority=0,
+                max_attempts=3,
+                active_job_limit=10,
+            )
+            job = jobs.claim_next_job(
+                connection,
+                lease_owner="usage-worker",
+                lease_duration=timedelta(minutes=2),
+                priority_aging_interval=timedelta(minutes=15),
+            )
+        assert job is not None
+        for _ in range(2):
+            record_usage(
+                self.runtime,
+                job_id=job.id,
+                generation=job.lease_generation,
+                usage=TokenUsage(12, 3, 15),
+            )
+        publication = self.publish_run(
+            run, self.record_finding(run, findings=()), key_character="f"
+        )
+        with self.runtime.transaction() as connection:
+            row = connection.execute(
+                "SELECT posted_at FROM review_agent.publications WHERE id = %s",
+                (publication.id,),
+            ).fetchone()
+        assert row is not None and row[0] is not None
+        posted_at = row[0]
+        now = datetime.now(timezone.utc)
+        with self.runtime.transaction() as connection:
+            report = admin_operations.overview(
+                connection, start=posted_at, end=now, now=now
+            )
+            excluded = admin_operations.overview(
+                connection, start=run.run.started_at, end=posted_at, now=now
+            )
+        self.assertEqual(
+            (
+                report.lifetime.requests,
+                report.lifetime.published_reviews,
+                report.lifetime.reviewed_prs,
+            ),
+            (1, 1, 1),
+        )
+        self.assertEqual(
+            (report.window.requests, report.window.published_reviews), (0, 1)
+        )
+        self.assertEqual(excluded.window.published_reviews, 0)
+        self.assertEqual(
+            (
+                report.lifetime.total_tokens,
+                report.reported_attempts,
+                report.started_attempts,
+            ),
+            (15, 1, 1),
+        )
+        self.assertIsNotNone(report.window.median_publication_seconds)
+        history = admin_application.history(self.runtime)
+        self.assertEqual(
+            (
+                history.items[0].usage.reported_attempts,
+                history.items[0].usage.total_tokens,
+            ),
+            (1, 15),
+        )
+        after_request = admin_application.history(
+            self.runtime, start=posted_at, end=now
+        )
+        self.assertEqual((after_request.items, after_request.total), ((), 0))
+        unknown = self.start(pr_number=85, request_suffix="usage-unknown")
+        self.assertIsNone(
+            admin_application.history(self.runtime).items[0].usage.total_tokens
+        )
+        self.assertNotEqual(unknown.run.id, run.run.id)
+
+    def test_worker_presence_expires_and_events_remain_bounded(self) -> None:
+        import threading
+        from review_agent_tools.postgres import admin_operations, jobs
+        from review_agent_tools.worker_telemetry import WorkerTelemetry
+
+        run = self.start(pr_number=86, request_suffix="worker-presence")
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(
+                connection,
+                review_run_id=run.run.id,
+                priority=0,
+                max_attempts=3,
+                active_job_limit=10,
+            )
+            job = jobs.claim_next_job(
+                connection,
+                lease_owner="presence-worker",
+                lease_duration=timedelta(minutes=2),
+                priority_aging_interval=timedelta(minutes=15),
+            )
+        assert job is not None
+        stop = threading.Event()
+        with WorkerTelemetry(
+            self.runtime,
+            kind="review",
+            lease_owner="presence-worker",
+            capacity=4,
+            stop_event=stop,
+        ) as telemetry:
+            telemetry.event("review_started", run_id=run.run.id, job_id=job.id)
+            with self.runtime.transaction() as connection:
+                current = admin_operations.operations(
+                    connection, now=datetime.now(timezone.utc)
+                )
+                self.assertEqual(
+                    (
+                        current.workers[0].state,
+                        current.workers[0].capacity,
+                        current.workers[0].active_leases,
+                    ),
+                    ("running", 4, 1),
+                )
+                connection.execute(
+                    "UPDATE review_agent.worker_instances SET last_seen_at = statement_timestamp() - interval '91 seconds' WHERE id = %s",
+                    (telemetry.id,),
+                )
+                stale = admin_operations.operations(
+                    connection, now=datetime.now(timezone.utc)
+                )
+                self.assertEqual(stale.workers[0].state, "unresponsive")
+                connection.execute(
+                    "INSERT INTO review_agent.worker_events (worker_id, event) SELECT %s, 'review_started' FROM generate_series(1, 1001)",
+                    (telemetry.id,),
+                )
+            telemetry.event("review_returned", run_id=run.run.id, job_id=job.id)
+            with self.runtime.transaction() as connection:
+                count = connection.execute(
+                    "SELECT count(*) FROM review_agent.worker_events WHERE worker_id = %s",
+                    (telemetry.id,),
+                ).fetchone()
+                self.assertEqual(count, (1000,))
+                page = admin_operations.events(
+                    connection, worker_id=telemetry.id, before_id=None, limit=1
+                )
+                self.assertEqual(page.items[0].event, "review_returned")
+                self.assertIsNotNone(page.next_cursor)
+            telemetry.refresh("draining")
+        with self.runtime.transaction() as connection:
+            final = admin_operations.operations(
+                connection, now=datetime.now(timezone.utc)
+            )
+        self.assertEqual(final.workers[0].state, "stopped")
+        with self.runtime.transaction() as connection:
+            count = connection.execute(
+                "SELECT count(*) FROM review_agent.worker_events WHERE worker_id = %s", (telemetry.id,)
+            ).fetchone()
+        self.assertEqual(count, (1000,))
+
     def test_live_context_filters_before_limit_and_resolves_repeat_suppression(
         self,
     ) -> None:

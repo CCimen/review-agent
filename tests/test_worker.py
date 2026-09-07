@@ -26,6 +26,7 @@ from review_agent_tools import review_contract, review_run_application  # noqa: 
 from review_agent_tools.source_control import SameOriginHttpsRedirectHandler  # noqa: E402
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
+from review_agent_tools.worker_telemetry import TokenUsage, parse_usage  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
@@ -79,6 +80,64 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.server_thread.join()
+
+    def test_hermes_usage_is_bounded_and_optional(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            skill = Path(directory) / "SKILL.md"
+            skill.write_text("Review the assigned request.")
+            response = Mock()
+            response.__enter__ = Mock(return_value=response)
+            response.__exit__ = Mock(return_value=False)
+            opener = Mock()
+            opener.open.return_value = response
+            client = HermesChatClient(
+                HermesChatSettings(
+                    endpoint="http://127.0.0.1:8642/v1/chat/completions",
+                    bearer_token="test-token",
+                    skill_path=skill,
+                ),
+                opener=opener,
+            )
+            response.read.return_value = b'{"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}'
+            self.assertEqual(
+                client.review(self._claim(generation=1), timeout=self._timeout()),
+                TokenUsage(12, 3, 15),
+            )
+            response.read.assert_called_once_with(1024 * 1024 + 1)
+            for body in (b"not json", b"{}", b" " * (1024 * 1024 + 1)):
+                response.read.return_value = body
+                self.assertIsNone(
+                    client.review(self._claim(generation=1), timeout=self._timeout())
+                )
+            response.read.side_effect = TimeoutError("optional response body timed out")
+            self.assertIsNone(
+                client.review(self._claim(generation=1), timeout=self._timeout())
+            )
+        for usage in (
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            {"prompt_tokens": True, "completion_tokens": 1, "total_tokens": 2},
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 3},
+        ):
+            self.assertIsNone(parse_usage(json.dumps({"usage": usage}).encode()))
+
+    def test_usage_storage_failure_does_not_change_completed_job(self) -> None:
+        runtime = Mock(spec=PostgreSQLRuntime)
+        connection = Mock()
+        connection.execute.side_effect = PostgreSQLUnavailable("database unavailable")
+        runtime.transaction.side_effect = lambda: nullcontext(connection)
+        client = Mock(spec=HermesChatClient)
+        client.review.return_value = TokenUsage(12, 3, 15)
+        claimed = self._claim(generation=1)
+        worker = ReviewWorker(
+            runtime, client, self._policy(), lease_owner="worker", stop_event=threading.Event()
+        )
+        with (
+            patch.object(jobs, "get_job", return_value=replace(claimed.job, status=jobs.ReviewJobStatus.SUCCEEDED)),
+            patch.object(review_run_application, "fail_claimed_job_in_transaction") as fail,
+            self.assertLogs("review_agent_tools.worker_telemetry", level="WARNING"),
+        ):
+            worker._execute(claimed)
+        fail.assert_not_called()
 
     def test_reclaim_changes_identity_while_each_generation_is_stable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

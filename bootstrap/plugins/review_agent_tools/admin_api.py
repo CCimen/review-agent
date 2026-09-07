@@ -1,12 +1,14 @@
 """Authenticated HTTP transport and static frontend for operator reports."""
 
 import os
+from datetime import datetime
+from uuid import UUID
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -18,7 +20,7 @@ from starlette.responses import Response
 
 from . import admin_application
 from .admin_auth import AdminAuth
-from .postgres import admin_reporting
+from .postgres import admin_operations, admin_reporting
 from .postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
@@ -91,30 +93,70 @@ def create_app(
 
     def repositories(
         days: Days = 30,
+        start: datetime | None = None,
+        end: datetime | None = None,
         limit: Limit = 50,
         search: Annotated[str, Query(max_length=200)] = "",
         offset: Annotated[int, Query(ge=0, le=10000)] = 0,
     ) -> admin_reporting.RepositoryPage:
-        return admin_application.repositories(
-            runtime, days=days, limit=limit, search=search, offset=offset
-        )
+        try:
+            return admin_application.repositories(
+                runtime,
+                days=days,
+                start=start,
+                end=end,
+                limit=limit,
+                search=search,
+                offset=offset,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     def history(
         days: Days = 30,
+        start: datetime | None = None,
+        end: datetime | None = None,
         limit: Limit = 50,
         repository: Repository = None,
         status: admin_reporting.HistoryStatus = "all",
         pr_number: Annotated[int | None, Query(ge=1, le=2147483647)] = None,
         before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
     ) -> admin_reporting.HistoryPage:
-        return admin_application.history(
-            runtime,
-            days=days,
-            limit=limit,
-            repository=repository,
-            status=status,
-            pr_number=pr_number,
-            before_id=before_id,
+        try:
+            return admin_application.history(
+                runtime,
+                days=days,
+                start=start,
+                end=end,
+                limit=limit,
+                repository=repository,
+                status=status,
+                pr_number=pr_number,
+                before_id=before_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    def overview(
+        days: Days = 30,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> admin_operations.Overview:
+        try:
+            return admin_application.overview(runtime, days=days, start=start, end=end)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    def operations() -> admin_operations.Operations:
+        return admin_application.operations(runtime)
+
+    def events(
+        limit: Limit = 50,
+        worker_id: UUID | None = None,
+        before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
+    ) -> admin_operations.WorkerEventPage:
+        return admin_application.events(
+            runtime, worker_id=worker_id, before_id=before_id, limit=limit
         )
 
     def openapi() -> JSONResponse:
@@ -150,12 +192,27 @@ def create_app(
     app.add_exception_handler(RequestValidationError, invalid_request)
     router.add_api_route("/api/repositories", repositories, methods=["GET"])
     router.add_api_route("/api/history", history, methods=["GET"])
+    router.add_api_route("/api/overview", overview, methods=["GET"])
+    router.add_api_route(
+        "/api/operations",
+        operations,
+        methods=["GET"],
+        dependencies=[Depends(auth.current_admin)],
+    )
+    router.add_api_route(
+        "/api/operations/events",
+        events,
+        methods=["GET"],
+        dependencies=[Depends(auth.current_admin)],
+    )
     router.add_api_route(
         "/api/openapi.json", openapi, methods=["GET"], include_in_schema=False
     )
     app.add_api_route("/healthz", health, methods=["GET"], include_in_schema=False)
     app.add_api_route("/", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/history", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/overview", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/operations", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/users", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/account", index, methods=["GET"], include_in_schema=False)
     app.include_router(auth.auth_router, prefix="/api/auth")

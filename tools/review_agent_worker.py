@@ -28,6 +28,8 @@ def _load_package() -> None:
 
 _load_package()
 
+from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
+
 from review_agent_tools import review_contract  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
@@ -131,14 +133,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     runtime.open()
     try:
-        worker = ReviewWorker(
+        with WorkerTelemetry(
             runtime,
-            HermesChatClient(chat_settings),
-            policy,
+            kind="review",
             lease_owner=lease_owner,
+            capacity=policy.concurrency,
             stop_event=stop,
-        )
-        worker.run(once=args.once)
+        ) as telemetry:
+            worker = ReviewWorker(
+                runtime,
+                HermesChatClient(chat_settings),
+                policy,
+                lease_owner=lease_owner,
+                stop_event=stop,
+                telemetry=telemetry,
+            )
+            worker.run(once=args.once)
         return 0
     finally:
         runtime.close()

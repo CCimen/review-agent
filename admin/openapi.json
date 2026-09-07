@@ -139,6 +139,18 @@
               "default": 0,
               "title": "Offset"
             }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
           }
         ],
         "responses": {
@@ -147,11 +159,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Account"
-                  },
-                  "title": "Response List Users Api Users Get"
+                  "$ref": "#/components/schemas/AccountPage"
                 }
               }
             }
@@ -324,6 +332,40 @@
             }
           },
           {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -403,6 +445,40 @@
               "minimum": 1,
               "default": 30,
               "title": "Days"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
             }
           },
           {
@@ -513,6 +589,192 @@
           }
         }
       }
+    },
+    "/api/overview": {
+      "get": {
+        "summary": "Overview",
+        "operationId": "overview_api_overview_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Overview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operations": {
+      "get": {
+        "summary": "Operations",
+        "operationId": "operations_api_operations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operations"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/operations/events": {
+      "get": {
+        "summary": "Events",
+        "operationId": "events_api_operations_events_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "worker_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Worker Id"
+            }
+          },
+          {
+            "name": "before_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkerEventPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -544,6 +806,42 @@
           "active"
         ],
         "title": "Account"
+      },
+      "AccountPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Account"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "admin_count": {
+            "type": "integer",
+            "title": "Admin Count"
+          },
+          "disabled_count": {
+            "type": "integer",
+            "title": "Disabled Count"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "admin_count",
+          "disabled_count",
+          "has_more"
+        ],
+        "title": "AccountPage"
       },
       "AccountUpdate": {
         "properties": {
@@ -586,6 +884,118 @@
         },
         "type": "object",
         "title": "AccountUpdate"
+      },
+      "ActivityCounts": {
+        "properties": {
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "published_reviews": {
+            "type": "integer",
+            "title": "Published Reviews"
+          },
+          "reviewed_prs": {
+            "type": "integer",
+            "title": "Reviewed Prs"
+          },
+          "failed_requests": {
+            "type": "integer",
+            "title": "Failed Requests"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          },
+          "reported_attempts": {
+            "type": "integer",
+            "title": "Reported Attempts"
+          },
+          "median_publication_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Publication Seconds"
+          },
+          "p95_publication_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Publication Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requests",
+          "published_reviews",
+          "reviewed_prs",
+          "failed_requests",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "reported_attempts",
+          "median_publication_seconds",
+          "p95_publication_seconds"
+        ],
+        "title": "ActivityCounts"
+      },
+      "ActivityDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date"
+          },
+          "published_reviews": {
+            "type": "integer",
+            "title": "Published Reviews"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "published_reviews"
+        ],
+        "title": "ActivityDay"
       },
       "Body_auth_cookie_login_api_auth_login_post": {
         "properties": {
@@ -747,6 +1157,24 @@
         ],
         "title": "ErrorModel"
       },
+      "FailureCount": {
+        "properties": {
+          "failure_code": {
+            "type": "string",
+            "title": "Failure Code"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          }
+        },
+        "type": "object",
+        "required": [
+          "failure_code",
+          "requests"
+        ],
+        "title": "FailureCount"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -892,6 +1320,9 @@
             "type": "boolean",
             "title": "Recovered"
           },
+          "usage": {
+            "$ref": "#/components/schemas/ReviewUsage"
+          },
           "coverage": {
             "$ref": "#/components/schemas/CoverageSummary"
           }
@@ -917,6 +1348,7 @@
           "publication_superseded",
           "is_latest",
           "recovered",
+          "usage",
           "coverage"
         ],
         "title": "HistoryItem"
@@ -949,6 +1381,20 @@
           "window_days": {
             "type": "integer",
             "title": "Window Days"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
           }
         },
         "type": "object",
@@ -956,7 +1402,10 @@
           "items",
           "next_cursor",
           "generated_at",
-          "window_days"
+          "window_days",
+          "window_start",
+          "window_end",
+          "total"
         ],
         "title": "HistoryPage"
       },
@@ -987,6 +1436,139 @@
         ],
         "title": "NewAccount"
       },
+      "Operations": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "stale_after_seconds": {
+            "type": "integer",
+            "title": "Stale After Seconds"
+          },
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerInstance"
+            },
+            "type": "array",
+            "title": "Workers"
+          },
+          "workers_truncated": {
+            "type": "boolean",
+            "title": "Workers Truncated"
+          },
+          "queues": {
+            "items": {
+              "$ref": "#/components/schemas/QueueStatus"
+            },
+            "type": "array",
+            "title": "Queues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "stale_after_seconds",
+          "workers",
+          "workers_truncated",
+          "queues"
+        ],
+        "title": "Operations"
+      },
+      "Overview": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "retained_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retained Since"
+          },
+          "repository_count": {
+            "type": "integer",
+            "title": "Repository Count"
+          },
+          "active_requests": {
+            "type": "integer",
+            "title": "Active Requests"
+          },
+          "started_attempts": {
+            "type": "integer",
+            "title": "Started Attempts"
+          },
+          "reported_attempts": {
+            "type": "integer",
+            "title": "Reported Attempts"
+          },
+          "live_review_workers": {
+            "type": "integer",
+            "title": "Live Review Workers"
+          },
+          "review_capacity": {
+            "type": "integer",
+            "title": "Review Capacity"
+          },
+          "lifetime": {
+            "$ref": "#/components/schemas/ActivityCounts"
+          },
+          "window": {
+            "$ref": "#/components/schemas/ActivityCounts"
+          },
+          "daily_publications": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityDay"
+            },
+            "type": "array",
+            "title": "Daily Publications"
+          },
+          "recent_failure_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/FailureCount"
+            },
+            "type": "array",
+            "title": "Recent Failure Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window_start",
+          "window_end",
+          "retained_since",
+          "repository_count",
+          "active_requests",
+          "started_attempts",
+          "reported_attempts",
+          "live_review_workers",
+          "review_capacity",
+          "lifetime",
+          "window",
+          "daily_publications",
+          "recent_failure_reasons"
+        ],
+        "title": "Overview"
+      },
       "PasswordChange": {
         "properties": {
           "current_password": {
@@ -1011,6 +1593,80 @@
           "password"
         ],
         "title": "PasswordChange"
+      },
+      "QueueStatus": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "review",
+              "publisher",
+              "webhook"
+            ],
+            "title": "Kind"
+          },
+          "waiting": {
+            "type": "integer",
+            "title": "Waiting"
+          },
+          "due": {
+            "type": "integer",
+            "title": "Due"
+          },
+          "delayed": {
+            "type": "integer",
+            "title": "Delayed"
+          },
+          "leased": {
+            "type": "integer",
+            "title": "Leased"
+          },
+          "expired_leases": {
+            "type": "integer",
+            "title": "Expired Leases"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "oldest_waiting_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Waiting At"
+          },
+          "next_available_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Available At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "waiting",
+          "due",
+          "delayed",
+          "leased",
+          "expired_leases",
+          "failed",
+          "oldest_waiting_at",
+          "next_available_at"
+        ],
+        "title": "QueueStatus"
       },
       "RepositoryActivity": {
         "properties": {
@@ -1084,6 +1740,23 @@
           "window_days": {
             "type": "integer",
             "title": "Window Days"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/RepositoryTotals"
           }
         },
         "type": "object",
@@ -1091,9 +1764,100 @@
           "items",
           "has_more",
           "generated_at",
-          "window_days"
+          "window_days",
+          "window_start",
+          "window_end",
+          "total",
+          "totals"
         ],
         "title": "RepositoryPage"
+      },
+      "RepositoryTotals": {
+        "properties": {
+          "prs_reviewed": {
+            "type": "integer",
+            "title": "Prs Reviewed"
+          },
+          "published_requests": {
+            "type": "integer",
+            "title": "Published Requests"
+          },
+          "failed_requests": {
+            "type": "integer",
+            "title": "Failed Requests"
+          },
+          "active_requests": {
+            "type": "integer",
+            "title": "Active Requests"
+          },
+          "latest_failed_prs": {
+            "type": "integer",
+            "title": "Latest Failed Prs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prs_reviewed",
+          "published_requests",
+          "failed_requests",
+          "active_requests",
+          "latest_failed_prs"
+        ],
+        "title": "RepositoryTotals"
+      },
+      "ReviewUsage": {
+        "properties": {
+          "started_attempts": {
+            "type": "integer",
+            "title": "Started Attempts"
+          },
+          "reported_attempts": {
+            "type": "integer",
+            "title": "Reported Attempts"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "started_attempts",
+          "reported_attempts",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens"
+        ],
+        "title": "ReviewUsage"
       },
       "Role": {
         "type": "string",
@@ -1142,6 +1906,165 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkerEvent": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "worker_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Worker Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "event": {
+            "type": "string",
+            "enum": [
+              "started",
+              "draining",
+              "stopped",
+              "review_started",
+              "review_returned",
+              "usage_unavailable"
+            ],
+            "title": "Event"
+          },
+          "review_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Run Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "worker_id",
+          "occurred_at",
+          "event",
+          "review_run_id",
+          "job_id"
+        ],
+        "title": "WorkerEvent"
+      },
+      "WorkerEventPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerEvent"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "WorkerEventPage"
+      },
+      "WorkerInstance": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "review",
+              "publisher",
+              "webhook"
+            ],
+            "title": "Kind"
+          },
+          "lease_owner": {
+            "type": "string",
+            "title": "Lease Owner"
+          },
+          "capacity": {
+            "type": "integer",
+            "title": "Capacity"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "draining",
+              "stopped",
+              "unresponsive"
+            ],
+            "title": "State"
+          },
+          "active_leases": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Leases"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "lease_owner",
+          "capacity",
+          "started_at",
+          "last_seen_at",
+          "state",
+          "active_leases"
+        ],
+        "title": "WorkerInstance"
       }
     },
     "securitySchemes": {

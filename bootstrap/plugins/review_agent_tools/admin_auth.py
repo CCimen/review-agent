@@ -29,7 +29,7 @@ from fastapi_users_db_sqlalchemy.access_token import (
     SQLAlchemyBaseAccessTokenTable,
 )
 from pydantic import BaseModel, EmailStr, Field, SecretStr
-from sqlalchemy import ForeignKey, delete, func, select, text
+from sqlalchemy import ForeignKey, delete, func, select, text, true
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, aliased, mapped_column
 
 from .settings import PostgresDatabaseUrl, ReviewAgentSettings
 
@@ -84,6 +84,14 @@ class Account(BaseModel):
             role=Role.ADMIN if user.is_superuser else Role.VIEWER,
             active=user.is_active,
         )
+
+
+class AccountPage(BaseModel):
+    items: list[Account]
+    total: int
+    admin_count: int
+    disabled_count: int
+    has_more: bool
 
 
 class NewAccount(BaseModel):
@@ -213,7 +221,7 @@ class AdminAuth:
         )
         users = FastAPIUsers[User, uuid.UUID](manager_dependency, [backend])
         self.current_user = users.current_user(active=True)
-        current_admin = users.current_user(active=True, superuser=True)
+        self.current_admin = users.current_user(active=True, superuser=True)
         self.auth_router = users.get_auth_router(backend)
         self.router = APIRouter()
 
@@ -221,18 +229,46 @@ class AdminAuth:
             return Account.from_user(user)
 
         async def list_users(
-            _actor: Annotated[User, Depends(current_admin)],
+            _actor: Annotated[User, Depends(self.current_admin)],
             session: Annotated[AsyncSession, Depends(session_dependency)],
             offset: Annotated[int, Query(ge=0, le=10000)] = 0,
-        ) -> list[Account]:
-            result = await session.scalars(
-                select(User).order_by(func.lower(User.email)).offset(offset).limit(51)
+            limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        ) -> AccountPage:
+            totals = (
+                select(
+                    func.count().label("total"),
+                    func.count().filter(User.__table__.c.is_superuser).label("admins"),
+                    func.count().filter(~User.__table__.c.is_active).label("disabled"),
+                )
+                .select_from(User)
+                .cte("totals")
             )
-            return [Account.from_user(user) for user in result]
+            page = (
+                select(User)
+                .order_by(func.lower(User.email), User.__table__.c.id)
+                .offset(offset)
+                .limit(limit + 1)
+                .subquery()
+            )
+            account = aliased(User, page)
+            result = await session.execute(
+                select(account, totals.c.total, totals.c.admins, totals.c.disabled)
+                .select_from(totals.outerjoin(page, true()))
+                .order_by(func.lower(account.email), page.c.id)
+            )
+            rows = result.all()
+            items = [Account.from_user(row[0]) for row in rows if row[0] is not None]
+            return AccountPage(
+                items=items[:limit],
+                total=rows[0][1],
+                admin_count=rows[0][2],
+                disabled_count=rows[0][3],
+                has_more=len(items) > limit,
+            )
 
         async def create_user(
             account: NewAccount,
-            actor: Annotated[User, Depends(current_admin)],
+            actor: Annotated[User, Depends(self.current_admin)],
             session: Annotated[AsyncSession, Depends(session_dependency)],
             manager: Annotated[UserManager, Depends(manager_dependency)],
         ) -> Account:
@@ -257,7 +293,7 @@ class AdminAuth:
         async def update_user(
             user_id: uuid.UUID,
             change: AccountUpdate,
-            actor: Annotated[User, Depends(current_admin)],
+            actor: Annotated[User, Depends(self.current_admin)],
             session: Annotated[AsyncSession, Depends(session_dependency)],
             manager: Annotated[UserManager, Depends(manager_dependency)],
         ) -> Account:

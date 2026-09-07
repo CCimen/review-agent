@@ -27,6 +27,8 @@ def _load_package() -> None:
 
 _load_package()
 
+from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
+
 from review_agent_tools.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
@@ -82,13 +84,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     runtime.open()
     try:
-        PublicationWorker(
+        lease_owner = default_publisher_name()
+        with WorkerTelemetry(
             runtime,
-            ReviewGitHubGatewayClient(configured.github_gateway_url),
-            policy,
-            lease_owner=default_publisher_name(),
+            kind="publisher",
+            lease_owner=lease_owner,
+            capacity=1,
             stop_event=stop,
-        ).run(once=args.once)
+        ):
+            PublicationWorker(
+                runtime,
+                ReviewGitHubGatewayClient(configured.github_gateway_url),
+                policy,
+                lease_owner=lease_owner,
+                stop_event=stop,
+            ).run(once=args.once)
         return 0
     finally:
         runtime.close()

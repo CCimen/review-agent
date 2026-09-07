@@ -7,6 +7,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import timedelta
 from http import HTTPStatus
+from http.client import HTTPException
 import json
 import logging
 import os
@@ -25,7 +26,7 @@ from .domain.review import JsonObject
 from .postgres import jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
 from .source_control import SameOriginHttpsRedirectHandler
-
+from .worker_telemetry import TokenUsage, WorkerTelemetry, parse_usage, record_usage
 
 logger = logging.getLogger(__name__)
 _TRANSIENT_DATABASE_ERRORS = (
@@ -131,7 +132,9 @@ class HermesChatClient:
             SameOriginHttpsRedirectHandler()
         )
 
-    def review(self, claimed: ClaimedReview, *, timeout: timedelta) -> None:
+    def review(
+        self, claimed: ClaimedReview, *, timeout: timedelta
+    ) -> TokenUsage | None:
         session = jobs.WorkerLeaseSession(
             job_id=claimed.job.id,
             lease_generation=claimed.job.lease_generation,
@@ -171,11 +174,14 @@ class HermesChatClient:
             },
         )
         try:
-            # Durable PostgreSQL state, not optional assistant prose, proves
-            # whether the review completed. Close the response without
-            # buffering an otherwise unbounded body.
-            with self._opener.open(call, timeout=timeout.total_seconds()):
-                pass
+            # PostgreSQL remains authoritative for completion. Optional usage is
+            # bounded; malformed or unreadable telemetry cannot undo publication.
+            with self._opener.open(call, timeout=timeout.total_seconds()) as response:
+                try:
+                    body = response.read(1024 * 1024 + 1)
+                except (OSError, ValueError, HTTPException):
+                    return None
+                return parse_usage(body) if len(body) <= 1024 * 1024 else None
         except error.HTTPError as exc:
             retryable = (
                 exc.code
@@ -207,11 +213,13 @@ class ReviewWorker:
         *,
         lease_owner: str,
         stop_event: threading.Event,
+        telemetry: WorkerTelemetry | None = None,
     ) -> None:
         owner = lease_owner.strip()
         if not owner:
             raise WorkerConfigurationError("lease_owner is required")
         self._runtime = runtime
+        self._telemetry = telemetry
         self._client = client
         self._policy = policy
         self._lease_owner = owner
@@ -429,13 +437,33 @@ class ReviewWorker:
         )
         heartbeat.start()
         failure: HermesRequestError | None = None
+        usage: TokenUsage | None = None
+        if self._telemetry is not None:
+            self._telemetry.event(
+                "review_started",
+                run_id=claimed.job.review_run_id,
+                job_id=claimed.job.id,
+            )
         try:
-            self._client.review(claimed, timeout=self._policy.request_timeout)
+            usage = self._client.review(claimed, timeout=self._policy.request_timeout)
         except HermesRequestError as exc:
             failure = exc
         finally:
             heartbeat_stop.set()
             heartbeat.join()
+            if usage is not None:
+                record_usage(
+                    self._runtime,
+                    job_id=claimed.job.id,
+                    generation=claimed.job.lease_generation,
+                    usage=usage,
+                )
+            if self._telemetry is not None:
+                self._telemetry.event(
+                    "review_returned" if usage is not None else "usage_unavailable",
+                    run_id=claimed.job.review_run_id,
+                    job_id=claimed.job.id,
+                )
 
         if lease_lost.is_set():
             logger.info("Review job %s lost its lease", claimed.job.id)

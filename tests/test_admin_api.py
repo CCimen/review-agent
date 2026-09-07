@@ -64,6 +64,9 @@ class AdminAPITests(unittest.TestCase):
             "/api/me",
             "/api/repositories",
             "/api/history",
+            "/api/overview",
+            "/api/operations",
+            "/api/operations/events",
             "/api/users",
             "/api/openapi.json",
         ):
@@ -101,6 +104,13 @@ class AdminAPITests(unittest.TestCase):
         self.assertEqual(created.status_code, 201, created.text)
         viewer = created.json()
         self.assertNotIn("hashed_password", viewer)
+        users = self.client.get("/api/users?limit=1").json()
+        self.assertEqual(users["total"], 2)
+        self.assertEqual(users["admin_count"], 1)
+        self.assertEqual(len(users["items"]), 1)
+        self.assertTrue(users["has_more"])
+        beyond = self.client.get("/api/users?offset=5").json()
+        self.assertEqual((beyond["items"], beyond["total"]), ([], 2))
         self.assertEqual(self.client.get("/api/users").status_code, 200)
         self.assertEqual(self.client.post("/api/auth/logout").status_code, 204)
         self.assertEqual(
@@ -112,6 +122,9 @@ class AdminAPITests(unittest.TestCase):
         self.login("viewer@example.com")
         self.assertEqual(self.client.get("/api/me").json()["role"], "viewer")
         self.assertEqual(self.client.get("/api/history").status_code, 200)
+        self.assertEqual(self.client.get("/api/overview").status_code, 200)
+        self.assertEqual(self.client.get("/api/operations").status_code, 403)
+        self.assertEqual(self.client.get("/api/operations/events").status_code, 403)
         self.assertEqual(self.client.get("/api/users").status_code, 403)
         self.assertEqual(
             self.client.post(
@@ -145,6 +158,27 @@ class AdminAPITests(unittest.TestCase):
         ):
             self.assertEqual(
                 self.client.get(f"/api/history?{query}").status_code, 422, query
+            )
+
+    def test_overview_window_and_empty_operations(self) -> None:
+        self.login()
+        response = self.client.get("/api/overview")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["lifetime"]["published_reviews"], 0)
+        self.assertEqual(response.json()["repository_count"], 0)
+        self.assertIsNone(response.json()["window"]["total_tokens"])
+        operations = self.client.get("/api/operations")
+        self.assertEqual(operations.status_code, 200, operations.text)
+        self.assertEqual(operations.json()["workers"], [])
+        self.assertEqual(len(operations.json()["queues"]), 3)
+        for query in (
+            "start=2026-01-01T00:00:00Z",
+            "start=2026-01-01T00:00:00&end=2026-02-01T00:00:00Z",
+            "start=2026-02-01T00:00:00Z&end=2026-01-01T00:00:00Z",
+            "start=2025-01-01T00:00:00Z&end=2026-09-01T00:00:00Z",
+        ):
+            self.assertEqual(
+                self.client.get(f"/api/overview?{query}").status_code, 422, query
             )
 
     def test_disabling_or_resetting_account_revokes_sessions_and_preserves_last_admin(
@@ -200,7 +234,9 @@ class AdminAPITests(unittest.TestCase):
             400,
         )
 
-    def test_password_change_requires_current_password_and_revokes_session(self) -> None:
+    def test_password_change_requires_current_password_and_revokes_session(
+        self,
+    ) -> None:
         self.login()
         invalid = self.client.post(
             "/api/account/password",

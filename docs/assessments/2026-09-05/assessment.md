@@ -10,6 +10,8 @@ br show ra-quality-2026-09-614 --json
 br ready --epic ra-quality-2026-09-614 --sort priority --json
 ```
 
+The later [optional code graph evaluation](../2026-09-07/code-graph-evaluation.md) records a real Django PR experiment, CPU embedding measurements, cloud cost estimates and the boundary for a possible pilot. It does not describe an enabled runtime integration.
+
 The `roi-NN` labels order implementation recommendations within this assessment; numeric priority also accounts for material failure and time-sensitive operating risks. Dependencies express prerequisites, not arbitrary sequencing. Deferred product integrations require an explicit decision before implementation. No live deployment, model switch, release, repository activation or scan is authorized merely by creating an issue. The source links below point to the assessed commit so later implementation does not rewrite the evidence.
 
 ## Subsequent product direction: automatic improvements

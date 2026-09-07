@@ -438,24 +438,45 @@ p {
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 132px;
+  height: 148px;
   margin: 16px 0 0;
   padding: 0;
   list-style: none;
+  /* A dashed rule at the peak gives the top scale label something to mean. */
+  border-top: 1px dashed var(--line);
   border-bottom: 1px solid var(--line-strong);
 }
 .chart li {
   display: flex;
-  align-items: flex-end;
   flex: 1 1 0;
+  flex-direction: column;
+  justify-content: flex-end;
   min-width: 2px;
   height: 100%;
+}
+/* The value printed on the column: no hover, and no reading heights against an
+   axis. The track keeps the bar's percentage resolving against a fixed box. */
+.chart-value {
+  flex: none;
+  padding-bottom: 3px;
+  color: var(--muted);
+  font-size: var(--step-0);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.chart-track {
+  display: flex;
+  align-items: flex-end;
+  flex: 1;
+  min-height: 0;
 }
 .chart-bar {
   width: 100%;
   min-height: 2px;
   border-radius: 2px 2px 0 0;
   background: var(--accent);
+  transition: background-color var(--fast) var(--ease);
 }
 /* A zero day still needs a visible floor, or the axis reads as missing data. */
 .chart-bar.zero {
@@ -463,20 +484,25 @@ p {
 }
 .chart-figure {
   display: grid;
+  /* The scale column collapses to nothing when the bars carry their own
+     values, so the bars keep the full width either way. */
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 0 var(--space-2);
+  gap: 0;
   margin-top: var(--space-4);
 }
 .chart-scale {
   display: flex;
+  padding-right: var(--space-2);
   flex-direction: column;
   justify-content: space-between;
-  height: 132px;
+  height: 148px;
+  padding-block: 2px 0;
   font-size: var(--step-0);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+.chart,
 .chart-axis,
 .chart-readout {
   grid-column: 2;

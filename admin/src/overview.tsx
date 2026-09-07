@@ -52,8 +52,10 @@ function dailySeries(
 
 function Trend({
   days,
+  window,
 }: {
   days: { date: string; published_reviews: number }[];
+  window: number;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const first = days[0];
@@ -69,6 +71,9 @@ function Trend({
   const shown = hovered
     ? days.find((entry) => entry.date === hovered)
     : undefined;
+  // Printed on the bars, a value needs no hover and no axis arithmetic. Below
+  // roughly a fortnight the columns are too narrow to carry a number.
+  const labelled = days.length <= 12;
   return (
     <div className="chart-panel panel">
       <div className="chart-head">
@@ -78,11 +83,14 @@ function Trend({
         </span>
       </div>
       <div className="chart-figure">
-        {/* A y-axis, so a bar height means a number rather than a proportion. */}
-        <div className="chart-scale" aria-hidden="true">
-          <span>{number.format(peak.published_reviews)}</span>
-          <span>0</span>
-        </div>
+        {/* The scale exists so a bar height means a number. Once every column
+            carries its own value the axis is just repeating the peak. */}
+        {!labelled && (
+          <div className="chart-scale" aria-hidden="true">
+            <span>{number.format(peak.published_reviews)}</span>
+            <span>0</span>
+          </div>
+        )}
         <ol
           className="chart"
           aria-hidden="true"
@@ -90,16 +98,23 @@ function Trend({
         >
           {days.map((entry) => (
             <li key={entry.date} onMouseEnter={() => setHovered(entry.date)}>
-              <span
-                className={
-                  entry.published_reviews ? "chart-bar" : "chart-bar zero"
-                }
-                style={{
-                  height: peak.published_reviews
-                    ? `${(entry.published_reviews / peak.published_reviews) * 100}%`
-                    : "0%",
-                }}
-              />
+              {labelled && (
+                <span className="chart-value">
+                  {number.format(entry.published_reviews)}
+                </span>
+              )}
+              <span className="chart-track">
+                <span
+                  className={
+                    entry.published_reviews ? "chart-bar" : "chart-bar zero"
+                  }
+                  style={{
+                    height: peak.published_reviews
+                      ? `${(entry.published_reviews / peak.published_reviews) * 100}%`
+                      : "0%",
+                  }}
+                />
+              </span>
             </li>
           ))}
         </ol>
@@ -122,6 +137,11 @@ function Trend({
           )}
         </p>
       </div>
+      {days.length < window && (
+        <p className="field-help">
+          {`Records begin ${day(first.date)}, so this covers ${days.length} of the last ${window} days.`}
+        </p>
+      )}
       <p className="sr-only">
         {`${number.format(total)} reviews published across ${days.length} days, from ${day(first.date)} to ${day(last.date)}, on ${number.format(active)} of those days. The busiest day was ${day(peak.date)} with ${number.format(peak.published_reviews)}. Days are grouped at UTC midnight.`}
       </p>
@@ -245,13 +265,12 @@ function Tokens({ counts }: { counts: ActivityCounts }) {
   // Nothing recorded needs a sentence, not a grid of four identical blanks.
   if (counts.total_tokens === null)
     return (
-      <>
-        <p className="stat-note">
-          No model usage was recorded in this period. Interrupted or invalid
-          responses remain unknown, and earlier reviews are not backfilled.
-        </p>
-        {caveat}
-      </>
+      <p className="stat-note">
+        No model usage was recorded in this period. Interrupted or invalid
+        responses stay unknown rather than counting as zero, earlier reviews are
+        not backfilled, and these counts would describe neither cost nor
+        remaining quota.
+      </p>
     );
   return (
     <>
@@ -357,7 +376,7 @@ export function OverviewPage() {
             <div className="split">
               {series.filter((entry) => entry.published_reviews > 0).length >
               4 ? (
-                <Trend days={series} />
+                <Trend days={series} window={days} />
               ) : series.length ? (
                 <SparseTrend days={series} />
               ) : (
@@ -392,7 +411,11 @@ export function OverviewPage() {
 
           <Section
             title="Token usage"
-            description="Model usage recorded for review attempts in this period."
+            description={
+              data.window.total_tokens === null
+                ? undefined
+                : "Model usage recorded for review attempts in this period."
+            }
           >
             <Tokens counts={data.window} />
           </Section>

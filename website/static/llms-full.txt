@@ -1949,7 +1949,7 @@ cache volume. Normal review services do not depend on its health or startup.
 
    ```bash
    docker compose -f compose.yaml -f compose.code-graph.yaml config \
-     --no-interpolate --no-path-resolution > compose.dokploy.yaml
+     --no-interpolate --no-path-resolution --no-normalize > compose.dokploy.yaml
    ```
 
    Save that template in the raw Compose editor, preserving the deployment's

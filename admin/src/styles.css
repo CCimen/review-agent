@@ -477,6 +477,7 @@ p {
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+.chart-axis,
 .chart-readout {
   grid-column: 2;
   min-height: 20px;
@@ -668,6 +669,14 @@ p {
 
 .ops-table tbody th {
   min-width: 220px;
+}
+.worker-role {
+  display: block;
+  font-size: var(--step-2);
+  font-weight: 600;
+}
+.ops-table .subtext .copy code {
+  font-size: 1em;
 }
 
 .toolbar {

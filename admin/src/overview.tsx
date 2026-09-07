@@ -105,6 +105,10 @@ function Trend({
         </ol>
         {/* Values were previously reachable only by mouse-hovering a title
             attribute. This readout is always rendered. */}
+        <div className="chart-axis" aria-hidden="true">
+          <span>{day(first.date)}</span>
+          <span>{day(last.date)}</span>
+        </div>
         <p className="chart-readout" aria-hidden="true">
           {shown ? (
             <>
@@ -117,10 +121,6 @@ function Trend({
             </span>
           )}
         </p>
-        <div className="chart-axis" aria-hidden="true">
-          <span>{day(first.date)}</span>
-          <span>{day(last.date)}</span>
-        </div>
       </div>
       <p className="sr-only">
         {`${number.format(total)} reviews published across ${days.length} days, from ${day(first.date)} to ${day(last.date)}, on ${number.format(active)} of those days. The busiest day was ${day(peak.date)} with ${number.format(peak.published_reviews)}. Days are grouped at UTC midnight.`}
@@ -236,6 +236,23 @@ function Failures({
 }
 
 function Tokens({ counts }: { counts: ActivityCounts }) {
+  const caveat = (
+    <p className="stat-note">
+      Counts come from the pinned model response for each attempt and include
+      retries. They do not show monetary cost or remaining subscription quota.
+    </p>
+  );
+  // Nothing recorded needs a sentence, not a grid of four identical blanks.
+  if (counts.total_tokens === null)
+    return (
+      <>
+        <p className="stat-note">
+          No model usage was recorded in this period. Interrupted or invalid
+          responses remain unknown, and earlier reviews are not backfilled.
+        </p>
+        {caveat}
+      </>
+    );
   return (
     <>
       <div className="stat-grid">
@@ -247,16 +264,7 @@ function Tokens({ counts }: { counts: ActivityCounts }) {
           value={counts.reported_attempts}
         />
       </div>
-      {counts.total_tokens === null && (
-        <p className="stat-note">
-          No usage was recorded in this period. Interrupted or invalid responses
-          remain unknown, and earlier reviews are not backfilled.
-        </p>
-      )}
-      <p className="stat-note">
-        Counts come from the pinned model response for each attempt and include
-        retries. They do not show monetary cost or remaining subscription quota.
-      </p>
+      {caveat}
     </>
   );
 }
@@ -372,16 +380,13 @@ export function OverviewPage() {
             {data.recent_failure_reasons.length ? (
               <Failures reasons={data.recent_failure_reasons} />
             ) : (
-              <div className="empty">
-                <h3>No failed requests</h3>
-                <p>
-                  Nothing failed in this period.{" "}
-                  <Link to={`/history?days=${days}&status=failed`}>
-                    Review the failure history
-                  </Link>{" "}
-                  to look further back.
-                </p>
-              </div>
+              <p className="stat-note">
+                No request failed in this period.{" "}
+                <Link to={`/history?days=${days}&status=failed`}>
+                  Review the failure history
+                </Link>{" "}
+                to look further back.
+              </p>
             )}
           </Section>
 

@@ -32,6 +32,12 @@ const workerTone: Record<WorkerInstance["state"], string> = {
   stopped: "",
   unresponsive: "failed",
 };
+/** What an operator scans for is the role; the instance id is what they copy. */
+const workerRoles: Record<string, string> = {
+  review: "Review worker",
+  webhook: "Webhook worker",
+  publisher: "Publisher",
+};
 const queueLabels: Record<string, string> = {
   review: "Review queue",
   publisher: "Publication queue",
@@ -88,11 +94,16 @@ function Workers({
             {workers.map((worker) => (
               <tr key={worker.id}>
                 <th scope="row">
-                  <Copy value={worker.id} label="worker ID">
-                    <code>{worker.id}</code>
-                  </Copy>
+                  <span className="worker-role">
+                    {workerRoles[worker.kind] ?? worker.kind}
+                  </span>
                   <span className="subtext">
-                    {worker.kind} · lease owner {worker.lease_owner} · started{" "}
+                    <Copy value={worker.id} label="worker ID">
+                      <code>{worker.id}</code>
+                    </Copy>
+                  </span>
+                  <span className="subtext">
+                    lease owner {worker.lease_owner} · started{" "}
                     {time(worker.started_at)}
                   </span>
                 </th>

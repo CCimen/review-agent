@@ -162,6 +162,21 @@ button.text-button:active:not(:disabled) {
 button.text-button:disabled:hover {
   background: transparent;
 }
+/* Sign out was the loudest control in the header while the account link was
+   muted. Weight should follow consequence, not accent availability. */
+button.text-button.quiet {
+  color: var(--muted);
+}
+button.text-button.quiet:hover,
+button.text-button.quiet:focus-visible {
+  color: var(--text);
+  background: var(--subtle);
+}
+/* A disabled account should not read as loudly as an active one. */
+.user-row > summary.inactive strong {
+  color: var(--muted);
+  font-weight: 600;
+}
 /* A text button sitting inside a sentence should read as a link, not a chunk. */
 button.text-button.inline {
   display: inline;

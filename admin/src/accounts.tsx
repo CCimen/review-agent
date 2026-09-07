@@ -154,11 +154,14 @@ export function Users({ current }: { current: Account }) {
           {adding ? "Cancel adding user" : "Add user"}
         </button>
       </div>
-      <p className="notice">
-        <strong>Viewer</strong> can read statistics and review history for all
-        repositories. <strong>Admin</strong> can also manage accounts. Neither
-        role changes reviews or jobs through this panel.
-      </p>
+      <details className="metric-note">
+        <summary>What the roles allow</summary>
+        <p>
+          <strong>Viewer</strong> can read statistics and review history for all
+          repositories. <strong>Admin</strong> can also manage accounts. Neither
+          role changes reviews or jobs through this panel.
+        </p>
+      </details>
       {createdEmail && (
         <p className="save-result" role="status">
           Account created for {createdEmail}.
@@ -372,7 +375,7 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
         }
       }}
     >
-      <summary>
+      <summary className={account.active ? undefined : "inactive"}>
         <span className="user-identity">
           <strong>{account.email}</strong>
           {account.id === current.id && (

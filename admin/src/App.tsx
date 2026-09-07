@@ -233,7 +233,9 @@ function Repositories() {
             </div>
           </div>
         ) : (
-          <Empty>
+          <Empty
+            title={search ? "No matching repositories" : "No repositories yet"}
+          >
             {search ? (
               <>
                 No repository matches “{search}”. Try another name, or{" "}
@@ -341,7 +343,11 @@ function RunDetails({ item }: { item: HistoryItem }) {
           <dt>Finished</dt>
           <dd>
             {time(item.completed_at)}
-            {duration !== null ? ` · ${number.format(duration)} seconds` : ""}
+            {duration === null
+              ? ""
+              : duration === 0
+                ? " · under a second"
+                : ` · ${number.format(duration)} second${duration === 1 ? "" : "s"}`}
           </dd>
         </div>
         <div>
@@ -415,7 +421,12 @@ function RunDetails({ item }: { item: HistoryItem }) {
           PR.
         </p>
       )}
-      <a href={pullRequestURL(item)} target="_blank" rel="noreferrer">
+      <a
+        className="button secondary"
+        href={pullRequestURL(item)}
+        target="_blank"
+        rel="noreferrer"
+      >
         Open PR and review results on GitHub
         <span className="sr-only"> (opens in a new tab)</span>
       </a>
@@ -524,9 +535,11 @@ function History() {
   }
   return (
     <>
-      <Link className="back-link" to={`/repositories?days=${days}`}>
-        All repositories
-      </Link>
+      {repository && (
+        <Link className="back-link" to={`/repositories?days=${days}`}>
+          All repositories
+        </Link>
+      )}
       <div className="page-heading">
         <div>
           <h1>{repository || "Review history"}</h1>
@@ -610,7 +623,15 @@ function History() {
             ))}
           </div>
         ) : (
-          <Empty>
+          <Empty
+            title={
+              params.has("repository") ||
+              params.has("pr_number") ||
+              status !== "all"
+                ? "No matching review requests"
+                : "No review requests yet"
+            }
+          >
             Change the state or reporting period, or request a review on GitHub.
           </Empty>
         ))}
@@ -729,11 +750,11 @@ export function App() {
         <div className="account-nav">
           <Link to="/account">Your account</Link>
           <button
-            className="text-button"
+            className="text-button quiet"
             disabled={logout.isPending}
             onClick={() => logout.mutate()}
           >
-            Sign out
+            {logout.isPending ? "Signing out…" : "Sign out"}
           </button>
         </div>
       </header>

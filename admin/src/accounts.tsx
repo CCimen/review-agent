@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { login, read, write } from "./api";
-import type { Account, AccountUpdate, NewAccount, PasswordChange } from "./api";
+import type {
+  Account,
+  AccountPage,
+  AccountUpdate,
+  NewAccount,
+  PasswordChange,
+} from "./api";
 import { Stat } from "./ui";
 
 export function Login() {
@@ -94,7 +100,7 @@ export function Users({ current }: { current: Account }) {
   const query = useQuery({
     queryKey: ["users", offset],
     queryFn: ({ signal }) =>
-      read<Account[]>(`/api/users?offset=${offset}`, signal),
+      read<AccountPage>(`/api/users?offset=${offset}`, signal),
   });
   const create = useMutation({
     mutationFn: () =>
@@ -112,9 +118,7 @@ export function Users({ current }: { current: Account }) {
       await client.invalidateQueries({ queryKey: ["users"] });
     },
   });
-  // The endpoint pages at 50 and reports no grand total, so every count here
-  // describes the accounts on this page and says so.
-  const page = query.data?.slice(0, 50) ?? [];
+  const page = query.data?.items ?? [];
   const needle = filter.trim().toLowerCase();
   const visible = page.filter(
     (account) =>
@@ -122,8 +126,6 @@ export function Users({ current }: { current: Account }) {
       (view === "all" ||
         (view === "disabled" ? !account.active : account.role === view)),
   );
-  const admins = page.filter((account) => account.role === "admin").length;
-  const disabled = page.filter((account) => !account.active).length;
   useEffect(() => {
     document.title = "Review Agent · Users";
   }, []);
@@ -236,11 +238,17 @@ export function Users({ current }: { current: Account }) {
       {query.data && (
         <>
           <div className="stat-grid">
-            <Stat label="Accounts" value={page.length} />
-            <Stat label="Admins" value={admins} />
-            <Stat label="Viewers" value={page.length - admins} />
-            <Stat label="Disabled" value={disabled} />
+            <Stat label="Accounts" value={query.data.total} />
+            <Stat label="Admins" value={query.data.admin_count} />
+            <Stat
+              label="Viewers"
+              value={query.data.total - query.data.admin_count}
+            />
+            <Stat label="Disabled" value={query.data.disabled_count} />
           </div>
+          <p className="stat-note">
+            Totals cover all accounts. Filters below apply to this page.
+          </p>
           <div className="toolbar">
             <label className="field grow" htmlFor="user-filter">
               Find a user
@@ -284,7 +292,7 @@ export function Users({ current }: { current: Account }) {
           )}
         </>
       )}
-      {(offset > 0 || (query.data?.length ?? 0) > 50) && (
+      {(offset > 0 || query.data?.has_more) && (
         <div className="pagination">
           <button
             className="secondary"
@@ -296,7 +304,7 @@ export function Users({ current }: { current: Account }) {
           <span>Page {Math.floor(offset / 50) + 1}</span>
           <button
             className="secondary"
-            disabled={!query.data || query.data.length <= 50 || offset >= 10000}
+            disabled={!query.data?.has_more || offset >= 10000}
             onClick={() => setOffset((value) => value + 50)}
           >
             Next
@@ -312,8 +320,31 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
   const [role, setRole] = useState(account.role);
   const [active, setActive] = useState(account.active);
   const [password, setPassword] = useState("");
+  const [armed, setArmed] = useState(false);
+  const confirmButton = useRef<HTMLButtonElement>(null);
   const changed =
     role !== account.role || active !== account.active || password !== "";
+  // Every field on this form is consequential, so a change is always reviewed
+  // before it is applied. The list names what will happen, in the operator's
+  // words rather than as a diff.
+  const changes: string[] = [];
+  if (role !== account.role)
+    changes.push(
+      `Change the role from ${account.role === "admin" ? "Admin" : "Viewer"} to ${role === "admin" ? "Admin" : "Viewer"}`,
+    );
+  if (active !== account.active)
+    changes.push(active ? "Restore access" : "Disable access");
+  if (password) changes.push("Replace the password");
+  const self = account.id === current.id;
+  const losesAdmin = self && account.role === "admin" && role === "viewer";
+  const locksSelfOut = self && account.active && !active;
+  // Editing the fields after arming invalidates what was reviewed.
+  useEffect(() => {
+    setArmed(false);
+  }, [role, active, password]);
+  useEffect(() => {
+    if (armed) confirmButton.current?.focus();
+  }, [armed]);
   const mutation = useMutation({
     mutationFn: () =>
       write<Account>(`/api/users/${account.id}`, "PATCH", {
@@ -336,6 +367,7 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
           setRole(account.role);
           setActive(account.active);
           setPassword("");
+          setArmed(false);
           mutation.reset();
         }
       }}
@@ -359,7 +391,7 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
         className="user-edit"
         onSubmit={(event) => {
           event.preventDefault();
-          if (changed && !mutation.isPending) mutation.mutate();
+          if (changed && !mutation.isPending) setArmed(true);
         }}
       >
         <div className="form-fields">
@@ -402,8 +434,9 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
           </label>
         </div>
         <p className="field-help">
-          Saving changes signs this account out on all devices. At least one
-          active administrator must remain.
+          Saving signs this account out on all devices. At least one active
+          administrator must remain, so the last one cannot be demoted or
+          disabled.
         </p>
         {mutation.isError && (
           <p className="notice error" role="alert">
@@ -415,9 +448,51 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
             Account updated.
           </p>
         )}
-        <button disabled={mutation.isPending || !changed}>
-          {mutation.isPending ? "Saving…" : "Save changes"}
-        </button>
+        {armed ? (
+          <div className="confirm" role="group" aria-label="Confirm changes">
+            <p className="confirm-title">
+              Apply these changes to <strong>{account.email}</strong>?
+            </p>
+            <ul>
+              {changes.map((change) => (
+                <li key={change}>{change}</li>
+              ))}
+              <li>Sign this account out on all devices</li>
+            </ul>
+            {(losesAdmin || locksSelfOut) && (
+              <p className="notice error">
+                {locksSelfOut
+                  ? "This is your own account. You will be signed out and will not be able to sign back in."
+                  : "This is your own account. You will lose administrator access, including this page."}
+              </p>
+            )}
+            <div className="confirm-actions">
+              <button
+                ref={confirmButton}
+                disabled={mutation.isPending}
+                onClick={() => mutation.mutate()}
+              >
+                {mutation.isPending ? "Saving…" : "Save changes"}
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={mutation.isPending}
+                onClick={() => setArmed(false)}
+              >
+                Keep editing
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={mutation.isPending || !changed}
+            onClick={() => setArmed(true)}
+          >
+            Review changes
+          </button>
+        )}
       </form>
     </details>
   );

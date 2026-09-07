@@ -4,11 +4,28 @@
   --page-max: 1280px;
   --gutter: 24px;
 
-  --step-0: 12px;
-  --step-1: 13px;
-  --step-2: 14px;
-  --step-3: 16px;
-  --step-4: 20px;
+  /* rem so the panel honours a reader's browser font-size setting. */
+  --step-0: 0.75rem; /* 12 - incidental only: axis, timestamps, captions */
+  --step-1: 0.8125rem; /* 13 - secondary text that still carries meaning */
+  --step-2: 0.875rem; /* 14 - default UI text */
+  --step-3: 1rem; /* 16 - emphasis and form controls */
+  --step-4: 1.25rem; /* 20 - section headings */
+  --step-5: 1.5rem; /* 24 - figures */
+  --step-6: 1.75rem; /* 28 - page title */
+
+  /* One 4px rhythm. Anything off it was drift. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --fast: 120ms;
+  --moderate: 200ms;
 
   --radius-sm: 6px;
   --radius: 8px;
@@ -36,6 +53,9 @@
   --warning: #825515;
   --warning-soft: #fff3dd;
   --warning-line: #ecd4a8;
+  --unknown: #4a5568;
+  --unknown-soft: #eef0f3;
+  --unknown-line: #d3d9e0;
   --shadow-sm: 0 1px 2px rgb(16 32 43 / 6%);
   --shadow: 0 1px 2px rgb(16 32 43 / 5%), 0 6px 16px -8px rgb(16 32 43 / 12%);
 
@@ -78,9 +98,9 @@ button,
   cursor: pointer;
   white-space: nowrap;
   transition:
-    background-color 0.12s ease,
-    border-color 0.12s ease,
-    color 0.12s ease;
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease);
 }
 button:hover,
 .button:hover {
@@ -110,8 +130,14 @@ button.secondary:active:not(:disabled),
 button:disabled,
 input:disabled,
 select:disabled {
-  opacity: 0.55;
+  opacity: 0.72;
   cursor: default;
+}
+button:disabled:not(.secondary):not(.text-button) {
+  opacity: 1;
+  border-color: var(--line-strong);
+  background: var(--subtle);
+  color: var(--muted);
 }
 button:disabled:hover {
   background: var(--accent);
@@ -192,7 +218,7 @@ input {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   color: var(--text);
   font-size: var(--step-3);
   font-weight: 700;
@@ -207,10 +233,11 @@ nav {
 }
 nav a {
   display: flex;
+  flex: none;
   align-items: center;
   min-width: 44px;
   min-height: 44px;
-  padding-inline: 10px;
+  padding-inline: var(--space-3);
   color: var(--muted);
   text-decoration: none;
   border-bottom: 2px solid transparent;
@@ -244,7 +271,7 @@ main {
 }
 h1 {
   margin: 0 0 4px;
-  font-size: clamp(24px, 2.6vw, 30px);
+  font-size: var(--step-6);
   line-height: 1.2;
   letter-spacing: -0.02em;
   font-weight: 700;
@@ -287,16 +314,16 @@ p {
   flex: 1 1 150px;
   flex-direction: column;
   gap: 4px;
-  padding: 16px 18px;
+  padding: var(--space-4) var(--space-5);
   background: var(--surface);
 }
 .stat-label {
-  font-size: var(--step-0);
+  font-size: var(--step-1);
   font-weight: 600;
   color: var(--muted);
 }
 .stat-value {
-  font-size: 26px;
+  font-size: var(--step-5);
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.02em;
@@ -306,9 +333,326 @@ p {
   color: var(--danger);
 }
 .stat-note {
-  font-size: var(--step-0);
+  max-width: 78ch;
+  font-size: var(--step-1);
   color: var(--muted);
   margin: -8px 0 20px;
+}
+
+/* A figure the deployment does not record. Distinct from a real zero. */
+.unknown {
+  color: var(--unknown);
+  font-weight: 500;
+}
+.stat-value.unknown {
+  font-size: var(--step-3);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.stat-hint {
+  font-size: var(--step-1);
+  color: var(--muted);
+}
+
+/* Current work reads differently from a period total, so the live band carries
+   its own accent edge. */
+.stat-grid.live {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.stat-grid.live .stat-label {
+  color: var(--accent);
+}
+
+.section {
+  margin-bottom: var(--space-8);
+}
+.section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: var(--space-3);
+}
+.section-heading h2 {
+  font-size: var(--step-3);
+  margin: 0 0 2px;
+}
+.section-heading p {
+  font-size: var(--step-1);
+  max-width: 78ch;
+}
+.panel-note {
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--step-1);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+.chart-panel,
+.latency {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4) var(--space-5);
+}
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.chart-title {
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+.chart-peak {
+  font-size: var(--step-0);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Bars are plain boxes in a flex row: no chart library, and the widths follow
+   the container at every breakpoint. */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 132px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--line-strong);
+}
+.chart li {
+  display: flex;
+  align-items: flex-end;
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 100%;
+}
+.chart-bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+}
+/* A zero day still needs a visible floor, or the axis reads as missing data. */
+.chart-bar.zero {
+  background: var(--control-line);
+}
+.chart-figure {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 var(--space-2);
+  margin-top: var(--space-4);
+}
+.chart-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 132px;
+  font-size: var(--step-0);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.chart-readout {
+  grid-column: 2;
+  min-height: 20px;
+  margin-top: var(--space-2);
+  font-size: var(--step-1);
+  font-variant-numeric: tabular-nums;
+}
+.chart-readout .muted {
+  color: var(--muted);
+}
+.chart li:hover .chart-bar,
+.chart li:focus-within .chart-bar {
+  background: var(--accent-active);
+}
+/* The sparse case: name the days instead of drawing thirty empty columns. */
+.day-list {
+  margin: var(--space-4) 0;
+  padding: 0;
+  list-style: none;
+}
+.day-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  font-size: var(--step-2);
+}
+.day-list li + li {
+  border-top: 1px solid var(--line);
+}
+.day-date {
+  color: var(--muted);
+}
+.day-count {
+  font-size: var(--step-4);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: var(--step-0);
+  color: var(--muted);
+}
+.empty-chart {
+  justify-content: center;
+  gap: 8px;
+  min-height: 200px;
+}
+.latency dl {
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-3);
+}
+.latency dd {
+  font-size: var(--step-4);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.latency dd .unknown {
+  font-size: var(--step-1);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.latency .field-help {
+  margin-top: auto;
+}
+
+.bar-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bar-list li {
+  display: grid;
+  grid-template-columns: minmax(140px, 22ch) minmax(0, 1fr) 5ch;
+  align-items: center;
+  gap: 16px;
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--step-1);
+}
+.bar-list li + li {
+  border-top: 1px solid var(--line);
+}
+.bar-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.bar-label .subtext {
+  margin-top: 0;
+}
+/* With a single cause there is nothing to compare, so the track is dropped
+   rather than rendered permanently full. */
+.bar-list.plain li {
+  grid-template-columns: minmax(0, 1fr) 0 5ch;
+}
+.bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--subtle);
+}
+.bar-fill {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 999px;
+  background: var(--danger);
+}
+.bar-value {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-grid + .stat-note {
+  margin-top: var(--space-3);
+}
+.queue-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.queue {
+  padding: var(--space-4) var(--space-5);
+}
+.attention-panel {
+  border-color: var(--danger);
+}
+.queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.queue-head h3 {
+  margin: 0;
+  font-size: var(--step-2);
+}
+.queue dl {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: var(--space-4) 0 var(--space-3);
+}
+.queue dd {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.event-list {
+  font-size: var(--step-1);
+}
+.event {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  align-items: baseline;
+  gap: 16px;
+  padding: var(--space-3) var(--space-5);
+}
+.event + .event {
+  border-top: 1px solid var(--line);
+}
+.event:hover {
+  background: var(--subtle);
+}
+.event time {
+  color: var(--muted);
+  font-size: var(--step-0);
+  font-variant-numeric: tabular-nums;
+}
+.event-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.event-worker code {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.event-refs {
+  color: var(--muted);
+  font-size: var(--step-0);
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-table tbody th {
+  min-width: 220px;
 }
 
 .toolbar {
@@ -371,7 +715,7 @@ select {
 }
 .freshness {
   color: var(--muted);
-  font-size: var(--step-0);
+  font-size: var(--step-1);
   margin: 12px 0 16px;
   min-height: 18px;
 }
@@ -393,7 +737,7 @@ caption {
   text-align: left;
   font-size: var(--step-0);
   color: var(--muted);
-  padding: 12px 18px;
+  padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--line);
 }
 thead {
@@ -402,7 +746,7 @@ thead {
 th,
 td {
   text-align: left;
-  padding: 16px 18px;
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
@@ -411,7 +755,7 @@ thead th {
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
-  padding-block: 10px;
+  padding-block: var(--space-3);
 }
 tbody th {
   min-width: 240px;
@@ -449,7 +793,7 @@ tbody tr:hover {
 }
 .subtext {
   display: block;
-  font-size: var(--step-0);
+  font-size: var(--step-1);
   font-weight: 400;
   color: var(--muted);
   margin-top: 4px;
@@ -466,8 +810,8 @@ tbody tr:hover {
   color: var(--muted);
 }
 .metric-note {
-  margin-top: 20px;
-  max-width: 85ch;
+  margin-top: var(--space-5);
+  max-width: 78ch;
   color: var(--muted);
   font-size: var(--step-1);
 }
@@ -482,13 +826,14 @@ tbody tr:hover {
   margin-top: 8px;
 }
 .empty {
-  padding: 56px 24px;
+  padding: var(--space-10) var(--space-6);
   text-align: center;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
 }
-.empty h2 {
+.empty :is(h2, h3) {
+  margin: 0 0 8px;
   font-size: var(--step-3);
 }
 .empty p {
@@ -512,8 +857,8 @@ tbody tr:hover {
   display: grid;
   grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 1fr) 180px 64px;
   align-items: center;
-  gap: 18px;
-  padding: 16px 18px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
 }
 .list-labels {
   background: var(--subtle);
@@ -521,13 +866,26 @@ tbody tr:hover {
   font-size: var(--step-0);
   font-weight: 600;
   color: var(--muted);
-  padding-block: 10px;
+  padding-block: var(--space-3);
 }
 .review-row + .review-row {
   border-top: 1px solid var(--line);
 }
 .review-row-head:hover {
   background: var(--subtle);
+}
+.review-row-head,
+.user-row > summary,
+tbody tr,
+nav a,
+.event,
+input,
+select,
+.status {
+  transition:
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease);
 }
 .review-row.open .review-row-head {
   background: var(--accent-soft);
@@ -595,7 +953,7 @@ tbody tr:hover {
 .status.running,
 .status.publishing {
   background: var(--accent-soft);
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
   color: var(--accent);
 }
 .status.queued {
@@ -603,8 +961,87 @@ tbody tr:hover {
   border-color: var(--warning-line);
   color: var(--warning);
 }
+/* Neither success nor failure: the state where the panel cannot see enough to
+   say. Reads as deliberately inert rather than reassuring. */
+.status.unknown {
+  background: var(--unknown-soft);
+  border-color: var(--unknown-line);
+  color: var(--unknown);
+  border-style: dashed;
+}
+/* Expanding a row is a relationship worth explaining, so the panel opens
+   rather than appearing. `inert` keeps the closed copy out of tab order. */
+.review-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+}
+.review-detail[data-open] {
+  grid-template-rows: 1fr;
+}
+.review-detail > div {
+  overflow: hidden;
+}
+.review-detail[data-open] > div {
+  animation: disclose var(--moderate) var(--ease);
+}
+@keyframes disclose {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* An operator's next move is almost always to paste an identifier somewhere
+   else, so every identifier hands itself over. */
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 24px;
+  padding: 2px var(--space-1);
+  margin-inline-start: -4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.copy:hover {
+  background: var(--subtle);
+  border-color: var(--line);
+  color: inherit;
+}
+.copy-hint {
+  font-size: var(--step-0);
+  font-weight: 600;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--fast) var(--ease);
+}
+.copy:hover .copy-hint,
+.copy:focus-visible .copy-hint,
+.copy-hint.done {
+  opacity: 1;
+}
+.copy:hover .copy-hint,
+.copy:focus-visible .copy-hint {
+  color: var(--accent);
+}
+@media (any-pointer: coarse) {
+  /* No hover on touch, so the affordance is always shown. */
+  .copy-hint {
+    opacity: 1;
+  }
+}
+.copy-hint.done {
+  color: var(--success);
+}
+
 .run-details {
-  padding: 4px 18px 22px;
+  padding: var(--space-1) var(--space-5) var(--space-6);
   border-top: 1px solid var(--line);
   background: var(--surface);
 }
@@ -612,7 +1049,7 @@ dl {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px 32px;
-  margin: 18px 0 20px;
+  margin: var(--space-4) 0 var(--space-5);
   font-size: var(--step-1);
 }
 dl > div {
@@ -632,7 +1069,8 @@ code {
   font-size: 0.92em;
 }
 .notice {
-  padding: 12px 14px;
+  max-width: 78ch;
+  padding: var(--space-3) var(--space-4);
   margin: 16px 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -660,8 +1098,8 @@ code {
   font-weight: 600;
 }
 .footnote {
-  font-size: var(--step-0);
-  max-width: 90ch;
+  font-size: var(--step-1);
+  max-width: 78ch;
 }
 footer {
   border-top: 1px solid var(--line);
@@ -730,7 +1168,7 @@ footer {
   font-weight: 700;
 }
 .login-card h1 {
-  font-size: 24px;
+  font-size: var(--step-5);
 }
 .login-card > .muted {
   font-size: var(--step-2);
@@ -777,7 +1215,8 @@ footer {
   min-width: 180px;
 }
 .field-help {
-  font-size: var(--step-0);
+  max-width: 72ch;
+  font-size: var(--step-1);
   font-weight: 400;
   color: var(--muted);
 }
@@ -792,7 +1231,7 @@ footer {
   grid-template-columns: minmax(160px, 1fr) 90px 100px 48px;
   align-items: center;
   gap: 16px;
-  padding: 16px 18px;
+  padding: var(--space-4) var(--space-5);
   font-size: var(--step-2);
   cursor: pointer;
   list-style: none;
@@ -806,15 +1245,52 @@ footer {
 .user-row > summary strong {
   overflow-wrap: anywhere;
 }
+.user-row > summary .status {
+  justify-self: start;
+}
 .user-row[open] > summary {
   background: var(--accent-soft);
 }
 .user-edit {
-  padding: 4px 18px 22px;
+  padding: var(--space-1) var(--space-5) var(--space-6);
   border-top: 1px solid var(--line);
 }
 .user-edit button {
-  margin-top: 16px;
+  margin-top: var(--space-4);
+}
+/* Inline rather than a modal: the change under review stays on screen beside
+   the fields that produced it. */
+.confirm {
+  max-width: 78ch;
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--subtle);
+}
+.confirm-title {
+  font-size: var(--step-2);
+  font-weight: 600;
+}
+.confirm ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  font-size: var(--step-2);
+}
+.confirm li {
+  padding-block: 2px;
+}
+.confirm .notice {
+  margin-block: var(--space-3) 0;
+}
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.confirm-actions button {
+  margin-top: 0;
 }
 .password-form {
   display: flex;
@@ -859,7 +1335,7 @@ footer {
   position: absolute;
   top: 8px;
   left: 16px;
-  padding: 10px;
+  padding: var(--space-3);
   background: var(--surface);
   border-radius: var(--radius-sm);
   z-index: 10;
@@ -880,6 +1356,35 @@ footer {
 /* Tablets get the card layout too: the six-column table cannot fit below
    roughly 900px without clipping its last two columns. */
 @media (max-width: 900px) {
+  .app-header {
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 12px var(--gutter) 0;
+  }
+  .brand {
+    flex: 1;
+  }
+  nav {
+    order: 3;
+    width: 100%;
+    gap: 2px;
+    height: 46px;
+    margin-top: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  nav::-webkit-scrollbar {
+    display: none;
+  }
+  nav a {
+    padding-inline: 8px;
+  }
+  nav a:first-child {
+    padding-left: 0;
+  }
+  nav a:last-child {
+    padding-right: 24px;
+  }
   .repository-table,
   .repository-table caption,
   .repository-table tbody {
@@ -896,8 +1401,8 @@ footer {
   .repository-table tbody tr {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-    padding: 16px 18px;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
     border-bottom: 1px solid var(--line);
   }
   .repository-table tbody tr:last-child {
@@ -949,6 +1454,45 @@ footer {
   .list-labels {
     display: none;
   }
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ops-table,
+  .ops-table tbody {
+    display: block;
+  }
+  .ops-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .ops-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--line);
+  }
+  .ops-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .ops-table :is(th, td) {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    text-align: left;
+  }
+  .ops-table tbody th {
+    grid-column: 1 / -1;
+  }
+  .event {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding-block: 12px;
+  }
   .review-row-head {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 16px;
@@ -980,40 +1524,17 @@ footer {
   }
 }
 @media (max-width: 760px) {
-  .app-header {
-    flex-wrap: wrap;
-    gap: 0;
-    padding: 12px var(--gutter) 0;
-  }
-  .brand {
-    flex: 1;
-  }
-  nav {
-    order: 3;
-    width: 100%;
-    gap: 2px;
-    height: 46px;
-    margin-top: 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  nav::-webkit-scrollbar {
-    display: none;
-  }
-  nav a:first-child {
-    padding-left: 0;
-  }
   main {
     min-height: 0;
     padding: 24px var(--gutter) 32px;
   }
   h1 {
-    font-size: 24px;
+    font-size: var(--step-5);
   }
   .page-heading {
     align-items: stretch;
     flex-direction: column;
-    gap: 14px;
+    gap: var(--space-3);
     margin-bottom: 20px;
   }
   .page-heading .button,
@@ -1021,10 +1542,10 @@ footer {
     align-self: flex-start;
   }
   .stat {
-    padding: 12px 14px;
+    padding: var(--space-3) var(--space-4);
   }
   .stat-value {
-    font-size: 22px;
+    font-size: var(--step-5);
   }
   .toolbar {
     flex-wrap: wrap;
@@ -1077,7 +1598,7 @@ footer {
     grid-template-columns: 1fr;
   }
   .pagination {
-    gap: 10px;
+    gap: var(--space-3);
     flex-wrap: wrap;
     justify-content: space-between;
   }
@@ -1095,7 +1616,7 @@ footer {
   }
   .password-form,
   .account-form {
-    padding: 18px 16px;
+    padding: var(--space-4);
   }
 }
 @media (max-width: 640px) {
@@ -1116,7 +1637,18 @@ footer {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    /* Movement goes; the colour change that confirms an action stays legible. */
+    transition-property:
+      background-color, border-color, color, opacity, outline-color !important;
+    transition-duration: 100ms !important;
+  }
+  .review-detail {
     transition: none !important;
   }
 }
@@ -1144,6 +1676,9 @@ footer {
     --warning: #ebc48b;
     --warning-soft: #3d3321;
     --warning-line: #574828;
+    --unknown: #aab6c4;
+    --unknown-soft: #262f3a;
+    --unknown-line: #3d4855;
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 24%);
     --shadow: 0 2px 4px rgb(0 0 0 / 28%), 0 12px 28px -12px rgb(0 0 0 / 60%);
   }

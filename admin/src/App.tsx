@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import {
   Link,
   NavLink,
@@ -7,22 +7,26 @@ import {
   Route,
   Routes,
   useLocation,
-  useSearchParams,
 } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { UseQueryResult } from "@tanstack/react-query";
 import { APIError, read, write } from "./api";
 import type { Account, HistoryItem, HistoryPage, RepositoryPage } from "./api";
 
 import { Login, MyAccount, Users } from "./accounts";
-import { Stat, number } from "./ui";
+import { OverviewPage } from "./overview";
+import { OperationsPage } from "./operations";
+import {
+  Copy,
+  Empty,
+  Freshness,
+  Period,
+  Stat,
+  failureSentence,
+  number,
+  time,
+  useFilters,
+} from "./ui";
 
-const dateTime = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-const time = (value: string | null) =>
-  value ? dateTime.format(new Date(value)) : "—";
 const pullRequestURL = (item: Pick<HistoryItem, "repository" | "pr_number">) =>
   `https://github.com/${item.repository}/pull/${item.pr_number}`;
 const stateLabels: Record<HistoryItem["state"], string> = {
@@ -33,78 +37,6 @@ const stateLabels: Record<HistoryItem["state"], string> = {
   failed: "Failed",
   superseded: "Superseded",
 };
-
-function useFilters() {
-  const [params, setParams] = useSearchParams();
-  const days = [7, 30, 90].includes(Number(params.get("days")))
-    ? Number(params.get("days"))
-    : 30;
-  const update = (values: Record<string, string>) => {
-    const next = new URLSearchParams(params);
-    next.delete("before_id");
-    next.delete("offset");
-    for (const [key, value] of Object.entries(values))
-      value ? next.set(key, value) : next.delete(key);
-    setParams(next);
-  };
-  return { params, days, update };
-}
-
-function Period({
-  days,
-  change,
-}: {
-  days: number;
-  change: (value: string) => void;
-}) {
-  return (
-    <label className="field">
-      Reporting period
-      <select value={days} onChange={(event) => change(event.target.value)}>
-        <option value="7">Last 7 days</option>
-        <option value="30">Last 30 days</option>
-        <option value="90">Last 90 days</option>
-      </select>
-    </label>
-  );
-}
-
-function Freshness<T>({ query }: { query: UseQueryResult<T, Error> }) {
-  return (
-    <div className="freshness" aria-live="polite">
-      {query.isError ? (
-        <div className="notice error" role="alert">
-          <p>
-            {query.error.message || "Could not connect to Review Agent."}{" "}
-            {query.data ? "The last available data is still shown below." : ""}
-          </p>
-          {query.error instanceof APIError && query.error.status === 401 ? (
-            <button onClick={() => window.location.reload()}>
-              Reload to sign in
-            </button>
-          ) : (
-            <button onClick={() => void query.refetch()}>Retry</button>
-          )}
-        </div>
-      ) : (
-        <span>
-          {query.isPending
-            ? "Loading review data…"
-            : `Updated ${time(new Date(query.dataUpdatedAt).toISOString())} · refreshes every 10 seconds`}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return (
-    <div className="empty">
-      <h2>No matching activity</h2>
-      <p>{children}</p>
-    </div>
-  );
-}
 
 function Repositories() {
   const { params, days, update } = useFilters();
@@ -128,22 +60,7 @@ function Repositories() {
     queryFn: ({ signal }) =>
       read<RepositoryPage>(`/api/repositories?${queryParams}`, signal),
   });
-  const totals = (query.data?.items ?? []).reduce(
-    (sum, repo) => ({
-      prs_reviewed: sum.prs_reviewed + repo.prs_reviewed,
-      published_requests: sum.published_requests + repo.published_requests,
-      failed_requests: sum.failed_requests + repo.failed_requests,
-      active_requests: sum.active_requests + repo.active_requests,
-      latest_failed_prs: sum.latest_failed_prs + repo.latest_failed_prs,
-    }),
-    {
-      prs_reviewed: 0,
-      published_requests: 0,
-      failed_requests: 0,
-      active_requests: 0,
-      latest_failed_prs: 0,
-    },
-  );
+  const totals = query.data?.totals;
   function submit(event: FormEvent) {
     event.preventDefault();
     update({ search: draft.trim() });
@@ -180,10 +97,10 @@ function Repositories() {
         <Period days={days} change={(value) => update({ days: value })} />
       </div>
       <Freshness query={query} />
-      {query.data && query.data.items.length > 0 && (
+      {query.data && totals && (
         <>
           <div className="stat-grid">
-            <Stat label="Repositories" value={query.data.items.length} />
+            <Stat label="Repositories" value={query.data.total} />
             <Stat label="PRs reviewed" value={totals.prs_reviewed} />
             <Stat label="Published reviews" value={totals.published_requests} />
             <Stat label="Failed requests" value={totals.failed_requests} />
@@ -195,11 +112,8 @@ function Repositories() {
             />
           </div>
           <p className="stat-note">
-            {`Totals cover ${
-              query.data.has_more || offset > 0 ? "the" : "all"
-            } ${query.data.items.length} ${
-              query.data.items.length === 1 ? "repository" : "repositories"
-            }${query.data.has_more || offset > 0 ? " on this page" : ""}`}
+            Totals cover all {query.data.total}{" "}
+            {query.data.total === 1 ? "repository" : "repositories"}
             {search ? ` matching “${search}”` : ""} over the last {days} days.
             “Needs attention” counts PRs whose most recent request failed.
           </p>
@@ -389,7 +303,11 @@ function RunDetails({ item }: { item: HistoryItem }) {
       <dl>
         <div>
           <dt>Review request</dt>
-          <dd>#{item.id}</dd>
+          <dd>
+            <Copy value={String(item.id)} label="request ID">
+              #{item.id}
+            </Copy>
+          </dd>
         </div>
         <div>
           <dt>Phase</dt>
@@ -398,13 +316,17 @@ function RunDetails({ item }: { item: HistoryItem }) {
         <div>
           <dt>Head commit</dt>
           <dd>
-            <code>{item.head_sha}</code>
+            <Copy value={item.head_sha} label="head commit SHA">
+              <code>{item.head_sha.slice(0, 12)}</code>
+            </Copy>
           </dd>
         </div>
         <div>
           <dt>Base commit</dt>
           <dd>
-            <code>{item.base_sha}</code>
+            <Copy value={item.base_sha} label="base commit SHA">
+              <code>{item.base_sha.slice(0, 12)}</code>
+            </Copy>
           </dd>
         </div>
         <div>
@@ -433,26 +355,21 @@ function RunDetails({ item }: { item: HistoryItem }) {
         <div>
           <dt>Changed-file coverage</dt>
           <dd>
-            {item.coverage.changed_paths_with_complete_diff} complete diffs /{" "}
-            {item.coverage.changed_files_reported ?? "unknown"} reported files
+            {item.coverage.changed_paths_with_complete_diff} complete diffs of{" "}
+            {item.coverage.changed_files_reported ?? "an unknown number of"}{" "}
+            {item.coverage.changed_files_reported === 1 ? "file" : "files"}
           </dd>
         </div>
         <div>
           <dt>Inventory</dt>
           <dd>
             {item.coverage.registration_complete ? "Complete" : "Incomplete"} ·{" "}
-            {item.coverage.changed_files_registered} files registered
+            {item.coverage.changed_files_registered}{" "}
+            {item.coverage.changed_files_registered === 1 ? "file" : "files"}{" "}
+            registered
           </dd>
         </div>
       </dl>
-      {item.coverage.state !== "complete" && (
-        <p className="notice">
-          {item.coverage.state === "unknown"
-            ? "Coverage has not been established."
-            : "Changed-file coverage is incomplete."}{" "}
-          A published result may leave changes unreviewed.
-        </p>
-      )}
       {item.failure_code && (
         <div className="notice error">
           <strong>
@@ -463,11 +380,17 @@ function RunDetails({ item }: { item: HistoryItem }) {
                 : "This earlier request failed."}
           </strong>
           <p>
-            Recorded cause: <code>{item.failure_code}</code>
+            {failureSentence(item.failure_code)}.{" "}
+            <Copy value={item.failure_code} label="failure code">
+              <code>{item.failure_code}</code>
+            </Copy>
             {item.job_failure_code ? (
               <>
                 {" "}
-                · Worker cause: <code>{item.job_failure_code}</code>
+                · Worker cause:{" "}
+                <Copy value={item.job_failure_code} label="worker failure code">
+                  <code>{item.job_failure_code}</code>
+                </Copy>
               </>
             ) : null}
           </p>
@@ -477,6 +400,14 @@ function RunDetails({ item }: { item: HistoryItem }) {
             on the PR again.
           </p>
         </div>
+      )}
+      {item.coverage.state !== "complete" && (
+        <p className="notice">
+          {item.coverage.state === "unknown"
+            ? "Coverage has not been established."
+            : "Changed-file coverage is incomplete."}{" "}
+          A published result may leave changes unreviewed.
+        </p>
       )}
       {(item.publication_superseded || item.state === "superseded") && (
         <p className="notice">
@@ -549,8 +480,15 @@ function ReviewRow({
           <span className="sr-only">{` for request #${item.id}`}</span>
         </button>
       </div>
-      <div id={panelId} hidden={!open}>
-        <RunDetails item={item} />
+      <div
+        id={panelId}
+        className="review-detail"
+        data-open={open ? "" : undefined}
+        inert={!open}
+      >
+        <div>
+          <RunDetails item={item} />
+        </div>
       </div>
     </div>
   );
@@ -586,7 +524,7 @@ function History() {
   }
   return (
     <>
-      <Link className="back-link" to={`/?days=${days}`}>
+      <Link className="back-link" to={`/repositories?days=${days}`}>
         All repositories
       </Link>
       <div className="page-heading">
@@ -645,12 +583,12 @@ function History() {
         </p>
       )}
       <Freshness query={query} />
-      {query.data && query.data.items.length > 0 && (
+      {query.data && (
         <p className="result-count">
-          {number.format(query.data.items.length)} review request
-          {query.data.items.length === 1 ? "" : "s"}
-          {repository ? ` for ${repository}` : ""}
-          {query.data.next_cursor !== null ? " on this page" : ""}
+          Showing {number.format(query.data.items.length)} of{" "}
+          {number.format(query.data.total)} review request
+          {query.data.total === 1 ? "" : "s"}
+          {repository ? ` for ${repository}` : ""}.
         </p>
       )}
       {query.data &&
@@ -711,6 +649,7 @@ export function App() {
   const client = useQueryClient();
   const { pathname } = useLocation();
   const main = useRef<HTMLElement>(null);
+  const nav = useRef<HTMLElement>(null);
   const me = useQuery({
     queryKey: ["me"],
     queryFn: ({ signal }) => read<Account>("/api/me", signal),
@@ -719,6 +658,19 @@ export function App() {
   const signedOut = me.error instanceof APIError && me.error.status === 401;
   useEffect(() => {
     main.current?.focus();
+  }, [pathname, me.data?.id]);
+  // The tab strip scrolls on narrow screens; keep the current page in view so
+  // landing on a later route still shows where you are.
+  useEffect(() => {
+    const strip = nav.current;
+    const active = strip?.querySelector<HTMLElement>("a.active");
+    if (!strip || !active) return;
+    const past = active.offsetLeft + active.offsetWidth;
+    if (
+      past > strip.scrollLeft + strip.clientWidth ||
+      active.offsetLeft < strip.scrollLeft
+    )
+      strip.scrollLeft = Math.max(0, active.offsetLeft - 16);
   }, [pathname, me.data?.id]);
   useEffect(() => {
     if (signedOut)
@@ -763,11 +715,15 @@ export function App() {
           </span>
           Review Agent
         </Link>
-        <nav aria-label="Main navigation">
+        <nav aria-label="Main navigation" ref={nav}>
           <NavLink to="/" end>
-            Repositories
+            Overview
           </NavLink>
+          <NavLink to="/repositories">Repositories</NavLink>
           <NavLink to="/history">Review history</NavLink>
+          {current.role === "admin" && (
+            <NavLink to="/operations">Operations</NavLink>
+          )}
           {current.role === "admin" && <NavLink to="/users">Users</NavLink>}
         </nav>
         <div className="account-nav">
@@ -788,8 +744,19 @@ export function App() {
           </p>
         )}
         <Routes>
-          <Route path="/" element={<Repositories />} />
+          <Route path="/" element={<OverviewPage />} />
+          <Route path="/repositories" element={<Repositories />} />
           <Route path="/history" element={<History />} />
+          <Route
+            path="/operations"
+            element={
+              current.role === "admin" ? (
+                <OperationsPage />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
           <Route
             path="/users"
             element={

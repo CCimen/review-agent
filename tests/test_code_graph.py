@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import io
 import json
+from contextlib import closing
 from pathlib import Path
+import sqlite3
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -18,15 +21,18 @@ from review_agent_tools.code_graph_contract import (  # noqa: E402
 from review_agent_tools.code_graph_cache import extract_snapshot  # noqa: E402
 from review_agent_tools.code_graph_embeddings import embedding_inputs, openai_embeddings  # noqa: E402
 from review_agent_tools.code_graph_service import CodeGraphService  # noqa: E402
+from review_agent_tools.github.gateway import GitHubGatewayRejected  # noqa: E402
 from review_agent_tools import code_graph_indexer  # noqa: E402
 
 
-_RUNNER = '''import json, pathlib, sys
+_RUNNER = '''import json, pathlib, sqlite3, sys
 request = json.load(sys.stdin)
 database = pathlib.Path(request["database"])
 source = pathlib.Path(request["source"])
+connection = sqlite3.connect(database)
+connection.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, content TEXT)")
+values = dict(connection.execute("SELECT path, content FROM files"))
 if request["operation"] == "build":
-    values = json.loads(database.read_text()) if database.exists() else {}
     changed = request["changed_files"]
     paths = changed if changed is not None else [str(p.relative_to(source)) for p in source.rglob("*.py")]
     for name in paths:
@@ -35,14 +41,16 @@ if request["operation"] == "build":
             values[name] = path.read_text()
         else:
             values.pop(name, None)
-    database.write_text(json.dumps(values))
+    connection.execute("DELETE FROM files")
+    connection.executemany("INSERT INTO files VALUES (?, ?)", values.items())
+    connection.commit()
     state = "unavailable" if request["embeddings"] == "openai" else "disabled"
     print(json.dumps({"embedding_state": state, "parse_errors": 0, "nodes": len(values)}))
 elif request["operation"] == "embed":
     print(json.dumps({"embedding_state": "unavailable", "embedded": 0}))
 else:
-    values = json.loads(database.read_text())
     print(json.dumps({"results": [{"path": path, "symbol": content} for path, content in values.items()], "search_mode": "keyword"}))
+connection.close()
 '''
 
 
@@ -163,6 +171,135 @@ class GraphContractTests(unittest.TestCase):
 
 
 class GraphCacheTests(unittest.TestCase):
+    def test_busy_preparations_are_bounded_and_reauthorized_when_their_turn_starts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner = root / "runner.py"
+            runner.write_text(_RUNNER)
+            service = CodeGraphService(root=root / "cache", gateway_url="http://gateway:8646",
+                                       python=Path(sys.executable), runner=runner)
+            started, release = threading.Event(), threading.Event()
+            subjects = {number: GraphSubject(90 + number, f"example/repo{number}", "a" * 40, True, "none")
+                        for number in range(1, 7)}
+            subjects[2] = subjects[1]
+
+            def authorize(identity: GraphIdentity) -> GraphSubject:
+                if identity.run_id == 3 and release.is_set():
+                    raise GitHubGatewayRejected("review_job_lease_lost")
+                return subjects[identity.run_id]
+
+            def download(identity: GraphIdentity) -> bytes:
+                if identity.run_id == 1:
+                    started.set()
+                    if not release.wait(5):
+                        raise AssertionError("test did not release the archive request")
+                return archive([("snapshot/example.py", b"def example(): pass\n", tarfile.REGTYPE)])
+
+            client = Mock()
+            client.get_code_graph_subject.side_effect = authorize
+            client.get_code_graph_archive.side_effect = download
+            service.client = client
+
+            def request(number: int) -> dict[str, object]:
+                return {"identity": GraphIdentity(number, number, 1).to_mapping(),
+                        "operation": "prepare", "pattern": "", "target": ""}
+
+            try:
+                self.assertEqual(service.handle(request(1))["status"], "building")
+                self.assertTrue(started.wait(5))
+                for number in (2, 3, 4, 5, 2):
+                    self.assertEqual(service.handle(request(number))["status"], "building" if number == 2 else "queued")
+                self.assertEqual(service.handle(request(6))["status"], "busy")
+                release.set()
+                query = {**request(5), "operation": "query", "pattern": "symbol", "target": "example"}
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and service.handle(query)["status"] != "ready":
+                    time.sleep(0.01)
+                self.assertEqual(service.handle(query)["status"], "ready")
+                self.assertEqual([call.args[0].run_id for call in client.get_code_graph_archive.call_args_list],
+                                 [1, 4, 5])
+                self.assertEqual(service.handle({**query, "identity": request(2)["identity"]})["status"], "ready")
+            finally:
+                release.set()
+                service.close()
+
+    def test_completed_graph_and_embedding_batches_survive_the_review_lease(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner = root / "runner.py"
+            ended = root / "review-ended"
+            runner.write_text('''import json, pathlib, sys
+request = json.load(sys.stdin)
+database = pathlib.Path(request["database"])
+ended = pathlib.Path(__file__).with_name("review-ended")
+if request["operation"] == "build":
+    database.write_text(json.dumps({"batches": []}))
+values = json.loads(database.read_text())
+if request["operation"] == "query":
+    print(json.dumps({"results": [values]}))
+else:
+    state = "disabled"
+    if request["embeddings"] == "openai":
+        if not ended.exists():
+            values["batches"].append("first")
+            ended.touch()
+            state = "unavailable"
+        else:
+            values["batches"].append("second" if "first" in values["batches"] else "repeated-first")
+            state = "ready"
+        database.write_text(json.dumps(values))
+    print(json.dumps({"embedding_state": state, "parse_errors": 0, "nodes": 2}))
+''')
+            subject = GraphSubject(91, "example/one", "a" * 40, True, "openai")
+            client = Mock()
+
+            def authorize(identity: GraphIdentity) -> GraphSubject:
+                if identity.run_id == 1 and ended.exists():
+                    raise GitHubGatewayRejected("review_job_lease_lost")
+                return subject
+
+            client.get_code_graph_subject.side_effect = authorize
+            client.get_code_graph_archive.return_value = archive([
+                ("snapshot/example.py", b"def example(): pass\n", tarfile.REGTYPE),
+            ])
+            service = CodeGraphService(root=root / "cache", gateway_url="http://gateway:8646",
+                                       python=Path(sys.executable), runner=runner)
+            service.client = client
+            request = {"identity": GraphIdentity(1, 2, 3).to_mapping(), "operation": "prepare", "pattern": "", "target": ""}
+            query = {**request, "identity": GraphIdentity(2, 3, 1).to_mapping(),
+                     "operation": "query", "pattern": "symbol", "target": "example"}
+            try:
+                self.assertEqual(service.handle(request)["status"], "building")
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    result = service.handle(query)
+                    if ended.exists() and result["status"] != "building":
+                        break
+                    time.sleep(0.01)
+                self.assertEqual(result["status"], "ready")
+                self.assertEqual(result["embedding_state"], "unavailable")
+                self.assertEqual(result["results"], [{"batches": ["first"]}])
+                with self.assertRaises(GitHubGatewayRejected):
+                    service.handle({**query, "identity": request["identity"]})
+            finally:
+                service.close()
+            # A new service and a new authorized review reuse the durable cache.
+            service = CodeGraphService(root=root / "cache", gateway_url="http://gateway:8646",
+                                       python=Path(sys.executable), runner=runner)
+            service.client = client
+            try:
+                request["identity"] = query["identity"]
+                self.assertEqual(service.handle(request)["status"], "building")
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and service.handle(query)["status"] == "building":
+                    time.sleep(0.01)
+                result = service.handle(query)
+                self.assertEqual(result["embedding_state"], "ready")
+                self.assertEqual(result["results"], [{"batches": ["first", "second"]}])
+                self.assertEqual(client.get_code_graph_archive.call_count, 1)
+            finally:
+                service.close()
+
     def test_exact_commits_and_repositories_remain_isolated_through_incremental_updates(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -197,7 +334,19 @@ class GraphCacheTests(unittest.TestCase):
             another = GraphSubject(92, "example/two", "a" * 40, True, "none")
             try:
                 self.assertEqual(build(first, "first")["results"][0]["symbol"], "first")
-                self.assertEqual(build(second, "second")["results"][0]["symbol"], "second")
+                saved = next((root / "cache" / "snapshots").glob("*/*/*/graph.db"))
+                # Keep committed vector state in the WAL, as after an interrupted
+                # embedding process, while the next commit copies the saved graph.
+                with closing(sqlite3.connect(saved)) as connection:
+                    connection.execute("PRAGMA journal_mode=WAL")
+                    connection.execute("CREATE TABLE embeddings (value TEXT)")
+                    connection.execute("INSERT INTO embeddings VALUES ('committed batch')")
+                    connection.commit()
+                    self.assertEqual(build(second, "second")["results"][0]["symbol"], "second")
+                    updated = saved.parent.parent / second.head_sha / "graph.db"
+                    with closing(sqlite3.connect(updated)) as copied:
+                        self.assertEqual(copied.execute("SELECT value FROM embeddings").fetchall(),
+                                         [("committed batch",)])
                 self.assertEqual(build(another, "other repository")["results"][0]["symbol"], "other repository")
                 client.get_code_graph_subject.return_value = first
                 self.assertEqual(service.handle(request)["status"], "ready")

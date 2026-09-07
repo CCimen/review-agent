@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict, deque
 from collections.abc import Mapping
+from contextlib import closing
 import hashlib
 import json
 import logging
@@ -11,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -25,6 +28,7 @@ from .code_graph_contract import (
 from .github.gateway_client import ReviewGitHubGatewayClient
 
 _MANIFEST_MAX_BYTES = 16_000_000
+_PREPARATION_QUEUE_LIMIT = 4
 logger = logging.getLogger(__name__)
 
 
@@ -50,8 +54,12 @@ class CodeGraphService:
         self.client = ReviewGitHubGatewayClient(gateway_url)
         self.cache_bytes = cache_bytes
         self._slot = threading.Lock()
+        self._state_lock = threading.Lock()
         self._active: str | None = None
-        self._failed: tuple[int, str] | None = None
+        self._active_identity: GraphIdentity | None = None
+        self._thread: threading.Thread | None = None
+        self._pending: OrderedDict[str, tuple[GraphIdentity, GraphSubject]] = OrderedDict()
+        self._failed: deque[tuple[int, str]] = deque(maxlen=_PREPARATION_QUEUE_LIMIT + 1)
         self._process: subprocess.Popen[bytes] | None = None
         self._stopping = False
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -113,7 +121,10 @@ class CodeGraphService:
         if operation == "prepare":
             return self._prepare(identity, subject)
         if not self._slot.acquire(blocking=False):
-            return self._status(subject, "building" if self._active == self._key(subject) else "busy")
+            with self._state_lock:
+                key = self._key(subject)
+                status = "building" if self._active == key else "queued" if key in self._pending else "busy"
+                return self._status(subject, status)
         try:
             manifest = self._manifest(subject)
             if manifest is None:
@@ -130,30 +141,51 @@ class CodeGraphService:
             os.utime(directory, None)
             return {**response, **self._status(subject, "ready", manifest)}
         finally:
-            self._slot.release()
+            with self._state_lock:
+                self._slot.release()
+                self._start_next()
 
     def _prepare(self, identity: GraphIdentity, subject: GraphSubject) -> dict[str, object]:
         key = self._key(subject)
-        manifest = self._manifest(subject)
-        if manifest is not None and (
-            subject.embeddings == "none" or manifest.get("embedding_state") == "ready"
-            or manifest.get("embedding_attempt_run_id") == identity.run_id
-        ):
-            return self._status(subject, "ready", manifest)
-        if self._failed == (identity.run_id, key):
-            return self._status(subject, "unavailable")
-        if not self._slot.acquire(blocking=False):
-            return self._status(subject, "building" if self._active == key else "busy")
-        self._active = key
-        thread = threading.Thread(target=self._build, args=(identity, subject), daemon=True)
-        try:
-            thread.start()
-        except RuntimeError:
-            self._active = None
-            self._failed = (identity.run_id, key)
-            self._slot.release()
-            return self._status(subject, "unavailable")
-        return self._status(subject, "building")
+        with self._state_lock:
+            if self._stopping:
+                return self._status(subject, "unavailable")
+            if self._active == key and self._active_identity == identity:
+                return self._status(subject, "building")
+            manifest = self._manifest(subject)
+            if manifest is not None and (
+                subject.embeddings == "none" or manifest.get("embedding_state") == "ready"
+                or manifest.get("embedding_attempt_run_id") == identity.run_id
+            ):
+                return self._status(subject, "ready", manifest)
+            if (identity.run_id, key) in self._failed:
+                return self._status(subject, "unavailable")
+            if key not in self._pending and len(self._pending) >= _PREPARATION_QUEUE_LIMIT:
+                return self._status(subject, "busy")
+            self._pending[key] = identity, subject
+            self._start_next()
+            status = "building" if self._active == key else "queued" if key in self._pending else "unavailable"
+            return self._status(subject, status)
+
+    def _start_next(self) -> None:
+        # Called with the state lock held after enqueueing or releasing the one
+        # process slot. Pending work carries no authority beyond its original lease.
+        while self._pending and not self._stopping:
+            if not self._slot.acquire(blocking=False):
+                return
+            key, (identity, subject) = self._pending.popitem(last=False)
+            self._active = key
+            self._active_identity = identity
+            thread = threading.Thread(target=self._build, args=(identity, subject), daemon=True)
+            try:
+                thread.start()
+                self._thread = thread
+                return
+            except RuntimeError:
+                self._active = None
+                self._active_identity = None
+                self._failed.append((identity.run_id, key))
+                self._slot.release()
 
     def _evict(self, protected: Path) -> None:
         snapshots: list[tuple[Path, int]] = []
@@ -179,19 +211,19 @@ class CodeGraphService:
     def _build(self, identity: GraphIdentity, subject: GraphSubject) -> None:
         started = time.monotonic()
         try:
+            if self.client.get_code_graph_subject(identity) != subject:
+                raise GraphError("graph authority changed")
             directory = self.cache / self._key(subject)
             self._evict(directory)
-            stage = self.work / "index"
-            if stage.exists():
-                shutil.rmtree(stage)
-            stage.mkdir()
             manifest = self._manifest(subject)
-            if manifest is not None:
-                # A later review may retry failed embeddings without downloading
-                # or parsing the already complete exact-commit source again.
-                shutil.copyfile(directory / "graph.db", stage / "graph.db")
-                request: dict[str, object] = {"operation": "embed"}
-            else:
+            if manifest is not None and (
+                subject.embeddings == "none" or manifest.get("embedding_state") == "ready"
+                or manifest.get("embedding_attempt_run_id") == identity.run_id
+            ):
+                return
+            if manifest is None:
+                stage = self.work / "index"
+                stage.mkdir(exist_ok=True)
                 previous = sorted(directory.parent.glob("*/manifest.json"), key=lambda path: path.parent.stat().st_mtime, reverse=True)
                 old_files: dict[str, str] | None = None
                 if previous:
@@ -201,7 +233,13 @@ class CodeGraphService:
                         raw_files = cast(dict[str, object], prior["files"])
                         if all(isinstance(value, str) for value in raw_files.values()):
                             old_files = cast(dict[str, str], raw_files)
-                            shutil.copyfile(previous[0].parent / "graph.db", stage / "graph.db")
+                            # SQLite backup includes committed WAL batches left by
+                            # an interrupted embedding process on the previous head.
+                            with (
+                                closing(sqlite3.connect((previous[0].parent / "graph.db").as_uri() + "?mode=ro", uri=True)) as saved,
+                                closing(sqlite3.connect(stage / "graph.db")) as staged,
+                            ):
+                                saved.backup(staged)
                 if self.source.exists():
                     shutil.rmtree(self.source)
                 self.source.mkdir()
@@ -210,48 +248,72 @@ class CodeGraphService:
                     name for name in old_files.keys() | snapshot.files.keys()
                     if old_files.get(name) != snapshot.files.get(name)
                 )
-                request = {"operation": "build", "changed_files": changed}
-                manifest = {"files": snapshot.files, "skipped_files": snapshot.skipped_files}
-            result = self._execute(identity, subject, {
-                **request, "database": str(stage / "graph.db"),
-            }, timeout=max(1, 300 - (time.monotonic() - started)))
-            if self.client.get_code_graph_subject(identity) != subject:
-                raise GraphError("graph authority changed")
-            if (stage / "graph.db").stat().st_size > GRAPH_MAX_BYTES:
-                raise GraphError("graph exceeds its size limit")
-            manifest = {
-                **manifest, **result,
-                "repository_id": subject.repository_id, "head_sha": subject.head_sha,
-                "cache_identity": subject.cache_identity, "embedding_attempt_run_id": identity.run_id,
-            }
-            (stage / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-            directory.mkdir(parents=True, exist_ok=True)
-            os.replace(stage / "graph.db", directory / "graph.db")
-            os.replace(stage / "manifest.json", directory / "manifest.json")
+                result = self._execute(identity, subject, {
+                    "operation": "build", "changed_files": changed,
+                    "database": str(stage / "graph.db"),
+                }, timeout=max(1, 300 - (time.monotonic() - started)))
+                if (stage / "graph.db").stat().st_size > GRAPH_MAX_BYTES:
+                    raise GraphError("graph exceeds its size limit")
+                manifest = {
+                    "files": snapshot.files, "skipped_files": snapshot.skipped_files, **result,
+                    "repository_id": subject.repository_id, "head_sha": subject.head_sha,
+                    "cache_identity": subject.cache_identity,
+                }
+                directory.mkdir(parents=True, exist_ok=True)
+                os.replace(stage / "graph.db", directory / "graph.db")
+                self._save_manifest(directory, manifest)
+            if subject.embeddings == "openai":
+                # Keep the authorized snapshot and committed vector batches even
+                # if the review ends. Every external request and later query is
+                # still authorized by the gateway; saving local data grants no access.
+                manifest = {**manifest, "embedding_state": "unavailable",
+                            "embedding_attempt_run_id": identity.run_id}
+                self._save_manifest(directory, manifest)
+                if self.client.get_code_graph_subject(identity) != subject:
+                    raise GraphError("graph authority changed")
+                result = self._execute(identity, subject, {
+                    "operation": "embed", "database": str(directory / "graph.db"),
+                }, timeout=max(1, 300 - (time.monotonic() - started)))
+                self._save_manifest(directory, {**manifest, **result})
             os.utime(directory, None)
-            self._failed = None
         except Exception as exc:
             logger.warning(
                 "Code graph preparation unavailable: repository_id=%d head_sha=%s error_type=%s",
                 subject.repository_id, subject.head_sha, type(exc).__name__,
             )
-            self._failed = (identity.run_id, self._key(subject))
+            with self._state_lock:
+                self._failed.append((identity.run_id, self._key(subject)))
         finally:
             # The source root remains for CRG's path validation; queries read saved graph rows.
             try:
                 shutil.rmtree(self.work, ignore_errors=True)
                 (self.source / ".code-review-graph").mkdir(parents=True, exist_ok=True)
             finally:
-                self._active = None
-                self._slot.release()
+                with self._state_lock:
+                    self._active = None
+                    self._active_identity = None
+                    self._slot.release()
+                    self._start_next()
+
+    @staticmethod
+    def _save_manifest(directory: Path, manifest: Mapping[str, object]) -> None:
+        pending = directory / "manifest.json.tmp"
+        pending.write_text(json.dumps(manifest), encoding="utf-8")
+        os.replace(pending, directory / "manifest.json")
 
     def close(self) -> None:
-        self._stopping = True
-        if self._process is not None and self._process.poll() is None:
+        with self._state_lock:
+            self._stopping = True
+            self._pending.clear()
+            thread = self._thread
+        process = self._process
+        if process is not None and process.poll() is None:
             try:
-                os.killpg(self._process.pid, signal.SIGKILL)
+                os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+        if thread is not None:
+            thread.join(timeout=5)
 
     def _execute(
         self, identity: GraphIdentity, subject: GraphSubject, request: dict[str, object], *, timeout: float,
@@ -264,7 +326,8 @@ class CodeGraphService:
             "CRG_ALLOW_REMOTE_CODE": "0", "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_TERMINAL_PROMPT": "0",
         }
-        if subject.embeddings == "openai":
+        embeddings = "none" if request["operation"] == "build" else subject.embeddings
+        if embeddings == "openai":
             environment.update({
                 "CRG_OPENAI_API_KEY": base64.b64encode(json.dumps(identity.to_mapping()).encode()).decode("ascii"),
                 "CRG_OPENAI_BASE_URL": self.gateway_url.rstrip("/") + "/v1/code-graph",
@@ -272,7 +335,7 @@ class CodeGraphService:
                 "CRG_OPENAI_DIMENSION": str(EMBEDDING_DIMENSIONS),
                 "CRG_OPENAI_BATCH_SIZE": "64",
             })
-        payload = json.dumps({**request, "source": str(self.source), "embeddings": subject.embeddings}).encode()
+        payload = json.dumps({**request, "source": str(self.source), "embeddings": embeddings}).encode()
         with tempfile.TemporaryFile() as output:
             process = subprocess.Popen(
                 [str(self.python), str(self.runner), "--indexer"],

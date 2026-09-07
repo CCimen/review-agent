@@ -14,6 +14,8 @@ It returns candidate paths, symbols, and line ranges for source inspection.
 It is off by default. The deployment switch described here is available from
 v0.4.0-rc.2. Install the
 matching image and review profile when enabling the pilot.
+Use v0.4.0-rc.3 or newer for queued preparation and recovery of interrupted
+embeddings.
 
 Structural queries find known symbols, callers, callees, references, and possible
 tests without an embedding model. Optional OpenAI `text-embedding-3-small`
@@ -107,10 +109,15 @@ fresh vectors. A body-only edit may need graph updates without new embeddings:
 the embedding text contains symbol names, signatures, parent context, and short
 docstrings, not function bodies. The gateway bounds each text to 2,048 characters.
 
-If embeddings fail, a later review can retry them once against the retained graph
-without downloading or parsing the same commit again. The graph is copied to
-staging so a failed write cannot damage the retained index. Repeated preparation calls
-within that review do not retry. There is no background retry loop.
+The complete structural graph is saved before embeddings start. Each successful
+embedding batch is committed to that cache. If the review finishes, authorization
+is revoked, or the embedding process stops, the completed graph and committed
+batches remain available for a later authorized review. That review retries only
+missing or changed vectors; the same commit needs no new archive or parsing.
+Incremental builds for a new commit also retain committed vectors after a restart.
+Repeated preparation calls within one review do not retry a failed embedding
+attempt. There is no background retry loop, and retaining cache data does not
+authorize further source reads, embedding requests, or graph queries.
 
 OpenAI uses 1,536-dimensional vectors. Known-symbol and relationship queries stay
 local; only description searches call the embedding API. All vectors are stored
@@ -126,10 +133,17 @@ enabled. It retains ownership of credentials and authorization. PostgreSQL
 remains the application database; CRG's local graph database is a disposable
 derived artifact.
 
-The service runs one index build or query at a time. Busy, cold, failed, revoked,
-or incompatible indexes do not supply graph context. Normal source tools and
-review publication continue through their existing checks. The model must not
-poll or shorten its review because a graph is unavailable.
+The service runs one index build or query at a time and can queue four preparation
+requests, coalescing requests for the same repository and commit. Queued work is
+authorized again when its turn starts. If its review has already ended, it is
+discarded before downloading source or requesting embeddings. A full queue
+returns `busy`; pending preparations return `queued`. The queue is disposable
+and clears on shutdown; saved graphs and committed vectors survive a restart.
+
+A short review can finish before its first graph is ready. Busy, queued, cold,
+failed, revoked, or incompatible indexes do not supply graph context. Normal
+source tools and review publication continue through their existing checks. The
+model must not poll or shorten its review because a graph is unavailable.
 
 Bounds include a 64 MiB compressed archive, 256 MiB expanded files, 10,000 files
 and 20,000 archive entries, 100,000 graph nodes, a 2 GiB graph database, and a

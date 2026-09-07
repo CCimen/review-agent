@@ -33,7 +33,7 @@ def request_graph(
             raise GraphError("invalid graph response")
         result = cast(dict[str, object], decoded)
         status = result.get("status")
-        if not isinstance(status, str) or status not in {"disabled", "building", "busy", "ready", "unavailable", "embeddings_unavailable"}:
+        if not isinstance(status, str) or status not in {"disabled", "building", "queued", "busy", "ready", "unavailable", "embeddings_unavailable"}:
             raise GraphError("invalid graph status")
         return result
     except urllib.error.HTTPError as exc:

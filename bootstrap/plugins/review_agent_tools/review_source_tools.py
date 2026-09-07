@@ -20,6 +20,7 @@ from . import (
 )
 from .domain.review import DiffState
 from .github.gateway import GitHubGatewayError
+from .review_code_graph_tool import prepare_graph
 from .postgres.coverage import FileIndexSummary, RunFile, RunFilePage
 from .postgres.runtime import PostgreSQLRuntimeError
 from .review_tool_runtime import (
@@ -287,6 +288,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
             pr_number=number,
             phase=persisted.phase,
         )
+        graph_context = prepare_graph(source)
         phase = persisted.phase
         if phase == "accepted":
             review_run_application.advance_live_phase(
@@ -408,6 +410,8 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
         result["repository_decisions_untrusted"] = repository_decision_context.payload(
             decision_context
         )
+        if graph_context is not None:
+            result["code_graph"] = graph_context
         rendered = output_json(result)
         if len(rendered) > capacity.current().result_max_chars:
             result["repository_decisions_untrusted"] = (

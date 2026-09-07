@@ -44,6 +44,7 @@ def register(ctx: ToolRegistry) -> None:
     source_tools = import_module(f"{__name__}.review_source_tools")
     memory_tools = import_module(f"{__name__}.review_memory_tools")
     delivery_tool = import_module(f"{__name__}.review_delivery_tool")
+    graph_tool = import_module(f"{__name__}.review_code_graph_tool")
 
     ctx.register_tool(
         name="review_agent_begin",
@@ -68,6 +69,12 @@ def register(ctx: ToolRegistry) -> None:
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_PR_FILE"),
         handler=getattr(source_tools, "pr_file"),
+    )
+    ctx.register_tool(
+        name="review_agent_related_code",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_RELATED_CODE"),
+        handler=getattr(graph_tool, "related_code"),
     )
     ctx.register_tool(
         name="review_agent_memory_context",

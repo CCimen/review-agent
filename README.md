@@ -87,6 +87,7 @@ search and task-based navigation. Key pages:
 | Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
 | Add repository instructions and platform context | [Repository context](docs/REPOSITORY_CONTEXT.md) |
+| Try optional graph context | [Code graph pilot](docs/CODE_GRAPH.md) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |
 | Assess trust boundaries | [Security](docs/SECURITY.md) |
 | See capabilities and boundaries | [Capabilities](docs/ROADMAP.md) |

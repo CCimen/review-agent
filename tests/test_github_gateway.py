@@ -54,6 +54,7 @@ from review_agent_tools.github.source import (  # noqa: E402
     read_review_pull,
 )
 from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
+from review_agent_tools.code_graph_contract import GraphIdentity, GraphPolicy  # noqa: E402
 from review_agent_tools.source_control import (  # noqa: E402
     GitHubReadError,
     PullSnapshot,
@@ -1145,6 +1146,71 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
 
         self.assertEqual(authorize.call_count, 2)
         read.assert_called_once_with(github, scope)
+
+    def test_graph_archive_uses_persisted_subject_and_rechecks_authority(self) -> None:
+        github = Mock()
+        github.request_archive.return_value = b"archive"
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        service = ReviewGitHubGateway(
+            postgres=Mock(), tokens=tokens, profile="default-standard",
+            github_factory=Mock(return_value=github),
+            graph_policy=GraphPolicy(frozenset({9001})),
+        )
+        request = ReviewSourceRequest.from_mapping({
+            "operation": "archive", "run_id": 51, "job_id": 61, "lease_generation": 7,
+        })
+        scope = self._scope()
+        with patch.object(
+            ReviewGitHubGateway, "_require_source_authority", return_value=scope,
+        ) as authority:
+            self.assertEqual(service.read_review_source(request), b"archive")
+            self.assertEqual(authority.call_count, 2)
+        self.assertEqual(github.request_archive.call_args.args, (scope.repository, scope.head_sha))
+        with patch.object(
+            ReviewGitHubGateway, "_require_source_authority",
+            side_effect=(scope, GitHubGatewayRejected("repository_not_authorized")),
+        ), self.assertRaises(GitHubGatewayRejected):
+            service.read_review_source(request)
+
+    def test_graph_disabled_never_downloads_repository_or_requests_token(self) -> None:
+        tokens = Mock()
+        service = ReviewGitHubGateway(postgres=Mock(), tokens=tokens, profile="default-standard")
+        identity = {"run_id": 51, "job_id": 61, "lease_generation": 7}
+        with patch.object(ReviewGitHubGateway, "_require_source_authority", return_value=self._scope()):
+            subject = service.read_review_source(ReviewSourceRequest.from_mapping({
+                **identity, "operation": "graph_subject",
+            }))
+            self.assertFalse(subject.enabled)
+            with self.assertRaises(GitHubGatewayRejected):
+                service.read_review_source(ReviewSourceRequest.from_mapping({
+                    **identity, "operation": "archive",
+                }))
+        tokens.token_for.assert_not_called()
+
+    def test_cloud_embeddings_require_opt_in_and_fresh_authority_after_provider_io(self) -> None:
+        service = ReviewGitHubGateway(
+            postgres=Mock(), tokens=Mock(), profile="default-standard",
+            graph_policy=GraphPolicy(frozenset({9001}), "openai", "synthetic-test-key"),
+        )
+        identity = GraphIdentity(51, 61, 7)
+        request = {"model": "text-embedding-3-small", "input": ["public function metadata"]}
+        with (
+            patch.object(ReviewGitHubGateway, "_require_source_authority",
+                         side_effect=(self._scope(), GitHubGatewayRejected("review_job_lease_lost"))),
+            patch.object(gateway_module, "openai_embeddings", return_value={"data": []}) as provider,
+            self.assertRaises(GitHubGatewayRejected),
+        ):
+            service.embed_code_graph(identity, request)
+        provider.assert_called_once()
+        disabled = ReviewGitHubGateway(postgres=Mock(), tokens=Mock(), profile="default-standard")
+        with (
+            patch.object(ReviewGitHubGateway, "_require_source_authority", return_value=self._scope()),
+            patch.object(gateway_module, "openai_embeddings") as provider,
+            self.assertRaises(GitHubGatewayRejected),
+        ):
+            disabled.embed_code_graph(identity, request)
+        provider.assert_not_called()
 
     def test_cached_file_reads_still_check_authority_and_tokens(self) -> None:
         github = Mock()

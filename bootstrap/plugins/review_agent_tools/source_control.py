@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from http.client import HTTPMessage
 import json
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -32,6 +33,9 @@ _API_ROOT = "https://api.github.com"
 _DEFAULT_MAX_ATTEMPTS = 3
 _DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
 _MAX_ERROR_RESPONSE_BYTES = 4_096
+_ARCHIVE_ENDPOINT = re.compile(
+    r"^/repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/tarball/([0-9a-f]{40,64})$"
+)
 
 
 def is_github_rate_limit_error(exc: urllib.error.HTTPError) -> bool:
@@ -141,6 +145,45 @@ class SameOriginHttpsRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+class GitHubArchiveRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Download one exact GitHub archive without forwarding the App token."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        try:
+            source = urllib.parse.urlsplit(req.full_url)
+            target = urllib.parse.urlsplit(newurl)
+            subject = _ARCHIVE_ENDPOINT.fullmatch(source.path)
+            allowed_origin = (
+                _credentialed_https_origin(req.full_url) == ("https", "api.github.com", 443)
+                and _credentialed_https_origin(newurl) == ("https", "codeload.github.com", 443)
+            )
+        except ValueError:
+            return None
+        if subject and allowed_origin and not source.query and not target.fragment:
+            owner, repository, sha = subject.groups()
+            if target.path not in {
+                f"/{owner}/{repository}/legacy.tar.gz/{sha}",
+                f"/{owner}/{repository}/tar.gz/{sha}",
+            }:
+                return None
+            # Private archive URLs contain a short-lived download credential.
+            # They must never carry the installation token to the download host.
+            return urllib.request.Request(
+                newurl,
+                headers={"User-Agent": "Hermes-PR-Review/2.0"},
+                method="GET",
+            )
+        return None
+
+
 class GitHubReadError(Exception):
     """A transport failure that the tool boundary translates into its public error."""
 
@@ -191,6 +234,34 @@ class GitHubReadClient:
         accept: str = "application/vnd.github+json",
         max_bytes: int = 2_000_000,
     ) -> tuple[bytes, bool, dict[str, str]]:
+        return self._request(
+            endpoint, accept=accept, max_bytes=max_bytes, opener=self._opener
+        )
+
+    def request_archive(self, repository: str, commit_sha: str, *, max_bytes: int) -> bytes:
+        """Read a bounded tar archive for a caller-authorized immutable commit."""
+        endpoint = f"/repos/{repository}/tarball/{commit_sha}"
+        if (_ARCHIVE_ENDPOINT.fullmatch(endpoint) is None or max_bytes < 1
+                or any(part in {".", ".."} for part in repository.split("/"))):
+            raise GitHubReadError("invalid_endpoint", "invalid GitHub archive subject")
+        raw, truncated, _ = self._request(
+            endpoint,
+            accept="application/vnd.github+json",
+            max_bytes=max_bytes,
+            opener=urllib.request.build_opener(GitHubArchiveRedirectHandler()),
+        )
+        if truncated:
+            raise GitHubReadError("response_too_large", "repository archive exceeds the size limit")
+        return raw
+
+    def _request(
+        self,
+        endpoint: str,
+        *,
+        accept: str,
+        max_bytes: int,
+        opener: urllib.request.OpenerDirector,
+    ) -> tuple[bytes, bool, dict[str, str]]:
         if not endpoint.startswith("/") or "//" in endpoint:
             raise GitHubReadError("invalid_endpoint", "invalid GitHub API endpoint")
         headers = {
@@ -205,7 +276,7 @@ class GitHubReadClient:
         )
         for attempt in range(self._max_attempts):
             try:
-                with self._opener.open(
+                with opener.open(
                     request, timeout=self._request_timeout_seconds
                 ) as response:
                     data = response.read(max_bytes + 1)

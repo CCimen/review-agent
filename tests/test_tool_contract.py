@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from http.client import BadStatusLine
 import json
 import os
 import sys
@@ -17,6 +18,7 @@ import review_agent_tools  # noqa: E402
 from review_agent_tools import (  # noqa: E402
     capacity,
     review_contract,
+    review_code_graph_tool,
     review_delivery_tool,
     review_memory_tools,
     repository_decision_context,
@@ -40,6 +42,7 @@ from review_agent_tools.postgres.coverage import (  # noqa: E402
     RunFilePage,
 )
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
+from review_agent_tools.code_graph_contract import GraphError  # noqa: E402
 
 TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
     profile="default-standard",
@@ -212,6 +215,15 @@ class ToolContractTests(unittest.TestCase):
                     session_id=self.session_id,
                 )
             )
+            with (
+                patch.dict(os.environ, {"REVIEW_AGENT_CODE_GRAPH_URL": "http://graph:8647"}),
+                patch("review_agent_tools.code_graph_client.urllib.request.build_opener") as opener,
+            ):
+                opener.return_value.open.side_effect = BadStatusLine("invalid graph response")
+                result = json.loads(review_source_tools.review_begin(
+                    {"existing_run_id": 41}, session_id=self.session_id,
+                ))
+                self.assertEqual(result["code_graph"]["status"], "unavailable")
 
         self.assertEqual(result["run_id"], 41)
         self.assertEqual(result["phase"], "reviewing")
@@ -885,12 +897,40 @@ class ToolContractTests(unittest.TestCase):
         source.assert_not_called()
         runtime.assert_not_called()
 
+    def test_graph_context_matches_repository_and_commit_and_fails_without_blocking_source_work(self) -> None:
+        source = SimpleNamespace(run_id=41, lease=SimpleNamespace(job_id=7, lease_generation=3))
+        pull = {"head": {"sha": "a" * 40, "repo": {"id": 91}}}
+        response = {"status": "ready", "repository_id": 91, "head_sha": "a" * 40,
+                    "results": [{"path": "validation.py", "line_start": 3, "line_end": 8}]}
+        args = {"run_id": 41, "pattern": "callers_of", "target": "validate_default"}
+        with (
+            patch.dict(os.environ, {"REVIEW_AGENT_CODE_GRAPH_URL": "http://graph:8647"}),
+            patch.object(review_code_graph_tool, "gateway_source_session", return_value=source),
+            patch.object(review_code_graph_tool, "pull_request_identity", return_value=("example/project", 12, pull)),
+            patch.object(review_code_graph_tool, "review_run_snapshot", return_value=pull) as snapshot,
+            patch.object(review_code_graph_tool, "request_graph", return_value=response) as graph,
+        ):
+            result = json.loads(review_code_graph_tool.related_code.__wrapped__(args))
+            self.assertEqual(result["results"], response["results"])
+            self.assertEqual(result["context_trust"], "untrusted")
+            self.assertEqual(snapshot.call_count, 2)
+            for mismatch in ({**response, "repository_id": 92}, {**response, "head_sha": "b" * 40}):
+                graph.return_value = mismatch
+                result = json.loads(review_code_graph_tool.related_code.__wrapped__(args))
+                self.assertEqual(result["status"], "unavailable")
+                self.assertNotIn("results", result)
+            graph.side_effect = GraphError("service unavailable")
+            result = json.loads(review_code_graph_tool.related_code.__wrapped__(args))
+            self.assertEqual(result["status"], "unavailable")
+            self.assertNotIn("error", result)
+
     def test_every_model_handler_requires_a_worker_lease(self) -> None:
         handlers = (
             (review_source_tools.review_begin, {"existing_run_id": 41}),
             (review_source_tools.pr_files, {"run_id": 41}),
             (review_source_tools.pr_diff, {"run_id": 41}),
             (review_source_tools.pr_file, {"run_id": 41}),
+            (review_code_graph_tool.related_code, {"run_id": 41}),
             (review_memory_tools.review_memory_context, {"run_id": 41}),
             (review_memory_tools.review_memory_record, {"run_id": 41}),
             (review_delivery_tool.review_deliver, {"run_id": 41}),

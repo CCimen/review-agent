@@ -1,0 +1,53 @@
+# Optional pilot overlay. It is not loaded by the default Compose deployment.
+services:
+  hermes-review:
+    environment:
+      REVIEW_AGENT_CODE_GRAPH_URL: http://review-code-graph:8647
+
+  review-github-gateway:
+    environment:
+      REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS: "${REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS:-}"
+      REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS: "${REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS:-none}"
+      REVIEW_AGENT_OPENAI_API_KEY: "${REVIEW_AGENT_OPENAI_API_KEY:-}"
+
+  review-code-graph:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
+    restart: unless-stopped
+    user: "10000:10000"
+    entrypoint: ["/opt/hermes/.venv/bin/python", "/usr/local/bin/review_agent_code_graph.py"]
+    environment:
+      REVIEW_AGENT_GITHUB_GATEWAY_URL: http://review-github-gateway:8646
+      REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES: "${REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES:-10737418240}"
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - review_code_graph_data:/var/lib/review-agent-code-graph
+    networks:
+      - review-github-control
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    stop_grace_period: 10s
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8647/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+          pids: 64
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  review_code_graph_data:

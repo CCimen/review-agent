@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 
 from .. import capacity, changed_files
+from ..code_graph_contract import ARCHIVE_MAX_BYTES, GraphError, GraphIdentity, GraphSubject
 from ..source_control import SameOriginHttpsRedirectHandler
 from .gateway import (
     ACKNOWLEDGE_FEEDBACK_PATH,
@@ -265,6 +266,24 @@ class ReviewGitHubGatewayClient:
         except GitHubSourceError as exc:
             raise GitHubGatewayProtocolError(str(exc)) from exc
 
+    def get_code_graph_subject(self, identity: GraphIdentity) -> GraphSubject:
+        decoded = self._post(
+            READ_REVIEW_SOURCE_PATH,
+            {**identity.to_mapping(), "operation": "graph_subject"},
+        )
+        try:
+            return GraphSubject.from_mapping(decoded)
+        except GraphError as exc:
+            raise GitHubGatewayProtocolError("invalid code graph subject") from exc
+
+    def get_code_graph_archive(self, identity: GraphIdentity) -> bytes:
+        return self._request_bytes(
+            "POST", READ_REVIEW_SOURCE_PATH,
+            {**identity.to_mapping(), "operation": "archive"},
+            headers={"Content-Type": "application/json", "Accept": "application/gzip"},
+            max_response_bytes=ARCHIVE_MAX_BYTES,
+        )
+
     def get_changed_files_page(
         self,
         *,
@@ -396,6 +415,26 @@ class ReviewGitHubGatewayClient:
         headers: dict[str, str],
         max_response_bytes: int,
     ) -> dict[str, object]:
+        raw = self._request_bytes(
+            method, path, payload_value, headers=headers, max_response_bytes=max_response_bytes,
+        )
+        try:
+            decoded = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise GitHubGatewayProtocolError("gateway returned invalid JSON") from exc
+        if not isinstance(decoded, dict):
+            raise GitHubGatewayProtocolError("gateway response must be an object")
+        return cast(dict[str, object], decoded)
+
+    def _request_bytes(
+        self,
+        method: Literal["GET", "POST"],
+        path: str,
+        payload_value: dict[str, object] | None,
+        *,
+        headers: dict[str, str],
+        max_response_bytes: int,
+    ) -> bytes:
         payload = (
             None
             if payload_value is None
@@ -428,13 +467,7 @@ class ReviewGitHubGatewayClient:
             raise GitHubGatewayRetryable("github_gateway_unavailable") from exc
         if len(raw) > max_response_bytes:
             raise GitHubGatewayProtocolError("gateway response exceeded its bound")
-        try:
-            decoded = json.loads(raw)
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise GitHubGatewayProtocolError("gateway returned invalid JSON") from exc
-        if not isinstance(decoded, dict):
-            raise GitHubGatewayProtocolError("gateway response must be an object")
-        return cast(dict[str, object], decoded)
+        return raw
 
 
 class AuthorizedPublicationGateway:

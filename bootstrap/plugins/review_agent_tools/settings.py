@@ -35,14 +35,23 @@ class ReviewAgentSettings:
 
     @property
     def github_gateway_url(self) -> str:
-        value = self.environment.get("REVIEW_AGENT_GITHUB_GATEWAY_URL", "").strip()
+        return self._http_origin("REVIEW_AGENT_GITHUB_GATEWAY_URL")
+
+    @property
+    def code_graph_url(self) -> str | None:
+        if not self.environment.get("REVIEW_AGENT_CODE_GRAPH_URL", "").strip():
+            return None
+        return self._http_origin("REVIEW_AGENT_CODE_GRAPH_URL")
+
+    def _http_origin(self, variable: str) -> str:
+        value = self.environment.get(variable, "").strip()
         if not value:
-            raise SettingsError("REVIEW_AGENT_GITHUB_GATEWAY_URL is required")
+            raise SettingsError(f"{variable} is required")
         try:
             parsed = urlsplit(value)
         except ValueError as exc:
             raise SettingsError(
-                "REVIEW_AGENT_GITHUB_GATEWAY_URL must be one HTTP origin"
+                f"{variable} must be one HTTP origin"
             ) from exc
         if (
             parsed.scheme not in {"http", "https"}
@@ -54,7 +63,7 @@ class ReviewAgentSettings:
             or parsed.fragment
         ):
             raise SettingsError(
-                "REVIEW_AGENT_GITHUB_GATEWAY_URL must be one HTTP origin"
+                f"{variable} must be one HTTP origin"
             )
         return value.rstrip("/")
 

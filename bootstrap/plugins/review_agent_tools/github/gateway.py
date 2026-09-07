@@ -11,6 +11,8 @@ from typing import Literal, TypeVar, cast
 import urllib.parse
 
 from .. import capacity, changed_files, memory_validation, schemas
+from ..code_graph_contract import ARCHIVE_MAX_BYTES, GraphError, GraphIdentity, GraphPolicy, GraphSubject
+from ..code_graph_embeddings import embedding_inputs, openai_embeddings
 from ..domain.review import ReviewRunId
 from ..postgres import github_app, jobs, review_runs, webhook_deliveries
 from ..postgres.runtime import PostgreSQLRuntime
@@ -291,7 +293,7 @@ class OperatorAppStatus:
 class ReviewSourceRequest:
     """Closed source operation plus durable run and worker lease identity."""
 
-    operation: Literal["pull", "changed_files", "diff", "file"]
+    operation: Literal["pull", "changed_files", "diff", "file", "graph_subject", "archive"]
     run_id: int
     job_id: int
     lease_generation: int
@@ -311,6 +313,8 @@ class ReviewSourceRequest:
         common = {"operation", "run_id", "job_id", "lease_generation"}
         expected = {
             "pull": common,
+            "graph_subject": common,
+            "archive": common,
             "changed_files": common | {"per_page", "page"},
             "diff": common,
             "file": common
@@ -322,7 +326,7 @@ class ReviewSourceRequest:
             )
         request = cls(
             operation=cast(
-                Literal["pull", "changed_files", "diff", "file"], operation
+                Literal["pull", "changed_files", "diff", "file", "graph_subject", "archive"], operation
             ),
             run_id=_positive(value.get("run_id"), "run_id"),
             job_id=_positive(value.get("job_id"), "job_id"),
@@ -384,7 +388,7 @@ class ReviewSourceRequest:
         return request
 
 
-SourceResult = ReviewPullSource | ReviewSourceBytes | ReviewFilePage
+SourceResult = ReviewPullSource | ReviewSourceBytes | ReviewFilePage | GraphSubject | bytes
 ProviderResult = TypeVar("ProviderResult")
 
 
@@ -601,6 +605,7 @@ class ReviewGitHubGateway:
         profile: str,
         github_factory: Callable[[str], GitHubReadClient] | None = None,
         feedback_factory: Callable[[str], GitHubIssueCommentGateway] | None = None,
+        graph_policy: GraphPolicy = GraphPolicy(),
     ) -> None:
         self._postgres = postgres
         self._tokens = tokens
@@ -608,6 +613,7 @@ class ReviewGitHubGateway:
         self._github_factory = github_factory or _gateway_github_client
         self._feedback_factory = feedback_factory or _gateway_feedback_client
         self._file_cache = ReviewFileCache()
+        self._graph_policy = graph_policy
 
     def authorize_review_delivery(
         self,
@@ -746,6 +752,27 @@ class ReviewGitHubGateway:
             job_id=request.job_id,
             lease_generation=request.lease_generation,
         )
+        if request.operation in {"graph_subject", "archive"}:
+            subject = GraphSubject(
+                scope.provider_repository_id, scope.repository, scope.head_sha,
+                self._graph_policy.allows(scope.provider_repository_id),
+                self._graph_policy.embeddings,
+            )
+            if request.operation == "graph_subject":
+                return subject
+            if not subject.enabled:
+                raise GitHubGatewayRejected("code_graph_disabled")
+            archive = self._provider_source(
+                scope.provider_repository_id,
+                lambda github: github.request_archive(
+                    scope.repository, scope.head_sha, max_bytes=ARCHIVE_MAX_BYTES,
+                ),
+            )
+            self._require_source_authority(
+                run_id=request.run_id, job_id=request.job_id,
+                lease_generation=request.lease_generation,
+            )
+            return archive
         if request.operation == "pull":
             def operation(github: GitHubReadClient) -> SourceResult:
                 return read_review_pull(github, scope)
@@ -791,6 +818,28 @@ class ReviewGitHubGateway:
             run_id=request.run_id,
             job_id=request.job_id,
             lease_generation=request.lease_generation,
+        )
+        return result
+
+    def embed_code_graph(
+        self, identity: GraphIdentity, payload: Mapping[str, object]
+    ) -> dict[str, object]:
+        scope = self._require_source_authority(
+            run_id=identity.run_id, job_id=identity.job_id,
+            lease_generation=identity.lease_generation,
+        )
+        policy = self._graph_policy
+        if (not policy.allows(scope.provider_repository_id)
+                or policy.embeddings != "openai" or not policy.openai_api_key):
+            raise GitHubGatewayRejected("code_graph_embeddings_disabled")
+        texts = embedding_inputs(payload)
+        try:
+            result = openai_embeddings(texts, policy.openai_api_key)
+        except GraphError as exc:
+            raise GitHubGatewayRetryable("code_graph_embeddings_unavailable") from exc
+        self._require_source_authority(
+            run_id=identity.run_id, job_id=identity.job_id,
+            lease_generation=identity.lease_generation,
         )
         return result
 

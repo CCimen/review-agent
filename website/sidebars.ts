@@ -23,6 +23,7 @@ const sidebars: SidebarsConfig = {
         'docs/AI_ASSISTED_SETUP',
         'docs/BEHAVIOR_OWNERSHIP',
         'docs/REPOSITORY_CONTEXT',
+        'docs/CODE_GRAPH',
       ],
     },
     {

@@ -45,6 +45,7 @@ from review_agent_tools.github.publication import (  # noqa: E402
     PullRequestState,
 )
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
+from review_agent_tools.code_graph_contract import GraphIdentity  # noqa: E402
 
 
 def _entrypoint_module():
@@ -89,7 +90,7 @@ class _Gateway:
             head_sha="a" * 40,
         )
 
-    def read_review_source(self, request: ReviewSourceRequest) -> ReviewPullSource:
+    def read_review_source(self, request: ReviewSourceRequest) -> ReviewPullSource | bytes:
         self.source_calls.append(
             {
                 "run_id": request.run_id,
@@ -99,6 +100,8 @@ class _Gateway:
         )
         if self.failure is not None:
             raise self.failure
+        if request.operation == "archive":
+            return b"bounded archive bytes"
         return ReviewPullSource(
             repository="CCimen/review-agent",
             pr_number=42,
@@ -285,6 +288,18 @@ class GitHubGatewayEntrypointTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 400)
         self.assertEqual(self.gateway.calls, [])
         raised.exception.close()
+
+    def test_archive_bytes_round_trip_and_concurrency_slot_is_released(self) -> None:
+        client = ReviewGitHubGatewayClient(self.base_url)
+        identity = GraphIdentity(51, 61, 7)
+        self.assertEqual(client.get_code_graph_archive(identity), b"bounded archive bytes")
+        self.assertTrue(self.server.acquire_archive_slot())
+        try:
+            with self.assertRaises(GitHubGatewayRetryable):
+                client.get_code_graph_archive(identity)
+        finally:
+            self.server.release_archive_slot()
+        self.assertEqual(client.get_code_graph_archive(identity), b"bounded archive bytes")
 
     def test_source_route_accepts_only_run_and_worker_lease_identity(self) -> None:
         client = ReviewGitHubGatewayClient(self.base_url)

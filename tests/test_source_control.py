@@ -98,6 +98,51 @@ def _http_error_with_body(code: int, message: str) -> urllib.error.HTTPError:
 
 
 class GitHubReadClientTests(unittest.TestCase):
+    def test_archive_download_uses_an_exact_commit_and_rejects_truncation(self) -> None:
+        opener = Mock()
+        opener.open.return_value = _FakeResponse(b"archive")
+        client = source_control.GitHubReadClient("installation-token", opener=opener)
+        sha = "a" * 40
+        with patch.object(source_control.urllib.request, "build_opener", return_value=opener):
+            self.assertEqual(
+                client.request_archive("example/project", sha, max_bytes=32),
+                b"archive",
+            )
+            request = opener.open.call_args.args[0]
+            self.assertEqual(
+                request.full_url,
+                f"https://api.github.com/repos/example/project/tarball/{sha}",
+            )
+            opener.open.return_value = _FakeResponse(b"x" * 33)
+            with self.assertRaises(source_control.GitHubReadError) as raised:
+                client.request_archive("example/project", sha, max_bytes=32)
+            self.assertEqual(raised.exception.kind, "response_too_large")
+
+    def test_archive_redirect_preserves_subject_and_drops_installation_token(self) -> None:
+        sha = "a" * 40
+        handler = source_control.GitHubArchiveRedirectHandler()
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/example/project/tarball/{sha}",
+            headers={"Authorization": "Bearer installation-token"},
+        )
+        target = f"https://codeload.github.com/example/project/legacy.tar.gz/{sha}"
+        redirected = handler.redirect_request(
+            request, io.BytesIO(), 302, "Found", email.message.Message(), target
+        )
+        self.assertIsNotNone(redirected)
+        assert redirected is not None
+        self.assertIsNone(redirected.get_header("Authorization"))
+        for forbidden in (
+            target.replace("codeload.github.com", "example.com"),
+            target.replace("example/project", "example/another-project"),
+            target.replace(sha, "b" * 40),
+            target.replace("https:", "http:"),
+        ):
+            with self.subTest(target=forbidden):
+                self.assertIsNone(handler.redirect_request(
+                    request, io.BytesIO(), 302, "Found", email.message.Message(), forbidden
+                ))
+
     def test_same_origin_redirect_with_query_keeps_the_token(self) -> None:
         handler = source_control.SameOriginHttpsRedirectHandler()
         request = urllib.request.Request(

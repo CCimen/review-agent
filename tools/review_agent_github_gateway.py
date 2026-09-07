@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
 import json
@@ -67,6 +68,9 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntimeRole,
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent_tools.code_graph_contract import (  # noqa: E402
+    GRAPH_EMBEDDINGS_PATH, GraphError, GraphIdentity, GraphPolicy,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -151,6 +155,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             AUTHORIZE_FEEDBACK_DELIVERY_PATH,
             AUTHORIZE_REVIEW_DELIVERY_PATH,
             READ_REVIEW_SOURCE_PATH,
+            GRAPH_EMBEDDINGS_PATH,
             EXECUTE_REVIEW_PUBLICATION_PATH,
             OPERATOR_SMOKE_PATH,
         }:
@@ -174,6 +179,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 self._acknowledge_feedback(server)
             elif self.path == READ_REVIEW_SOURCE_PATH:
                 self._read_source(server)
+            elif self.path == GRAPH_EMBEDDINGS_PATH:
+                self._embed_code_graph(server)
             elif self.path == OPERATOR_SMOKE_PATH:
                 self._operator_smoke(server)
             else:
@@ -331,6 +338,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         if length > _MAX_REQUEST_BYTES:
             self._write(413, {"reason": "payload_too_large"})
             return
+        archive_slot = False
+        response_started = False
         try:
             decoded = json.loads(self.rfile.read(length))
             if not isinstance(decoded, dict):
@@ -338,9 +347,51 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             request = ReviewSourceRequest.from_mapping(
                 cast(Mapping[str, object], decoded)
             )
+            if request.operation == "archive":
+                if not server.acquire_archive_slot():
+                    self._write(503, {"reason": "code_graph_archive_busy"})
+                    return
+                archive_slot = True
             result = server.gateway.read_review_source(request)
+            response_started = True
+            if isinstance(result, bytes):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/gzip")
+                self.send_header("Content-Length", str(len(result)))
+                self.end_headers()
+                self.wfile.write(result)
+            else:
+                self._write(200, result.to_mapping())
         except (json.JSONDecodeError, UnicodeDecodeError, GitHubGatewayProtocolError):
             self._write(400, {"reason": "invalid_gateway_request"})
+        except GitHubGatewayRejected as exc:
+            self._write(409, {"reason": exc.reason})
+        except GitHubGatewayRetryable as exc:
+            self._write_retryable(exc)
+        except (PostgreSQLRuntimeError, psycopg.Error):
+            self._write(503, {"reason": "github_gateway_database_unavailable"})
+        except Exception as exc:
+            logger.error("GitHub gateway source operation failed: %s", type(exc).__name__)
+            if not response_started:
+                self._write(500, {"reason": "github_gateway_internal_error"})
+        finally:
+            if archive_slot:
+                server.release_archive_slot()
+
+    def _embed_code_graph(self, server: "GatewayServer") -> None:
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+            token = self.headers.get("Authorization", "")
+            if not token.startswith("Bearer ") or len(token) > 512 or not 1 <= length <= 600_000:
+                raise GraphError("invalid graph embedding request")
+            identity_value = json.loads(base64.b64decode(token[7:], validate=True))
+            decoded = json.loads(self.rfile.read(length))
+            if not isinstance(identity_value, dict) or not isinstance(decoded, dict):
+                raise GraphError("invalid graph embedding request")
+            identity = GraphIdentity.from_mapping(cast(dict[str, object], identity_value))
+            result = server.gateway.embed_code_graph(identity, cast(dict[str, object], decoded))
+        except (ValueError, UnicodeError, GraphError):
+            self._write(400, {"reason": "invalid_graph_embedding_request"})
             return
         except GitHubGatewayRejected as exc:
             self._write(409, {"reason": exc.reason})
@@ -348,16 +399,11 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         except GitHubGatewayRetryable as exc:
             self._write_retryable(exc)
             return
-        except (PostgreSQLRuntimeError, psycopg.Error):
-            self._write(503, {"reason": "github_gateway_database_unavailable"})
-            return
         except Exception as exc:
-            logger.error(
-                "GitHub gateway source operation failed: %s", type(exc).__name__
-            )
-            self._write(500, {"reason": "github_gateway_internal_error"})
+            logger.error("Graph embedding request failed: %s", type(exc).__name__)
+            self._write(503, {"reason": "code_graph_embeddings_unavailable"})
             return
-        self._write(200, result.to_mapping())
+        self._write(200, result)
 
     def _execute_publication(self, server: "GatewayServer") -> None:
         try:
@@ -502,6 +548,13 @@ class GatewayServer(ThreadingHTTPServer):
         self.runtime = runtime
         self.operator_key = operator_key
         self._request_slots = threading.BoundedSemaphore(max_concurrent_requests)
+        self._archive_slot = threading.BoundedSemaphore(1)
+
+    def acquire_archive_slot(self) -> bool:
+        return self._archive_slot.acquire(blocking=False)
+
+    def release_archive_slot(self) -> None:
+        self._archive_slot.release()
 
     def acquire_request_slot(self) -> bool:
         return self._request_slots.acquire(blocking=False)
@@ -531,6 +584,7 @@ def serve(host: str, port: int) -> None:
             postgres=runtime,
             tokens=tokens,
             profile=settings.profile,
+            graph_policy=GraphPolicy.from_environment(os.environ),
         ),
         publication_gateway=ReviewPublicationGateway(
             postgres=runtime,

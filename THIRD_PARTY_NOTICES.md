@@ -15,6 +15,13 @@ The `bootstrap/profiles/default-standard/skills/ponytail` directory contains the
 Dietrich Gebert, vendored from release v4.7.0 under the MIT License. See the
 adjacent `LICENSE` and `SOURCE.md` files.
 
+## Code Review Graph
+
+The optional graph runtime packages Code Review Graph by Tirth Kanani, copyright
+2026, under the MIT License. Its source and dependency hashes are pinned in
+`requirements-code-graph.txt`. See the
+[license at the pinned revision](https://github.com/tirth8205/code-review-graph/blob/b58668751ab0c7670c078cf7cbd4d1f5b8e54f81/LICENSE).
+
 Other packaged dependencies retain their original licences. Package metadata
 provides available licence declarations, and the release SBOM inventories the
 packaged dependencies.

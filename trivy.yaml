@@ -4,6 +4,8 @@ ignorefile: /dev/null
 pkg:
   include-dev-deps: true
 scan:
+  file-patterns:
+    - 'pip:requirements-code-graph\.txt'
   disable-telemetry: true
   scanners:
     - vuln

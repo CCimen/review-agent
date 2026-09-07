@@ -22,6 +22,16 @@ COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt
 RUN uv pip install --no-cache --python /opt/hermes/.venv/bin/python \
         --requirement /opt/review-agent-requirements.txt
 
+# Graph parsing runs in a separate service and environment. Its dependencies do
+# not change the Hermes or gateway interpreter, and no CPU model is downloaded.
+COPY --chown=root:root requirements-code-graph.txt /opt/review-agent-code-graph-requirements.txt
+RUN uv venv --python /opt/hermes/.venv/bin/python /opt/review-agent-code-graph \
+    && uv pip install --no-cache --python /opt/review-agent-code-graph/bin/python \
+        --exclude-newer 2026-09-07T08:00:00Z \
+        --require-hashes --requirement /opt/review-agent-code-graph-requirements.txt \
+    && mkdir -p /var/lib/review-agent-code-graph \
+    && chown 10000:10000 /var/lib/review-agent-code-graph
+
 COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
 # Offline operator helpers imported by review-agent-memory. The webhook agent
 # cannot reach them because file, terminal, and code execution are disabled.

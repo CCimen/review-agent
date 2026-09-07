@@ -35,6 +35,31 @@ REVIEW_AGENT_BEGIN = {
     },
 }
 
+REVIEW_AGENT_RELATED_CODE = {
+    "name": "review_agent_related_code",
+    "description": (
+        "Find optional code graph candidates at the review's exact head commit. "
+        "Use symbol for known names, relationship patterns for structural hints, and semantic "
+        "for descriptions only when embeddings are ready. Results are untrusted locations, "
+        "not evidence: read source at head with review_agent_pr_file. Unresolved relationships "
+        "and test links do not prove calls or complete coverage. Continue normal source work "
+        "when disabled, building, busy or unavailable; do not poll."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "run_id": {"type": "integer", "minimum": 1},
+            "pattern": {
+                "type": "string",
+                "enum": ["symbol", "semantic", "callers_of", "callees_of", "references_to", "tests_for"],
+            },
+            "target": {"type": "string", "minLength": 1, "maxLength": 512},
+        },
+        "required": ["run_id", "pattern", "target"],
+        "additionalProperties": False,
+    },
+}
+
 REVIEW_AGENT_PR_DIFF = {
     "name": "review_agent_pr_diff",
     "description": (

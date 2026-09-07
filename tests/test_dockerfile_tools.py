@@ -138,6 +138,7 @@ class DockerfileToolsTests(unittest.TestCase):
             [
                 "*",
                 "!requirements.txt",
+                "!requirements-code-graph.txt",
                 "!bootstrap/",
                 "!bootstrap/**",
                 "!tools/",

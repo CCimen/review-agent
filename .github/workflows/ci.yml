@@ -130,6 +130,7 @@ jobs:
           test "$SCAN_OUTCOME" = success
           python3 scripts/check_trivy_report.py \
             --require-target "requirements.txt" \
+            --require-target "requirements-code-graph.txt" \
             --require-target "install/package-lock.json" \
             --require-target "website/package-lock.json" \
             dependency-vulnerabilities.json

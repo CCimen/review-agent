@@ -6,6 +6,7 @@ provides_tools:
   - review_agent_pr_diff
   - review_agent_pr_files
   - review_agent_pr_file
+  - review_agent_related_code
   - review_agent_memory_context
   - review_agent_memory_record
   - review_agent_deliver

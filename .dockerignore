@@ -1,5 +1,6 @@
 *
 !requirements.txt
+!requirements-code-graph.txt
 !bootstrap/
 !bootstrap/**
 !tools/

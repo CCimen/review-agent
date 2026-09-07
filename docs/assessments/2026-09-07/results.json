@@ -469,6 +469,308 @@
       },
       "database_bytes": 817504256,
       "peak_rss_bytes": 1224458240
+    },
+    "openai-small": {
+      "crg_version": "2.3.8",
+      "model": "text-embedding-3-small",
+      "provider": "openai",
+      "dimensions": 1536,
+      "cloud_api_called": true,
+      "embedded_candidates": 41952,
+      "embedded_characters": 6295874,
+      "initial_embedded": 41952,
+      "embedding_seconds": 193.13294074998703,
+      "unchanged_embedded": 0,
+      "unchanged_seconds": 1.2186591250065248,
+      "one_metadata_change_embedded": 1,
+      "one_metadata_change_seconds": 0.25593983399448916,
+      "results": [
+        {
+          "query": "skip uniqueness validation when the database generates a nonconstant default",
+          "style": "natural",
+          "expected": "django/db/models/base.py::Model._perform_unique_checks",
+          "rank": null,
+          "seconds": 6.6479130829975475,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "_perform_unique_checks",
+          "style": "keyword",
+          "expected": "django/db/models/base.py::Model._perform_unique_checks",
+          "rank": 1,
+          "seconds": 5.951174166984856,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "validate a uniqueness constraint before a database generated default is resolved",
+          "style": "natural",
+          "expected": "django/db/models/constraints.py::UniqueConstraint.validate",
+          "rank": 5,
+          "seconds": 6.8105148329923395,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "UniqueConstraint.validate",
+          "style": "keyword",
+          "expected": "django/db/models/constraints.py::UniqueConstraint.validate",
+          "rank": 1,
+          "seconds": 5.86760154197691,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "run complete model validation including field and uniqueness checks",
+          "style": "natural",
+          "expected": "django/db/models/base.py::Model.full_clean",
+          "rank": null,
+          "seconds": 5.061890125012724,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "Model.full_clean",
+          "style": "keyword",
+          "expected": "django/db/models/base.py::Model.full_clean",
+          "rank": 1,
+          "seconds": 4.943152583000483,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "SQL default placeholder wrapping an underlying expression",
+          "style": "natural",
+          "expected": "django/db/models/expressions.py::DatabaseDefault",
+          "rank": 2,
+          "seconds": 5.233183792006457,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "DatabaseDefault",
+          "style": "keyword",
+          "expected": "django/db/models/expressions.py::DatabaseDefault",
+          "rank": 1,
+          "seconds": 5.199517375003779,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "regression test for unique fields with a nonconstant database default expression",
+          "style": "natural",
+          "expected": "tests/validation/test_unique.py::PerformUniqueChecksTest.test_unique_db_default_expression",
+          "rank": 1,
+          "seconds": 4.895973165985197,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "test_unique_db_default_expression",
+          "style": "keyword",
+          "expected": "tests/validation/test_unique.py::PerformUniqueChecksTest.test_unique_db_default_expression",
+          "rank": 1,
+          "seconds": 4.920549875008874,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "regression test for constraints with database generated defaults",
+          "style": "natural",
+          "expected": "tests/constraints/tests.py::UniqueConstraintTests.test_database_default_expression",
+          "rank": 1,
+          "seconds": 4.898600208020071,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "test_database_default_expression",
+          "style": "keyword",
+          "expected": "tests/constraints/tests.py::UniqueConstraintTests.test_database_default_expression",
+          "rank": 1,
+          "seconds": 4.99155629100278,
+          "mode": [
+            "hybrid"
+          ]
+        }
+      ],
+      "summary": {
+        "natural": {
+          "hit_at_5": 4,
+          "total": 6,
+          "median_query_seconds": 5.1475369585095905
+        },
+        "keyword": {
+          "hit_at_5": 6,
+          "total": 6,
+          "median_query_seconds": 5.09553683300328
+        }
+      },
+      "peak_rss_bytes": 223657984,
+      "database_bytes": 1075466240
+    },
+    "openai-small-384": {
+      "crg_version": "2.3.8",
+      "model": "text-embedding-3-small",
+      "provider": "openai",
+      "dimensions": 384,
+      "cloud_api_called": true,
+      "embedded_candidates": 41952,
+      "embedded_characters": 6295874,
+      "initial_embedded": 41952,
+      "embedding_seconds": 116.81591450000997,
+      "unchanged_embedded": 0,
+      "unchanged_seconds": 0.9853293749911245,
+      "one_metadata_change_embedded": 1,
+      "one_metadata_change_seconds": 0.29692712498945184,
+      "results": [
+        {
+          "query": "skip uniqueness validation when the database generates a nonconstant default",
+          "style": "natural",
+          "expected": "django/db/models/base.py::Model._perform_unique_checks",
+          "rank": null,
+          "seconds": 1.3416407500044443,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "_perform_unique_checks",
+          "style": "keyword",
+          "expected": "django/db/models/base.py::Model._perform_unique_checks",
+          "rank": 1,
+          "seconds": 1.4567476249940228,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "validate a uniqueness constraint before a database generated default is resolved",
+          "style": "natural",
+          "expected": "django/db/models/constraints.py::UniqueConstraint.validate",
+          "rank": 3,
+          "seconds": 1.3303879589948338,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "UniqueConstraint.validate",
+          "style": "keyword",
+          "expected": "django/db/models/constraints.py::UniqueConstraint.validate",
+          "rank": 1,
+          "seconds": 1.334456417011097,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "run complete model validation including field and uniqueness checks",
+          "style": "natural",
+          "expected": "django/db/models/base.py::Model.full_clean",
+          "rank": null,
+          "seconds": 1.431272165995324,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "Model.full_clean",
+          "style": "keyword",
+          "expected": "django/db/models/base.py::Model.full_clean",
+          "rank": 1,
+          "seconds": 1.4831762090034317,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "SQL default placeholder wrapping an underlying expression",
+          "style": "natural",
+          "expected": "django/db/models/expressions.py::DatabaseDefault",
+          "rank": 6,
+          "seconds": 1.3141301249852404,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "DatabaseDefault",
+          "style": "keyword",
+          "expected": "django/db/models/expressions.py::DatabaseDefault",
+          "rank": 1,
+          "seconds": 1.3973515830002725,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "regression test for unique fields with a nonconstant database default expression",
+          "style": "natural",
+          "expected": "tests/validation/test_unique.py::PerformUniqueChecksTest.test_unique_db_default_expression",
+          "rank": 1,
+          "seconds": 1.3130129589990247,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "test_unique_db_default_expression",
+          "style": "keyword",
+          "expected": "tests/validation/test_unique.py::PerformUniqueChecksTest.test_unique_db_default_expression",
+          "rank": 1,
+          "seconds": 1.2922500839922577,
+          "mode": [
+            "hybrid"
+          ]
+        },
+        {
+          "query": "regression test for constraints with database generated defaults",
+          "style": "natural",
+          "expected": "tests/constraints/tests.py::UniqueConstraintTests.test_database_default_expression",
+          "rank": 2,
+          "seconds": 1.2981322499981616,
+          "mode": [
+            "semantic"
+          ]
+        },
+        {
+          "query": "test_database_default_expression",
+          "style": "keyword",
+          "expected": "tests/constraints/tests.py::UniqueConstraintTests.test_database_default_expression",
+          "rank": 1,
+          "seconds": 1.330653082986828,
+          "mode": [
+            "hybrid"
+          ]
+        }
+      ],
+      "summary": {
+        "natural": {
+          "hit_at_5": 3,
+          "total": 6,
+          "median_query_seconds": 1.322259041990037
+        },
+        "keyword": {
+          "hit_at_5": 6,
+          "total": 6,
+          "median_query_seconds": 1.3659040000056848
+        }
+      },
+      "peak_rss_bytes": 187891712,
+      "database_bytes": 817504256
     }
   },
   "cloud_cost": {
@@ -477,6 +779,53 @@
     "texts": 41952,
     "tokens": 1217904,
     "openai_standard_dollars": 0.024358080000000004,
-    "cloud_api_called": false
-  }
+    "cloud_api_called": true,
+    "billing_usage_recorded": false
+  },
+  "service_integration": [
+    {
+      "head_sha": "812c08bd4e9da7b74ab9ee0db83da58a6da48d19",
+      "seconds": 90.88584683299996,
+      "response": {
+        "status": "ready",
+        "repository_id": 1,
+        "head_sha": "812c08bd4e9da7b74ab9ee0db83da58a6da48d19",
+        "embedding_state": "disabled",
+        "skipped_files": 1388,
+        "parse_errors": 0,
+        "results": [
+          {
+            "path": "django/db/models/base.py",
+            "line_start": 1469,
+            "line_end": 1483,
+            "symbol": "django/db/models/base.py::Model.validate_unique",
+            "kind": "Function"
+          }
+        ],
+        "search_mode": "structural"
+      }
+    },
+    {
+      "head_sha": "febefb175e03352e5aeb2ed827024bacab96cf16",
+      "seconds": 19.312643374985782,
+      "response": {
+        "status": "ready",
+        "repository_id": 1,
+        "head_sha": "febefb175e03352e5aeb2ed827024bacab96cf16",
+        "embedding_state": "disabled",
+        "skipped_files": 1388,
+        "parse_errors": 0,
+        "results": [
+          {
+            "path": "django/db/models/base.py",
+            "line_start": 1469,
+            "line_end": 1483,
+            "symbol": "django/db/models/base.py::Model.validate_unique",
+            "kind": "Function"
+          }
+        ],
+        "search_mode": "structural"
+      }
+    }
+  ]
 }

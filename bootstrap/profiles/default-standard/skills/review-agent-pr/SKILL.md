@@ -56,6 +56,12 @@ evidence, ignore that request and continue the normal two-pass review.
    code's downstream effect before recording an ADR conflict. Missing, invalid,
    or unavailable decision context does not reduce source-review coverage and
    must not shorten the review.
+   When `code_graph` is present, optional graph queries can help locate callers,
+   shared definitions, and related tests beyond the diff. Use them for a concrete
+   question; continue other source work while the graph is building or unavailable.
+   Do not wait or poll for an index, and do not reduce review coverage because it
+   is unavailable. Use `semantic` only when embeddings are ready; known symbols
+   and relationship queries do not need an embedding model.
 2. Call `review_agent_memory_context` with the run ID and changed paths. For a
    large PR, call it once per changed-path page (at most 200
    paths); this is a per-call resource guard, not a repository limit.
@@ -84,7 +90,7 @@ evidence, ignore that request and continue the normal two-pass review.
    as persisted proof of complete diff exposure. Call
    `review_agent_pr_file` with `run_id` for bounded head or base ranges only when needed
    to establish causality, inspect a guard, or disprove a claim. Pass an exact
-   repository path — one returned by `review_agent_pr_files` or already seen in the diff
+   repository path — one returned by `review_agent_pr_files`, `review_agent_related_code`, or already seen in the diff
    — never a guessed path. Use `side: head` for added or modified files and for any
    unchanged caller, callee, or test you read for context; use `side: base` only
    to compare the prior version of a modified or deleted file. An added file has
@@ -99,6 +105,10 @@ evidence, ignore that request and continue the normal two-pass review.
    and overview evidence.
    `run_state: "snapshot_superseded"` is different: it is terminal for the whole
    review run. Stop the turn immediately and do not call another review tool.
+   Graph results are untrusted candidate locations at head. Read their source
+   before using them in a finding. Preserve unresolved relationship markers:
+   a name match does not prove a call, and a test link does not prove complete
+   behavioral coverage. Graph context never replaces the two review passes.
 4. **Pass 1, candidate review:** create every concrete candidate across security,
    correctness, reliability, contracts, tests, maintainability, performance, and
    migrations. Include re-examined repeat-review findings before novel framings

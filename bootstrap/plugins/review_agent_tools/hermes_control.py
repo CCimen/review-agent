@@ -19,6 +19,14 @@ from .model_accounts import (
     ModelProvider,
     RuntimeAccount,
 )
+from .model_quota import (
+    AccountQuota,
+    ManagedQuota,
+    ObservedQuota,
+    QuotaBucket,
+    QuotaSnapshot,
+    QuotaWindow,
+)
 
 
 MAX_RESPONSE_BYTES = 256 * 1024
@@ -68,6 +76,152 @@ class Cancellation:
     session_id: str
 
 
+def _quota_object(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise HermesControlError("Account quota is invalid")
+    return cast(dict[str, object], value)
+
+
+def _quota_number(value: object, *, maximum: float) -> float | None:
+    if value is None:
+        return None
+    if type(value) not in (int, float):
+        raise HermesControlError("Account quota number is invalid")
+    number = cast(int | float, value)
+    if not 0 <= number <= maximum:
+        raise HermesControlError("Account quota number is invalid")
+    return float(number)
+
+
+def _quota_integer(value: object, *, minimum: int, maximum: int) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or not minimum <= value <= maximum:
+        raise HermesControlError("Account quota count is invalid")
+    return value
+
+
+def _quota_bool(value: object) -> bool | None:
+    if value is not None and type(value) is not bool:
+        raise HermesControlError("Account quota state is invalid")
+    return value
+
+
+def _quota_text(value: object) -> str | None:
+    return None if value is None else _text(value, field="quota label", maximum=200)
+
+
+def _managed_quota(payload: dict[str, object], provider: ModelProvider) -> ManagedQuota:
+    observed = _quota_object(payload.get("observation"))
+    data = _quota_object(observed.get("data"))
+    fingerprint = observed.get("identity_sha256")
+    if fingerprint is not None and (
+        not isinstance(fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+    ):
+        raise HermesControlError("Account quota identity is invalid")
+    reason = data.get("unavailable_reason")
+    if reason not in (
+        None,
+        "not_supported",
+        "account_unavailable",
+        "provider_unavailable",
+    ):
+        raise HermesControlError("Account quota availability is invalid")
+    if data.get("provider") != provider.value or any(
+        type(data.get(name)) is not bool for name in ("refreshing", "stale")
+    ):
+        raise HermesControlError("Account quota state is invalid")
+    snapshot = None
+    if data.get("snapshot") is not None:
+        raw = _quota_object(data["snapshot"])
+        fetched = _quota_number(raw.get("fetched_at"), maximum=253402300799)
+        if fetched is None or fingerprint is None:
+            raise HermesControlError("Account quota observation is incomplete")
+        rows = raw.get("buckets")
+        if not isinstance(rows, list) or len(cast(list[object], rows)) > 32:
+            raise HermesControlError("Account quota buckets are invalid")
+        buckets: list[QuotaBucket] = []
+        for row in cast(list[object], rows):
+            bucket = _quota_object(row)
+            values = bucket.get("windows")
+            if not isinstance(values, list) or len(cast(list[object], values)) > 2:
+                raise HermesControlError("Account quota windows are invalid")
+            windows: list[QuotaWindow] = []
+            for value in cast(list[object], values):
+                window = _quota_object(value)
+                kind = window.get("kind")
+                if kind not in ("primary", "secondary"):
+                    raise HermesControlError("Account quota window is invalid")
+                windows.append(
+                    QuotaWindow(
+                        kind,
+                        _quota_number(window.get("used_percent"), maximum=2147483647),
+                        _quota_integer(
+                            window.get("duration_seconds"),
+                            minimum=1,
+                            maximum=2147483647,
+                        ),
+                        _quota_number(window.get("resets_at"), maximum=253402300799),
+                    )
+                )
+            if len({window.kind for window in windows}) != len(windows):
+                raise HermesControlError("Account quota windows are duplicated")
+            buckets.append(
+                QuotaBucket(
+                    _text(bucket.get("id"), field="quota bucket", maximum=200),
+                    _quota_text(bucket.get("name")),
+                    _quota_text(bucket.get("normal_model_slug")),
+                    _quota_bool(bucket.get("allowed")),
+                    _quota_bool(bucket.get("limit_reached")),
+                    tuple(windows),
+                )
+            )
+        if len({bucket.id for bucket in buckets}) != len(buckets):
+            raise HermesControlError("Account quota buckets are duplicated")
+        snapshot = QuotaSnapshot(
+            fetched,
+            _quota_text(raw.get("plan")),
+            tuple(buckets),
+            _quota_integer(
+                raw.get("reset_credits_available"),
+                minimum=0,
+                maximum=9223372036854775807,
+            ),
+            _quota_text(raw.get("limit_reached_type")),
+            _quota_bool(raw.get("spend_control_reached")),
+        )
+    runtime_key, instance = _runtime_identity(payload)
+    return ManagedQuota(
+        runtime_key,
+        instance,
+        ObservedQuota(
+            fingerprint,
+            AccountQuota(
+                provider,
+                snapshot,
+                cast(bool, data["refreshing"]),
+                cast(bool, data["stale"]),
+                _quota_number(data.get("next_refresh_at"), maximum=253402300799),
+                reason,
+            ),
+        ),
+    )
+
+
+def _runtime_identity(payload: dict[str, object]) -> tuple[str, UUID]:
+    runtime_key = payload.get("runtime_key")
+    if (
+        not isinstance(runtime_key, str)
+        or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", runtime_key) is None
+    ):
+        raise HermesControlError("Managed runtime identity is invalid")
+    try:
+        return runtime_key, UUID(str(payload.get("instance_id")))
+    except ValueError as exc:
+        raise HermesControlError("Managed runtime identity is invalid") from exc
+
+
 def _managed_status(payload: dict[str, object]) -> ManagedRuntimeStatus:
     raw_accounts = payload.get("accounts")
     if not isinstance(raw_accounts, list) or len(
@@ -101,15 +255,10 @@ def _managed_status(payload: dict[str, object]) -> ManagedRuntimeStatus:
             )
         if {account.provider for account in accounts} != set(ModelProvider):
             raise ValueError("Duplicate account")
-        runtime_key = payload.get("runtime_key")
-        if (
-            not isinstance(runtime_key, str)
-            or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", runtime_key) is None
-        ):
-            raise ValueError("Invalid runtime identity")
+        runtime_key, instance = _runtime_identity(payload)
         return ManagedRuntimeStatus(
             runtime_key,
-            UUID(str(payload.get("instance_id"))),
+            instance,
             review_contract.parse_contract(payload.get("contract")),
             tuple(accounts),
         )
@@ -385,6 +534,10 @@ class HermesControlClient:
     def managed_status(self) -> ManagedRuntimeStatus:
         return _managed_status(self._request("GET", "/api/managed-runtime"))
 
+    def quota(self, provider: ModelProvider, *, refresh: bool = False) -> ManagedQuota:
+        path = f"/api/quota/{provider.value}" + ("?refresh=true" if refresh else "")
+        return _managed_quota(self._request("GET", path), provider)
+
     def start_codex_login(self) -> LoginSession:
         payload = self._request("POST", "/api/providers/oauth/openai-codex/start")
         session_id = validate_session_id(
@@ -442,11 +595,17 @@ class HermesRuntimeClient:
     def _get(
         self,
         path: Literal[
-            "/health/detailed", "/v1/capabilities", "/v1/review-agent/status"
+            "/health/detailed",
+            "/v1/capabilities",
+            "/v1/review-agent/status",
+            "/v1/review-agent/quota/openai-codex",
+            "/v1/review-agent/quota/anthropic",
         ],
+        *,
+        refresh: bool = False,
     ) -> dict[str, object]:
         request = urllib.request.Request(
-            self.base_url + path,
+            self.base_url + path + ("?refresh=true" if refresh else ""),
             headers={
                 "Accept": "application/json",
                 "Authorization": f"Bearer {self._token}",
@@ -471,6 +630,14 @@ class HermesRuntimeClient:
 
     def managed_status(self) -> ManagedRuntimeStatus:
         return _managed_status(self._get("/v1/review-agent/status"))
+
+    def quota(self, provider: ModelProvider, *, refresh: bool = False) -> ManagedQuota:
+        path = (
+            "/v1/review-agent/quota/openai-codex"
+            if provider is ModelProvider.CODEX
+            else "/v1/review-agent/quota/anthropic"
+        )
+        return _managed_quota(self._get(path, refresh=refresh), provider)
 
     def status(self) -> HermesRuntimeStatus:
         health = self._get("/health/detailed")

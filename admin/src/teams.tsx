@@ -971,6 +971,7 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
         ),
   );
   const [effort, setEffort] = useState(policy.reasoning_effort ?? "");
+  const [maxConcurrency, setMaxConcurrency] = useState(policy.max_concurrency);
   const [reason, setReason] = useState("");
   const admin = isAdmin(scope.current.role);
   const connections = useQuery({
@@ -997,6 +998,7 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
         provider: choice?.provider ?? null,
         model: choice?.model ?? null,
         reasoning_effort: choice ? effort : null,
+        max_concurrency: maxConcurrency,
         expected_revision: policy.revision,
         reason,
       } satisfies components["schemas"]["TeamModelUpdate"]),
@@ -1119,6 +1121,20 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
           administrator can add model choices.
         </p>
       ) : null}
+      {admin ? (
+        <label className="field">
+          Maximum concurrent team reviews
+          <input
+            type="number"
+            required
+            min={1}
+            max={2147483647}
+            step={1}
+            value={maxConcurrency}
+            onChange={(event) => setMaxConcurrency(event.target.valueAsNumber)}
+          />
+        </label>
+      ) : null}
       <label className="field">
         Reason
         <textarea
@@ -1129,8 +1145,10 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
         />
       </label>
       <p className="field-help">
-        Applies to newly admitted reviews. Queued and running reviews keep their
-        original account and model.
+        Model changes apply to newly admitted reviews. Queued and running
+        reviews keep their original account and model. Capacity limits apply to
+        new claims across all workers and connections; reviews already claimed
+        can finish.
       </p>
       {save.isError ? (
         <p className="notice error" role="alert">
@@ -1178,6 +1196,15 @@ function TeamModels({ team, maintain }: { team: Team; maintain: boolean }) {
             </dd>
             <dt>Reasoning</dt>
             <dd>{policy.effective_reasoning_effort}</dd>
+            <dt>Team capacity</dt>
+            <dd>
+              {policy.max_concurrency} concurrent reviews across connections
+            </dd>
+            <dt>Connection capacity</dt>
+            <dd>
+              {policy.connection.max_concurrency} concurrent reviews shared by
+              its teams
+            </dd>
             <dt>Source</dt>
             <dd>
               {policy.provider === null

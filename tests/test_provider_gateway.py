@@ -5,6 +5,7 @@ import sys
 import threading
 import unittest
 from pathlib import Path
+from uuid import UUID
 from unittest.mock import Mock
 from urllib import error, request
 
@@ -19,6 +20,15 @@ from review_agent_tools.hermes_control import (  # noqa: E402
     RuntimeCheck,
 )
 from review_agent_tools.provider_gateway import ProviderGateway  # noqa: E402
+from review_agent_tools.model_accounts import ModelProvider  # noqa: E402
+from review_agent_tools.model_quota import (  # noqa: E402
+    AccountQuota,
+    ManagedQuota,
+    ObservedQuota,
+    QuotaBucket,
+    QuotaSnapshot,
+    QuotaWindow,
+)
 
 SESSION = "a" * 22
 
@@ -137,3 +147,40 @@ class ProviderGatewayTests(unittest.TestCase):
                 caught.exception.close()
         self.assertEqual(self.upstream.mock_calls, [])
         self.assertEqual(self.runtime.mock_calls, [])
+
+    def test_account_quota_crosses_the_fixed_authenticated_boundary(self) -> None:
+        observed = ManagedQuota(
+            "payments",
+            UUID(int=12),
+            ObservedQuota(
+                "a" * 64,
+                AccountQuota(
+                    ModelProvider.CODEX,
+                    QuotaSnapshot(
+                        1788897600,
+                        "Pro",
+                        (
+                            QuotaBucket(
+                                "codex",
+                                None,
+                                None,
+                                True,
+                                False,
+                                (QuotaWindow("primary", 0.5, 18000, 1788900000),),
+                            ),
+                        ),
+                        0,
+                        None,
+                        None,
+                    ),
+                    False,
+                    False,
+                    1788897900,
+                    None,
+                ),
+            ),
+        )
+        self.runtime.quota.return_value = observed
+        client = HermesControlClient(self.origin, "local-test-token")
+        self.assertEqual(client.quota(ModelProvider.CODEX, refresh=True), observed)
+        self.runtime.quota.assert_called_once_with(ModelProvider.CODEX, refresh=True)

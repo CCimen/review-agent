@@ -517,6 +517,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/model-connections/{connection_id}/quota/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Quota */
+        get: operations["quota_api_model_connections__connection_id__quota__provider__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/model-connections/{connection_id}/retire": {
         parameters: {
             query?: never;
@@ -1155,6 +1172,19 @@ export interface components {
             /** Has More */
             has_more: boolean;
         };
+        /** AccountQuota */
+        AccountQuota: {
+            provider: components["schemas"]["ModelProvider"];
+            snapshot: components["schemas"]["QuotaSnapshot"] | null;
+            /** Refreshing */
+            refreshing: boolean;
+            /** Stale */
+            stale: boolean;
+            /** Next Refresh At */
+            next_refresh_at: number | null;
+            /** Unavailable Reason */
+            unavailable_reason: ("not_supported" | "account_unavailable" | "provider_unavailable") | null;
+        };
         /**
          * AccountType
          * @enum {string}
@@ -1396,6 +1426,8 @@ export interface components {
             reason: string;
             /** Name */
             name: string;
+            /** Max Concurrency */
+            max_concurrency?: number | null;
             /** Allowed Routes */
             allowed_routes?: components["schemas"]["ModelChoiceInput"][];
             /** Runtime Key */
@@ -1449,6 +1481,8 @@ export interface components {
             reason: string;
             /** Name */
             name: string;
+            /** Max Concurrency */
+            max_concurrency?: number | null;
             /** Allowed Routes */
             allowed_routes?: components["schemas"]["ModelChoiceInput"][];
             /** Expected Revision */
@@ -1888,6 +1922,8 @@ export interface components {
             is_latest: boolean;
             /** Recovered */
             recovered: boolean;
+            /** Quota Wait Until */
+            quota_wait_until: string | null;
             usage: components["schemas"]["ReviewUsage"];
             coverage: components["schemas"]["CoverageSummary"];
         };
@@ -2046,6 +2082,8 @@ export interface components {
             can_configure: boolean;
             /** Active Login Id */
             active_login_id: string | null;
+            /** Max Concurrency */
+            max_concurrency: number;
         };
         /** ModelLogin */
         ModelLogin: {
@@ -2497,6 +2535,50 @@ export interface components {
             oldest_waiting_at: string | null;
             /** Next Available At */
             next_available_at: string | null;
+        };
+        /** QuotaBucket */
+        QuotaBucket: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string | null;
+            /** Normal Model Slug */
+            normal_model_slug: string | null;
+            /** Allowed */
+            allowed: boolean | null;
+            /** Limit Reached */
+            limit_reached: boolean | null;
+            /** Windows */
+            windows: components["schemas"]["QuotaWindow"][];
+        };
+        /** QuotaSnapshot */
+        QuotaSnapshot: {
+            /** Fetched At */
+            fetched_at: number;
+            /** Plan */
+            plan: string | null;
+            /** Buckets */
+            buckets: components["schemas"]["QuotaBucket"][];
+            /** Reset Credits Available */
+            reset_credits_available: number | null;
+            /** Limit Reached Type */
+            limit_reached_type: string | null;
+            /** Spend Control Reached */
+            spend_control_reached: boolean | null;
+        };
+        /** QuotaWindow */
+        QuotaWindow: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "primary" | "secondary";
+            /** Used Percent */
+            used_percent: number | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            /** Resets At */
+            resets_at: number | null;
         };
         /** RankedCount */
         RankedCount: {
@@ -2982,6 +3064,8 @@ export interface components {
             /** Effective Reasoning Effort */
             effective_reasoning_effort: string;
             connection: components["schemas"]["ModelConnection"];
+            /** Max Concurrency */
+            max_concurrency: number;
         };
         /** TeamModelUpdate */
         TeamModelUpdate: {
@@ -2989,6 +3073,8 @@ export interface components {
             reason: string;
             /** Expected Revision */
             expected_revision: number;
+            /** Max Concurrency */
+            max_concurrency?: number | null;
             /** Connection Id */
             connection_id?: number | null;
             provider?: components["schemas"]["ModelProvider"] | null;
@@ -4257,6 +4343,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConnectionRuntime"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    quota_api_model_connections__connection_id__quota__provider__get: {
+        parameters: {
+            query?: {
+                refresh?: boolean;
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+                provider: components["schemas"]["ModelProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountQuota"];
                 };
             };
             /** @description Validation Error */

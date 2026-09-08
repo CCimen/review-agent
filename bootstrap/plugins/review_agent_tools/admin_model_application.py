@@ -8,6 +8,7 @@ from uuid import UUID
 from .hermes_control import HermesControlClient, HermesControlError, LoginSession
 from .model_connection_config import ManagedControl
 from .model_accounts import AccountAvailability, ModelProvider
+from .model_quota import AccountQuota
 from .postgres import model_connections as models, model_logins, team_access
 from .postgres.runtime import PostgreSQLRuntime
 from .postgres.team_access import AccessRequest, authorized_transaction
@@ -135,6 +136,40 @@ class ModelConnectionsApplication:
                 reason=reason,
                 observed=observed,
             )
+
+    def quota(
+        self,
+        access: AccessRequest,
+        connection_id: int,
+        provider: ModelProvider,
+        *,
+        refresh: bool = False,
+    ) -> AccountQuota:
+        current = self.get(access, connection_id)
+        account = next(item for item in current.accounts if item.provider is provider)
+        observed = self.control(current.runtime_key).quota(provider, refresh=refresh)
+        if (
+            observed.runtime_key != current.runtime_key
+            or observed.observation.data.provider is not provider
+        ):
+            raise models.ConnectionConflict(
+                "The runtime does not belong to this connection"
+            )
+        # Keep access and account checks after HTTP so revocation cannot expose an old observation.
+        with authorized_transaction(self.runtime, access) as (connection, scope):
+            latest = models.get_connection(connection, scope, connection_id)
+            if latest.revision != current.revision:
+                raise models.ConnectionConflict(
+                    "Connection changed. Reload before continuing."
+                )
+            models.require_quota_account(
+                connection,
+                connection_id=connection_id,
+                provider=provider,
+                expected_revision=account.revision,
+                identity_sha256=observed.observation.identity_sha256,
+            )
+        return observed.observation.data
 
     def get_login(
         self, access: AccessRequest, connection_id: int, operation_id: UUID

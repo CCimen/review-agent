@@ -59,7 +59,9 @@ function Result({ item }: { item: HistoryItem }) {
               : item.state === "superseded"
                 ? "A newer request replaced this run"
                 : item.state === "queued"
-                  ? "Waiting for a worker"
+                  ? item.quota_wait_until
+                    ? "Waiting for account quota"
+                    : "Waiting for a worker"
                   : item.state === "running"
                     ? "Review in progress"
                     : item.state === "publishing"
@@ -418,6 +420,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                   item.state === "running" ||
                   item.state === "publishing") ? (
                 <p className="review-waiting">
+                  {item.quota_wait_until
+                    ? `The next quota check is due ${time(item.quota_wait_until)}. Work resumes after the provider confirms quota is available. `
+                    : ""}
                   This page updates automatically as the review progresses.
                 </p>
               ) : (

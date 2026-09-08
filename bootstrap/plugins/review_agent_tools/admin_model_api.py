@@ -16,6 +16,7 @@ from .admin_model_application import (
 )
 from .admin_teams_api import ChangeReason
 from .model_accounts import ModelProvider
+from .model_quota import AccountQuota
 from .postgres import model_connections as models
 from .postgres.runtime import PostgreSQLRuntime
 from .postgres.team_access import AccessRequest, authorized_transaction
@@ -44,6 +45,7 @@ class ModelChoiceInput(BaseModel):
 
 class ConnectionInput(ChangeReason):
     name: str = Field(min_length=1, max_length=80)
+    max_concurrency: int | None = Field(default=None, ge=1, le=2147483647, strict=True)
     allowed_routes: list[ModelChoiceInput] = Field(
         default_factory=list[ModelChoiceInput], max_length=50
     )
@@ -80,6 +82,7 @@ class ConnectionReconcile(ConnectionChange):
 
 class TeamModelUpdate(ChangeReason):
     expected_revision: int = Field(ge=0)
+    max_concurrency: int | None = Field(default=None, ge=1, le=2147483647, strict=True)
     connection_id: int | None = Field(default=None, ge=1, le=9223372036854775807)
     provider: ModelProvider | None = None
     model: str | None = Field(default=None, min_length=1, max_length=200)
@@ -140,11 +143,13 @@ def create_router(
             raise models.ConnectionConflict(
                 "A platform operator must provision this managed runtime first"
             )
+
         with authorized_transaction(runtime, access, write=True) as (connection, scope):
             return models.create_connection(
                 connection,
                 scope,
                 runtime_key=request.runtime_key,
+                max_concurrency=request.max_concurrency,
                 name=request.name,
                 team_id=request.team_id,
                 allowed_routes=tuple(
@@ -152,6 +157,14 @@ def create_router(
                 ),
                 reason=request.reason,
             )
+
+    def quota(
+        connection_id: ConnectionId,
+        provider: ModelProvider,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+        refresh: bool = False,
+    ) -> AccountQuota:
+        return application.quota(access, connection_id, provider, refresh=refresh)
 
     def update_connection(
         connection_id: ConnectionId,
@@ -168,6 +181,7 @@ def create_router(
                     choice.domain() for choice in request.allowed_routes
                 ),
                 expected_revision=request.expected_revision,
+                max_concurrency=request.max_concurrency,
                 reason=request.reason,
             )
 
@@ -268,6 +282,7 @@ def create_router(
                 scope,
                 team_id=team_id,
                 connection_id=request.connection_id,
+                max_concurrency=request.max_concurrency,
                 provider=request.provider,
                 model=request.model,
                 reasoning_effort=request.reasoning_effort,
@@ -295,6 +310,11 @@ def create_router(
     router.add_api_route(
         "/api/model-connections/{connection_id}/runtime",
         runtime_status,
+        methods=["GET"],
+    )
+    router.add_api_route(
+        "/api/model-connections/{connection_id}/quota/{provider}",
+        quota,
         methods=["GET"],
     )
     router.add_api_route(

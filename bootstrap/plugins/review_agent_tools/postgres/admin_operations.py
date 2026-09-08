@@ -224,9 +224,15 @@ def operations(
         queues = cursor.execute(
             """
             WITH work AS (
-                SELECT 'review' AS kind, status = 'queued' AS waiting, status = 'leased' AS leased,
-                    status IN ('failed', 'dead_letter') AS failed, created_at, available_at, lease_expires_at
-                FROM review_agent.review_jobs
+                SELECT 'review' AS kind, job.status = 'queued' AS waiting, job.status = 'leased' AS leased,
+                    job.status IN ('failed', 'dead_letter') AS failed, job.created_at,
+                    GREATEST(job.available_at, account.quota_wait_until) AS available_at, job.lease_expires_at
+                FROM review_agent.review_jobs job
+                JOIN review_agent.review_runs run ON run.id = job.review_run_id
+                JOIN review_agent.review_subjects subject ON subject.id = run.review_subject_id
+                LEFT JOIN review_agent.model_accounts account
+                  ON account.connection_id = subject.model_connection_id
+                 AND account.provider = subject.model_provider AND account.revision = subject.model_account_revision
                 UNION ALL
                 SELECT 'publisher', status IN ('generated', 'publish_failed'), status = 'posting', status = 'failed', generated_at, delivery_available_at, delivery_lease_expires_at FROM review_agent.publications WHERE posted_at IS NULL AND superseded_at IS NULL
                 UNION ALL

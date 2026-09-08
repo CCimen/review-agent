@@ -21,6 +21,7 @@ let ScopeProvider;
 let contextualTo;
 let AuditLog;
 let AuditJSON;
+let ConnectionQuota;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -49,6 +50,7 @@ before(async () => {
   ({ QualityPage } = await server.ssrLoadModule("/src/quality.tsx"));
   ({ HermesHealth } = await server.ssrLoadModule("/src/deployment.tsx"));
   ({ AuditLog, AuditJSON } = await server.ssrLoadModule("/src/audit.tsx"));
+  ({ ConnectionQuota } = await server.ssrLoadModule("/src/modelQuota.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -93,6 +95,43 @@ const renderConsolePage = (component, cache) => {
   client.clear();
   return html;
 };
+
+test("account quota preserves actual windows, small percentages, and shared scope", () => {
+  const connection = { id: 1, revision: 2, team_id: null, state: "enabled", accounts: [{ provider: "openai-codex", revision: 1, verified: true }] };
+  const html = renderConsolePage(createElement(ConnectionQuota, { connection }), [
+    [scopedKey(["model-quota", 1, 2, 1], "owner"), {
+      provider: "openai-codex", refreshing: false, stale: true, next_refresh_at: null, unavailable_reason: "provider_unavailable",
+      snapshot: { fetched_at: 1788897600, plan: "Pro", reset_credits_available: 0, limit_reached_type: null, spend_control_reached: null,
+        buckets: [{ id: "codex", name: null, normal_model_slug: null, allowed: true, limit_reached: false,
+          windows: [{ kind: "primary", used_percent: 0.5, duration_seconds: 7200, resets_at: 1900000000 },
+            { kind: "secondary", used_percent: null, duration_seconds: 259200, resets_at: null }] },
+          { id: "other", name: "Other <script>bucket</script>", normal_model_slug: "other-model", allowed: null, limit_reached: null, windows: [] }],
+      },
+    }],
+  ]);
+  assert.match(html, /includes usage by other teams/);
+  assert.match(html, /99.5%/);
+  assert.match(html, /0.5% used/);
+  assert.match(html, /2 hours/);
+  assert.match(html, /3 days/);
+  assert.match(html, /Available usage resets: 0/);
+  assert.match(html, /Stale observation/);
+  assert.match(html, /Unknown/);
+  assert.match(html, /Other &lt;script&gt;bucket&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>|Weekly|Session quota/);
+});
+
+test("quota without provider data remains unknown", () => {
+  const connection = { id: 2, revision: 1, team_id: 7, state: "enabled", accounts: [{ provider: "openai-codex", revision: 1, verified: true }] };
+  const html = renderConsolePage(createElement(ConnectionQuota, { connection }), [
+    [scopedKey(["model-quota", 2, 1, 1], "owner"), {
+      provider: "openai-codex", refreshing: false, stale: true, next_refresh_at: null,
+      unavailable_reason: "provider_unavailable", snapshot: null,
+    }],
+  ]);
+  assert.match(html, /Quota is currently unknown/);
+  assert.doesNotMatch(html, /0%|Available usage resets: 0/);
+});
 
 test("audit requires a purpose and justification before rendering records", () => {
   const html = renderConsolePage(createElement(AuditLog), []);
@@ -359,6 +398,17 @@ const renderReader = async (client, role = "viewer", revision = 0) => {
   await stream.allReady;
   return new Response(stream).text();
 };
+
+test("queued review explains account quota waiting and the next check", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  const queued = { ...request, state: "queued", posted_at: null, completed_at: null, quota_wait_until: "2026-09-08T15:40:00Z", attempt_count: 0 };
+  client.setQueryData(scopedKey(["review", "24", null]), { ...review, item: queued, markdown: null, requests: [queued] });
+  const html = await renderReader(client);
+  assert.match(html, /Waiting for account quota/);
+  assert.match(html, /next quota check is due/);
+  assert.match(html, /provider confirms quota is available/);
+  client.clear();
+});
 
 test("review destination leads with publication and coverage, preserves filters and exposes diagnostics separately", async () => {
   const client = new QueryClient({

@@ -14,10 +14,12 @@ from socket import socket
 from typing import cast
 
 from .hermes_control import HermesControlClient, HermesControlError, HermesRuntimeClient
+from .model_accounts import ModelProvider
 
 _SESSION_ROUTE = re.compile(
     r"/api/providers/oauth/(?:openai-codex/poll/|sessions/)([A-Za-z0-9_-]{22,80})"
 )
+_QUOTA_ROUTE = re.compile(r"/api/quota/(openai-codex|anthropic)(\?refresh=true)?")
 
 
 class ProviderGateway(ThreadingHTTPServer):
@@ -127,6 +129,19 @@ class ProviderHandler(BaseHTTPRequestHandler):
                         **asdict(managed),
                         "instance_id": str(managed.instance_id),
                     }
+            elif self.command == "GET" and (
+                quota_match := _QUOTA_ROUTE.fullmatch(self.path)
+            ):
+                if self.gateway.runtime is None:
+                    self._reply(
+                        503, {"error": "Hermes runtime diagnostics are not configured"}
+                    )
+                    return
+                quota = self.gateway.runtime.quota(
+                    ModelProvider(quota_match.group(1)),
+                    refresh=bool(quota_match.group(2)),
+                )
+                payload = {**asdict(quota), "instance_id": str(quota.instance_id)}
             elif self.command == "GET" and self.path == "/api/providers/oauth":
                 providers = control.provider_statuses()
                 payload = {

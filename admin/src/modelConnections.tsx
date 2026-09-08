@@ -7,6 +7,7 @@ import type { TeamPage } from "./api";
 import { ScopedLink as Link, useScope } from "./scope";
 import { Copy, Empty, Freshness, time } from "./ui";
 import { ReasonAction } from "./teams";
+import { ConnectionQuota } from "./modelQuota";
 
 type Connection = components["schemas"]["ModelConnection"];
 type ConnectionPage = components["schemas"]["ConnectionPage"];
@@ -45,6 +46,7 @@ function useConnectionRefresh() {
         "team-model-policy",
         "model-login",
         "model-runtime",
+        "model-quota",
         "audit",
       ].map((key) => client.invalidateQueries({ queryKey: [key] })),
     );
@@ -61,6 +63,9 @@ function ConnectionEditor({
   const navigate = useNavigate();
   const refresh = useConnectionRefresh();
   const [name, setName] = useState(connection?.name ?? "");
+  const [maxConcurrency, setMaxConcurrency] = useState(
+    connection?.max_concurrency ?? 4,
+  );
   const [runtimeKey, setRuntimeKey] = useState("");
   const [teamId, setTeamId] = useState(scope.teamId ?? "");
   const [teamSearch, setTeamSearch] = useState("");
@@ -92,6 +97,7 @@ function ConnectionEditor({
             {
               name,
               allowed_routes: choices,
+              max_concurrency: maxConcurrency,
               expected_revision: connection.revision,
               reason,
             } satisfies components["schemas"]["ConnectionUpdate"],
@@ -101,6 +107,7 @@ function ConnectionEditor({
             runtime_key: runtimeKey,
             team_id: teamId ? Number(teamId) : null,
             allowed_routes: choices,
+            max_concurrency: maxConcurrency,
             reason,
           } satisfies components["schemas"]["ConnectionCreate"]),
     onSuccess: async (value) => {
@@ -135,6 +142,22 @@ function ConnectionEditor({
           onChange={(event) => setName(event.target.value)}
         />
       </label>
+      <label className="field">
+        Maximum concurrent reviews
+        <input
+          type="number"
+          required
+          min={1}
+          max={2147483647}
+          step={1}
+          value={maxConcurrency}
+          onChange={(event) => setMaxConcurrency(event.target.valueAsNumber)}
+        />
+      </label>
+      <p className="field-help">
+        Shared by all workers using this connection. Lowering the limit lets
+        reviews already claimed finish.
+      </p>
       {!connection ? (
         <>
           <Freshness query={runtimes} />
@@ -672,10 +695,19 @@ function ConnectionContent({ connection }: { connection: Connection }) {
       {connection.queued_jobs !== null ? (
         <p>
           {connection.queued_jobs} queued · {connection.leased_jobs} claimed ·{" "}
-          {connection.active_executions} executing
+          {connection.active_executions} unfinished executions
         </p>
       ) : (
         <p>Shared accounts are managed by a platform owner.</p>
+      )}
+      <p>Connection limit: {connection.max_concurrency} concurrent reviews.</p>
+      {!!connection.active_executions && (
+        <p className="notice">
+          Unfinished executions reserve capacity until Hermes records
+          completion. If this count remains after reviews stop, ask a platform
+          owner to pause the connection and use “Recover after a runtime
+          restart” below.
+        </p>
       )}
       {connection.state === "disabled" ? (
         <p>New dispatch is paused. Reviews already running can finish.</p>
@@ -798,6 +830,7 @@ function ConnectionContent({ connection }: { connection: Connection }) {
           provider availability or remaining quota.
         </p>
       </section>
+      <ConnectionQuota connection={connection} />
       {connection.can_manage && connection.state !== "retired" ? (
         <ConnectionLogin
           connection={connection}
@@ -844,7 +877,7 @@ function ConnectionContent({ connection }: { connection: Connection }) {
       {connection.can_configure &&
       ["enabled", "disabled"].includes(connection.state) ? (
         <details className="section-disclosure">
-          <summary>Edit name and allowed models</summary>
+          <summary>Edit name, capacity, and allowed models</summary>
           <ConnectionEditor key={connection.revision} connection={connection} />
         </details>
       ) : null}

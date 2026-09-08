@@ -72,28 +72,10 @@ def account_identity(
     if not token or len(token) > 65536:
         return None
     if provider is ModelProvider.CODEX:
-        try:
-            claims = cast(
-                dict[str, object],
-                jwt.decode(token, options={"verify_signature": False}),
-            )
-        except jwt.PyJWTError:
+        claims = codex_account_claims(token)
+        if claims is None:
             return None
-        auth = claims.get("https://api.openai.com/auth")
-        if not isinstance(auth, dict):
-            return None
-        account = cast(dict[str, object], auth).get("chatgpt_account_id")
-        subject = cast(dict[str, object], auth).get("chatgpt_user_id") or claims.get(
-            "sub"
-        )
-        if (
-            not isinstance(account, str)
-            or not account
-            or not isinstance(subject, str)
-            or not subject
-        ):
-            return None
-        identity = [provider.value, account, subject]
+        identity = [provider.value, *claims]
     elif auth_type == "api_key":
         identity = [provider.value, token]
     else:
@@ -103,6 +85,31 @@ def account_identity(
     return hashlib.sha256(
         json.dumps(identity, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def codex_account_claims(token: str) -> tuple[str, str] | None:
+    """Read account hints from the same token used for the provider request."""
+    if not token or len(token) > 65536:
+        return None
+    try:
+        claims = cast(
+            dict[str, object], jwt.decode(token, options={"verify_signature": False})
+        )
+    except jwt.PyJWTError:
+        return None
+    auth = claims.get("https://api.openai.com/auth")
+    if not isinstance(auth, dict):
+        return None
+    account = cast(dict[str, object], auth).get("chatgpt_account_id")
+    subject = cast(dict[str, object], auth).get("chatgpt_user_id") or claims.get("sub")
+    if (
+        not isinstance(account, str)
+        or not account
+        or not isinstance(subject, str)
+        or not subject
+    ):
+        return None
+    return account, subject
 
 
 def read_accounts() -> tuple[RuntimeAccount, ...]:

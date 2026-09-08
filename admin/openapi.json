@@ -2428,6 +2428,91 @@
         }
       }
     },
+    "/api/model-connections/{connection_id}/quota/{provider}": {
+      "get": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Quota",
+        "operationId": "quota_api_model_connections__connection_id__quota__provider__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ModelProvider"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountQuota"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/model-connections/{connection_id}/retire": {
       "post": {
         "tags": [
@@ -5562,6 +5647,68 @@
         ],
         "title": "AccountPage"
       },
+      "AccountQuota": {
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/ModelProvider"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuotaSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refreshing": {
+            "type": "boolean",
+            "title": "Refreshing"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          },
+          "next_refresh_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Refresh At"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "not_supported",
+                  "account_unavailable",
+                  "provider_unavailable"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "snapshot",
+          "refreshing",
+          "stale",
+          "next_refresh_at",
+          "unavailable_reason"
+        ],
+        "title": "AccountQuota"
+      },
       "AccountType": {
         "type": "string",
         "enum": [
@@ -6327,6 +6474,19 @@
             "minLength": 1,
             "title": "Name"
           },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2147483647.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrency"
+          },
           "allowed_routes": {
             "items": {
               "$ref": "#/components/schemas/ModelChoiceInput"
@@ -6490,6 +6650,19 @@
             "maxLength": 80,
             "minLength": 1,
             "title": "Name"
+          },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2147483647.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrency"
           },
           "allowed_routes": {
             "items": {
@@ -7476,6 +7649,18 @@
             "type": "boolean",
             "title": "Recovered"
           },
+          "quota_wait_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Wait Until"
+          },
           "usage": {
             "$ref": "#/components/schemas/ReviewUsage"
           },
@@ -7506,6 +7691,7 @@
           "publication_superseded",
           "is_latest",
           "recovered",
+          "quota_wait_until",
           "usage",
           "coverage"
         ],
@@ -7996,6 +8182,10 @@
               }
             ],
             "title": "Active Login Id"
+          },
+          "max_concurrency": {
+            "type": "integer",
+            "title": "Max Concurrency"
           }
         },
         "type": "object",
@@ -8014,7 +8204,8 @@
           "active_executions",
           "can_manage",
           "can_configure",
-          "active_login_id"
+          "active_login_id",
+          "max_concurrency"
         ],
         "title": "ModelConnection"
       },
@@ -9266,6 +9457,197 @@
           "next_available_at"
         ],
         "title": "QueueStatus"
+      },
+      "QuotaBucket": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "normal_model_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normal Model Slug"
+          },
+          "allowed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed"
+          },
+          "limit_reached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Reached"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaWindow"
+            },
+            "type": "array",
+            "title": "Windows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "normal_model_slug",
+          "allowed",
+          "limit_reached",
+          "windows"
+        ],
+        "title": "QuotaBucket"
+      },
+      "QuotaSnapshot": {
+        "properties": {
+          "fetched_at": {
+            "type": "number",
+            "title": "Fetched At"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaBucket"
+            },
+            "type": "array",
+            "title": "Buckets"
+          },
+          "reset_credits_available": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset Credits Available"
+          },
+          "limit_reached_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Reached Type"
+          },
+          "spend_control_reached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spend Control Reached"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fetched_at",
+          "plan",
+          "buckets",
+          "reset_credits_available",
+          "limit_reached_type",
+          "spend_control_reached"
+        ],
+        "title": "QuotaSnapshot"
+      },
+      "QuotaWindow": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "secondary"
+            ],
+            "title": "Kind"
+          },
+          "used_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used Percent"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resets At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "used_percent",
+          "duration_seconds",
+          "resets_at"
+        ],
+        "title": "QuotaWindow"
       },
       "RankedCount": {
         "properties": {
@@ -10648,6 +11030,10 @@
           },
           "connection": {
             "$ref": "#/components/schemas/ModelConnection"
+          },
+          "max_concurrency": {
+            "type": "integer",
+            "title": "Max Concurrency"
           }
         },
         "type": "object",
@@ -10661,7 +11047,8 @@
           "effective_provider",
           "effective_model",
           "effective_reasoning_effort",
-          "connection"
+          "connection",
+          "max_concurrency"
         ],
         "title": "TeamModelPolicy"
       },
@@ -10677,6 +11064,19 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Expected Revision"
+          },
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2147483647.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Concurrency"
           },
           "connection_id": {
             "anyOf": [

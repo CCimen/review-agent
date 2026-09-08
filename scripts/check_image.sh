@@ -29,10 +29,13 @@ docker run --rm \
     --entrypoint /usr/local/bin/review-agent-hermes-contract \
     "$image"
 
-docker run --rm --network none \
-    --mount "type=bind,source=$ROOT/tests/test_hermes_auxiliary.py,target=/tmp/test_hermes_auxiliary.py,readonly" \
-    --entrypoint /opt/hermes/.venv/bin/python \
-    "$image" /tmp/test_hermes_auxiliary.py -q
+for check in test_hermes_auxiliary.py test_hermes_account_usage.py
+do
+    docker run --rm --network none \
+        --mount "type=bind,source=$ROOT/tests/$check,target=/tmp/$check,readonly" \
+        --entrypoint /opt/hermes/.venv/bin/python \
+        "$image" "/tmp/$check" -q
+done
 
 docker run --rm --user 12345:0 \
     --tmpfs /opt/data:rw,mode=0770,uid=12345,gid=0 \

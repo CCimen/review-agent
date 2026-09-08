@@ -459,14 +459,15 @@ export function OperationsPage() {
             <details className="metric-note">
               <summary>How queue states work</summary>
               <p>
-                Ready jobs have passed their scheduled start time. Repository
-                scheduling and authorization can still delay them. Claimed jobs
+                Ready jobs have passed their scheduled start time and any
+                recorded quota wait. Team and connection capacity, repository
+                scheduling, and authorization can still delay them. Claimed jobs
                 belong to a worker; an expired claim needs recovery.
               </p>
               <p>
                 {running === 0 && !data.workers_truncated
-                  ? "No worker is reporting, so an empty queue does not mean work is being drained. Provider cooldowns held outside these queues are not shown here."
-                  : "Provider cooldowns that are not stored in these queues are not shown here."}
+                  ? "No worker is reporting, so an empty queue does not mean work is being drained."
+                  : "A quota wait ending makes a review eligible for another provider check; it does not confirm quota has recovered."}
               </p>
             </details>
           </Section>

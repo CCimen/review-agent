@@ -11,9 +11,10 @@ last_verified: 2026-09-08
 Team membership, repository ownership and requests, scoped console reports and
 actions, owner/admin roles, and the audit journal are implemented in the source
 candidate. See [Admin panel](ADMIN_PANEL.md) for the current operator contract.
-Model connections, team model choices, and justified JSON audit access are also
-implemented in the source candidate. Quota and machine-integration sections below
-describe the remaining approved design. Track implementation and rollout on the existing
+Model connections, team model choices, justified JSON audit access, Codex quota
+visibility, and fair scheduling with concurrency caps are also implemented in the
+source candidate. The machine-integration section below describes the remaining
+approved design. Track implementation and rollout on the existing
 `ra-teams-and-integrations-wtd` epic.
 
 ## Smallest useful product model
@@ -260,39 +261,32 @@ infrastructure tenancy would be a separate requirement.
 
 ## OAuth and quota visibility
 
-The console should initiate a login through the selected connection's provider
-control service. For supported device login, show the provider URL, short-lived
-code, expiry, cancel action, and progress. Bind the session to the initiating
-user, team, connection, and configuration revision. Recheck permission on each
-operation; serialize login/replacement for a connection and reject stale results.
+The console initiates Codex login through the selected connection's provider
+control service. It shows the provider URL, short-lived code, expiry, cancel action,
+and progress. The session is bound to the initiating user, team, connection, and
+configuration revision. Each operation rechecks permission; login and replacement
+are serialized per connection and stale results are rejected.
 Hermes persists and refreshes the credential in that connection's own volume.
 Drain active work before replacing an account; queued work must not silently
 switch to a different account identity.
 
 Hermes's pinned
 [`agent/account_usage.py`](https://github.com/NousResearch/hermes-agent/blob/29112bef099274229cadff79cdff7bf7b99c4b77/agent/account_usage.py)
-already reads Codex account windows and reset-credit availability and has a
-Claude OAuth usage reader. Interactive `/usage` uses this helper. Its HTTP review
-API does not expose those readers as quota endpoints. Add a small Hermes-side
-read endpoint, preferably upstream, then allow that exact operation through our
-existing provider-control companion. The companion keeps its current HTTP-only
-boundary and does not gain access to credential files. Hermes returns a typed,
-redacted projection for that connection, with bounded provider responses and
-timeouts; it remains the only authentication owner.
-
-This requires a pinned integration change, not just serializing the existing
-helper. Its result drops window durations, puts reset-credit counts into prose,
-and labels primary/secondary windows as Session/Weekly. Its Claude path resolves
-ambient credentials instead of accepting the supplied account token, and guesses
-whether small utilization values are fractions or percentages. Preserve provider
-units, bucket identity, structured credit counts, and account binding explicitly
-before exposing these fields. Test sub-one-percent usage, missing windows, and
-multiple accounts. Do not parse display prose or guess units in the console.
+reads Codex account windows and reset-credit availability. The source candidate
+adds a native Hermes quota endpoint and allows it through the existing HTTP-only
+provider-control companion. Credentials stay in Hermes. Its usage reader has a
+source-checked patch that preserves window duration, bucket identity and labels,
+percentage units, reset timestamps, and structured reset-credit counts. It binds
+the request to the observed account and rejects an identity change during refresh.
+Provider reads have a 15-second timeout, a 256 KiB response limit, and at most
+32 buckets with two windows each. Missing fields remain unknown. Image tests
+exercise the patched helper with synthetic HTTP responses, including small
+percentages, missing fields, and multiple buckets.
 
 OpenAI documents `account/rateLimits/read`, including window duration, used
 percentage, reset time, multiple limit buckets, and optional reset credits.
 This confirms that provider-backed quota telemetry exists; it does not mean
-our Hermes HTTP integration already offers that contract. See
+the Hermes integration uses that app-server transport. See
 [Codex App Server](https://learn.chatgpt.com/docs/app-server).
 
 Claude Code documents five-hour and seven-day usage fields in its status line,
@@ -307,20 +301,20 @@ authorized provider integration for that deployment. Sources:
 [Anthropic authentication restrictions](https://code.claude.com/docs/en/legal-and-compliance),
 [Hermes provider guidance](https://hermes-agent.nousresearch.com/docs/integrations/providers).
 
-Each quota row should show a friendly account label, provider, connection owner,
-reported plan where available, **remaining** percentage, window duration, reset
-time, last successful refresh, and a clear connection state. Use returned window
-durations and provider bucket labels; do not hard-code two windows for all plans.
-Display missing data as unavailable and stale data with its timestamp. A missing
-reset is unknown, not proof that no reset is pending. A passed reset time makes
-the snapshot stale until refreshed; it does not prove quota recovered.
+Each connection shows the reported plan, remaining percentage, actual window
+duration, reset time, last successful refresh, and provider bucket metadata.
+Unavailable values are explicit, and failed refreshes retain the last successful
+snapshot with a stale label. A passed reset time makes the snapshot stale; it does
+not prove quota recovered. Anthropic API-key quota is unavailable through this
+integration. The console does not expose Hermes's consumer OAuth usage path.
 
-Cache quota snapshots per provider account, with a bounded polling interval and
-backoff. Coalesce manual refreshes so ten team pages cannot send ten identical
-provider calls. Start with five-minute background refresh while the connection
-is in use and a rate-limited manual refresh. Recheck the actual upstream limits
-when implementing. Provider quota includes other uses of that account; never
-attribute its entire change to Review Agent.
+Hermes caches snapshots per provider account and coalesces concurrent reads.
+Pages and execution preflight refresh after five minutes; manual refresh is
+limited to once per 30 seconds. Failed reads back off from 30 seconds to five
+minutes. A known exhausted account can be checked sooner at a reported reset,
+with the same minimum interval. Account changes discard the previous snapshot.
+Provider quota includes other uses of that account; it is displayed separately
+from team review activity.
 
 Available reset credits can be shown when reported. Consuming one is a separate,
 explicitly confirmed owner action with idempotency and an audit event; it is not
@@ -337,26 +331,32 @@ policy change can be compared using its actual request population. Feedback
 counts retain their denominators; they are not an accuracy score. Avoid per-user
 productivity rankings and monetary estimates derived from subscription tokens.
 
-Fair scheduling matters even when teams share one account. Extend the existing
-PostgreSQL claim transaction to reserve a connection slot and a team slot
-atomically across worker replicas. Select among eligible teams before claiming
-the next job, preserving priority aging within each team. A team without capacity
-must not occupy worker slots while another eligible team waits. Keep bounded
-queries and validate the claim plan with representative queue sizes.
+The PostgreSQL claim owner enforces team and connection concurrency caps across
+worker replicas. Both default to four. The owner controls shared connection
+capacity; platform admins can edit team-owned connections. Platform administrators
+control team capacity across connections.
+Eligible teams take turns, with priority aging within each team. A short claim
+transaction serializes the occupancy check and lease reservation. Provider calls
+and heartbeats do not hold that lock. Existing repository exclusion also applies
+while an unfinished remote execution exists. The production-scale benchmark
+exercises 100, 1,000 and 10,000 queued reviews across 10, 100 and 1,000 teams.
 
-A provider quota failure should record a retry time and a visible waiting reason,
-not burn the entire ordinary retry budget during a multi-day cooldown. Reuse the
-durable availability deadline and fencing; release reservations on completion,
-failure, cancellation, or lease expiry. A timeout can leave remote inference
-running, so database lease expiry alone is not proof that a provider slot is free:
-capacity recovery must reconcile or conservatively drain that attempt. Quota
-snapshots guide scheduling but cannot guarantee remaining capacity when other
-applications use the same account.
+Before native inference, an explicit Codex account denial records one account
+wait deadline and returns the unstarted review to its queue without spending an
+attempt. All queued reviews on that account share the wait, which appears in
+scoped history and Operations. Passing the deadline permits a fresh check; only
+a fresh provider allowance clears known exhaustion. A refresh failure preserves
+the wait. Unknown initial quota uses ordinary execution error handling. Additional
+model-specific buckets are displayed without guessing their model routing.
 
-Start with team concurrency limits, fair scheduling, and usage alerts. A local
-review-start allowance can be enforced atomically if operators need a hard
-application limit. Exact subscription-token budgets are not available from
-incomplete usage responses; do not label a soft estimate as a hard quota.
+Leased jobs and unfinished remote executions both occupy capacity. A timeout,
+lease expiry, cancellation, or terminal local failure cannot prove that inference
+stopped. The native handler's completion releases its reservation; interrupted
+runtime recovery requires the existing explicit restart and reconciliation flow.
+Quota observations cannot reserve provider capacity against other applications.
+Exact subscription-token budgets are unavailable from incomplete usage responses.
+Usage alerts and local review-start allowances remain future work if operators
+need them; they are not implied by these concurrency controls.
 
 ## Existing owners and implementation boundaries
 

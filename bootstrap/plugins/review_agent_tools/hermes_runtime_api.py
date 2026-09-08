@@ -16,6 +16,7 @@ import psycopg
 from . import review_contract, review_tool_runtime
 from .hermes_control import MANAGED_REVIEW_PATH
 from .model_accounts import AccountAvailability, ModelProvider, read_accounts
+from .model_quota import ObservedQuota, QuotaCache, execution_quota
 from .postgres import jobs
 from .postgres.runtime import PostgreSQLRuntimeError
 
@@ -35,6 +36,7 @@ def wire_api(native: object, _adapter: object) -> None:
         raise ValueError("Managed Hermes runtime configuration is invalid")
     installed = review_contract.load_installed_contract()
     instance = uuid4()
+    quota_cache = QuotaCache()
     handler = next(
         (
             route.handler
@@ -78,7 +80,43 @@ def wire_api(native: object, _adapter: object) -> None:
                 text="Managed account status is unavailable"
             ) from exc
 
-    def activate(session: jobs.WorkerLeaseSession, body: dict[str, object]) -> bool:
+    async def quota(request: web.Request) -> web.Response:
+        if not authorized(request):
+            raise web.HTTPUnauthorized()
+        try:
+            provider = ModelProvider(request.match_info["provider"])
+        except ValueError as exc:
+            raise web.HTTPNotFound() from exc
+        if set(request.query) - {"refresh"} or request.query.get(
+            "refresh", "false"
+        ) not in ("true", "false"):
+            raise web.HTTPBadRequest(text="Quota refresh is invalid")
+        try:
+            observed = await quota_cache.read(
+                provider, refresh=request.query.get("refresh") == "true"
+            )
+        except Exception as exc:
+            logger.warning(
+                "Managed Hermes quota observation failed: %s", type(exc).__name__
+            )
+            raise web.HTTPServiceUnavailable(
+                text="Account quota is unavailable"
+            ) from exc
+        return web.json_response(
+            {
+                "runtime_key": runtime_key,
+                "instance_id": str(instance),
+                "observation": asdict(observed),
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def close_quota(_app: web.Application) -> None:
+        await quota_cache.close()
+
+    def activate(
+        session: jobs.WorkerLeaseSession, body: dict[str, object], quota: ObservedQuota
+    ) -> bool:
         provider = ModelProvider(body.get("provider"))
         model = body.get("model")
         options = body.get("model_options")
@@ -123,6 +161,8 @@ def wire_api(native: object, _adapter: object) -> None:
             or account.identity_sha256 is None
         ):
             raise jobs.ReviewJobError("The assigned provider account is unavailable")
+        if quota.identity_sha256 != account.identity_sha256:
+            raise jobs.ReviewJobError("Provider account changed during the quota check")
         with review_tool_runtime.postgres_runtime().transaction() as connection:
             configuration = jobs.begin_model_execution(
                 connection,
@@ -133,6 +173,7 @@ def wire_api(native: object, _adapter: object) -> None:
                 model=model,
                 reasoning_effort=effort,
                 identity_sha256=account.identity_sha256,
+                quota=execution_quota(quota.data),
             )
             if configuration is None:
                 return False
@@ -172,15 +213,17 @@ def wire_api(native: object, _adapter: object) -> None:
             body: object = await request.json()
             if not isinstance(body, dict):
                 raise jobs.ReviewJobError("Review request must be an object")
-            activated = await asyncio.to_thread(
-                activate, session, cast(dict[str, object], body)
+            values = cast(dict[str, object], body)
+            observed = await quota_cache.read(
+                ModelProvider(values.get("provider")), wait=True
             )
+            activated = await asyncio.to_thread(activate, session, values, observed)
             if not activated:
                 return web.json_response(
                     {
                         "error": {
-                            "code": "review_connection_paused",
-                            "message": "The unstarted review was returned to its paused connection's queue.",
+                            "code": "review_waiting",
+                            "message": "The unstarted review is waiting in its assigned connection's queue.",
                         }
                     },
                     status=409,
@@ -212,4 +255,6 @@ def wire_api(native: object, _adapter: object) -> None:
         return response
 
     native.router.add_get(STATUS_PATH, status)
+    native.router.add_get("/v1/review-agent/quota/{provider}", quota)
     native.router.add_post(MANAGED_REVIEW_PATH, review)
+    native.on_cleanup.append(close_quota)

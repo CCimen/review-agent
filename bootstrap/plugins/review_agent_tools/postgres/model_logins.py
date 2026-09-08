@@ -231,9 +231,13 @@ def _observe_accounts(
         connection.execute(
             """UPDATE review_agent.model_accounts SET
                    revision = revision + CASE WHEN identity_sha256 IS DISTINCT FROM %s AND identity_sha256 IS NOT NULL THEN 1 ELSE 0 END,
+                   quota_observed_at = CASE WHEN identity_sha256 IS DISTINCT FROM %s THEN NULL ELSE quota_observed_at END,
+                   quota_wait_until = CASE WHEN identity_sha256 IS DISTINCT FROM %s THEN NULL ELSE quota_wait_until END,
                    identity_sha256 = %s, observed_at = statement_timestamp()
                WHERE connection_id = %s AND provider = %s""",
             (
+                account.identity_sha256,
+                account.identity_sha256,
                 account.identity_sha256,
                 account.identity_sha256,
                 connection_id,

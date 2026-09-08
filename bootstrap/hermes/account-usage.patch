@@ -1,0 +1,243 @@
+--- a/agent/account_usage.py
++++ b/agent/account_usage.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import logging
++import json
+ import math
+ from dataclasses import dataclass
+ from datetime import datetime, timezone
+@@ -28,6 +29,18 @@
+     used_percent: Optional[float] = None
+     reset_at: Optional[datetime] = None
+     detail: Optional[str] = None
++    duration_seconds: Optional[int] = None
++    kind: Optional[str] = None
++
++
++@dataclass(frozen=True)
++class AccountUsageBucket:
++    id: str
++    name: Optional[str] = None
++    normal_model_slug: Optional[str] = None
++    allowed: Optional[bool] = None
++    limit_reached: Optional[bool] = None
++    windows: tuple[AccountUsageWindow, ...] = ()
+ 
+ 
+ @dataclass(frozen=True)
+@@ -40,6 +53,12 @@
+     windows: tuple[AccountUsageWindow, ...] = ()
+     details: tuple[str, ...] = ()
+     unavailable_reason: Optional[str] = None
++    buckets: tuple[AccountUsageBucket, ...] = ()
++    reset_credits_available: Optional[int] = None
++    limit_reached_type: Optional[str] = None
++    spend_control_reached: Optional[bool] = None
++    account_id: Optional[str] = None
++    user_id: Optional[str] = None
+ 
+     @property
+     def available(self) -> bool:
+@@ -507,11 +526,85 @@
+     return entry.runtime_api_key, str(entry.runtime_base_url or base_url or "").strip(), None
+ 
+ 
++def _codex_usage_text(value: Any) -> Optional[str]:
++    if value is None:
++        return None
++    if (
++        not isinstance(value, str)
++        or not 1 <= len(value) <= 200
++        or not value.isprintable()
++    ):
++        raise ValueError("Invalid quota text")
++    return value
++
++
++def _codex_usage_bool(value: Any) -> Optional[bool]:
++    if value is not None and type(value) is not bool:
++        raise ValueError("Invalid quota availability")
++    return value
++
++
++def _codex_usage_bucket(
++    raw: dict[str, Any],
++    bucket_id: str,
++    name: Optional[str] = None,
++    normal_model_slug: Optional[str] = None,
++) -> AccountUsageBucket:
++    rate_limit = raw.get("rate_limit")
++    if rate_limit is None:
++        rate_limit = {}
++    if not isinstance(rate_limit, dict):
++        raise ValueError("Invalid quota bucket")
++    windows: list[AccountUsageWindow] = []
++    for key, label in (
++        ("primary_window", "Primary"),
++        ("secondary_window", "Secondary"),
++    ):
++        window = rate_limit.get(key)
++        if window is None:
++            continue
++        if not isinstance(window, dict):
++            raise ValueError("Invalid quota window")
++        used = window.get("used_percent")
++        duration = window.get("limit_window_seconds")
++        reset = window.get("reset_at")
++        if used is not None and (not _is_finite_num(used) or used < 0):
++            raise ValueError("Invalid quota percentage")
++        if duration is not None and (
++            type(duration) is not int or not 0 < duration <= 2147483647
++        ):
++            raise ValueError("Invalid quota duration")
++        if reset is not None and (not _is_finite_num(reset) or reset < 0):
++            raise ValueError("Invalid quota reset")
++        windows.append(
++            AccountUsageWindow(
++                label=label,
++                used_percent=used,
++                duration_seconds=duration,
++                reset_at=_parse_dt(reset),
++                kind=key.removesuffix("_window"),
++            )
++        )
++    return AccountUsageBucket(
++        id=bucket_id,
++        name=name,
++        normal_model_slug=normal_model_slug,
++        allowed=_codex_usage_bool(rate_limit.get("allowed")),
++        limit_reached=_codex_usage_bool(rate_limit.get("limit_reached")),
++        windows=tuple(windows),
++    )
++
++
+ def _fetch_codex_account_usage(
+     base_url: Optional[str] = None,
+     api_key: Optional[str] = None,
++    account_id: Optional[str] = None,
++    user_id: Optional[str] = None,
+ ) -> Optional[AccountUsageSnapshot]:
+-    token, resolved_base_url, account_id = _resolve_codex_usage_credentials(base_url, api_key)
++    token, resolved_base_url, resolved_account_id = _resolve_codex_usage_credentials(
++        base_url, api_key
++    )
++    account_id = account_id or resolved_account_id
+     headers = {
+         "Authorization": f"Bearer {token}",
+         "Accept": "application/json",
+@@ -519,28 +612,55 @@
+     }
+     if account_id:
+         headers["ChatGPT-Account-Id"] = account_id
+-    with httpx.Client(timeout=15.0) as client:
+-        response = client.get(_resolve_codex_usage_url(resolved_base_url), headers=headers)
+-        response.raise_for_status()
+-    payload = response.json() or {}
+-    rate_limit = payload.get("rate_limit") or {}
+-    windows: list[AccountUsageWindow] = []
+-    for key, label in (("primary_window", "Session"), ("secondary_window", "Weekly")):
+-        window = rate_limit.get(key) or {}
+-        used = window.get("used_percent")
+-        if used is None:
+-            continue
+-        windows.append(
+-            AccountUsageWindow(
+-                label=label,
+-                used_percent=float(used),
+-                reset_at=_parse_dt(window.get("reset_at")),
++    with httpx.Client(timeout=15.0, follow_redirects=False) as client:
++        with client.stream(
++            "GET", _resolve_codex_usage_url(resolved_base_url), headers=headers
++        ) as response:
++            response.raise_for_status()
++            content = bytearray()
++            for chunk in response.iter_bytes(chunk_size=16384):
++                if len(content) + len(chunk) > 256 * 1024:
++                    raise ValueError("Quota response is too large")
++                content.extend(chunk)
++    payload = json.loads(content)
++    if not isinstance(payload, dict):
++        raise ValueError("Invalid quota response")
++    actual_account = _codex_usage_text(payload.get("account_id"))
++    actual_user = _codex_usage_text(payload.get("user_id"))
++    if (account_id and actual_account and account_id != actual_account) or (
++        user_id and actual_user and user_id != actual_user
++    ):
++        raise ValueError("Quota response belongs to another account")
++    buckets = [_codex_usage_bucket(payload, "codex")]
++    additional = payload.get("additional_rate_limits")
++    if additional is None:
++        additional = []
++    if not isinstance(additional, list) or len(additional) > 31:
++        raise ValueError("Invalid additional quota buckets")
++    bucket_ids = {"codex"}
++    for raw in additional:
++        if not isinstance(raw, dict):
++            raise ValueError("Invalid additional quota bucket")
++        bucket_id = _codex_usage_text(raw.get("metered_feature"))
++        if bucket_id is None or bucket_id in bucket_ids:
++            raise ValueError("Invalid or duplicate quota identity")
++        bucket_ids.add(bucket_id)
++        buckets.append(
++            _codex_usage_bucket(
++                raw,
++                bucket_id,
++                _codex_usage_text(raw.get("limit_name")),
++                _codex_usage_text(raw.get("normal_model_slug")),
+             )
+         )
+     details: list[str] = []
+     reset_credits = payload.get("rate_limit_reset_credits") or {}
+     banked = reset_credits.get("available_count")
+-    if isinstance(banked, (int, float)) and int(banked) > 0:
++    if banked is not None and (
++        type(banked) is not int or not 0 <= banked <= 9223372036854775807
++    ):
++        raise ValueError("Invalid reset credit count")
++    if banked is not None and banked > 0:
+         count = int(banked)
+         plural = "s" if count != 1 else ""
+         details.append(
+@@ -557,9 +677,19 @@
+         provider="openai-codex",
+         source="usage_api",
+         fetched_at=_utc_now(),
+-        plan=_title_case_slug(payload.get("plan_type")),
+-        windows=tuple(windows),
++        plan=_title_case_slug(_codex_usage_text(payload.get("plan_type"))),
++        windows=buckets[0].windows,
+         details=tuple(details),
++        buckets=tuple(buckets),
++        reset_credits_available=banked,
++        limit_reached_type=_codex_usage_text(
++            (payload.get("rate_limit_reached_type") or {}).get("type")
++        ),
++        spend_control_reached=_codex_usage_bool(
++            (payload.get("spend_control") or {}).get("reached")
++        ),
++        account_id=actual_account,
++        user_id=actual_user,
+     )
+ 
+ 
+@@ -886,13 +1016,17 @@
+     *,
+     base_url: Optional[str] = None,
+     api_key: Optional[str] = None,
++    account_id: Optional[str] = None,
++    user_id: Optional[str] = None,
+ ) -> Optional[AccountUsageSnapshot]:
+     normalized = str(provider or "").strip().lower()
+     if normalized in {"", "auto", "custom"}:
+         return None
+     try:
+         if normalized == "openai-codex":
+-            return _fetch_codex_account_usage(base_url=base_url, api_key=api_key)
++            return _fetch_codex_account_usage(
++                base_url=base_url, api_key=api_key, account_id=account_id, user_id=user_id
++            )
+         if normalized == "anthropic":
+             return _fetch_anthropic_account_usage()
+         if normalized == "openrouter":

@@ -62,6 +62,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     22,
                     23,
                     24,
+                    25,
                 ),
             )
             self.assertEqual(runner.apply_migrations(connection), ())
@@ -121,6 +122,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     (22, "022_team_access.sql"),
                     (23, "023_audit_search.sql"),
                     (24, "024_model_connections.sql"),
+                    (25, "025_model_capacity.sql"),
                 )
             ],
         )
@@ -250,7 +252,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 self.assertEqual(
                     runner.apply_migrations(connection),
-                    (14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24),
+                    (14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25),
                 )
                 classified = connection.execute(
                     """
@@ -318,7 +320,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (24,))
+        self.assertEqual(count, (25,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

@@ -15,7 +15,7 @@ import tracemalloc
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
-from threading import Barrier, Lock
+from threading import Barrier, Event, Lock
 from uuid import UUID
 
 import psycopg
@@ -25,9 +25,15 @@ from psycopg.conninfo import conninfo_to_dict
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
-from review_agent_tools import admission, changed_files  # noqa: E402
+from review_agent_tools import admission, changed_files, review_contract  # noqa: E402
+from review_agent_tools.hermes_control import MANAGED_REVIEW_PATH  # noqa: E402
+from review_agent_tools.worker import (  # noqa: E402
+    HermesChatClient,
+    HermesChatSettings,
+    ReviewWorker,
+    WorkerPolicy,
+)
 from review_agent_tools.postgres import (  # noqa: E402
-    jobs,
     publications,
 )
 from review_agent_tools.postgres.runtime import (  # noqa: E402
@@ -109,11 +115,25 @@ def _changed_files() -> dict[str, object]:
     }
 
 
-def _reset_and_seed(database_url: str, count: int) -> None:
+def _reset_and_seed(database_url: str, count: int, *, teams: int = 0) -> None:
+    contract = review_contract.load_packaged_contract(
+        "default-standard",
+        ROOT / "bootstrap",
+        environment={"HERMES_IMAGE": "hermes@sha256:" + "a" * 64},
+    )
+    configuration = review_contract.resolved_config(
+        contract,
+        model_route=review_contract.ModelRoute(None, 1, 1, 1),
+    )
     with psycopg.connect(database_url, autocommit=True) as connection:
         connection.execute("DROP SCHEMA IF EXISTS review_agent CASCADE")
     with psycopg.connect(database_url) as connection:
         runner.apply_migrations(connection)
+        # This benchmark measures claim cost while accumulating reservations.
+        # Give it explicit capacity so the normal operator default does not stop it.
+        connection.execute(
+            "UPDATE review_agent.model_connections SET max_concurrency = %s", (count,)
+        )
         connection.execute(
             """
             INSERT INTO review_agent.repositories (
@@ -144,10 +164,11 @@ def _reset_and_seed(database_url: str, count: int) -> None:
                 resolved_config_hash, created_at
             )
             SELECT id, repeat('b', 40), lpad(to_hex(id), 40, '0'),
-                   'benchmark-v1', 1, '{}'::jsonb, repeat('c', 64),
+                   'benchmark-v1', 3, %s::jsonb, repeat('c', 64),
                    statement_timestamp()
             FROM review_agent.pull_requests
-            """
+            """,
+            (json.dumps(configuration),),
         )
         connection.execute(
             """
@@ -174,58 +195,67 @@ def _reset_and_seed(database_url: str, count: int) -> None:
             FROM review_agent.review_runs
             """
         )
+        if teams:
+            connection.execute(
+                "INSERT INTO review_agent.teams (name) SELECT 'Team ' || value FROM generate_series(1, %s) value",
+                (teams,),
+            )
+            connection.execute(
+                """UPDATE review_agent.review_subjects SET resolved_config = jsonb_set(
+                resolved_config, '{model_route,team_id}', to_jsonb(((id - 1) %% %s) + 1))""",
+                (teams,),
+            )
+            connection.execute(
+                "INSERT INTO review_agent.review_dispatch_turns SELECT id, statement_timestamp() - id * interval '1 second' FROM review_agent.teams"
+            )
+        connection.execute("ANALYZE")
 
 
-def _claim_job(
-    connection: psycopg.Connection[tuple[object, ...]], owner: str
-) -> tuple[int | None, int, tuple[str, ...]]:
-    claimed = jobs.claim_next_job(
-        connection,
+def _claim_worker(runtime: PostgreSQLRuntime, owner: str) -> ReviewWorker:
+    return ReviewWorker(
+        runtime,
+        HermesChatClient(
+            HermesChatSettings(
+                endpoint="http://127.0.0.1:1" + MANAGED_REVIEW_PATH,
+                bearer_token="benchmark-only",
+                skill_path=ROOT
+                / "bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md",
+            )
+        ),
+        WorkerPolicy(
+            lease_duration=timedelta(minutes=2),
+            heartbeat_interval=timedelta(seconds=20),
+            retry_delay=timedelta(seconds=30),
+            poll_interval=timedelta(seconds=1),
+            request_timeout=timedelta(minutes=10),
+            recovery_interval=timedelta(seconds=30),
+            recovery_batch_size=100,
+            priority_aging_interval=timedelta(minutes=15),
+        ),
         lease_owner=owner,
-        lease_duration=timedelta(minutes=2),
-        priority_aging_interval=timedelta(minutes=15),
-    )
-    lock_row = connection.execute(
-        """
-        SELECT count(*), array_agg(DISTINCT mode ORDER BY mode)
-        FROM pg_locks
-        WHERE pid = pg_backend_pid()
-        """
-    ).fetchone()
-    assert lock_row is not None
-    modes = tuple(str(mode) for mode in (lock_row[1] or ()))
-    return (
-        claimed.id if claimed is not None else None,
-        int(lock_row[0]),
-        modes,
+        stop_event=Event(),
     )
 
 
 def _queue(database_url: str) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     for ready_jobs in (100, 1_000, 10_000):
-        _reset_and_seed(database_url, ready_jobs)
+        teams = ready_jobs // 10
+        _reset_and_seed(database_url, ready_jobs, teams=teams)
         before_io = _database_io(database_url)
         samples: list[float] = []
-        peak_locks = 0
-        lock_modes: set[str] = set()
         runtime = PostgreSQLRuntime(
             PostgresDatabaseUrl(database_url),
             role=PostgreSQLRuntimeRole.WORKER,
             worker_concurrency=1,
         )
         runtime.open()
+        worker = _claim_worker(runtime, f"sequential-{ready_jobs}")
         try:
-            for index in range(min(20, ready_jobs)):
+            for _ in range(min(20, ready_jobs)):
                 started = time.perf_counter_ns()
-                with runtime.transaction() as connection:
-                    job_id, locks, modes = _claim_job(
-                        connection, f"sequential-{ready_jobs}-{index}"
-                    )
-                assert job_id is not None
+                assert worker._claim() is not None
                 samples.append(_milliseconds(started))
-                peak_locks = max(peak_locks, locks)
-                lock_modes.update(modes)
             pool = runtime.pool_metrics()
         finally:
             runtime.close()
@@ -233,12 +263,12 @@ def _queue(database_url: str) -> list[dict[str, object]]:
         results.append(
             {
                 "ready_jobs": ready_jobs,
+                "teams": teams,
                 "claims": len(samples),
                 "median_ms": round(statistics.median(samples), 2),
                 "p95_ms": ordered[max(0, round(0.95 * len(ordered)) - 1)],
                 "max_ms": ordered[-1],
-                "peak_locks": peak_locks,
-                "lock_modes": sorted(lock_modes),
+                "measurement": "worker_claim_with_subject_hydration",
                 "pool_waiters_peak": pool.waiting_requests,
                 "process_peak_rss_mib": _peak_rss_mib(),
                 **_io_delta(before_io, _database_io(database_url)),
@@ -257,23 +287,26 @@ def _repositories(database_url: str) -> dict[str, object]:
     )
     runtime.open()
     observed_waiters = 0
-    peak_locks = 0
+    samples: list[float] = []
     metrics_lock = Lock()
 
     def worker(index: int) -> list[int]:
-        nonlocal observed_waiters, peak_locks
+        nonlocal observed_waiters
         claimed: list[int] = []
+        instance = _claim_worker(runtime, f"worker-{index}")
         while True:
-            with runtime.transaction() as connection:
-                job_id, locks, _ = _claim_job(connection, f"worker-{index}")
+            started = time.perf_counter_ns()
+            item = instance._claim()
+            elapsed = _milliseconds(started)
             with metrics_lock:
                 observed_waiters = max(
                     observed_waiters, runtime.pool_metrics().waiting_requests
                 )
-                peak_locks = max(peak_locks, locks)
-            if job_id is None:
+                if item is not None:
+                    samples.append(elapsed)
+            if item is None:
                 return claimed
-            claimed.append(job_id)
+            claimed.append(item.job.id)
 
     started = time.perf_counter_ns()
     try:
@@ -288,7 +321,8 @@ def _repositories(database_url: str) -> dict[str, object]:
         "workers": 10,
         "distinct_claims": len(set(identifiers)),
         "wall_ms": _milliseconds(started),
-        "peak_locks": peak_locks,
+        "claim_median_ms": round(statistics.median(samples), 2),
+        "claim_p95_ms": sorted(samples)[max(0, round(0.95 * len(samples)) - 1)],
         "pool_waiters_peak": max(observed_waiters, pool.waiting_requests),
         "pool_maximum_size": pool.maximum_size,
         "process_peak_rss_mib": _peak_rss_mib(),
@@ -455,7 +489,7 @@ def main() -> int:
     if not database_name.endswith("_benchmark"):
         parser.error("--database-url must name a dedicated *_benchmark database")
     receipt = {
-        "schema_version": 2,
+        "schema_version": 3,
         "candidate_revision": "v0.1.0",
         "python": platform.python_version(),
         "platform": platform.platform(),

@@ -19,7 +19,7 @@ This feature is available in the source candidate and has not yet been released.
 The current v0.4.0-rc.4 image does not include it. Build both images from the same
 candidate checkout, or use a future qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 24.
+an older migration image: the current admin API requires PostgreSQL schema 25.
 
 After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
@@ -193,7 +193,7 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `GET /api/overview` | Team reader or global role | Lifetime and selected-period totals, UTC daily publications, publication latency, recent failure reasons, and reporting review workers and capacity. |
 | `GET /api/repositories` | Team reader or global role | Paginated repositories, `total` matching repositories, and aggregate `totals` across every matching repository. |
 | `GET /api/pull-requests` | Team reader or global role | Paginated PR groups, total matching PRs, matching and lifetime request counts, and the latest matching request. |
-| `GET /api/history` | Team reader or global role | Paginated requests, `total` matching requests before the cursor is applied, and per-request token usage. |
+| `GET /api/history` | Team reader or global role | Paginated requests, `total` matching requests before the cursor is applied, per-request token usage, and recorded account quota waits. |
 | `GET /api/history/{run_id}` | Team reader or global role | Selected request, original published Markdown and GitHub links, plus up to 20 retained requests for the same PR. `before_id` pages that PR's history; selection is independent of the cursor and reporting period. Missing requests return 404. |
 | `GET /api/operations` | Owner or admin | Worker presence and capacity, active leases, and webhook, review, and publication queue counts. |
 | `GET /api/operations/events` | Owner or admin | Structured process and review events, with optional `worker_id` and `before_id` filters. |
@@ -216,8 +216,9 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `PATCH /api/model-connections/{id}`, `POST /api/model-connections/{id}/retire` | Owner; admin for a team-owned connection | Update allowed model choices or retire a paused, drained, unassigned connection. |
 | `POST /api/model-connections/{id}/enabled`, `POST /api/model-connections/{id}/reconcile` | Owner; owning team maintainer or admin for a dedicated connection | Pause/enable dispatch or record an account change after draining. Recovery after an interrupted remote operation requires an owner and runtime restart. |
 | `GET /api/model-connections/{id}/runtime` | Connection manager | Redacted current account observation from the owning Hermes process. |
+| `GET /api/model-connections/{id}/quota/{provider}` | Scoped member, owner or admin | Cached account quota with freshness, actual windows and buckets; `refresh=true` requests a rate-limited refresh. |
 | `POST /api/model-connections/{id}/login`, `GET /api/model-connections/{id}/login/{operation}`, `POST …/{operation}/poll`, `POST …/{operation}/cancel` | Connection manager; login operations bound to their initiator | Audited Hermes-owned Codex device login. The old global provider-login routes are removed. |
-| `GET /api/teams/{id}/model-policy`, `PUT /api/teams/{id}/model-policy` | Team member for reads; maintainer or platform administrator for writes | Inherited or explicitly selected allowed model route. Connection assignment requires a platform administrator. |
+| `GET /api/teams/{id}/model-policy`, `PUT /api/teams/{id}/model-policy` | Team member for reads; maintainer or platform administrator for writes | Inherited or explicitly selected allowed model route. Connection assignment and team concurrency changes require a platform administrator. |
 | `GET /api/teams`, `GET /api/teams/{id}` | Team reader or global role | Searchable teams and the current account's team role. |
 | `POST /api/teams`, `PATCH /api/teams/{id}` | Owner or admin | Team creation and conditional metadata changes. |
 | `GET /api/teams/{id}/members` | Team reader or global role | Bounded membership list. |
@@ -403,7 +404,7 @@ under **Advanced operational settings**.
 | `REVIEW_AGENT_DOKPLOY_URL`, `REVIEW_AGENT_DOKPLOY_COMPOSE_ID`, `REVIEW_AGENT_DOKPLOY_API_KEY` | Deployment integration binding and credential; fixes which external application the admin service may inspect. |
 | `REVIEW_AGENT_OPENAI_API_KEY`, `REVIEW_AGENT_HERMES_CONTROL_TOKEN`, `API_SERVER_KEY` | Deployment secrets; embedding, provider-companion and Hermes API credentials. They are never stored in policy revisions or sent to the browser. |
 
-When upgrading this candidate, back up PostgreSQL and apply migrations through 24 before
+When upgrading this candidate, back up PostgreSQL and apply migrations through 25 before
 starting the matching admin frontend/API. Existing admins become owners; existing
 viewers retain explicit global read access. New accounts default to team-scoped
 membership. Repository ownership starts unassigned, and existing GitHub activation
@@ -441,14 +442,15 @@ docker compose -f compose.yaml -f compose.admin.yaml -f compose.providers.yaml c
 
 The overlay enables the pinned Hermes dashboard on `127.0.0.1:9119`. A small
 `review-provider-control` service shares the Hermes network namespace and exposes
-only bounded provider status, model options, runtime diagnostics, Codex device
+only bounded provider status, account quota, model options, runtime diagnostics, Codex device
 login, polling, and cancellation operations on private port `9120`. It authenticates the admin API
 with the dedicated token. The Hermes dashboard is not published or attached to
 the ingress network. When recreating Hermes, recreate its provider-control
 companion in the same Compose operation.
 
 The companion also receives the existing `API_SERVER_KEY` to read Hermes'
-`/health/detailed`, `/v1/capabilities`, and `/v1/review-agent/status` endpoints over loopback. This bearer key
+`/health/detailed`, `/v1/capabilities`, `/v1/review-agent/status`, and the fixed
+`/v1/review-agent/quota/{provider}` endpoints over loopback. This bearer key
 is not passed to the admin service. The companion projects fixed readiness
 statuses, version, agent count, shutdown state, API support and default model;
 it omits raw diagnostics, paths, credentials, commands and process details.
@@ -496,6 +498,55 @@ The image applies a source-checked patch to Hermes's auxiliary fallback owner;
 the managed profile sets `auxiliary.allow_fallback: false`. Image checks exercise
 missing and exhausted credentials without contacting a provider. When upgrading
 Hermes, update and verify this patch before building a release candidate.
+
+### Quota and concurrent reviews
+
+Each verified connection shows Codex account quota from Hermes, including the
+provider's actual window durations, remaining percentage, reset timestamps, plan,
+limit buckets, and available reset-credit count. Unknown values remain unknown;
+failed refreshes retain the last successful observation and label it stale.
+Anthropic API-key quota is not reported by this integration. Reset credits are
+read-only; the console cannot redeem them.
+
+Quota includes other uses of the same provider account. Team review activity and
+recorded tokens are separate measurements. Requests to
+`GET /api/model-connections/{id}/quota/{provider}` use the connection's read
+permissions and recheck its account revision after the remote response. Add
+`?refresh=true` for a manual refresh. Hermes coalesces refreshes per account,
+normally refreshes after five minutes while the page or worker is using the
+connection, and limits manual refreshes to once per 30 seconds. Failed reads back
+off from 30 seconds to five minutes. Provider reads have a 15-second timeout and
+256 KiB response bound; the console receives only the redacted projection.
+Review startup waits at most five seconds for this refresh, then uses the cached
+observation and any durable account wait while the refresh continues.
+
+The platform owner can set **Maximum concurrent reviews** in any connection
+editor; platform admins can edit team-owned connections. Platform administrators
+can set a team's cap in its **Models** tab; that
+cap applies across connections. Both default to four. Lowering a cap lets active
+work finish and limits new claims immediately. Worker process capacity remains an
+additional bound. Eligible teams take turns, with priority aging within each team.
+
+When Codex explicitly reports that account usage is disallowed, native execution
+returns the unstarted review to its queue without spending an attempt. All queued
+work on that account shares one wait deadline. History shows the quota wait and
+the next check time; Operations includes it in delayed queue totals. An elapsed
+reset or wait permits another quota check, not automatic recovery. A fresh
+provider allowance clears the wait. A failed check preserves known exhaustion;
+an account with no quota observation uses the ordinary execution error handling.
+Additional model-specific buckets are displayed, but the scheduler does not
+guess which model names they govern. Quota cannot reserve capacity against other
+applications using the same provider account.
+
+Claimed jobs and unfinished remote executions both reserve team and connection
+capacity. Lease expiry, cancellation, or a failed local run cannot release a
+remote execution that might still be running. The native response releases that
+reservation; interrupted runtimes require the existing explicit recovery flow.
+The connection page shows unfinished executions and explains their capacity
+reservation. If that count persists after reviews stop, including after a failed
+database write at completion, an owner must pause the connection, stop and restart
+its complete runtime, then use **Recover after a runtime restart**. A newly
+reported runtime instance alone does not prove that the previous process stopped.
 
 ### Provision another connection
 

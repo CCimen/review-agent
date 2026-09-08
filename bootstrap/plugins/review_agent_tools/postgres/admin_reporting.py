@@ -81,6 +81,7 @@ class HistoryRow:
     publication_superseded: bool
     is_latest: bool
     recovered: bool
+    quota_wait_until: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,12 +226,17 @@ _HISTORY_SELECT = """
                     SELECT 1 FROM review_agent.publications AS newer
                     WHERE newer.pull_request_id = pr.id AND newer.review_run_id > run.id
                       AND newer.posted_at IS NOT NULL
-                )) AS recovered
+                )) AS recovered,
+                CASE WHEN job.status = 'queued' AND run.status = 'running'
+                     THEN account.quota_wait_until END AS quota_wait_until
             FROM review_agent.review_runs AS run
             JOIN review_agent.pull_requests AS pr ON pr.id = run.pull_request_id
             JOIN {repositories} AS repo ON repo.id = pr.repository_id
             JOIN review_agent.review_subjects AS subject ON subject.id = run.review_subject_id
             LEFT JOIN review_agent.review_jobs AS job ON job.review_run_id = run.id
+            LEFT JOIN review_agent.model_accounts AS account
+              ON account.connection_id = subject.model_connection_id
+             AND account.provider = subject.model_provider AND account.revision = subject.model_account_revision
             LEFT JOIN review_agent.publications AS pub ON pub.review_run_id = run.id
 """
 
@@ -345,6 +351,7 @@ def _history_items(
             publication_superseded=row.publication_superseded,
             is_latest=row.is_latest,
             recovered=row.recovered,
+            quota_wait_until=row.quota_wait_until,
             coverage=summaries[row.id],
             usage=usage.get(row.id, ReviewUsage(0, 0, None, None, None)),
         )

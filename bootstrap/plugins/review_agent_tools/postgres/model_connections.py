@@ -124,6 +124,7 @@ class ModelConnection:
     can_manage: bool
     can_configure: bool
     active_login_id: UUID | None
+    max_concurrency: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,12 +144,13 @@ class _ConnectionRow:
     revision: int
     allowed_routes: object
     member_role: str | None
+    max_concurrency: int
 
 
 _CONNECTION_SELECT = """
     SELECT managed.id, managed.runtime_key, managed.name, managed.team_id,
            team.name AS team_name, managed.state, managed.revision, managed.allowed_routes,
-           member.role AS member_role
+           member.role AS member_role, managed.max_concurrency
     FROM review_agent.model_connections managed
     LEFT JOIN review_agent.teams team ON team.id = managed.team_id
     LEFT JOIN review_agent.team_members member ON member.team_id = managed.team_id AND member.user_id = %s
@@ -257,6 +259,7 @@ def _view_rows(
                 can_manage,
                 scope.is_owner if row.team_id is None else scope.is_admin,
                 active_logins.get(row.id) if can_manage else None,
+                row.max_concurrency,
             )
         )
     return tuple(results)
@@ -330,6 +333,29 @@ def _expected(current: ModelConnection, expected_revision: int) -> None:
         raise ConnectionConflict("This connection has been retired")
 
 
+def require_quota_account(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    connection_id: int,
+    provider: ModelProvider,
+    expected_revision: int,
+    identity_sha256: str | None,
+) -> None:
+    row = connection.execute(
+        """SELECT revision, identity_sha256 FROM review_agent.model_accounts
+           WHERE connection_id = %s AND provider = %s""",
+        (connection_id, provider.value),
+    ).fetchone()
+    if (
+        row is None
+        or row[0] != expected_revision
+        or (identity_sha256 is not None and row[1] != identity_sha256)
+    ):
+        raise ConnectionConflict(
+            "The provider account changed or has not been verified. Reload the connection."
+        )
+
+
 def create_connection(
     connection: psycopg.Connection[TupleRow],
     scope: AccessScope,
@@ -339,20 +365,23 @@ def create_connection(
     team_id: int | None,
     allowed_routes: tuple[ModelChoice, ...],
     reason: str,
+    max_concurrency: int | None = None,
 ) -> ModelConnection:
     team_access.require_owner(scope)
     if team_id is not None:
         team_access.require_team(connection, scope, team_id)
     choices = _choices([choice.to_json() for choice in allowed_routes])
+    capacity = _concurrency(max_concurrency if max_concurrency is not None else 4)
     try:
         row = connection.execute(
-            """INSERT INTO review_agent.model_connections (runtime_key, name, team_id, allowed_routes)
-               VALUES (%s, %s, %s, %s) RETURNING id""",
+            """INSERT INTO review_agent.model_connections (runtime_key, name, team_id, allowed_routes, max_concurrency)
+               VALUES (%s, %s, %s, %s, %s) RETURNING id""",
             (
                 runtime_key,
                 name,
                 team_id,
                 Jsonb([choice.to_json() for choice in choices]),
+                capacity,
             ),
         ).fetchone()
     except psycopg.errors.UniqueViolation as exc:
@@ -372,7 +401,7 @@ def create_connection(
         team_id=team_id,
         subject=f"model-connection:{connection_id}",
         reason=reason,
-        details={"name": name, "runtime_key": runtime_key},
+        details={"name": name, "runtime_key": runtime_key, "max_concurrency": capacity},
         owner_only=team_id is None,
     )
     return get_connection(connection, scope, connection_id)
@@ -387,6 +416,7 @@ def update_connection(
     allowed_routes: tuple[ModelChoice, ...],
     expected_revision: int,
     reason: str,
+    max_concurrency: int | None = None,
 ) -> ModelConnection:
     current = get_connection(connection, scope, connection_id, manage=True, lock=True)
     if not current.can_configure:
@@ -400,7 +430,14 @@ def update_connection(
             "Finish or reconcile the provider operation before editing this connection"
         )
     choices = _choices([choice.to_json() for choice in allowed_routes])
-    if current.name == name and current.allowed_routes == choices:
+    capacity = _concurrency(
+        current.max_concurrency if max_concurrency is None else max_concurrency
+    )
+    if (
+        current.name == name
+        and current.allowed_routes == choices
+        and current.max_concurrency == capacity
+    ):
         return current
     conflicts = connection.execute(
         """SELECT 1 FROM review_agent.team_model_policies policy
@@ -416,8 +453,13 @@ def update_connection(
             "A team still uses a model choice being removed. Update its model policy first."
         )
     connection.execute(
-        "UPDATE review_agent.model_connections SET name = %s, allowed_routes = %s, revision = revision + 1, updated_at = statement_timestamp() WHERE id = %s",
-        (name, Jsonb([choice.to_json() for choice in choices]), connection_id),
+        "UPDATE review_agent.model_connections SET name = %s, allowed_routes = %s, max_concurrency = %s, revision = revision + 1, updated_at = statement_timestamp() WHERE id = %s",
+        (
+            name,
+            Jsonb([choice.to_json() for choice in choices]),
+            capacity,
+            connection_id,
+        ),
     )
     audit.record(
         connection,
@@ -426,7 +468,11 @@ def update_connection(
         team_id=current.team_id,
         subject=f"model-connection:{connection_id}",
         reason=reason,
-        details={"name": name, "allowed_models": len(choices)},
+        details={
+            "name": name,
+            "allowed_models": len(choices),
+            "max_concurrency": capacity,
+        },
         owner_only=current.team_id is None,
     )
     return get_connection(connection, scope, connection_id)
@@ -577,6 +623,13 @@ class TeamModelPolicy:
     effective_model: str
     effective_reasoning_effort: str
     connection: ModelConnection
+    max_concurrency: int
+
+
+def _concurrency(value: int) -> int:
+    if type(value) is not int or not 1 <= value <= 2147483647:
+        raise ValueError("Review concurrency must be between 1 and 2147483647")
+    return value
 
 
 def team_policy(
@@ -584,11 +637,11 @@ def team_policy(
 ) -> TeamModelPolicy:
     team_access.require_team(connection, scope, team_id)
     row = connection.execute(
-        "SELECT revision, connection_id, provider, model, reasoning_effort FROM review_agent.team_model_policies WHERE team_id = %s",
+        "SELECT revision, connection_id, provider, model, reasoning_effort, max_concurrency FROM review_agent.team_model_policies WHERE team_id = %s",
         (team_id,),
     ).fetchone()
-    revision, connection_id, provider, model, effort = (
-        row if row else (0, None, None, None, None)
+    revision, connection_id, provider, model, effort, max_concurrency = (
+        row if row else (0, None, None, None, None, 4)
     )
     saved = deployment_settings.latest(connection)
     defaults = (
@@ -606,6 +659,7 @@ def team_policy(
         model or defaults.model,
         effort or defaults.reasoning_effort,
         managed,
+        max_concurrency,
     )
 
 
@@ -620,6 +674,7 @@ def save_team_policy(
     reasoning_effort: str | None,
     expected_revision: int,
     reason: str,
+    max_concurrency: int | None = None,
 ) -> TeamModelPolicy:
     team_access.require_team(connection, scope, team_id, maintain=True)
     connection.execute(
@@ -628,6 +683,13 @@ def save_team_policy(
     current = team_policy(connection, scope, team_id)
     if current.revision != expected_revision:
         raise ConnectionConflict("Team model policy changed. Reload before saving.")
+    capacity = _concurrency(
+        current.max_concurrency if max_concurrency is None else max_concurrency
+    )
+    if capacity != current.max_concurrency and not scope.is_admin:
+        raise team_access.AccessDenied(
+            "Only platform administrators can change team capacity"
+        )
     if (current.connection_id or SHARED_CONNECTION_ID) != (
         connection_id or SHARED_CONNECTION_ID
     ) and not scope.is_admin:
@@ -664,13 +726,15 @@ def save_team_policy(
         current.provider,
         current.model,
         current.reasoning_effort,
-    ) == (connection_id, provider, model, reasoning_effort):
+        current.max_concurrency,
+    ) == (connection_id, provider, model, reasoning_effort, capacity):
         return current
     connection.execute(
-        """INSERT INTO review_agent.team_model_policies (team_id, connection_id, provider, model, reasoning_effort)
-           VALUES (%s, %s, %s, %s, %s) ON CONFLICT (team_id) DO UPDATE SET
+        """INSERT INTO review_agent.team_model_policies (team_id, connection_id, provider, model, reasoning_effort, max_concurrency)
+           VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (team_id) DO UPDATE SET
            connection_id = EXCLUDED.connection_id, provider = EXCLUDED.provider, model = EXCLUDED.model,
-           reasoning_effort = EXCLUDED.reasoning_effort, revision = review_agent.team_model_policies.revision + 1,
+           reasoning_effort = EXCLUDED.reasoning_effort, max_concurrency = EXCLUDED.max_concurrency,
+           revision = review_agent.team_model_policies.revision + 1,
            updated_at = statement_timestamp()""",
         (
             team_id,
@@ -678,6 +742,7 @@ def save_team_policy(
             provider.value if provider else None,
             model,
             reasoning_effort,
+            capacity,
         ),
     )
     audit.record(
@@ -692,6 +757,7 @@ def save_team_policy(
             "provider": provider.value if provider else None,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "max_concurrency": capacity,
         },
     )
     return team_policy(connection, scope, team_id)

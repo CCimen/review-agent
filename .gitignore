@@ -16,3 +16,4 @@ website/build/
 admin/node_modules/
 admin/dist/
 admin/*.tsbuildinfo
+bootstrap/plugins/review_agent_tools/_build.json

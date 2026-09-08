@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { read } from "./api";
-import type { Account, Overview, RepositoryPage } from "./api";
+import type { Account, BuildInfo, Overview, RepositoryPage } from "./api";
 import { number, time } from "./ui";
 
 const sections = [
@@ -51,6 +51,12 @@ export function ConsoleLayout({
   signingOut: boolean;
 }) {
   const scope = useScope();
+  const build = useQuery({
+    queryKey: ["build-info"],
+    queryFn: ({ signal }) => read<BuildInfo>("/api/version", signal),
+    staleTime: 60_000,
+    refetchInterval: false,
+  });
   const { pathname, search: routeSearch } = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
@@ -289,6 +295,23 @@ export function ConsoleLayout({
         </div>
         {children}
         <footer className="console-statusbar">
+          <span className="build-version">
+            {build.data ? (
+              <>
+                {build.data.version === "development" ? "Development build" : build.data.version}
+                {build.data.revision && (
+                  <abbr title={`Source revision ${build.data.revision}`}>
+                    {" · "}
+                    {build.data.revision.slice(0, 7)}
+                  </abbr>
+                )}
+              </>
+            ) : build.isError ? (
+              <button className="text-button" onClick={() => void build.refetch()} disabled={build.isFetching}>
+                Version unavailable · Retry
+              </button>
+            ) : "Loading version…"}
+          </span>
           <a href="/api/docs" target="_blank" rel="noreferrer">
             API reference
           </a>

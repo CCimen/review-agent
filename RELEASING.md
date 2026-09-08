@@ -76,9 +76,15 @@ git diff --check
    image smoke contract, and the admin digest passes its separate runtime smoke
    contract before the release is qualified for deployment. The admin image does
    not inherit the Hermes image's temporary critical-vulnerability exceptions.
+   Both builds receive the same release tag and verified source SHA. Evidence
+   generation checks registry labels and the admin's baked metadata, then
+   extracts each admin platform's frontend inventory, verifying its build
+   lockfile against the source checkout.
    A prerelease does not update `latest`; a stable release does.
 4. Confirm the release contains per-platform CycloneDX JSON, SPDX JSON, and
    readable tables for both images; their focused Python-runtime CycloneDX files;
+   `review-agent-admin-frontend-<tag>-linux-amd64.cyclonedx.json` and its
+   `linux-arm64` counterpart;
    both `vulnerability-linux-*.json` and both `vulnerability-admin-linux-*.json`
    reports; `VULNERABILITY-POLICY.json`;
    `VULNERABILITY-SUMMARY.md`; `IMAGE-DIGESTS.txt`; `SOURCE-SHA.txt`; and
@@ -101,6 +107,9 @@ git diff --check
 7. Deploy the immutable digest only after the full release workflow succeeds
    and the generated vulnerability summary is visible. Run `doctor`, queue inspection,
    repository inventory, a dry-run smoke test, and one owner-approved `/review`.
+   With the admin panel enabled, deploy both images from the same evidence
+   record and compare its authenticated `/api/version` with the release tag
+   and `SOURCE-SHA.txt`.
 
 ## Roll back
 

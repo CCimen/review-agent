@@ -1,5 +1,6 @@
 import type { components } from "./api.generated";
 
+export type BuildInfo = components["schemas"]["BuildInfo"];
 export type RepositoryPage = components["schemas"]["RepositoryPage"];
 export type PullRequestGroup = components["schemas"]["PullRequestGroup"];
 export type PullRequestPage = components["schemas"]["PullRequestPage"];

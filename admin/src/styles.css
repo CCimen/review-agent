@@ -316,6 +316,10 @@ kbd {
   font-weight: 400;
   margin-left: 6px;
 }
+.console-statusbar .build-version {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .console-statusbar .statusbar-refresh {
   margin-left: auto;
   border-right: 0;

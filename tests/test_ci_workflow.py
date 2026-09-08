@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -137,7 +138,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         for action in external_actions:
             self.assertRegex(action, r"^[^@\s]+@[0-9a-f]{40}$")
 
-        self.assertIn("python-version: '3.11'", source)
+        self.assertIn("python-version: '3.14.7'", source)
+        self.assertIn("python-version: '3.13.5'", source)
         checkout_entries = [
             entry
             for entry in action_entries
@@ -451,9 +453,88 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("password: ${{ secrets.GITHUB_TOKEN }}", source)
         self.assertIn("provenance: mode=max", source)
         self.assertIn("sbom: true", source)
+        for step_name in ("Build and publish image", "Build and publish admin image"):
+            arguments = str(mapping(named_step(publish, step_name)["with"])["build-args"])
+            self.assertIn("REVIEW_AGENT_VERSION=${{ github.event.release.tag_name }}", arguments)
+            self.assertIn("REVIEW_AGENT_REVISION=${{ needs.verify.outputs.source_sha }}", arguments)
         self.assertIn("subject-name: ${{ env.IMAGE_NAME }}", source)
         self.assertIn("subject-digest: ${{ steps.push.outputs.digest }}", source)
         self.assertIn("push-to-registry: true", source)
+
+    def test_build_metadata_and_frontend_inventory_preserve_release_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            build = temporary / "build.json"
+            revision = "a" * 40
+            command = [
+                sys.executable,
+                str(ROOT / "scripts/write_build_info.py"),
+                str(build),
+                "--version",
+                "v1.2.3",
+                "--revision",
+                revision,
+            ]
+            subprocess.run(command, check=True, capture_output=True)
+            self.assertEqual(
+                json.loads(build.read_bytes()),
+                {"version": "v1.2.3", "revision": revision},
+            )
+            rejected = subprocess.run([*command[:-1], "unknown"], capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+
+            lock = temporary / "package-lock.json"
+            lock.write_text(
+                json.dumps(
+                    {
+                        "packages": {
+                            "": {"dependencies": {"react": "19.2.8"}},
+                            "node_modules/react": {"version": "19.2.8"},
+                        }
+                    }
+                )
+            )
+            native = temporary / "native.json"
+            inventory = {
+                "bomFormat": "CycloneDX",
+                "specVersion": "1.5",
+                "metadata": {},
+                "components": [{"name": "react", "version": "19.2.8"}],
+            }
+            native.write_text(json.dumps(inventory))
+            output = temporary / "release.json"
+            command = [
+                sys.executable,
+                str(ROOT / "scripts/prepare_frontend_sbom.py"),
+                str(native),
+                str(lock),
+                str(output),
+                "--version",
+                "v1.2.3",
+                "--revision",
+                revision,
+                "--image",
+                "example/admin@sha256:" + "b" * 64,
+                "--platform",
+                "linux/amd64",
+            ]
+            subprocess.run(command, check=True, capture_output=True)
+            released = json.loads(output.read_bytes())
+            properties = {
+                item["name"]: item["value"]
+                for item in released["metadata"]["properties"]
+            }
+            self.assertEqual(properties["review-agent:source-revision"], revision)
+            self.assertEqual(
+                properties["review-agent:package-lock-sha256"],
+                hashlib.sha256(lock.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(released["components"], inventory["components"])
+            inventory["components"] = []
+            native.write_text(json.dumps(inventory))
+            rejected = subprocess.run(command, capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(b"missing react@19.2.8", rejected.stderr)
 
     def test_release_tag_validator_enforces_semver_prerelease_identifiers(self):
         for tag in (
@@ -657,6 +738,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "review-agent-admin-v1.2.3-linux-arm64.spdx.json",
             "review-agent-admin-v1.2.3-linux-arm64.table.txt",
             "review-agent-admin-python-runtime-v1.2.3-linux-amd64.cyclonedx.json",
+            "review-agent-admin-frontend-v1.2.3-linux-amd64.cyclonedx.json",
+            "review-agent-admin-frontend-v1.2.3-linux-arm64.cyclonedx.json",
             "vulnerability-admin-linux-amd64.json",
             "vulnerability-admin-linux-arm64.json",
         ]
@@ -1085,6 +1168,20 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                         handle.write(json.dumps(["docker", *arguments]) + "\\n")
 
                     if arguments[:3] == ["buildx", "imagetools", "inspect"]:
+                        if arguments[-2:] == ["--format", "{{json .Image}}"]:
+                            manifest = json.loads(os.environ["RAW_MANIFEST"])
+                            expected = {
+                                os.environ[key].split("@")[0] + "@" + image["digest"]
+                                for key in ("EXPECTED_MANIFEST_REF", "EXPECTED_ADMIN_MANIFEST_REF")
+                                for image in manifest["manifests"]
+                            }
+                            if arguments[3] not in expected:
+                                raise SystemExit("config was not selected by immutable platform digest")
+                            print(json.dumps({"config": {"Labels": {
+                                "org.opencontainers.image.revision": os.environ.get("REGISTRY_SOURCE_SHA", os.environ["SOURCE_SHA"]),
+                                "org.opencontainers.image.version": "v1.2.3"
+                            }}}))
+                            raise SystemExit(0)
                         if arguments[-1] != "--raw":
                             raise SystemExit("only the immutable raw manifest may be read")
                         if arguments[3] not in (os.environ["EXPECTED_MANIFEST_REF"], os.environ["EXPECTED_ADMIN_MANIFEST_REF"]):
@@ -1110,6 +1207,33 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                             ),
                             encoding="utf-8",
                         )
+                        raise SystemExit(0)
+
+                    if arguments[0] in ("pull", "rm"):
+                        raise SystemExit(0)
+                    if arguments[0] == "create":
+                        print("release-evidence-container")
+                        raise SystemExit(0)
+                    if arguments[0] == "cp":
+                        import hashlib
+                        target = Path(arguments[2])
+                        source = arguments[1]
+                        if source.endswith("/_build.json"):
+                            value = {"version": "v1.2.3", "revision": os.environ.get("IMAGE_SOURCE_SHA", os.environ["SOURCE_SHA"])}
+                            target.write_text(json.dumps(value))
+                        else:
+                            lock_bytes = Path(os.environ["FRONTEND_LOCK"]).read_bytes()
+                            if source.endswith("/frontend-lock.sha256"):
+                                digest = os.environ.get("IMAGE_LOCK_SHA", hashlib.sha256(lock_bytes).hexdigest())
+                                target.write_text(digest + "  package-lock.json\\n")
+                            elif source.endswith("/frontend.cyclonedx.json"):
+                                lock = json.loads(lock_bytes)["packages"]
+                                target.write_text(json.dumps({"bomFormat": "CycloneDX", "specVersion": "1.5", "metadata": {}, "components": [
+                                    {"name": name, "version": lock["node_modules/" + name]["version"]}
+                                    for name in lock[""]["dependencies"]
+                                ]}))
+                            else:
+                                raise SystemExit("unexpected container file")
                         raise SystemExit(0)
 
                     raise SystemExit("unexpected docker command")
@@ -1160,6 +1284,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             environment.update(
                 {
                     "CALLS_LOG": str(calls),
+                    "SOURCE_SHA": "a" * 40,
+                    "FRONTEND_LOCK": str(ROOT / "admin/package-lock.json"),
                     "CYCLONEDX_SPEC_VERSION": "1.7",
                     "EXPECTED_IMAGE_DIGEST": manifest_digest,
                     "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,
@@ -1203,6 +1329,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 recorded_calls[0],
             )
             syft_sources = [call[1] for call in recorded_calls if call[0] == "syft"]
+            created_images = [call[-1] for call in recorded_calls if call[:2] == ["docker", "create"]]
+            self.assertEqual(created_images, [
+                f"ghcr.io/example/review-agent-admin@{amd64_digest}",
+                f"ghcr.io/example/review-agent-admin@{arm64_digest}",
+            ])
             self.assertEqual(
                 [
                     f"registry:ghcr.io/example/review-agent@{amd64_digest}",
@@ -1221,7 +1352,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             checksums = (output / "SBOM-SHA256SUMS.txt").read_text(
                 encoding="utf-8"
             )
-            self.assertEqual(15, len(checksums.splitlines()))
+            self.assertEqual(17, len(checksums.splitlines()))
             checksum_check = subprocess.run(
                 ["sha256sum", "--check", "SBOM-SHA256SUMS.txt"],
                 cwd=output,
@@ -1230,6 +1361,23 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(0, checksum_check.returncode, checksum_check.stderr)
+
+            for key, value, message in (
+                ("IMAGE_SOURCE_SHA", "b" * 40, "build metadata does not match"),
+                ("IMAGE_LOCK_SHA", "f" * 64, "frontend lockfile does not match"),
+                ("REGISTRY_SOURCE_SHA", "b" * 40, "registry labels do not match"),
+            ):
+                with self.subTest(key=key):
+                    rejected = subprocess.run(
+                        [str(RELEASE_SBOM), "ghcr.io/example/review-agent", "v1.2.3",
+                         str(temporary / key), "ghcr.io/example/review-agent-admin"],
+                        capture_output=True, text=True, env={**environment, key: value},
+                    )
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertIn(message, rejected.stderr)
+                    if key != "REGISTRY_SOURCE_SHA":
+                        last_call = json.loads(calls.read_text().splitlines()[-1])
+                        self.assertEqual(last_call, ["docker", "rm", "--volumes", "release-evidence-container"])
 
     def test_release_sbom_requires_one_digest_for_each_platform(self):
         manifest_digest = "sha256:" + "c" * 64
@@ -1262,6 +1410,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,
                     "PATH": f"{temporary}{os.pathsep}{environment['PATH']}",
                     "RAW_MANIFEST": json.dumps(base_manifest),
+                    "SOURCE_SHA": "a" * 40,
                     "SYFT_CMD": str(syft),
                 }
             )

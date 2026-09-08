@@ -4,6 +4,8 @@
     "bootstrap/install.py",
     "scripts/check_trivy_report.py",
     "scripts/validate_release_tag.py",
+    "scripts/write_build_info.py",
+    "scripts/prepare_frontend_sbom.py",
     "tools"
   ],
   "exclude": [

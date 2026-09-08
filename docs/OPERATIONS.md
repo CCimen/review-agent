@@ -747,6 +747,14 @@ multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency
 bump. Never replace this with the moving `latest` or `main` tag.
 
+The admin image and PostgreSQL CI checks use Python 3.14.7.
+The pinned Hermes image supplies Python 3.13.5 and its installed package requires
+Python below 3.14. The main and graph environments therefore retain that
+supported interpreter. The bundle CI check uses Python 3.13.5 to cover that
+runtime while PostgreSQL/admin contracts run on 3.14.7. Recheck the upstream
+constraint when changing Hermes; upgrading the independent admin runtime does
+not replace Hermes's interpreter.
+
 The Review Agent image applies security updates available from the pinned
 base's Debian release at build time and replaces its `uv` binary from a second
 digest-pinned upstream image. The release workflow then scans each exact

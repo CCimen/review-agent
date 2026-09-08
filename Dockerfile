@@ -33,6 +33,10 @@ RUN uv venv --python /opt/hermes/.venv/bin/python /opt/review-agent-code-graph \
     && chown 10000:10000 /var/lib/review-agent-code-graph
 
 COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
+ARG REVIEW_AGENT_VERSION=development
+ARG REVIEW_AGENT_REVISION=unknown
+LABEL org.opencontainers.image.version=$REVIEW_AGENT_VERSION \
+      org.opencontainers.image.revision=$REVIEW_AGENT_REVISION
 # Keep inference and quota reads bound to the selected account. Check upstream
 # source before applying the pinned changes to its existing owners.
 RUN printf '%s\n' \

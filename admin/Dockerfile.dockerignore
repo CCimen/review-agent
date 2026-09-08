@@ -1,5 +1,8 @@
 *
 !requirements-admin.txt
+!scripts/
+!scripts/write_build_info.py
+!scripts/validate_release_tag.py
 !admin/
 !admin/**
 !bootstrap/
@@ -9,5 +12,6 @@
 admin/node_modules/
 admin/dist/
 admin/*.tsbuildinfo
+bootstrap/plugins/review_agent_tools/_build.json
 **/__pycache__/
 **/*.py[cod]

@@ -75,6 +75,7 @@ class AdminAPITests(unittest.TestCase):
     def test_viewer_cannot_manage_users_and_logout_revokes_session(self) -> None:
         for path in (
             "/api/me",
+            "/api/version",
             "/api/repositories",
             "/api/history",
             "/api/history/1",
@@ -98,6 +99,10 @@ class AdminAPITests(unittest.TestCase):
             400,
         )
         self.login()
+        version = self.client.get("/api/version")
+        self.assertEqual(version.status_code, 200)
+        self.assertEqual(version.json(), {"version": "development", "revision": None})
+        self.assertEqual(version.headers["cache-control"], "no-store")
         api_docs = self.client.get("/api/docs")
         self.assertEqual(api_docs.status_code, 200)
         self.assertIn("script-src 'self'", api_docs.headers["content-security-policy"])

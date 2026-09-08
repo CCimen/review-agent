@@ -95,9 +95,11 @@ search and task-based navigation. Key pages:
 | See capabilities and boundaries | [Capabilities](docs/ROADMAP.md) |
 
 Successful container release workflows publish attested `linux/amd64` and
-`linux/arm64` images, SBOMs, and per-platform vulnerability reports. Compose can
-either build locally or use an immutable release tag through
-`REVIEW_AGENT_IMAGE`; see
+`linux/arm64` images, SBOMs, and per-platform vulnerability reports. Releases
+built from this source pair worker and admin images with the same version and
+source revision, include the frontend dependency inventory, and show the admin
+build version in the console. Compose can build locally or use qualified
+release digests through `REVIEW_AGENT_IMAGE` and `REVIEW_AGENT_ADMIN_IMAGE`; see
 [Deployment](docs/DEPLOYMENT.md#choose-an-image).
 
 ## What it does

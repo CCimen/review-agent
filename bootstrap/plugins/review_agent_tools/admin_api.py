@@ -42,6 +42,7 @@ from . import (
     integration_api,
 )
 from .admin_auth import AdminAuth
+from .build_info import BuildInfo, read_build_info
 from .postgres import admin_operations, admin_reporting
 from .postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
 from .postgres.teams import TeamConflict
@@ -69,6 +70,7 @@ def create_app(
     static_dir: Path,
 ) -> FastAPI:
     auth = AdminAuth(runtime.database_url, public_url)
+    build = read_build_info()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -240,6 +242,9 @@ def create_app(
             limit=limit,
         )
 
+    def version() -> BuildInfo:
+        return build
+
     def openapi() -> JSONResponse:
         return JSONResponse(app.openapi())
 
@@ -304,6 +309,7 @@ def create_app(
 
     app.add_exception_handler(HermesControlError, provider_unavailable)
     router.add_api_route("/api/repositories", repositories, methods=["GET"])
+    router.add_api_route("/api/version", version, methods=["GET"])
     router.add_api_route("/api/history", history, methods=["GET"])
     router.add_api_route("/api/history/{run_id}", review_detail, methods=["GET"])
     router.add_api_route("/api/pull-requests", pull_requests, methods=["GET"])

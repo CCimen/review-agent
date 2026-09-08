@@ -16,6 +16,11 @@ admin_image="$4"
 : "${EXPECTED_IMAGE_DIGEST:?EXPECTED_IMAGE_DIGEST must be the published manifest digest}"
 : "${EXPECTED_ADMIN_IMAGE_DIGEST:?EXPECTED_ADMIN_IMAGE_DIGEST must be the admin manifest digest}"
 : "${CYCLONEDX_SPEC_VERSION:?CYCLONEDX_SPEC_VERSION is required}"
+: "${SOURCE_SHA:?SOURCE_SHA must be the verified release source revision}"
+if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "SOURCE_SHA must be a full lowercase Git SHA" >&2
+    exit 1
+fi
 
 python3 "$root/scripts/validate_release_tag.py" "$release_tag"
 
@@ -43,6 +48,13 @@ else
     mkdir -p "$output_dir"
 fi
 output_dir="$(cd "$output_dir" && pwd)"
+metadata_dir="$(mktemp -d)"
+container_id=""
+cleanup() {
+    if [[ -n "$container_id" ]]; then docker rm --volumes "$container_id" >/dev/null; fi
+    rm -r -- "$metadata_dir"
+}
+trap cleanup EXIT
 
 
 require_digest() {
@@ -107,6 +119,40 @@ generate_image_sboms() {
         printf '%s linux/%s %s %s\n' \
             "$component" "$architecture" "$image_ref" "$digest_ref" \
             >>"$output_dir/IMAGE-DIGESTS.txt"
+
+        docker buildx imagetools inspect "$digest_ref" --format '{{json .Image}}' \
+            | jq -e --arg revision "$SOURCE_SHA" --arg version "$release_tag" \
+                '.config.Labels["org.opencontainers.image.revision"] == $revision
+                 and .config.Labels["org.opencontainers.image.version"] == $version' >/dev/null || {
+                    echo "$component linux/$architecture registry labels do not match the verified release" >&2
+                    exit 1
+                }
+        if [[ "$component" == review-agent-admin ]]; then
+            # Creating a stopped container reads either architecture without emulation.
+            container_id="$(docker create --platform "linux/$architecture" "$digest_ref")"
+            docker cp "$container_id:/app/bootstrap/plugins/review_agent_tools/_build.json" "$metadata_dir/build.json"
+            jq -e --arg version "$release_tag" --arg revision "$SOURCE_SHA" \
+                '. == {version: $version, revision: $revision}' \
+                "$metadata_dir/build.json" >/dev/null || {
+                    echo "$component linux/$architecture build metadata does not match the verified release" >&2
+                    exit 1
+                }
+            docker cp "$container_id:/app/share/review-agent/frontend-lock.sha256" "$metadata_dir/frontend-lock.sha256"
+            test "$(cat "$metadata_dir/frontend-lock.sha256")" = \
+                "$(cd "$root/admin" && sha256sum package-lock.json)" || {
+                    echo "$component linux/$architecture frontend lockfile does not match the verified source" >&2
+                    exit 1
+                }
+            docker cp "$container_id:/app/share/review-agent/frontend.cyclonedx.json" "$metadata_dir/frontend.cyclonedx.json"
+            local frontend_asset="review-agent-admin-frontend-${release_tag}-linux-${architecture}.cyclonedx.json"
+            python3 "$root/scripts/prepare_frontend_sbom.py" \
+                "$metadata_dir/frontend.cyclonedx.json" "$root/admin/package-lock.json" "$output_dir/$frontend_asset" \
+                --version "$release_tag" --revision "$SOURCE_SHA" \
+                --image "$digest_ref" --platform "linux/$architecture"
+            checksum_assets+=("$frontend_asset")
+            docker rm --volumes "$container_id" >/dev/null
+            container_id=""
+        fi
 
         "$SYFT_CMD" "registry:$digest_ref" \
             --platform "linux/$architecture" \

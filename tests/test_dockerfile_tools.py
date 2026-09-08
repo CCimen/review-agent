@@ -144,6 +144,7 @@ class DockerfileToolsTests(unittest.TestCase):
                 "!bootstrap/**",
                 "!tools/",
                 "!tools/review_agent_*.py",
+                "bootstrap/plugins/review_agent_tools/_build.json",
                 "**/__pycache__/",
                 "**/*.py[cod]",
             ],

@@ -190,6 +190,7 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 
 | Endpoint | Access | Data |
 | --- | --- | --- |
+| `GET /api/version` | Signed-in users | Baked release version and full source revision; the console footer shows the version and short revision. |
 | `GET /api/overview` | Team reader or global role | Lifetime and selected-period totals, UTC daily publications, publication latency, recent failure reasons, and reporting review workers and capacity. |
 | `GET /api/repositories` | Team reader or global role | Paginated repositories, `total` matching repositories, and aggregate `totals` across every matching repository. |
 | `GET /api/pull-requests` | Team reader or global role | Paginated PR groups, total matching PRs, matching and lifetime request counts, and the latest matching request. |
@@ -297,8 +298,9 @@ The review reader bounds its body at 200,000 characters and its GitHub links at
 is sanitized before rendering; embedded images and form controls are omitted.
 The users endpoint now returns an
 object instead of an array, so deploy the generated frontend and API together.
-Upgrade the main worker image as well as the admin image after applying schema
-18 to begin collecting presence and usage.
+Upgrade the main worker image as well as the admin image after applying the
+current schema 26, so workers and the console use the same presence, usage,
+team-access, and integration contracts.
 
 ## Application integrations
 
@@ -693,6 +695,19 @@ backup and migrations. The panel is one additional service in the existing
 Compose application, with its own image and hostname. It serves its compiled
 frontend and API together on port `8090`; Node.js is used only during the build.
 
+Both release images carry the same release tag and source revision, with
+different immutable image digests. The console footer and `GET /api/version`
+identify the running admin build. This metadata is baked into the image;
+deployment environment variables do not change it. Source checkouts and local
+builds default to `development` with no claimed source revision. A local build
+is not a qualified release.
+
+The admin image uses Python 3.14.7. The main image retains the Python runtime
+supported by the pinned Hermes image; see [runtime updates](OPERATIONS.md#updating-and-validation).
+The admin build also includes an npm dependency inventory outside the served
+web assets. Qualified releases attach the inventory with their other
+[release evidence](SECURITY.md#release-inventories).
+
 1. Add these non-secret values to the deployment configuration:
 
    ```dotenv
@@ -717,6 +732,9 @@ frontend and API together on port `8090`; Node.js is used only during the build.
    For a qualified release that includes the panel, set both image variables to
    their respective manifest references from the same `IMAGE-DIGESTS.txt`, then
    use `pull` and `up -d --no-build`. The two images have different digests.
+   After an upgrade, compare the console version and full revision from
+   `/api/version` with the release tag and `SOURCE-SHA.txt`. Keep the admin
+   service stopped during migrations and start it with the matching workers.
 
    In Dokploy, keep the panel in the same Compose application so it can reach
    the existing private database network. For a raw Compose deployment, merge

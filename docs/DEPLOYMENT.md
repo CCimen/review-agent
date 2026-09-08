@@ -327,6 +327,15 @@ and candidate Review Agent digests and the exact PostgreSQL digest. Keep the
 current PostgreSQL image during an application upgrade unless the database has
 its own reviewed maintenance plan.
 
+If the admin panel is installed, record both its current and candidate
+`REVIEW_AGENT_ADMIN_IMAGE` digests alongside `REVIEW_AGENT_IMAGE`. Select both
+from one qualified release's `IMAGE-DIGESTS.txt`; their release tag and source
+revision must match. Preserve `compose.admin.yaml` in Compose commands, stop
+`review-admin` before migration, and start it with the matching worker services.
+Follow the [admin service procedure](ADMIN_PANEL.md#add-the-service) for the
+overlay, hostname, and post-upgrade version check. The platform examples below
+cover the main services.
+
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
 its image was built.
@@ -458,7 +467,8 @@ the diff is read again. Keep the added columns when recovering; no data removal
 or reverse migration is needed. The previous coverage queries remain compatible,
 but an image rollback still requires the release-specific checks below.
 
-Schema 22 introduces team access and separate owner/admin roles in the console.
+The current admin API requires schema 26. Schema 22 introduced team access and
+separate owner/admin roles in the console.
 Earlier console images do not enforce these boundaries and treat new team members
 as global viewers. Do not roll back the console image alone after this upgrade;
 use a forward fix or coordinated image and database recovery. Database-ahead

@@ -115,6 +115,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            REVIEW_AGENT_VERSION=${{ github.event.release.tag_name }}
+            REVIEW_AGENT_REVISION=${{ needs.verify.outputs.source_sha }}
           provenance: mode=max
           sbom: true
 
@@ -144,6 +147,9 @@ jobs:
           push: true
           tags: ${{ steps.meta-admin.outputs.tags }}
           labels: ${{ steps.meta-admin.outputs.labels }}
+          build-args: |
+            REVIEW_AGENT_VERSION=${{ github.event.release.tag_name }}
+            REVIEW_AGENT_REVISION=${{ needs.verify.outputs.source_sha }}
           provenance: mode=max
           sbom: true
 
@@ -195,6 +201,7 @@ jobs:
           EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}
           EXPECTED_ADMIN_IMAGE_DIGEST: ${{ needs.publish.outputs.admin_image_digest }}
           CYCLONEDX_SPEC_VERSION: "1.7"
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
         run: |
           scripts/generate_release_sbom.sh \
             "$IMAGE_NAME" "$RELEASE_TAG" release-sbom "${IMAGE_NAME}-admin"
@@ -375,6 +382,8 @@ jobs:
             "review-agent-admin-${RELEASE_TAG}-linux-arm64.spdx.json"
             "review-agent-admin-${RELEASE_TAG}-linux-arm64.table.txt"
             "review-agent-admin-python-runtime-${RELEASE_TAG}-linux-amd64.cyclonedx.json"
+            "review-agent-admin-frontend-${RELEASE_TAG}-linux-amd64.cyclonedx.json"
+            "review-agent-admin-frontend-${RELEASE_TAG}-linux-arm64.cyclonedx.json"
             vulnerability-admin-linux-amd64.json
             vulnerability-admin-linux-arm64.json
           )

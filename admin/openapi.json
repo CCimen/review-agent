@@ -1553,6 +1553,32 @@
         ]
       }
     },
+    "/api/providers/runtime": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Runtime Status",
+        "operationId": "runtime_status_api_providers_runtime_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimePage"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
     "/api/providers/openai-codex/login": {
       "post": {
         "tags": [
@@ -1779,6 +1805,127 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeploymentStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/access/connection": {
+      "get": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Connection",
+        "operationId": "connection_api_access_connection_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConnection"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/access/installations/{installation_id}/status": {
+      "get": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Installation Status",
+        "operationId": "installation_status_api_access_installations__installation_id__status_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "installation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Installation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveInstallationStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/access/repositories/onboard": {
+      "post": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Onboard Repository",
+        "operationId": "onboard_repository_api_access_repositories_onboard_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepositoryOnboarding"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/review_agent_tools__admin_access_api__RepositoryAccess"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2163,12 +2310,17 @@
           "detail": {
             "type": "string",
             "title": "Detail"
+          },
+          "default_profile": {
+            "type": "string",
+            "title": "Default Profile"
           }
         },
         "type": "object",
         "required": [
           "configured",
-          "detail"
+          "detail",
+          "default_profile"
         ],
         "title": "AccessCapability"
       },
@@ -2453,6 +2605,97 @@
         ],
         "title": "AdminFindingDetail"
       },
+      "AppConnection": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/AccessCapability"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_configured",
+              "connected",
+              "needs_update",
+              "unavailable"
+            ],
+            "title": "Status"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          },
+          "app": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "app_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Url"
+          },
+          "edit_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edit Url"
+          },
+          "install_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Install Url"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "capability",
+          "status",
+          "checked_at"
+        ],
+        "title": "AppConnection"
+      },
       "AuditReason": {
         "properties": {
           "reason": {
@@ -2709,6 +2952,81 @@
             "type": "integer",
             "title": "Publication Max Attempts",
             "default": 3
+          },
+          "job_priority": {
+            "type": "integer",
+            "title": "Job Priority",
+            "default": 0
+          },
+          "job_priority_aging_seconds": {
+            "type": "integer",
+            "title": "Job Priority Aging Seconds",
+            "default": 900
+          },
+          "job_retry_seconds": {
+            "type": "integer",
+            "title": "Job Retry Seconds",
+            "default": 30
+          },
+          "job_poll_seconds": {
+            "type": "integer",
+            "title": "Job Poll Seconds",
+            "default": 2
+          },
+          "job_recovery_seconds": {
+            "type": "integer",
+            "title": "Job Recovery Seconds",
+            "default": 30
+          },
+          "job_recovery_batch_size": {
+            "type": "integer",
+            "title": "Job Recovery Batch Size",
+            "default": 100
+          },
+          "publication_lease_seconds": {
+            "type": "integer",
+            "title": "Publication Lease Seconds",
+            "default": 120
+          },
+          "publication_heartbeat_seconds": {
+            "type": "integer",
+            "title": "Publication Heartbeat Seconds",
+            "default": 30
+          },
+          "publication_retry_seconds": {
+            "type": "integer",
+            "title": "Publication Retry Seconds",
+            "default": 30
+          },
+          "publication_poll_seconds": {
+            "type": "integer",
+            "title": "Publication Poll Seconds",
+            "default": 2
+          },
+          "admission_max_age_seconds": {
+            "type": "integer",
+            "title": "Admission Max Age Seconds",
+            "default": 86400
+          },
+          "github_app_max_body_bytes": {
+            "type": "integer",
+            "title": "Github App Max Body Bytes",
+            "default": 2097152
+          },
+          "admission_max_concurrent_requests": {
+            "type": "integer",
+            "title": "Admission Max Concurrent Requests",
+            "default": 8
+          },
+          "admission_request_timeout_seconds": {
+            "type": "integer",
+            "title": "Admission Request Timeout Seconds",
+            "default": 30
+          },
+          "github_gateway_max_concurrent_requests": {
+            "type": "integer",
+            "title": "Github Gateway Max Concurrent Requests",
+            "default": 8
           },
           "feedback_enabled": {
             "type": "boolean",
@@ -3220,6 +3538,71 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HermesRuntimeStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded",
+              "unavailable",
+              "retrying",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "active_agents": {
+            "type": "integer",
+            "title": "Active Agents"
+          },
+          "busy": {
+            "type": "boolean",
+            "title": "Busy"
+          },
+          "drainable": {
+            "type": "boolean",
+            "title": "Drainable"
+          },
+          "chat_available": {
+            "type": "boolean",
+            "title": "Chat Available"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/RuntimeCheck"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "model",
+          "active_agents",
+          "busy",
+          "drainable",
+          "chat_available",
+          "checks"
+        ],
+        "title": "HermesRuntimeStatus"
+      },
       "HistoryItem": {
         "properties": {
           "id": {
@@ -3660,6 +4043,53 @@
           "last_heartbeat_at"
         ],
         "title": "JobControlSnapshot"
+      },
+      "LiveInstallationStatus": {
+        "properties": {
+          "installation_id": {
+            "type": "integer",
+            "title": "Installation Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/InstallationStatus"
+          },
+          "repository_selection": {
+            "$ref": "#/components/schemas/RepositorySelection"
+          },
+          "settings_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settings Url"
+          },
+          "issues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installation_id",
+          "status",
+          "repository_selection",
+          "settings_url",
+          "issues",
+          "checked_at"
+        ],
+        "title": "LiveInstallationStatus"
       },
       "LoginSession": {
         "properties": {
@@ -4982,6 +5412,35 @@
         ],
         "title": "RepositoryEnablement"
       },
+      "RepositoryOnboarding": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "profile": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Profile"
+          },
+          "repository": {
+            "type": "string",
+            "maxLength": 260,
+            "minLength": 3,
+            "title": "Repository"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "profile",
+          "repository"
+        ],
+        "title": "RepositoryOnboarding"
+      },
       "RepositoryPage": {
         "properties": {
           "items": {
@@ -5508,6 +5967,63 @@
         ],
         "title": "RunControls"
       },
+      "RuntimeCheck": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "state_db",
+              "session_store",
+              "config",
+              "model",
+              "disk",
+              "gateway",
+              "background_queues"
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded",
+              "unavailable",
+              "retrying",
+              "unknown"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "RuntimeCheck"
+      },
+      "RuntimePage": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/ProviderCapability"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HermesRuntimeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "capability",
+          "runtime"
+        ],
+        "title": "RuntimePage"
+      },
       "SaveSettings": {
         "properties": {
           "expected_revision": {
@@ -5542,7 +6058,9 @@
               "worker",
               "admission",
               "reviewer",
-              "gateway"
+              "gateway",
+              "publisher",
+              "webhook"
             ],
             "title": "Service"
           },

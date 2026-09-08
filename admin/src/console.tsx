@@ -180,7 +180,7 @@ export function ConsoleLayout({
           ))}
         </nav>
         <div className="rail-capacity rail-label">
-          <span>Review capacity</span>
+          <span>Online review capacity</span>
           <strong>
             {overview.data ? number.format(overview.data.review_capacity) : "—"}{" "}
             slots
@@ -195,7 +195,9 @@ export function ConsoleLayout({
           <Link className="rail-label" to="/account">
             {current.email}
             <small>
-              {current.role === "admin" ? "Platform operator" : "Viewer"}
+              {current.role === "admin"
+                ? "Your account · Admin"
+                : "Your account · Viewer"}
             </small>
           </Link>
           <button
@@ -261,7 +263,7 @@ export function ConsoleLayout({
         {children}
         <footer className="console-statusbar">
           <span>
-            Requests{" "}
+            Active requests{" "}
             <strong>
               {overview.data
                 ? number.format(overview.data.active_requests)
@@ -269,7 +271,7 @@ export function ConsoleLayout({
             </strong>
           </span>
           <span>
-            Workers{" "}
+            Review workers online{" "}
             <strong>
               {overview.data
                 ? number.format(overview.data.live_review_workers)

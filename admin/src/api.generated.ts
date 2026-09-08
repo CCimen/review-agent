@@ -396,6 +396,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/providers/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Runtime Status */
+        get: operations["runtime_status_api_providers_runtime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/providers/openai-codex/login": {
         parameters: {
             query?: never;
@@ -476,6 +493,57 @@ export interface paths {
         get: operations["status_api_deployment_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/access/connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Connection */
+        get: operations["connection_api_access_connection_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/access/installations/{installation_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Installation Status */
+        get: operations["installation_status_api_access_installations__installation_id__status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/access/repositories/onboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Onboard Repository */
+        post: operations["onboard_repository_api_access_repositories_onboard_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -594,6 +662,8 @@ export interface components {
             configured: boolean;
             /** Detail */
             detail: string;
+            /** Default Profile */
+            default_profile: string;
         };
         /** Account */
         Account: {
@@ -683,6 +753,32 @@ export interface components {
             has_more_decisions: boolean;
             /** Next Decision Before Id */
             next_decision_before_id: number | null;
+        };
+        /** AppConnection */
+        AppConnection: {
+            capability: components["schemas"]["AccessCapability"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_configured" | "connected" | "needs_update" | "unavailable";
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** App */
+            app?: string | null;
+            /** Owner */
+            owner?: string | null;
+            /** App Url */
+            app_url?: string | null;
+            /** Edit Url */
+            edit_url?: string | null;
+            /** Install Url */
+            install_url?: string | null;
+            /** Issues */
+            issues?: string[];
         };
         /** AuditReason */
         AuditReason: {
@@ -812,6 +908,81 @@ export interface components {
              * @default 3
              */
             publication_max_attempts: number;
+            /**
+             * Job Priority
+             * @default 0
+             */
+            job_priority: number;
+            /**
+             * Job Priority Aging Seconds
+             * @default 900
+             */
+            job_priority_aging_seconds: number;
+            /**
+             * Job Retry Seconds
+             * @default 30
+             */
+            job_retry_seconds: number;
+            /**
+             * Job Poll Seconds
+             * @default 2
+             */
+            job_poll_seconds: number;
+            /**
+             * Job Recovery Seconds
+             * @default 30
+             */
+            job_recovery_seconds: number;
+            /**
+             * Job Recovery Batch Size
+             * @default 100
+             */
+            job_recovery_batch_size: number;
+            /**
+             * Publication Lease Seconds
+             * @default 120
+             */
+            publication_lease_seconds: number;
+            /**
+             * Publication Heartbeat Seconds
+             * @default 30
+             */
+            publication_heartbeat_seconds: number;
+            /**
+             * Publication Retry Seconds
+             * @default 30
+             */
+            publication_retry_seconds: number;
+            /**
+             * Publication Poll Seconds
+             * @default 2
+             */
+            publication_poll_seconds: number;
+            /**
+             * Admission Max Age Seconds
+             * @default 86400
+             */
+            admission_max_age_seconds: number;
+            /**
+             * Github App Max Body Bytes
+             * @default 2097152
+             */
+            github_app_max_body_bytes: number;
+            /**
+             * Admission Max Concurrent Requests
+             * @default 8
+             */
+            admission_max_concurrent_requests: number;
+            /**
+             * Admission Request Timeout Seconds
+             * @default 30
+             */
+            admission_request_timeout_seconds: number;
+            /**
+             * Github Gateway Max Concurrent Requests
+             * @default 8
+             */
+            github_gateway_max_concurrent_requests: number;
             /**
              * Feedback Enabled
              * @default false
@@ -1004,6 +1175,28 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HermesRuntimeStatus */
+        HermesRuntimeStatus: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "degraded" | "unavailable" | "retrying" | "unknown";
+            /** Version */
+            version: string;
+            /** Model */
+            model: string | null;
+            /** Active Agents */
+            active_agents: number;
+            /** Busy */
+            busy: boolean;
+            /** Drainable */
+            drainable: boolean;
+            /** Chat Available */
+            chat_available: boolean;
+            /** Checks */
+            checks: components["schemas"]["RuntimeCheck"][];
+        };
         /** HistoryItem */
         HistoryItem: {
             /** Id */
@@ -1146,6 +1339,22 @@ export interface components {
             lease_expires_at: string | null;
             /** Last Heartbeat At */
             last_heartbeat_at: string | null;
+        };
+        /** LiveInstallationStatus */
+        LiveInstallationStatus: {
+            /** Installation Id */
+            installation_id: number;
+            status: components["schemas"]["InstallationStatus"];
+            repository_selection: components["schemas"]["RepositorySelection"];
+            /** Settings Url */
+            settings_url: string | null;
+            /** Issues */
+            issues: string[];
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
         };
         /** LoginSession */
         LoginSession: {
@@ -1603,6 +1812,15 @@ export interface components {
             /** Profile */
             profile: string;
         };
+        /** RepositoryOnboarding */
+        RepositoryOnboarding: {
+            /** Reason */
+            reason: string;
+            /** Profile */
+            profile: string;
+            /** Repository */
+            repository: string;
+        };
         /** RepositoryPage */
         RepositoryPage: {
             /** Items */
@@ -1799,6 +2017,24 @@ export interface components {
             /** Audit */
             audit: components["schemas"]["RunActionAudit"][];
         };
+        /** RuntimeCheck */
+        RuntimeCheck: {
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "state_db" | "session_store" | "config" | "model" | "disk" | "gateway" | "background_queues";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "degraded" | "unavailable" | "retrying" | "unknown";
+        };
+        /** RuntimePage */
+        RuntimePage: {
+            capability: components["schemas"]["ProviderCapability"];
+            runtime: components["schemas"]["HermesRuntimeStatus"] | null;
+        };
         /** SaveSettings */
         SaveSettings: {
             /** Expected Revision */
@@ -1813,7 +2049,7 @@ export interface components {
              * Service
              * @enum {string}
              */
-            service: "worker" | "admission" | "reviewer" | "gateway";
+            service: "worker" | "admission" | "reviewer" | "gateway" | "publisher" | "webhook";
             /** Hostname */
             hostname: string;
             /** Revision */
@@ -2746,6 +2982,26 @@ export interface operations {
             };
         };
     };
+    runtime_status_api_providers_runtime_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimePage"];
+                };
+            };
+        };
+    };
     start_login_api_providers_openai_codex_login_post: {
         parameters: {
             query?: never;
@@ -2908,6 +3164,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeploymentStatus"];
+                };
+            };
+        };
+    };
+    connection_api_access_connection_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppConnection"];
+                };
+            };
+        };
+    };
+    installation_status_api_access_installations__installation_id__status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installation_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveInstallationStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    onboard_repository_api_access_repositories_onboard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositoryOnboarding"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["review_agent_tools__admin_access_api__RepositoryAccess"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -302,27 +302,34 @@ def onboard_github_app_repository(
     actor: str,
     reason: str,
 ) -> RepositoryOnboardingResult:
-    """Reconcile one App installation and enable one selected repository."""
-    full_name = resolve_repository(repository)
-    provider_installation_id = app_inventory.installation_id_for_repository(
-        authenticator,
-        repository=full_name,
+    """Verify and enable exactly one repository in either installation scope."""
+    inventory = app_inventory.read_repository_inventory(
+        authenticator, repository=repository
     )
-    reconciliation = sync_github_app_installation(
-        runtime,
-        authenticator,
-        provider_installation_id=provider_installation_id,
-        actor=actor,
-        reason=reason,
-    )
+    metadata = inventory.installation
     with runtime.transaction() as connection:
-        current = postgres_github_app.get_repository_access_by_full_name(
-            connection, full_name
+        installation = postgres_github_app.sync_installation(
+            connection, metadata.definition
         )
-        if current.installation_id != reconciliation.installation.id:
-            raise OperatorInputError(
-                "repository does not belong to the selected App installation"
+        if installation.status is not metadata.status:
+            installation = postgres_github_app.set_installation_status(
+                connection,
+                installation_id=installation.id,
+                status=metadata.status,
+                actor=actor,
+                reason=reason,
             )
+        current = postgres_github_app.grant_repository_access(
+            connection,
+            installation_id=installation.id,
+            provider_repository_id=inventory.repository.provider_repository_id,
+            full_name=inventory.repository.full_name,
+            actor=actor,
+            reason=reason,
+            trigger_mode=postgres_github_app.TriggerMode.MANUAL,
+        )
+        if current.installation_id != installation.id:
+            raise OperatorInputError("repository belongs to another App installation")
         access = postgres_github_app.enable_repository(
             connection,
             repository_id=current.repository_id,
@@ -332,7 +339,12 @@ def onboard_github_app_repository(
             reason=reason,
         )
     return RepositoryOnboardingResult(
-        reconciliation=reconciliation,
+        reconciliation=postgres_github_app.InstallationReconciliationResult(
+            installation=installation,
+            repositories_seen=1,
+            repositories_removed=0,
+            repositories_enabled=1,
+        ),
         access=access,
     )
 

@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
 from review_agent_tools.admin_access_api import create_router  # noqa: E402
 from review_agent_tools.domain.review import RepositoryId  # noqa: E402
-from review_agent_tools.github import app_inventory  # noqa: E402
+from review_agent_tools.github import app_auth, app_inventory  # noqa: E402
 from review_agent_tools.postgres import github_app  # noqa: E402
 
 
@@ -82,6 +82,45 @@ class AdminAccessAPITests(unittest.TestCase):
         app = FastAPI()
         app.include_router(create_router(Mock(), FakeAuth(admin=admin)))  # type: ignore[arg-type]
         return app
+
+    def test_live_connection_reports_required_updates_and_safe_management_links(
+        self,
+    ) -> None:
+        authenticator = Mock(spec=app_auth.GitHubAppAuthenticator)
+        authenticator.app_identity.return_value = app_auth.GitHubAppIdentity(
+            123,
+            "review-agent",
+            "sundsvall-labs",
+            (("contents", "read"), ("issues", "write"), ("pull_requests", "read")),
+            (),
+            "Organization",
+        )
+        with patch(
+            "review_agent_tools.admin_access_api.operator_setup.github_app_authenticator",
+            return_value=authenticator,
+        ):
+            client = TestClient(self.app())
+            response = client.get("/api/access/connection")
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["status"], "needs_update")
+            self.assertEqual(
+                body["edit_url"],
+                "https://github.com/organizations/sundsvall-labs/settings/apps/review-agent",
+            )
+            self.assertEqual(len(body["issues"]), 2)
+            authenticator.app_identity.side_effect = app_auth.GitHubAppTokenPermanent(
+                "private provider response"
+            )
+            failed = client.get("/api/access/connection")
+            self.assertEqual(failed.json()["status"], "unavailable")
+            self.assertNotIn("private provider response", failed.text)
+            self.assertEqual(
+                TestClient(self.app(admin=False))
+                .get("/api/access/connection")
+                .status_code,
+                403,
+            )
 
     def test_inventory_is_bounded_admin_only_and_reports_missing_credentials(
         self,
@@ -176,6 +215,65 @@ class AdminAccessAPITests(unittest.TestCase):
         self.assertEqual(enable.call_args.kwargs["actor"], actor)
         self.assertEqual(enable.call_args.kwargs["profile"], "default")
         self.assertEqual(disable.call_args.kwargs["actor"], actor)
+
+    def test_onboarding_is_admin_only_and_live_installation_links_come_from_github(
+        self,
+    ) -> None:
+        metadata = app_inventory.InstallationMetadata(
+            github_app.InstallationDefinition(
+                provider_installation_id=48219944,
+                account_id=81,
+                account_login="sundsvall-labs",
+                account_type=github_app.AccountType.ORGANIZATION,
+                repository_selection=github_app.RepositorySelection.ALL,
+                contents_permission=github_app.PermissionLevel.READ,
+                issues_permission=github_app.PermissionLevel.READ,
+                pull_requests_permission=github_app.PermissionLevel.WRITE,
+            ),
+            github_app.InstallationStatus.ACTIVE,
+            "https://github.com/organizations/sundsvall-labs/settings/installations/48219944",
+        )
+        with (
+            patch(
+                "review_agent_tools.admin_access_api.operator_setup.github_app_authenticator",
+                return_value=Mock(),
+            ),
+            patch.object(
+                app_inventory, "read_installation_metadata", return_value=metadata
+            ),
+            patch(
+                "review_agent_tools.admin_access_api.operator_application.onboard_github_app_repository",
+                return_value=SimpleNamespace(access=repository(enabled=True)),
+            ) as onboard,
+        ):
+            client = TestClient(self.app())
+            status = client.get("/api/access/installations/48219944/status")
+            self.assertEqual(status.status_code, 200)
+            self.assertEqual(status.json()["repository_selection"], "all")
+            self.assertEqual(status.json()["settings_url"], metadata.settings_url)
+            self.assertEqual(
+                status.json()["issues"], ["Requires Issues: write permission."]
+            )
+            payload = {
+                "repository": "sundsvall-labs/service-api",
+                "profile": " default-standard ",
+                "reason": "  enable   project ",
+            }
+            response = client.post("/api/access/repositories/onboard", json=payload)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(onboard.call_args.kwargs["actor"], f"admin:{ADMIN_ID}")
+            self.assertEqual(onboard.call_args.kwargs["profile"], "default-standard")
+            self.assertEqual(onboard.call_args.kwargs["reason"], "enable project")
+            denied = TestClient(self.app(admin=False))
+            self.assertEqual(
+                denied.post(
+                    "/api/access/repositories/onboard", json=payload
+                ).status_code,
+                403,
+            )
+            self.assertEqual(
+                denied.get("/api/access/installations/48219944/status").status_code, 403
+            )
 
     def test_invalid_input_and_provider_failure_are_safe(self) -> None:
         environment = {

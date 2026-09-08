@@ -15,6 +15,7 @@ from .hermes_control import (
     LoginSession,
     ProviderModel,
     ProviderStatus,
+    HermesRuntimeStatus,
 )
 
 
@@ -31,6 +32,11 @@ class ProviderPage(BaseModel):
 class ProviderModelPage(BaseModel):
     capability: ProviderCapability
     items: list[ProviderModel]
+
+
+class RuntimePage(BaseModel):
+    capability: ProviderCapability
+    runtime: HermesRuntimeStatus | None
 
 
 SessionId = Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{22,80}$")]
@@ -66,7 +72,9 @@ def create_router(auth: AdminAuth) -> APIRouter:
         return client
 
     def failed(error: HermesControlError) -> HTTPException:
-        return HTTPException(502, "Hermes provider control returned an invalid response.")
+        return HTTPException(
+            502, "Hermes provider control returned an invalid response."
+        )
 
     def providers() -> ProviderPage:
         if client is None:
@@ -96,6 +104,16 @@ def create_router(auth: AdminAuth) -> APIRouter:
         except HermesControlError as exc:
             raise failed(exc) from exc
 
+    def runtime_status() -> RuntimePage:
+        if client is None:
+            return RuntimePage(capability=capability, runtime=None)
+        try:
+            return RuntimePage(
+                capability=capability, runtime=control().runtime_status()
+            )
+        except HermesControlError as exc:
+            raise failed(exc) from exc
+
     def poll_login(session_id: SessionId) -> LoginSession:
         try:
             return control().poll_codex_login(session_id)
@@ -110,6 +128,7 @@ def create_router(auth: AdminAuth) -> APIRouter:
 
     router.add_api_route("", providers, methods=["GET"])
     router.add_api_route("/models", models, methods=["GET"])
+    router.add_api_route("/runtime", runtime_status, methods=["GET"])
     router.add_api_route("/openai-codex/login", start_login, methods=["POST"])
     router.add_api_route(
         "/openai-codex/login/{session_id}", poll_login, methods=["GET"]

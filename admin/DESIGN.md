@@ -22,3 +22,9 @@ All displayed metrics come from typed API responses. Show an unavailable or empt
 state when a capability has no source. Keep credentials and deployment integration
 logic on the server. Build the generated API contract with the backend when
 changing a public boundary.
+
+Keep bounded page content aligned with the start of the console body on wide
+screens. Operational settings use at most three columns, with advanced controls
+progressively disclosed. Label GitHub's repository scope separately from Review
+Agent activation. Live checks, stored state, and startup observations each show
+their source and timing; background refresh must not replace an editor's draft.

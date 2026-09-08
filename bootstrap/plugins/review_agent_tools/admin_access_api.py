@@ -1,8 +1,9 @@
 """Admin-only HTTP transport for GitHub App access management."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
@@ -12,11 +13,13 @@ from .admin_auth import AdminAuth, User
 from .github import app_auth, app_inventory
 from .postgres import github_app, registry
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLRuntimeError
+from .settings import ReviewAgentSettings
 
 
 class AccessCapability(BaseModel):
     configured: bool
     detail: str
+    default_profile: str
 
 
 class Installation(BaseModel):
@@ -70,6 +73,31 @@ class InstallationApproval(AuditReason):
 
 class RepositoryEnablement(AuditReason):
     profile: str = Field(min_length=1, max_length=100)
+
+
+class RepositoryOnboarding(RepositoryEnablement):
+    repository: str = Field(min_length=3, max_length=260)
+
+
+class AppConnection(BaseModel):
+    capability: AccessCapability
+    status: Literal["not_configured", "connected", "needs_update", "unavailable"]
+    checked_at: datetime
+    app: str | None = None
+    owner: str | None = None
+    app_url: str | None = None
+    edit_url: str | None = None
+    install_url: str | None = None
+    issues: list[str] = Field(default_factory=list)
+
+
+class LiveInstallationStatus(BaseModel):
+    installation_id: int
+    status: github_app.InstallationStatus
+    repository_selection: github_app.RepositorySelection
+    settings_url: str | None
+    issues: list[str]
+    checked_at: datetime
 
 
 class Reconciliation(BaseModel):
@@ -132,6 +160,18 @@ def _normalized_profile(value: str) -> str:
     return normalized
 
 
+def _permission_issues(permissions: dict[str, str]) -> list[str]:
+    issues: list[str] = []
+    for name, label, accepted in (
+        ("contents", "Repository contents: read", {"read"}),
+        ("issues", "Issues: write", {"write"}),
+        ("pull_requests", "Pull requests: write", {"write"}),
+    ):
+        if permissions.get(name) not in accepted:
+            issues.append(f"Requires {label} permission.")
+    return issues
+
+
 def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     """Create the access router using the deployment's configured App identity."""
     try:
@@ -141,6 +181,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
         credentials_configured = False
     capability = AccessCapability(
         configured=credentials_configured,
+        default_profile=ReviewAgentSettings.from_environment().profile,
         detail=(
             "GitHub App access operations are configured."
             if credentials_configured
@@ -169,7 +210,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     def operation_failed(
         error: Exception,
         *,
-        action: Literal["sync", "approve", "enable", "disable"],
+        action: Literal["sync", "approve", "enable", "disable", "onboard", "status"],
     ) -> HTTPException:
         if isinstance(
             error,
@@ -179,7 +220,9 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 PostgreSQLRuntimeError,
             ),
         ):
-            return HTTPException(503, f"GitHub App {action} is temporarily unavailable.")
+            return HTTPException(
+                503, f"GitHub App {action} is temporarily unavailable."
+            )
         if isinstance(
             error,
             (
@@ -188,8 +231,86 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 app_inventory.GitHubAppInventoryPermanent,
             ),
         ):
-            return HTTPException(502, f"GitHub App {action} failed provider validation.")
+            return HTTPException(
+                502, f"GitHub App {action} failed provider validation."
+            )
         return HTTPException(409, f"GitHub App {action} could not be completed.")
+
+    def connection() -> AppConnection:
+        checked_at = datetime.now(timezone.utc)
+        if not credentials_configured:
+            return AppConnection(
+                capability=capability, status="not_configured", checked_at=checked_at
+            )
+        try:
+            identity = require_authenticator().app_identity()
+        except (
+            app_auth.GitHubAppTokenRetryable,
+            app_auth.GitHubAppTokenPermanent,
+            HTTPException,
+        ):
+            return AppConnection(
+                capability=capability,
+                status="unavailable",
+                checked_at=checked_at,
+                issues=[
+                    "Could not verify GitHub App authentication. Check the App ID, private key, and GitHub availability."
+                ],
+            )
+        issues = _permission_issues(dict(identity.permissions))
+        if "issue_comment" not in identity.events:
+            issues.append(
+                "Subscribe the App to issue comment events to receive review commands."
+            )
+        slug = quote(identity.slug, safe="")
+        app_url = f"https://github.com/apps/{slug}"
+        edit_url = (
+            f"https://github.com/organizations/{quote(identity.owner_login, safe='')}/settings/apps/{slug}"
+            if identity.owner_type == "Organization"
+            else f"https://github.com/settings/apps/{slug}"
+            if identity.owner_type == "User"
+            else None
+        )
+        return AppConnection(
+            capability=capability,
+            status="needs_update" if issues else "connected",
+            checked_at=checked_at,
+            app=identity.slug,
+            owner=identity.owner_login,
+            app_url=app_url,
+            edit_url=edit_url,
+            install_url=f"{app_url}/installations/new",
+            issues=issues,
+        )
+
+    def installation_status(installation_id: InstallationId) -> LiveInstallationStatus:
+        try:
+            metadata = app_inventory.read_installation_metadata(
+                require_authenticator(),
+                provider_installation_id=installation_id,
+            )
+        except (
+            app_auth.GitHubAppTokenRetryable,
+            app_auth.GitHubAppTokenPermanent,
+            app_inventory.GitHubAppInventoryRetryable,
+            app_inventory.GitHubAppInventoryPermanent,
+        ) as exc:
+            raise operation_failed(exc, action="status") from exc
+        definition = metadata.definition
+        return LiveInstallationStatus(
+            installation_id=installation_id,
+            status=metadata.status,
+            repository_selection=definition.repository_selection,
+            settings_url=metadata.settings_url,
+            issues=_permission_issues(
+                {
+                    "contents": definition.contents_permission.value,
+                    "issues": definition.issues_permission.value,
+                    "pull_requests": definition.pull_requests_permission.value,
+                }
+            ),
+            checked_at=datetime.now(timezone.utc),
+        )
 
     def installations(limit: Limit = 50, after_id: AfterId = 0) -> InstallationPage:
         items = operator_application.list_github_app_installations(
@@ -347,6 +468,43 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             raise operation_failed(exc, action="disable") from exc
         return _repository(result)
 
+    def onboard_repository(
+        request: RepositoryOnboarding,
+        actor: Annotated[User, Depends(auth.current_admin)],
+    ) -> RepositoryAccess:
+        try:
+            result = operator_application.onboard_github_app_repository(
+                runtime,
+                require_authenticator(),
+                repository=request.repository,
+                profile=_normalized_profile(request.profile),
+                actor=actor_identity(actor),
+                reason=_normalized_reason(request.reason),
+            )
+        except HTTPException:
+            raise
+        except (
+            app_auth.GitHubAppTokenRetryable,
+            app_auth.GitHubAppTokenPermanent,
+            app_inventory.GitHubAppInventoryRetryable,
+            app_inventory.GitHubAppInventoryPermanent,
+            github_app.GitHubAppStateError,
+            operator_application.OperatorInputError,
+            registry.RegistryError,
+            PostgreSQLRuntimeError,
+        ) as exc:
+            raise operation_failed(exc, action="onboard") from exc
+        except ValueError as exc:
+            raise HTTPException(
+                422, "Use an accessible owner/repository and a valid profile."
+            ) from exc
+        return _repository(result.access)
+
+    router.add_api_route("/connection", connection, methods=["GET"])
+    router.add_api_route(
+        "/installations/{installation_id}/status", installation_status, methods=["GET"]
+    )
+    router.add_api_route("/repositories/onboard", onboard_repository, methods=["POST"])
     router.add_api_route("/installations", installations, methods=["GET"])
     router.add_api_route("/repositories", repositories, methods=["GET"])
     router.add_api_route(

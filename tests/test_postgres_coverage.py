@@ -458,12 +458,14 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 runner.apply_migrations(connection, directory=previous)
                 with connection.transaction():
-                    admitted = review_run_application.admit_postgres_review_in_transaction(
-                        connection,
-                        self.request(),
-                        priority=1,
-                        max_attempts=3,
-                        active_job_limit=10,
+                    admitted = (
+                        review_run_application.admit_postgres_review_in_transaction(
+                            connection,
+                            self.request(),
+                            priority=1,
+                            max_attempts=3,
+                            active_job_limit=10,
+                        )
                     )
                     run_id = admitted.run.run.id
                     postgres_coverage.insert_changed_files(
@@ -489,7 +491,9 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                         )
                     before = postgres_coverage.summarize(connection, run_id)
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), (15, 16, 17, 18, 19, 20))
+                self.assertEqual(
+                    runner.apply_migrations(connection), (15, 16, 17, 18, 19, 20, 21)
+                )
                 self.assertTrue(
                     runner.inspect_migrations(
                         connection, directory=previous
@@ -513,7 +517,9 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                             run_id=run_id,
                             page=DiffPage(path, "a" * 64, 50, 100, 100),
                         )
-                    self.assertEqual(postgres_coverage.summarize(connection, run_id), before)
+                    self.assertEqual(
+                        postgres_coverage.summarize(connection, run_id), before
+                    )
 
     def test_coverage_write_lock_orders_before_supersession(self) -> None:
         run_id = self.start_run()

@@ -163,6 +163,34 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
         self.assertLessEqual(claims["exp"] - claims["iat"], 600)
         self.assertEqual(captured_timeouts, [15])
 
+    def test_named_onboarding_token_is_limited_to_metadata_for_one_repository(
+        self,
+    ) -> None:
+        authenticator = app_auth.GitHubAppAuthenticator(
+            app_id=1234,
+            private_key_pem=self.private_key,
+            api_url="https://github.test",
+        )
+        with patch.object(
+            authenticator.opener,
+            "open",
+            return_value=self.response(permissions={"metadata": "read"}),
+        ) as opening:
+            authenticator.installation_token(
+                7001,
+                repositories=("review-agent",),
+                permissions={"metadata": "read"},
+                now=NOW,
+            )
+        self.assertEqual(
+            json.loads(opening.call_args.args[0].data),
+            {"repositories": ["review-agent"], "permissions": {"metadata": "read"}},
+        )
+        with self.assertRaises(ValueError):
+            authenticator.installation_token(
+                7001, repositories=("review-agent",), repository_ids=(9001,), now=NOW
+            )
+
     def test_automatic_activation_proof_uses_one_exact_metadata_only_repository_scope(
         self,
     ) -> None:

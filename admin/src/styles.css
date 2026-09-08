@@ -359,16 +359,25 @@ kbd {
 }
 .activity-toolbar {
   flex-wrap: wrap;
+  align-items: end;
 }
 .activity-toolbar .search-form {
   margin-left: auto;
+  align-items: end;
+}
+.activity-toolbar .field {
+  gap: 5px;
+  font-size: var(--step-0);
+}
+.activity-toolbar .search-form input[type="search"] {
+  width: min(280px, 100%);
 }
 #activity-pr {
   width: 80px;
 }
 .activity-table {
   min-width: 920px;
-  font-size: var(--step-0);
+  font-size: var(--step-1);
 }
 .activity-table .run-name {
   font-size: var(--step-1);
@@ -380,7 +389,7 @@ kbd {
   font-size: var(--step-0);
 }
 .activity-table .subtext {
-  font-size: 11px;
+  font-size: var(--step-0);
   max-width: 48ch;
 }
 .phase-cell {
@@ -388,7 +397,7 @@ kbd {
   flex-direction: column;
   gap: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--step-0);
   white-space: nowrap;
 }
 .phase-track {
@@ -746,7 +755,7 @@ main {
   width: 100%;
   flex: 1;
   padding: 24px var(--gutter) 32px;
-  margin-inline: auto;
+  margin-inline: 0;
 }
 .page-heading {
   display: flex;
@@ -2432,6 +2441,178 @@ button.secondary.destructive:hover:not(:disabled) {
 }
 .settings-fields {
   margin-bottom: 22px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.settings-fields.context-fields {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 600px;
+}
+.change-reason {
+  max-width: 720px;
+}
+.advanced-settings {
+  padding: 18px 0;
+  margin-bottom: 20px;
+  border-block: 1px solid var(--line);
+}
+.advanced-settings > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.advanced-settings > p {
+  margin-top: 12px;
+}
+.github-connection {
+  margin-bottom: 24px;
+}
+.github-connection .inline-actions {
+  gap: 12px 24px;
+  margin-bottom: 12px;
+}
+.installation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.installation-grid .panel {
+  margin-top: 0;
+}
+.installation-details {
+  display: block;
+}
+.installation-details > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 160px) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.installation-panel .form-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 16px;
+}
+.installation-panel .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.installation-check {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+.installation-check p {
+  margin-block: 12px;
+}
+.add-repository {
+  margin-block: 24px;
+}
+.add-repository > summary {
+  padding: 18px 20px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.add-repository[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.add-repository fieldset {
+  border: 0;
+  padding: 0;
+  margin: 20px 0;
+  min-width: 0;
+}
+.access-table {
+  min-width: 820px;
+}
+.access-table td:last-child {
+  min-width: 220px;
+  max-width: 340px;
+}
+.access-table form {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.access-table summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+.runtime-checks {
+  list-style: none;
+  padding: 0;
+  margin-block: 20px;
+}
+.runtime-checks li {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.runtime-checks .attention {
+  color: var(--danger);
+}
+.integration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+.integration-grid > .panel {
+  margin: 0;
+}
+.integration-empty {
+  padding: 20px;
+}
+.integration-empty > p {
+  color: var(--muted);
+  margin-top: 6px;
+  max-width: 70ch;
+}
+.setup-help {
+  margin-top: 16px;
+}
+.setup-help summary,
+.report-breakdown summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+.setup-help p {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.report-breakdown > summary {
+  padding: 18px 20px;
+}
+.report-breakdown[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.report-breakdown table {
+  min-width: 760px;
+  margin-top: 16px;
+}
+.health-alert {
+  padding: 14px 18px;
+  margin-bottom: 24px;
+}
+.health-alert p {
+  margin-top: 6px;
+}
+@media (max-width: 1100px) {
+  .settings-fields,
+  .integration-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 680px) {
+  .settings-fields,
+  .integration-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .activity-toolbar .search-form {
+    margin-left: 0;
+  }
 }
 .settings-panel fieldset {
   border: 0;

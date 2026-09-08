@@ -213,7 +213,7 @@ GitHub installation scope and Review Agent activation are deliberately separate:
 | --- | --- |
 | Install the App with **All repositories** or **Only select repositories** | GitHub defines where the App may request a token. Reviews remain locked for a new installation. |
 | Run `github-app approve <installation-id>` | The trusted installation may activate an exact repository on its first signed `/review` delivery. Requester authorization still gates the review. |
-| Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named selected repository is enabled. |
+| Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named repository is verified and enabled, with either GitHub installation scope. |
 
 Keep PostgreSQL, Hermes, workers, publishers, and the GitHub gateway private.
 Only the admission route is public. The App private key belongs only in the

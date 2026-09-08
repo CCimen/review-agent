@@ -218,8 +218,14 @@ export function QualityPage({ current }: { current: Account }) {
       <div className="page-heading">
         <div>
           <h1>Review quality</h1>
-          <p>Explicit human signals with their denominators.</p>
+          <p>Understand reported problems and follow up on review feedback.</p>
         </div>
+        <Link
+          className="button secondary"
+          to={`/history?${new URLSearchParams({ days: String(days), status: "published", ...(repository ? { repository } : {}) })}`}
+        >
+          Browse published reviews
+        </Link>
       </div>
       <div className="toolbar">
         <Period
@@ -233,33 +239,40 @@ export function QualityPage({ current }: { current: Account }) {
           <div className="stat-grid">
             <Stat label="Published findings" value={data.published_findings} />
             <Stat
-              label="False positive"
-              value={`${number.format(data.false_positive_signals.count)} / ${number.format(data.false_positive_signals.denominator)}`}
+              label="Reported false positives"
+              value={data.false_positive_signals.count}
+              hint={`${number.format(data.false_positive_signals.denominator)} published findings in this period`}
             />
             <Stat
-              label="Scope confusion"
-              value={`${number.format(data.scope_confusion_signals.count)} / ${number.format(data.scope_confusion_signals.denominator)}`}
+              label="Scope concerns"
+              value={data.scope_confusion_signals.count}
+              hint={`${number.format(data.scope_confusion_signals.denominator)} completed reviews in this period`}
             />
             <Stat
-              label="Missed issue"
-              value={`${number.format(data.missed_issue_signals.count)} / ${number.format(data.missed_issue_signals.denominator)}`}
+              label="Reported missed issues"
+              value={data.missed_issue_signals.count}
+              hint={`${number.format(data.missed_issue_signals.denominator)} completed reviews in this period`}
               attention={data.missed_issue_signals.count > 0}
             />
             <Stat
-              label="Triage backlog"
+              label="Awaiting triage"
               value={data.triage_backlog}
               attention={data.triage_backlog > 0}
+              hint={
+                data.triage_backlog
+                  ? `Oldest report: ${age(data.oldest_triage_backlog_seconds)}`
+                  : "No reports awaiting a decision"
+              }
             />
           </div>
           <p className="stat-note">
-            The backlog covers retained history and is not limited to this{" "}
-            {days}-day activity window. Oldest:{" "}
-            {age(data.oldest_triage_backlog_seconds)}.
+            Counts reflect submitted feedback. Reviews without feedback have not
+            been assessed here. Pending triage includes all retained history.
           </p>
-          <section>
+          <section className="section">
             <div className="section-heading">
               <div>
-                <h2>Feedback and triage</h2>
+                <h2>Missed-issue reports</h2>
                 <p>
                   {feedback.data
                     ? `${feedback.data.pending} pending across ${feedback.data.total} missed-issue reports`
@@ -267,7 +280,7 @@ export function QualityPage({ current }: { current: Account }) {
                 </p>
               </div>
             </div>
-            <Freshness query={feedback} />
+            <Freshness query={feedback} quiet />
             {feedback.data?.items.length ? (
               <>
                 <div className="quality-list">
@@ -321,40 +334,85 @@ export function QualityPage({ current }: { current: Account }) {
                 </div>
               </>
             ) : feedback.data ? (
-              <Empty title="No missed-issue feedback">
-                No retained feedback matches this scope.
+              <Empty
+                title={
+                  feedback.data.total
+                    ? "No reports on this page"
+                    : "No missed issues reported"
+                }
+              >
+                {feedback.data.total ? (
+                  <button
+                    className="text-button"
+                    onClick={() => update({ feedback_offset: "" })}
+                  >
+                    Return to the first page
+                  </button>
+                ) : (
+                  "Reports of issues missed by a review will appear here for follow-up."
+                )}
               </Empty>
             ) : null}
           </section>
-          <section>
-            <div className="section-heading">
-              <div>
-                <h2>Review-contract cohorts</h2>
-                <p>
-                  Persisted provider, model, and policy identities keep route
-                  changes visible.
-                </p>
-              </div>
+          <details className="panel report-breakdown">
+            <summary>Model and policy breakdown</summary>
+            <div className="panel-body">
+              <p className="field-hint">
+                Completed reviews grouped by repository, model, and saved
+                policy. Missing model information is shown as not recorded.
+              </p>
+              {data.cohorts.length ? (
+                <div
+                  className="table-scroll"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Model and policy breakdown"
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Repository</th>
+                        <th scope="col">Model</th>
+                        <th scope="col">Completed reviews</th>
+                        <th scope="col">Profile</th>
+                        <th scope="col">Policy</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.cohorts.map((cohort) => (
+                        <tr
+                          key={`${cohort.repository}:${cohort.review_contract_hash}:${cohort.policy_revision}`}
+                        >
+                          <th scope="row">{cohort.repository}</th>
+                          <td>
+                            {cohort.model && cohort.model !== "unknown" ? (
+                              <>
+                                <code>{cohort.model}</code>
+                                <span className="subtext">
+                                  {cohort.model_provider !== "unknown"
+                                    ? cohort.model_provider
+                                    : "Provider not recorded"}
+                                </span>
+                              </>
+                            ) : (
+                              "Not recorded"
+                            )}
+                          </td>
+                          <td className="numeric">
+                            {number.format(cohort.completed_reviews)}
+                          </td>
+                          <td>{cohort.profile}</td>
+                          <td>{cohort.policy_revision}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p>No completed reviews in this period.</p>
+              )}
             </div>
-            <div className="panel">
-              <div className="panel-body">
-                {data.cohorts.map((cohort) => (
-                  <p
-                    key={`${cohort.repository}:${cohort.review_contract_hash}:${cohort.policy_revision}`}
-                  >
-                    <code>
-                      {cohort.repository} · {cohort.model_provider}/
-                      {cohort.model}
-                    </code>
-                    <span className="subtext">
-                      {number.format(cohort.completed_reviews)} completed ·{" "}
-                      {cohort.profile} · {cohort.policy_revision}
-                    </span>
-                  </p>
-                ))}
-              </div>
-            </div>
-          </section>
+          </details>
         </>
       ) : null}
     </>

@@ -135,18 +135,38 @@ export function Providers({ current }: { current?: Account }) {
   }
 
   return (
-    <section>
+    <section className="section">
       <div className="section-heading">
         <div>
-          <h2>Model providers</h2>
-          <p>Provider credentials are held and refreshed by Hermes.</p>
+          <h2>Model connections</h2>
+          <p>Manage the provider accounts used by the review engine.</p>
         </div>
       </div>
       <Freshness query={providers} quiet />
       {providers.data && !providers.data.capability.configured ? (
-        <Empty title="Provider control is not configured">
-          Configure the Hermes dashboard control connection for this deployment.
-        </Empty>
+        <div className="panel integration-empty">
+          <strong>Provider management is not connected</strong>
+          <p>
+            The console cannot check or change provider sign-ins until its
+            connection to the review engine is configured.
+          </p>
+          <details className="setup-help">
+            <summary>How to enable provider management</summary>
+            <p>
+              Add the provider service overlay and its dedicated control token
+              to this deployment. Existing provider credentials stay with the
+              review engine.
+            </p>
+            <a
+              href="https://ccimen.github.io/review-agent/admin-panel#provider-connections"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open setup instructions
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          </details>
+        </div>
       ) : null}
       {codex ? (
         <article className="panel provider-card">

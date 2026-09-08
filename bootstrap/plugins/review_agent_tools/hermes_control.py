@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Literal, cast
 from urllib.parse import urlsplit
 
 
@@ -56,6 +56,89 @@ class LoginSession:
 class Cancellation:
     cancelled: bool
     session_id: str
+
+
+Readiness = Literal["ok", "degraded", "unavailable", "retrying", "unknown"]
+CheckName = Literal[
+    "state_db",
+    "session_store",
+    "config",
+    "model",
+    "disk",
+    "gateway",
+    "background_queues",
+]
+_CHECKS: tuple[CheckName, ...] = (
+    "state_db",
+    "session_store",
+    "config",
+    "model",
+    "disk",
+    "gateway",
+    "background_queues",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCheck:
+    name: CheckName
+    status: Readiness
+
+
+@dataclass(frozen=True, slots=True)
+class HermesRuntimeStatus:
+    status: Readiness
+    version: str
+    model: str | None
+    active_agents: int
+    busy: bool
+    drainable: bool
+    chat_available: bool
+    checks: tuple[RuntimeCheck, ...]
+
+
+def _readiness(value: object) -> Readiness:
+    if value not in ("ok", "degraded", "unavailable", "retrying", "unknown"):
+        raise HermesControlError("Hermes readiness status is invalid")
+    return value
+
+
+def _runtime_status(payload: dict[str, object]) -> HermesRuntimeStatus:
+    active = payload.get("active_agents")
+    if type(active) is not int or active < 0:
+        raise HermesControlError("Hermes active agent count is invalid")
+    for name in ("busy", "drainable", "chat_available"):
+        if type(payload.get(name)) is not bool:
+            raise HermesControlError("Hermes runtime state is invalid")
+    rows = payload.get("checks")
+    if not isinstance(rows, list):
+        raise HermesControlError("Hermes readiness checks are incomplete")
+    values = cast(list[object], rows)
+    if len(values) != len(_CHECKS):
+        raise HermesControlError("Hermes readiness checks are incomplete")
+    checks: list[RuntimeCheck] = []
+    for raw in values:
+        if not isinstance(raw, dict):
+            raise HermesControlError("Hermes readiness check is invalid")
+        item = cast(dict[str, object], raw)
+        if item.get("name") not in _CHECKS:
+            raise HermesControlError("Hermes readiness check is invalid")
+        checks.append(
+            RuntimeCheck(cast(CheckName, item["name"]), _readiness(item.get("status")))
+        )
+    if len({check.name for check in checks}) != len(_CHECKS):
+        raise HermesControlError("Hermes readiness checks are incomplete")
+    model = payload.get("model")
+    return HermesRuntimeStatus(
+        status=_readiness(payload.get("status")),
+        version=_text(payload.get("version"), field="version", maximum=80),
+        model=_text(model, field="model", maximum=200) if model is not None else None,
+        active_agents=active,
+        busy=cast(bool, payload["busy"]),
+        drainable=cast(bool, payload["drainable"]),
+        chat_available=cast(bool, payload["chat_available"]),
+        checks=tuple(checks),
+    )
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -199,6 +282,9 @@ class HermesControlClient:
             raise HermesControlError("Hermes provider status is incomplete")
         return tuple(found[item] for item in ("openai-codex", "anthropic"))
 
+    def runtime_status(self) -> HermesRuntimeStatus:
+        return _runtime_status(self._request("GET", "/api/runtime"))
+
     def models(self) -> tuple[ProviderModel, ...]:
         payload = self._request("GET", "/api/model/options")
         rows = payload.get("providers")
@@ -279,3 +365,73 @@ class HermesControlClient:
         if not isinstance(cancelled, bool):
             raise HermesControlError("Hermes cancellation response is invalid")
         return Cancellation(cancelled=cancelled, session_id=resolved)
+
+
+class HermesRuntimeClient:
+    """Read fixed API-server diagnostics with a companion-only bearer credential."""
+
+    def __init__(self, base_url: str, token: str) -> None:
+        self.base_url = _origin(base_url)
+        self._token = _text(token, field="API token", maximum=4096)
+        self.opener = urllib.request.build_opener(_NoRedirect())
+
+    def _get(
+        self, path: Literal["/health/detailed", "/v1/capabilities"]
+    ) -> dict[str, object]:
+        request = urllib.request.Request(
+            self.base_url + path,
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self._token}",
+            },
+        )
+        try:
+            with self.opener.open(request, timeout=5) as response:
+                body = response.read(MAX_RESPONSE_BYTES + 1)
+        except (OSError, urllib.error.HTTPError, urllib.error.URLError) as exc:
+            raise HermesControlError(
+                "Hermes runtime diagnostics are unavailable"
+            ) from exc
+        if len(body) > MAX_RESPONSE_BYTES:
+            raise HermesControlError("Hermes runtime response is too large")
+        try:
+            payload = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HermesControlError("Hermes runtime response is invalid") from exc
+        if not isinstance(payload, dict):
+            raise HermesControlError("Hermes runtime response is invalid")
+        return cast(dict[str, object], payload)
+
+    def status(self) -> HermesRuntimeStatus:
+        health = self._get("/health/detailed")
+        capabilities = self._get("/v1/capabilities")
+        readiness = health.get("readiness")
+        features = capabilities.get("features")
+        if not isinstance(readiness, dict) or not isinstance(features, dict):
+            raise HermesControlError("Hermes runtime diagnostics are invalid")
+        raw_checks = cast(dict[str, object], readiness).get("checks")
+        if not isinstance(raw_checks, dict):
+            raise HermesControlError("Hermes readiness checks are invalid")
+        checks = cast(dict[str, object], raw_checks)
+        rows: list[dict[str, object]] = []
+        for name in _CHECKS:
+            check = checks.get(name)
+            if not isinstance(check, dict):
+                raise HermesControlError("Hermes readiness checks are incomplete")
+            rows.append(
+                {"name": name, "status": cast(dict[str, object], check).get("status")}
+            )
+        return _runtime_status(
+            {
+                "status": health.get("status"),
+                "version": health.get("version"),
+                "model": capabilities.get("model"),
+                "active_agents": health.get("active_agents"),
+                "busy": health.get("gateway_busy"),
+                "drainable": health.get("gateway_drainable"),
+                "chat_available": cast(dict[str, object], features).get(
+                    "chat_completions"
+                ),
+                "checks": rows,
+            }
+        )

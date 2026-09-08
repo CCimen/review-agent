@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from socket import socket
 from typing import cast
 
-from .hermes_control import HermesControlClient, HermesControlError
+from .hermes_control import HermesControlClient, HermesControlError, HermesRuntimeClient
 
 _SESSION_ROUTE = re.compile(
     r"/api/providers/oauth/(?:openai-codex/poll/|sessions/)([A-Za-z0-9_-]{22,80})"
@@ -24,12 +24,18 @@ class ProviderGateway(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(
-        self, address: tuple[str, int], *, token: str, control: HermesControlClient
+        self,
+        address: tuple[str, int],
+        *,
+        token: str,
+        control: HermesControlClient,
+        runtime: HermesRuntimeClient | None = None,
     ) -> None:
         if not token.strip():
             raise ValueError("Provider control token is required")
         self.token = token
         self.control = control
+        self.runtime = runtime
         self.slots = threading.BoundedSemaphore(4)
         super().__init__(address, ProviderHandler)
 
@@ -104,9 +110,16 @@ class ProviderHandler(BaseHTTPRequestHandler):
             return
         control = self.gateway.control
         try:
-            if self.command == "GET" and self.path == "/api/providers/oauth":
+            if self.command == "GET" and self.path == "/api/runtime":
+                if self.gateway.runtime is None:
+                    self._reply(
+                        503, {"error": "Hermes runtime diagnostics are not configured"}
+                    )
+                    return
+                payload: object = asdict(self.gateway.runtime.status())
+            elif self.command == "GET" and self.path == "/api/providers/oauth":
                 providers = control.provider_statuses()
-                payload: object = {
+                payload = {
                     "providers": [
                         {
                             "id": provider.provider,
@@ -161,7 +174,11 @@ class ProviderHandler(BaseHTTPRequestHandler):
 def main() -> None:
     token = os.environ.get("REVIEW_AGENT_HERMES_CONTROL_TOKEN", "")
     control = HermesControlClient("http://127.0.0.1:9119", token)
-    with ProviderGateway(("0.0.0.0", 9120), token=token, control=control) as server:
+    api_key = os.environ.get("API_SERVER_KEY", "")
+    runtime = HermesRuntimeClient("http://127.0.0.1:8642", api_key) if api_key else None
+    with ProviderGateway(
+        ("0.0.0.0", 9120), token=token, control=control, runtime=runtime
+    ) as server:
 
         def shutdown(_signal: int, _frame: object) -> None:
             threading.Thread(target=server.shutdown, daemon=True).start()

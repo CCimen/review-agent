@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sys
 import unittest
@@ -20,6 +21,7 @@ from review_agent_tools.admin_provider_api import create_router  # noqa: E402
 from review_agent_tools.hermes_control import (  # noqa: E402
     Cancellation,
     HermesControlClient,
+    HermesRuntimeClient,
     HermesControlConfigurationError,
     HermesControlError,
     LoginSession,
@@ -70,6 +72,77 @@ class FakeAuth:
 
 
 class HermesControlTests(unittest.TestCase):
+    def test_runtime_diagnostics_project_fixed_status_fields_without_provider_details(
+        self,
+    ) -> None:
+        checks = {
+            name: {"status": "ok", "detail": "private path"}
+            for name in (
+                "state_db",
+                "session_store",
+                "config",
+                "model",
+                "disk",
+                "gateway",
+                "background_queues",
+            )
+        }
+        health = {
+            "status": "ok",
+            "version": "0.21.0",
+            "active_agents": 2,
+            "gateway_busy": True,
+            "gateway_drainable": True,
+            "readiness": {"checks": checks},
+            "exit_reason": "private diagnostic",
+            "pid": 88,
+        }
+        capabilities = {
+            "model": "gpt-test",
+            "features": {"chat_completions": True},
+            "auth": {"token": "secret"},
+        }
+        client = HermesRuntimeClient("http://hermes.test", TOKEN)
+        with patch.object(
+            client.opener,
+            "open",
+            side_effect=[
+                _Response(json.dumps(health).encode()),
+                _Response(json.dumps(capabilities).encode()),
+            ],
+        ) as opening:
+            status = client.status()
+        self.assertEqual(status.active_agents, 2)
+        self.assertEqual(status.model, "gpt-test")
+        self.assertEqual(len(status.checks), 7)
+        self.assertNotIn("private", repr(status))
+        self.assertNotIn("secret", repr(status))
+        self.assertEqual(
+            [call.args[0].full_url for call in opening.call_args_list],
+            [
+                "http://hermes.test/health/detailed",
+                "http://hermes.test/v1/capabilities",
+            ],
+        )
+        for call in opening.call_args_list:
+            self.assertEqual(
+                call.args[0].get_header("Authorization"), f"Bearer {TOKEN}"
+            )
+            self.assertEqual(call.kwargs["timeout"], 5)
+        del checks["disk"]
+        with (
+            patch.object(
+                client.opener,
+                "open",
+                side_effect=[
+                    _Response(json.dumps(health).encode()),
+                    _Response(json.dumps(capabilities).encode()),
+                ],
+            ),
+            self.assertRaises(HermesControlError),
+        ):
+            client.status()
+
     def test_allowlisted_status_login_poll_cancel_and_models(self) -> None:
         opener = _Opener(
             [
@@ -164,8 +237,17 @@ class AdminProviderAPITests(unittest.TestCase):
             client = TestClient(self.app())
             providers = client.get("/api/providers")
             models = client.get("/api/providers/models")
+            runtime = client.get("/api/providers/runtime")
             start = client.post("/api/providers/openai-codex/login")
             self.assertEqual(providers.status_code, 200)
+            self.assertEqual(runtime.status_code, 200)
+            self.assertIsNone(runtime.json()["runtime"])
+            self.assertEqual(
+                TestClient(self.app(admin=False))
+                .get("/api/providers/runtime")
+                .status_code,
+                403,
+            )
             self.assertEqual(
                 providers.json(),
                 {

@@ -17,6 +17,28 @@ from ..deployment_settings import DeploymentSettings
 from .runtime import PostgreSQLRuntime
 
 
+# Older saved revisions retain deployment defaults for controls introduced later.
+_EXTENDED_ENV = frozenset(
+    {
+        "REVIEW_AGENT_JOB_PRIORITY",
+        "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS",
+        "REVIEW_AGENT_JOB_RETRY_SECONDS",
+        "REVIEW_AGENT_JOB_POLL_SECONDS",
+        "REVIEW_AGENT_JOB_RECOVERY_SECONDS",
+        "REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE",
+        "REVIEW_AGENT_PUBLICATION_LEASE_SECONDS",
+        "REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS",
+        "REVIEW_AGENT_PUBLICATION_RETRY_SECONDS",
+        "REVIEW_AGENT_PUBLICATION_POLL_SECONDS",
+        "REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS",
+        "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES",
+        "REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS",
+        "REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS",
+        "REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS",
+    }
+)
+
+
 class SettingsConflict(ValueError):
     """A later save superseded the editor's snapshot."""
 
@@ -35,14 +57,15 @@ def _revision(row: tuple[object, ...]) -> SettingsRevision:
     if not isinstance(raw, dict):
         raise ValueError("Stored deployment settings are invalid")
     env_raw = cast(dict[str, object], raw)
-    if set(env_raw) != set(DeploymentSettings().environment()) or any(
+    known = set(DeploymentSettings().environment())
+    if not known - _EXTENDED_ENV <= set(env_raw) <= known or any(
         not isinstance(v, str) for v in env_raw.values()
     ):
         raise ValueError("Stored deployment settings are invalid")
     env = cast(dict[str, str], env_raw)
     return SettingsRevision(
         int(str(row[0])),
-        DeploymentSettings.from_environment(env),
+        DeploymentSettings.from_environment({**os.environ, **env}),
         str(row[2]),
         str(row[3]),
         cast(datetime, row[4]),
@@ -88,7 +111,7 @@ def save(
     return _revision(row)
 
 
-Service = Literal["worker", "admission", "reviewer", "gateway"]
+Service = Literal["worker", "admission", "reviewer", "gateway", "publisher", "webhook"]
 
 
 @dataclass(frozen=True, slots=True)

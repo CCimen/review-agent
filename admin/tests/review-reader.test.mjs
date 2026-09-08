@@ -5,12 +5,18 @@ import { renderToStaticMarkup, renderToReadableStream } from "react-dom/server";
 import { createServer } from "vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { readFile } from "node:fs/promises";
 
 let server;
 let ReviewMarkdown;
 let ReviewPage;
 let APIError;
 let Users;
+let Access;
+let SettingsPage;
+let QualityPage;
+let HermesHealth;
+let settingsDefaults;
 before(async () => {
   server = await createServer({
     server: { middlewareMode: true },
@@ -20,6 +26,18 @@ before(async () => {
   ({ ReviewPage } = await server.ssrLoadModule("/src/history.tsx"));
   ({ APIError } = await server.ssrLoadModule("/src/api.ts"));
   ({ Users } = await server.ssrLoadModule("/src/accounts.tsx"));
+  ({ Access } = await server.ssrLoadModule("/src/access.tsx"));
+  ({ SettingsPage } = await server.ssrLoadModule("/src/settings.tsx"));
+  ({ QualityPage } = await server.ssrLoadModule("/src/quality.tsx"));
+  ({ HermesHealth } = await server.ssrLoadModule("/src/deployment.tsx"));
+  const contract = JSON.parse(
+    await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
+  );
+  settingsDefaults = Object.fromEntries(
+    Object.entries(
+      contract.components.schemas.DeploymentSettings.properties,
+    ).map(([key, value]) => [key, value.default]),
+  );
 });
 after(async () => {
   await server?.close();
@@ -32,6 +50,168 @@ const render = (markdown) =>
       headSha: "a".repeat(40),
     }),
   );
+
+const renderConsolePage = (component, cache) => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  for (const [key, value] of cache) client.setQueryData(key, value);
+  const html = renderToStaticMarkup(
+    createElement(
+      QueryClientProvider,
+      { client },
+      createElement(MemoryRouter, null, component),
+    ),
+  );
+  client.clear();
+  return html;
+};
+
+test("access distinguishes GitHub scope from review activation and preserves disabled repositories", () => {
+  const capability = {
+    configured: true,
+    default_profile: "default-standard",
+    detail: "Configured",
+  };
+  const html = renderConsolePage(createElement(Access), [
+    [
+      ["access", "installations", 0],
+      {
+        capability,
+        next_after_id: null,
+        items: [
+          {
+            installation_id: 12,
+            account: "example",
+            account_type: "organization",
+            repository_selection: "all",
+            repository_activation: "explicit",
+            status: "active",
+            contents_permission: "read",
+            issues_permission: "write",
+            pull_requests_permission: "write",
+            updated_at: "2026-09-08T08:00:00Z",
+            activation_policy_changed_at: null,
+          },
+        ],
+      },
+    ],
+    [
+      ["access", "repositories", 0],
+      {
+        capability,
+        next_after_id: null,
+        items: [
+          {
+            repository_id: 5,
+            repository: "example/repository",
+            access: "available",
+            enabled: false,
+            automatic_activation_blocked: true,
+            profile: null,
+          },
+        ],
+      },
+    ],
+  ]);
+  assert.match(html, /GitHub grants access to/);
+  assert.match(html, /All repositories/);
+  assert.match(html, /Only explicitly enabled repositories/);
+  assert.match(html, /Automatic activation blocked/);
+  assert.match(html, /Add repository/);
+  assert.match(html, /value="default-standard"/);
+  assert.match(html, /Check live GitHub status/);
+});
+
+test("settings expose saved operational defaults and distinguish older startup observations", () => {
+  const data = {
+    settings: { ...settingsDefaults, job_retry_seconds: 47 },
+    revision: 2,
+    history: [],
+    next_before_id: null,
+    startup_loads: [
+      {
+        service: "publisher",
+        hostname: "publisher-1",
+        revision: 1,
+        loaded_at: "2026-09-08T08:00:00Z",
+      },
+    ],
+  };
+  const html = renderConsolePage(createElement(SettingsPage), [
+    [["deployment-settings"], data],
+    [["deployment-settings-history", null], data],
+    [
+      ["provider-models"],
+      {
+        capability: { configured: true },
+        items: [{ provider: "openai-codex", model: "gpt-demo" }],
+      },
+    ],
+  ]);
+  assert.match(
+    html,
+    /<details[^>]*><summary>Advanced operational settings<\/summary>/,
+  );
+  assert.match(html, /value="47"/);
+  assert.match(html, /<datalist[^>]*><option value="gpt-demo"/);
+  assert.match(html, /Older settings loaded/);
+  assert.match(html, /No unsaved changes/);
+});
+
+test("quality shows feedback denominators and an empty report state without implying accuracy", () => {
+  const html = renderConsolePage(
+    createElement(QualityPage, { current: { role: "viewer" } }),
+    [
+      [
+        ["quality", "report", "days=30"],
+        {
+          published_findings: 12,
+          false_positive_signals: { count: 0, denominator: 12 },
+          scope_confusion_signals: { count: 0, denominator: 3 },
+          missed_issue_signals: { count: 0, denominator: 3 },
+          triage_backlog: 0,
+          oldest_triage_backlog_seconds: null,
+          cohorts: [],
+        },
+      ],
+      [
+        ["quality", "feedback", "limit=50&offset=0"],
+        { items: [], total: 0, pending: 0, next_offset: null, offset: 0 },
+      ],
+    ],
+  );
+  assert.match(html, /12 published findings in this period/);
+  assert.match(html, /3 completed reviews in this period/);
+  assert.match(html, /No missed issues reported/);
+  assert.match(html, /without feedback have not been assessed/);
+  assert.match(html, /href="\/history\?days=30&amp;status=published"/);
+});
+
+test("engine readiness remains distinct from a successful provider request", () => {
+  const html = renderConsolePage(createElement(HermesHealth), [
+    [
+      ["hermes-runtime"],
+      {
+        capability: { configured: true },
+        runtime: {
+          status: "degraded",
+          version: "0.21.0",
+          model: "gpt-test",
+          active_agents: 2,
+          busy: true,
+          drainable: true,
+          chat_available: true,
+          checks: [{ name: "disk", status: "degraded" }],
+        },
+      },
+    ],
+  ]);
+  assert.match(html, /Needs attention/);
+  assert.match(html, /Disk space/);
+  assert.match(html, /0\.21\.0/);
+  assert.match(html, /They do not send a model request/);
+});
 
 test("published findings retain Markdown, tables, code and native fix-brief disclosure", () => {
   const html = render(

@@ -1,6 +1,8 @@
-import { EngineServices, ProviderHealth } from "./deployment";
+import { EngineServices, HermesHealth, ProviderHealth } from "./deployment";
+import { GitHubConnection } from "./access";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { read } from "./api";
 import type {
   Operations,
@@ -63,9 +65,9 @@ function Workers({
   if (!workers.length)
     return (
       <Empty title="No workers are reporting" level={3}>
-        No process has sent a heartbeat to this database. Workers report only
-        after the schema and worker image are both upgraded, so this does not
-        prove that no worker is running. Check your container platform.
+        Worker status is unavailable until a worker reports to this database.
+        Check the worker services in your deployment platform and confirm that
+        they use this deployment’s database.
       </Empty>
     );
   return (
@@ -200,10 +202,10 @@ function Queue({
       ? "Worker list incomplete"
       : consumers === 0
         ? backlog
-          ? `${number.format(queue.due)} due · no workers`
+          ? `${number.format(queue.due)} ready · no worker reporting`
           : "No workers reporting"
         : backlog
-          ? `${number.format(queue.due)} due`
+          ? `${number.format(queue.due)} ready`
           : queue.waiting
             ? "Scheduled"
             : "Clear";
@@ -219,7 +221,7 @@ function Queue({
           <dd>{number.format(queue.waiting)}</dd>
         </div>
         <div>
-          <dt>Due now</dt>
+          <dt>Ready to start</dt>
           <dd>{number.format(queue.due)}</dd>
         </div>
         <div>
@@ -227,11 +229,11 @@ function Queue({
           <dd>{number.format(queue.delayed)}</dd>
         </div>
         <div>
-          <dt>Leased</dt>
+          <dt>Claimed by workers</dt>
           <dd>{number.format(queue.leased)}</dd>
         </div>
         <div>
-          <dt>Expired leases</dt>
+          <dt>Expired claims</dt>
           <dd className={queue.expired_leases ? "attention" : undefined}>
             {number.format(queue.expired_leases)}
           </dd>
@@ -305,7 +307,7 @@ function Events({ workerId, clear }: { workerId: string; clear: () => void }) {
           <Empty title="No events recorded" level={3}>
             {workerId
               ? "This worker has recorded no events yet."
-              : "Workers record process lifecycle and review handoff here once the upgraded worker image is running."}
+              : "Worker starts, stops, and review handoffs will appear here when workers report activity."}
           </Empty>
         ))}
       {query.data && (cursor !== null || query.data.next_cursor !== null) && (
@@ -347,17 +349,25 @@ export function OperationsPage() {
     data?.workers.filter((worker) => worker.state === "unresponsive").length ??
     0;
   const due = data?.queues.reduce((sum, queue) => sum + queue.due, 0) ?? 0;
+  const waitingWithoutWorkers =
+    data && !data.workers_truncated
+      ? data.queues.filter(
+          (queue) =>
+            queue.due > 0 &&
+            !data.workers.some(
+              (worker) =>
+                worker.kind === queue.kind && worker.state === "running",
+            ),
+        )
+      : [];
   return (
     <>
       <div className="page-heading">
         <div>
           <h1>Health</h1>
-          <p>
-            Services, worker presence, request queues, and model authentication.
-          </p>
+          <p>Check whether reviews can start and where work is waiting.</p>
         </div>
       </div>
-      <EngineServices />
       <Freshness query={query} />
       {data && (
         <>
@@ -377,17 +387,38 @@ export function OperationsPage() {
               hint={
                 data.workers_truncated ? "Among shown instances" : undefined
               }
-              attention
+              attention={unresponsive > 0}
             />
-            <Stat label="Work due now" value={due} />
             <Stat
-              label="Reporting instances"
+              label="Ready to start"
+              value={due}
+              hint="Queued jobs whose delay has elapsed"
+            />
+            <Stat
+              label="Known worker instances"
               value={data.workers.length}
-              hint={data.workers_truncated ? "First 100 shown" : undefined}
+              hint={
+                data.workers_truncated
+                  ? "First 100 shown"
+                  : "Includes stopped and unresponsive workers"
+              }
             />
           </div>
-
-          <ProviderHealth />
+          {waitingWithoutWorkers.length > 0 && (
+            <div className="notice warning health-alert" role="status">
+              <strong>Work is waiting without an online worker report</strong>
+              <p>
+                {waitingWithoutWorkers
+                  .map(
+                    (queue) =>
+                      `${queueLabels[queue.kind]}: ${number.format(queue.due)} ready`,
+                  )
+                  .join("; ")}
+                . Check the worker services in your deployment platform.
+              </p>
+              <Link to="/?status=active">View active requests</Link>
+            </div>
+          )}
           <Section
             title="Workers"
             description="Availability shows worker presence. Assigned jobs show their current work."
@@ -402,7 +433,7 @@ export function OperationsPage() {
 
           <Section
             title="Queues"
-            description="Work waiting to be claimed. Due means the availability deadline has passed; repository scheduling and authorization can still delay a claim."
+            description="Follow work from incoming GitHub events to review and publication."
           >
             <div className="queue-grid">
               {[...data.queues].sort(byPipeline).map((queue) => {
@@ -423,11 +454,19 @@ export function OperationsPage() {
                 );
               })}
             </div>
-            <p className="stat-note">
-              {running === 0 && !data.workers_truncated
-                ? "No worker is reporting, so an empty queue does not mean work is being drained. Provider cooldowns held outside these queues are not shown here."
-                : "Provider cooldowns that are not stored in these queues are not shown here."}
-            </p>
+            <details className="metric-note">
+              <summary>How queue states work</summary>
+              <p>
+                Ready jobs have passed their scheduled start time. Repository
+                scheduling and authorization can still delay them. Claimed jobs
+                belong to a worker; an expired claim needs recovery.
+              </p>
+              <p>
+                {running === 0 && !data.workers_truncated
+                  ? "No worker is reporting, so an empty queue does not mean work is being drained. Provider cooldowns held outside these queues are not shown here."
+                  : "Provider cooldowns that are not stored in these queues are not shown here."}
+              </p>
+            </details>
           </Section>
 
           <div
@@ -439,13 +478,24 @@ export function OperationsPage() {
           >
             <Section
               title="Events"
-              description="Process lifecycle and review handoff. These records carry no output, prompts, or provider responses — use your container platform for full logs."
+              description="Worker starts, stops, and review handoffs. Full logs are available in your deployment platform."
             >
               <Events workerId={workerId} clear={() => setWorkerId("")} />
             </Section>
           </div>
         </>
       )}
+      <Section
+        title="Service connections"
+        description="Container status and provider authentication are separate from worker reports."
+      >
+        <div className="integration-grid">
+          <EngineServices />
+          <HermesHealth />
+          <GitHubConnection />
+          <ProviderHealth />
+        </div>
+      </Section>
     </>
   );
 }

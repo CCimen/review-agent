@@ -10,6 +10,7 @@ import {
   Stat,
   failureSentence,
   number,
+  since,
   time,
   useFilters,
 } from "./ui";
@@ -31,6 +32,16 @@ const phases = [
   "publishing",
   "posted",
 ];
+const phaseLabels: Record<string, string> = {
+  accepted: "Waiting for a worker",
+  fetching_pr: "Fetching pull request",
+  collecting_diff: "Reading changes",
+  reviewing: "Reviewing code",
+  rendering: "Preparing the result",
+  publishing: "Publishing to GitHub",
+  posted: "Review published",
+  failed: "Review stopped",
+};
 
 export function ActivityTabs() {
   return (
@@ -48,23 +59,25 @@ export function Phase({ item }: { item: HistoryItem }) {
   const index = phases.indexOf(item.phase);
   return (
     <span className="phase-cell">
-      <span className="phase-track" aria-hidden="true">
-        {phases.map((phase, i) => (
-          <span
-            key={phase}
-            className={
-              i < index
-                ? "done"
-                : i === index
-                  ? item.state === "failed"
-                    ? "failed"
-                    : "current"
-                  : ""
-            }
-          />
-        ))}
-      </span>
-      <span>{item.phase.replaceAll("_", " ")}</span>
+      {item.state === "running" || item.state === "publishing" ? (
+        <span className="phase-track" aria-hidden="true">
+          {phases.map((phase, i) => (
+            <span
+              key={phase}
+              className={
+                i < index
+                  ? "done"
+                  : i === index
+                    ? item.state === "failed"
+                      ? "failed"
+                      : "current"
+                    : ""
+              }
+            />
+          ))}
+        </span>
+      ) : null}
+      <span>{phaseLabels[item.phase] ?? item.phase.replaceAll("_", " ")}</span>
     </span>
   );
 }
@@ -106,7 +119,7 @@ export function ActivityPage() {
       <div className="page-heading">
         <div>
           <h1>Activity</h1>
-          <p>Every durable review request, from admission to publication.</p>
+          <p>Follow review requests and open their results.</p>
         </div>
         <Period days={days} change={(value) => update({ days: value })} />
       </div>
@@ -125,14 +138,16 @@ export function ActivityPage() {
         <Stat
           label="Failed"
           value={data?.window.failed_requests ?? null}
-          hint={`Requests started in ${days} days`}
-          attention
+          hint="Includes earlier failures followed by a successful review"
+          attention={(data?.window.failed_requests ?? 0) > 0}
         />
         <Stat
-          label="Workers online"
+          label="Review workers online"
           value={data?.live_review_workers ?? null}
           hint={
-            data ? `${data.review_capacity} configured review slots` : undefined
+            data
+              ? `${data.review_capacity} slots reported by online workers`
+              : undefined
           }
         />
       </div>
@@ -167,28 +182,28 @@ export function ActivityPage() {
             update({ repository: repository.trim(), pr_number: pr });
           }}
         >
-          <label className="sr-only" htmlFor="activity-repo">
-            Repository, owner/name
+          <label className="field" htmlFor="activity-repo">
+            Repository
+            <input
+              id="activity-repo"
+              type="search"
+              placeholder="owner/repository (optional)"
+              maxLength={200}
+              value={repository}
+              onChange={(event) => setRepository(event.target.value)}
+            />
           </label>
-          <input
-            id="activity-repo"
-            type="search"
-            placeholder="owner/repository"
-            maxLength={200}
-            value={repository}
-            onChange={(event) => setRepository(event.target.value)}
-          />
-          <label className="sr-only" htmlFor="activity-pr">
+          <label className="field" htmlFor="activity-pr">
             PR number
+            <input
+              id="activity-pr"
+              type="number"
+              min="1"
+              placeholder="Any"
+              value={pr}
+              onChange={(event) => setPr(event.target.value)}
+            />
           </label>
-          <input
-            id="activity-pr"
-            type="number"
-            min="1"
-            placeholder="PR #"
-            value={pr}
-            onChange={(event) => setPr(event.target.value)}
-          />
           <button className="secondary" type="submit">
             Filter
           </button>
@@ -202,7 +217,7 @@ export function ActivityPage() {
               update({ repository: "", pr_number: "", before_id: "" })
             }
           >
-            Clear
+            Clear filters
           </button>
         ) : null}
       </div>
@@ -228,15 +243,15 @@ export function ActivityPage() {
                   <tr>
                     <th scope="col">Pull request</th>
                     <th scope="col">State</th>
-                    <th scope="col">Phase</th>
-                    <th scope="col">Head</th>
+                    <th scope="col">Progress</th>
+                    <th scope="col">Commit</th>
                     <th scope="col" className="numeric">
                       Findings
                     </th>
                     <th scope="col" className="numeric">
-                      Attempt
+                      Attempts used
                     </th>
-                    <th scope="col">Last heartbeat</th>
+                    <th scope="col">Last activity</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -257,9 +272,10 @@ export function ActivityPage() {
                           <span className="subtext attention">
                             {failureSentence(item.failure_code)}
                           </span>
-                        ) : item.recovered ? (
+                        ) : null}
+                        {item.recovered ? (
                           <span className="subtext">
-                            A later request published
+                            Recovered: a later review published
                           </span>
                         ) : null}
                       </th>
@@ -284,14 +300,15 @@ export function ActivityPage() {
                       <td className="numeric">
                         {item.max_attempts === null
                           ? "—"
-                          : `${item.attempt_count}/${item.max_attempts}`}
+                          : `${item.attempt_count} of ${item.max_attempts}`}
                       </td>
                       <td>
                         <time
                           className="review-time"
                           dateTime={item.last_heartbeat_at}
+                          title={time(item.last_heartbeat_at)}
                         >
-                          {time(item.last_heartbeat_at)}
+                          {since(item.last_heartbeat_at)}
                         </time>
                       </td>
                     </tr>

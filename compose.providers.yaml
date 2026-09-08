@@ -21,6 +21,7 @@ services:
       PYTHONPATH: /opt/review-agent-bootstrap/plugins
       PYTHONDONTWRITEBYTECODE: "1"
       REVIEW_AGENT_HERMES_CONTROL_TOKEN: "${REVIEW_AGENT_HERMES_CONTROL_TOKEN:?set REVIEW_AGENT_HERMES_CONTROL_TOKEN}"
+      API_SERVER_KEY: "${API_SERVER_KEY:?set API_SERVER_KEY}"
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

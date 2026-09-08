@@ -216,12 +216,12 @@ export function Freshness<T>({
   quiet,
 }: {
   query: UseQueryResult<T, Error>;
-  interval?: number;
+  interval?: number | false;
   quiet?: boolean;
 }) {
-  if (quiet && !query.isError) return null;
+  if (quiet && !query.isError && !query.isPending) return null;
   return (
-    <div className="freshness" aria-live="polite">
+    <div className="freshness">
       {query.isError ? (
         <div className="notice error" role="alert">
           <p>
@@ -237,10 +237,10 @@ export function Freshness<T>({
           )}
         </div>
       ) : (
-        <span>
+        <span role={query.isPending ? "status" : undefined}>
           {query.isPending
-            ? "Loading review data…"
-            : `Updated ${time(new Date(query.dataUpdatedAt).toISOString())} · refreshes every ${interval} seconds`}
+            ? "Loading…"
+            : `Updated ${time(new Date(query.dataUpdatedAt).toISOString())}${interval ? ` · refreshes every ${interval} seconds` : ""}`}
         </span>
       )}
     </div>

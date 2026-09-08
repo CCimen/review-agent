@@ -38,6 +38,7 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntimeError,
 )
 from review_agent_tools.settings import SettingsError  # noqa: E402
+from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
 
 
 GITHUB_APP_MAX_BODY_BYTES = 2_097_152
@@ -241,25 +242,25 @@ class AdmissionServer(ThreadingHTTPServer):
 
 
 def serve(host: str, port: int) -> None:
-    server_config = load_server_config()
-    config = server_config.application
+    config = admission.load_config()
     runtime = PostgreSQLRuntime(
         config.database_url, role=PostgreSQLRuntimeRole.ADMISSION
     )
     runtime.open()
-    server = AdmissionServer(
-        (host, port),
-        config=config,
-        runtime=runtime,
-        github_app_max_body_bytes=server_config.github_app_max_body_bytes,
-        max_concurrent_requests=server_config.max_concurrent_requests,
-        request_timeout_seconds=server_config.request_timeout_seconds,
-    )
-    print(f"Review Agent admission listening on {host}:{port}", flush=True)
     try:
-        server.serve_forever()
+        apply_at_startup(runtime, "webhook")
+        server_config = load_server_config()
+        with AdmissionServer(
+            (host, port),
+            config=server_config.application,
+            runtime=runtime,
+            github_app_max_body_bytes=server_config.github_app_max_body_bytes,
+            max_concurrent_requests=server_config.max_concurrent_requests,
+            request_timeout_seconds=server_config.request_timeout_seconds,
+        ) as server:
+            print(f"Review Agent admission listening on {host}:{port}", flush=True)
+            server.serve_forever()
     finally:
-        server.server_close()
         runtime.close()
 
 

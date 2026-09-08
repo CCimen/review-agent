@@ -10,7 +10,7 @@ import { OverviewPage } from "./overview";
 import { ConsoleLayout } from "./console";
 import { ActivityPage } from "./activity";
 import { SettingsPage } from "./settings";
-import { Access } from "./access";
+import { Access, RepositoryTabs } from "./access";
 import { QualityPage, FindingPage } from "./quality";
 import { OperationsPage } from "./operations";
 import { History, ReviewPage } from "./history";
@@ -57,14 +57,7 @@ function Repositories({ current }: { current: Account }) {
           View all reviews
         </Link>
       </div>
-      <nav className="activity-tabs" aria-label="Repository views">
-        <Link to="/repositories" aria-current="page">
-          Activity
-        </Link>
-        {current.role === "admin" && (
-          <Link to="/access">Access management</Link>
-        )}
-      </nav>
+      <RepositoryTabs role={current.role} />
       <div className="toolbar">
         <form className="search-form" onSubmit={submit}>
           <label className="field grow" htmlFor="repo-search">

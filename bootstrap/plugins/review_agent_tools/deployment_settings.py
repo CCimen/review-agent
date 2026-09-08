@@ -22,6 +22,21 @@ class DeploymentSettings:
     hermes_timeout_seconds: int = 7200
     publish_max_bytes: int = 60000
     publication_max_attempts: int = 3
+    job_priority: int = 0
+    job_priority_aging_seconds: int = 900
+    job_retry_seconds: int = 30
+    job_poll_seconds: int = 2
+    job_recovery_seconds: int = 30
+    job_recovery_batch_size: int = 100
+    publication_lease_seconds: int = 120
+    publication_heartbeat_seconds: int = 30
+    publication_retry_seconds: int = 30
+    publication_poll_seconds: int = 2
+    admission_max_age_seconds: int = 86400
+    github_app_max_body_bytes: int = 2097152
+    admission_max_concurrent_requests: int = 8
+    admission_request_timeout_seconds: int = 30
+    github_gateway_max_concurrent_requests: int = 8
     feedback_enabled: bool = False
     code_graph_enabled: bool = False
     code_graph_embeddings: Literal["none", "openai"] = "none"
@@ -35,6 +50,17 @@ class DeploymentSettings:
         for name, value in self.environment().items():
             if name in _INTEGER_ENV and (not value.isdecimal() or int(value) < 1):
                 raise ValueError(f"{name} must be a positive integer")
+        if (
+            type(self.job_priority) is not int
+            or not 0 <= self.job_priority <= 2_147_483_647
+        ):
+            raise ValueError("Job priority must be between 0 and 2147483647")
+        if self.github_app_max_body_bytes > 2_097_152:
+            raise ValueError("Webhook size must not exceed 2097152 bytes")
+        if self.publication_heartbeat_seconds * 2 >= self.publication_lease_seconds:
+            raise ValueError(
+                "Publication heartbeat must be less than half the lease duration"
+            )
         if self.job_heartbeat_seconds * 2 >= self.job_lease_seconds:
             raise ValueError("Heartbeat must be less than half the lease duration")
         if not 1000 <= self.publish_max_bytes <= 65000:
@@ -65,6 +91,39 @@ class DeploymentSettings:
             "REVIEW_AGENT_HERMES_TIMEOUT_SECONDS": str(self.hermes_timeout_seconds),
             "REVIEW_AGENT_PUBLISH_MAX_BYTES": str(self.publish_max_bytes),
             "REVIEW_AGENT_PUBLICATION_MAX_ATTEMPTS": str(self.publication_max_attempts),
+            "REVIEW_AGENT_JOB_PRIORITY": str(self.job_priority),
+            "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS": str(
+                self.job_priority_aging_seconds
+            ),
+            "REVIEW_AGENT_JOB_RETRY_SECONDS": str(self.job_retry_seconds),
+            "REVIEW_AGENT_JOB_POLL_SECONDS": str(self.job_poll_seconds),
+            "REVIEW_AGENT_JOB_RECOVERY_SECONDS": str(self.job_recovery_seconds),
+            "REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE": str(self.job_recovery_batch_size),
+            "REVIEW_AGENT_PUBLICATION_LEASE_SECONDS": str(
+                self.publication_lease_seconds
+            ),
+            "REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS": str(
+                self.publication_heartbeat_seconds
+            ),
+            "REVIEW_AGENT_PUBLICATION_RETRY_SECONDS": str(
+                self.publication_retry_seconds
+            ),
+            "REVIEW_AGENT_PUBLICATION_POLL_SECONDS": str(self.publication_poll_seconds),
+            "REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS": str(
+                self.admission_max_age_seconds
+            ),
+            "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES": str(
+                self.github_app_max_body_bytes
+            ),
+            "REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS": str(
+                self.admission_max_concurrent_requests
+            ),
+            "REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS": str(
+                self.admission_request_timeout_seconds
+            ),
+            "REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS": str(
+                self.github_gateway_max_concurrent_requests
+            ),
             "REVIEW_AGENT_FEEDBACK_ENABLED": str(self.feedback_enabled).lower(),
             "REVIEW_AGENT_CODE_GRAPH_ENABLED": str(self.code_graph_enabled).lower(),
             "REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS": self.code_graph_embeddings,
@@ -106,6 +165,45 @@ class DeploymentSettings:
             ),
             publish_max_bytes=core.publish_max_bytes,
             publication_max_attempts=core.publication_max_attempts,
+            job_priority=int(env.get("REVIEW_AGENT_JOB_PRIORITY", "0")),
+            job_priority_aging_seconds=int(
+                env.get("REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS", "900")
+            ),
+            job_retry_seconds=int(env.get("REVIEW_AGENT_JOB_RETRY_SECONDS", "30")),
+            job_poll_seconds=int(env.get("REVIEW_AGENT_JOB_POLL_SECONDS", "2")),
+            job_recovery_seconds=int(
+                env.get("REVIEW_AGENT_JOB_RECOVERY_SECONDS", "30")
+            ),
+            job_recovery_batch_size=int(
+                env.get("REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE", "100")
+            ),
+            publication_lease_seconds=int(
+                env.get("REVIEW_AGENT_PUBLICATION_LEASE_SECONDS", "120")
+            ),
+            publication_heartbeat_seconds=int(
+                env.get("REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS", "30")
+            ),
+            publication_retry_seconds=int(
+                env.get("REVIEW_AGENT_PUBLICATION_RETRY_SECONDS", "30")
+            ),
+            publication_poll_seconds=int(
+                env.get("REVIEW_AGENT_PUBLICATION_POLL_SECONDS", "2")
+            ),
+            admission_max_age_seconds=int(
+                env.get("REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS", "86400")
+            ),
+            github_app_max_body_bytes=int(
+                env.get("REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES", "2097152")
+            ),
+            admission_max_concurrent_requests=int(
+                env.get("REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS", "8")
+            ),
+            admission_request_timeout_seconds=int(
+                env.get("REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS", "30")
+            ),
+            github_gateway_max_concurrent_requests=int(
+                env.get("REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS", "8")
+            ),
             feedback_enabled=core.feedback_enabled,
             code_graph_enabled=env.get(
                 "REVIEW_AGENT_CODE_GRAPH_ENABLED", "false"
@@ -125,6 +223,20 @@ class DeploymentSettings:
 
 _INTEGER_ENV = frozenset(
     {
+        "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS",
+        "REVIEW_AGENT_JOB_RETRY_SECONDS",
+        "REVIEW_AGENT_JOB_POLL_SECONDS",
+        "REVIEW_AGENT_JOB_RECOVERY_SECONDS",
+        "REVIEW_AGENT_JOB_RECOVERY_BATCH_SIZE",
+        "REVIEW_AGENT_PUBLICATION_LEASE_SECONDS",
+        "REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS",
+        "REVIEW_AGENT_PUBLICATION_RETRY_SECONDS",
+        "REVIEW_AGENT_PUBLICATION_POLL_SECONDS",
+        "REVIEW_AGENT_GITHUB_APP_ADMISSION_MAX_AGE_SECONDS",
+        "REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES",
+        "REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS",
+        "REVIEW_AGENT_ADMISSION_REQUEST_TIMEOUT_SECONDS",
+        "REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS",
         "REVIEW_AGENT_ACTIVE_JOB_LIMIT",
         "REVIEW_AGENT_GITHUB_APP_CAPACITY_RETRY_SECONDS",
         "REVIEW_AGENT_WORKER_CONCURRENCY",

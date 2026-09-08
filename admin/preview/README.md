@@ -24,6 +24,13 @@ surfaces, a compact sidebar, visible team context, and a table that keeps review
 requests easy to scan. Astryx owns controls, spacing, typography, focus behavior,
 and the responsive navigation drawer. Figtree fonts are served locally.
 
+The content stays aligned to the rail and stops growing at 1440 CSS pixels so
+statuses remain near their pull requests on large displays. The columns require
+960 CSS pixels together; the table scrolls horizontally by keyboard or touch
+when its available space is narrower. Empty results
+use Astryx's announced empty state outside that region so the recovery action
+does not inherit the table's minimum width.
+
 `theme/` was copied with Astryx 0.5.4's `theme add neutral` command. The preview
 uses that editable source through the Theme provider's runtime injection. The
 only source adjustment removes an unused React import for strict TypeScript.

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Button } from "@astryxdesign/core/Button";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack, StackItem } from "@astryxdesign/core/Layout";
 import { Section } from "@astryxdesign/core/Section";
@@ -285,7 +286,7 @@ export function Preview() {
           </SideNav>
         }
       >
-        <Section padding={6}>
+        <Section padding={6} maxWidth={1440}>
           <VStack gap={6}>
             <HStack justify="between" align="center" wrap="wrap" gap={3}>
               <Text color="secondary">{team} / Activity</Text>
@@ -351,31 +352,32 @@ export function Preview() {
                   {filtered.length} of {reviews.length} sample requests
                 </Text>
               </HStack>
-              <Table
-                aria-label="Sample review requests"
-                data={filtered}
-                columns={columns}
-                idKey="id"
-                density="balanced"
-                hasHover
-                emptyState={
-                  <Section padding={8}>
-                    <VStack gap={3}>
-                      <Heading level={2}>No requests match</Heading>
-                      <Text color="secondary">
-                        Try another search, status, or team.
-                      </Text>
-                      <Button
-                        label="Clear filters"
-                        onClick={() => {
-                          setSearch("");
-                          setStatus("All statuses");
-                        }}
-                      />
-                    </VStack>
-                  </Section>
-                }
-              />
+              {filtered.length > 0 ? (
+                <Table
+                  aria-label="Sample review requests"
+                  data={filtered}
+                  columns={columns}
+                  idKey="id"
+                  density="balanced"
+                  hasHover
+                />
+              ) : (
+                // Recovery must fit the viewport, independent of table column widths.
+                <EmptyState
+                  title="No requests match"
+                  description="Try another search, status, or team."
+                  headingLevel={2}
+                  actions={
+                    <Button
+                      label="Clear filters"
+                      onClick={() => {
+                        setSearch("");
+                        setStatus("All statuses");
+                      }}
+                    />
+                  }
+                />
+              )}
             </VStack>
             <Text type="supporting">
               Activity is the preview screen. Other destinations become

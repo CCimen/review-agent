@@ -164,7 +164,11 @@ def team_events(
 ) -> audit.AuditPage:
     with _transaction(runtime, access) as (connection, scope):
         return audit.events(
-            connection, scope, team_id=team_id, limit=limit, before_id=before_id
+            connection,
+            scope,
+            team_id=team_id,
+            limit=limit,
+            filters=audit.AuditFilters(before_id=before_id),
         )
 
 
@@ -604,9 +608,7 @@ def audit_events(
     *,
     access: AccessRequest,
     limit: int,
-    before_id: int | None,
-    actor_id: UUID | None,
-    action: audit.AuditAction | None,
+    filters: audit.AuditFilters,
 ) -> audit.AuditPage:
     with _transaction(runtime, access) as (connection, scope):
         team_access.require_admin(scope)
@@ -615,9 +617,7 @@ def audit_events(
             scope,
             team_id=scope.team_id,
             limit=limit,
-            before_id=before_id,
-            actor_id=actor_id,
-            action=action,
+            filters=filters,
         )
 
 

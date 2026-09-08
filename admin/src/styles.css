@@ -2827,6 +2827,26 @@ dialog form {
 .audit-details {
   margin: 12px 0;
 }
+
+.audit-filters {
+  margin-bottom: var(--space-4);
+}
+.audit-filter-details {
+  margin-top: var(--space-3);
+}
+.audit-filter-details .form-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+.audit-export {
+  margin-bottom: var(--space-6);
+}
+.audit-export .toolbar {
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
 .audit-details dt {
   color: var(--muted);
 }

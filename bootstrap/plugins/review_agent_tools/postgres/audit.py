@@ -76,6 +76,17 @@ class AuditPage:
     next_before_id: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class AuditFilters:
+    before_id: int | None = None
+    actor_id: UUID | None = None
+    action: AuditAction | None = None
+    outcome: AuditOutcome | None = None
+    search: str = ""
+    since: datetime | None = None
+    until: datetime | None = None
+
+
 def record(
     connection: psycopg.Connection[TupleRow],
     scope: AccessScope,
@@ -99,10 +110,11 @@ def record(
         details = {**details, "repository_id": repository_id}
     connection.execute(
         """INSERT INTO review_agent.admin_audit_events
-            (team_id, actor_id, actor_role, action, subject, reason, details, owner_only, operation_id, outcome)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (team_id, actor_id, actor_email, actor_role, action, subject, reason, details, owner_only, operation_id, outcome)
+            VALUES (%s, %s, (SELECT email FROM review_agent.admin_users WHERE id = %s), %s, %s, %s, %s, %s, %s, %s, %s)""",
         (
             team_id,
+            scope.user_id,
             scope.user_id,
             scope.actor.split(":", 1)[0],
             action.value,
@@ -122,31 +134,38 @@ def events(
     *,
     team_id: int | None,
     limit: int,
-    before_id: int | None,
-    actor_id: UUID | None = None,
-    action: AuditAction | None = None,
+    filters: AuditFilters,
 ) -> AuditPage:
     require_admin(scope)
     if team_id is not None:
         require_team(connection, scope, team_id)
     with connection.cursor(row_factory=class_row(AuditEvent)) as cursor:
         rows = cursor.execute(
-            """SELECT event.id, team_id, actor_id, account.email AS actor_email, actor_role, action, subject, reason, details,
+            """SELECT event.id, team_id, actor_id, actor_email, actor_role, action, subject, reason, details,
                       owner_only, operation_id, outcome, recorded_at
                FROM review_agent.admin_audit_events event
-               LEFT JOIN review_agent.admin_users account ON account.id = event.actor_id
                WHERE (%(team)s::bigint IS NULL OR team_id = %(team)s)
                  AND (%(owner)s OR NOT owner_only)
                  AND (%(before)s::bigint IS NULL OR event.id < %(before)s)
                  AND (%(actor)s::uuid IS NULL OR actor_id = %(actor)s)
                  AND (%(action)s::text IS NULL OR action = %(action)s)
+                 AND (%(outcome)s::text IS NULL OR outcome = %(outcome)s)
+                 AND (%(search)s = '' OR search_text @@ plainto_tsquery('simple', %(search)s))
+                 AND (%(since)s::timestamptz IS NULL OR recorded_at >= %(since)s)
+                 AND (%(until)s::timestamptz IS NULL OR recorded_at < %(until)s)
                ORDER BY event.id DESC LIMIT %(limit)s""",
             {
                 "team": team_id,
                 "owner": scope.is_owner,
-                "before": before_id,
-                "actor": actor_id,
-                "action": action.value if action is not None else None,
+                "before": filters.before_id,
+                "actor": filters.actor_id,
+                "action": filters.action.value if filters.action is not None else None,
+                "outcome": filters.outcome.value
+                if filters.outcome is not None
+                else None,
+                "search": filters.search,
+                "since": filters.since,
+                "until": filters.until,
                 "limit": limit + 1,
             },
         ).fetchall()

@@ -27,6 +27,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from . import (
+    admin_audit_api,
     admin_repository_requests_api,
     admin_access_api,
     admin_application,
@@ -38,7 +39,7 @@ from . import (
     admin_teams_api,
 )
 from .admin_auth import AdminAuth
-from .postgres import admin_operations, admin_reporting, audit
+from .postgres import admin_operations, admin_reporting
 from .postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
 from .postgres.teams import TeamConflict
 from .postgres.runtime import (
@@ -237,22 +238,6 @@ def create_app(
     def openapi() -> JSONResponse:
         return JSONResponse(app.openapi())
 
-    def audit_events(
-        access: Annotated[AccessRequest, Depends(auth.current_scope)],
-        limit: Limit = 50,
-        before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
-        actor_id: UUID | None = None,
-        action: audit.AuditAction | None = None,
-    ) -> audit.AuditPage:
-        return admin_application.audit_events(
-            runtime,
-            access=access,
-            limit=limit,
-            before_id=before_id,
-            actor_id=actor_id,
-            action=action,
-        )
-
     def health() -> dict[str, str]:
         runtime.readiness()
         return {"status": "ready"}
@@ -302,7 +287,6 @@ def create_app(
     router.add_api_route("/api/history/{run_id}", review_detail, methods=["GET"])
     router.add_api_route("/api/pull-requests", pull_requests, methods=["GET"])
     router.add_api_route("/api/overview", overview, methods=["GET"])
-    router.add_api_route("/api/audit", audit_events, methods=["GET"], tags=["audit"])
     router.add_api_route(
         "/api/operations",
         operations,
@@ -350,6 +334,7 @@ def create_app(
     app.include_router(admin_deployment_api.create_router(auth))
     app.include_router(admin_access_api.create_router(runtime, auth))
     app.include_router(admin_teams_api.create_router(runtime, auth))
+    app.include_router(admin_audit_api.create_router(runtime, auth))
     app.include_router(admin_repository_requests_api.create_router(runtime, auth))
     app.mount(
         "/assets",

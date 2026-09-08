@@ -192,23 +192,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/audit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Audit Events */
-        get: operations["audit_events_api_audit_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/operations": {
         parameters: {
             query?: never;
@@ -757,6 +740,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search audit events visible to the current owner or admin */
+        get: operations["events_api_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export one bounded page of matching audit events
+         * @description Uses the same filters and permissions as the audit list. since is inclusive; until is exclusive. Follow X-Audit-Next-Before-ID as before_id for older events. CSV prefixes formula-like cells with an apostrophe; JSON and JSONL preserve exact values. OTLP exports are OpenTelemetry JSON log requests; no external collector is contacted.
+         */
+        get: operations["export_api_audit_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/repository-requests": {
         parameters: {
             query?: never;
@@ -1073,6 +1093,11 @@ export interface components {
              */
             recorded_at: string;
         };
+        /**
+         * AuditFormat
+         * @enum {string}
+         */
+        AuditFormat: "json" | "csv" | "jsonl" | "otlp";
         /**
          * AuditOutcome
          * @enum {string}
@@ -3152,41 +3177,6 @@ export interface operations {
             };
         };
     };
-    audit_events_api_audit_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-                before_id?: number | null;
-                actor_id?: string | null;
-                action?: components["schemas"]["AuditAction"] | null;
-                team_id?: number | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuditPage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     operations_api_operations_get: {
         parameters: {
             query?: {
@@ -4318,6 +4308,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    events_api_audit_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                team_id?: number | null;
+                before_id?: number | null;
+                actor_id?: string | null;
+                action?: components["schemas"]["AuditAction"] | null;
+                outcome?: components["schemas"]["AuditOutcome"] | null;
+                search?: string;
+                since?: string | null;
+                until?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_api_audit_export_get: {
+        parameters: {
+            query?: {
+                format?: components["schemas"]["AuditFormat"];
+                limit?: number;
+                team_id?: number | null;
+                before_id?: number | null;
+                actor_id?: string | null;
+                action?: components["schemas"]["AuditAction"] | null;
+                outcome?: components["schemas"]["AuditOutcome"] | null;
+                search?: string;
+                since?: string | null;
+                until?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    /** @description Number of events in this file. */
+                    "X-Audit-Count"?: number;
+                    /** @description Present when more matching events remain; send as before_id for the next page. */
+                    "X-Audit-Next-Before-ID"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                    "text/csv": string;
+                    "application/x-ndjson": string;
                 };
             };
             /** @description Validation Error */

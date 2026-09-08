@@ -437,6 +437,138 @@ class AdminTeamTests(unittest.TestCase):
             self.client.get(f"/api/teams/{team['id']}/events").status_code, 403
         )
 
+    def test_audit_search_and_exports_share_filters_and_preserve_values(self) -> None:
+        import csv
+        import io
+        import json
+        from datetime import datetime, timedelta, timezone
+
+        owner = self.client.get("/api/me").json()
+        start = datetime.now(timezone.utc) - timedelta(seconds=1)
+        selected = self.client.post(
+            "/api/teams", json={"name": "Invoices", "reason": "=invoice approval"}
+        ).json()
+        self.client.post("/api/teams", json={"name": "Other", "reason": "Other work"})
+        filters = {
+            "search": "invoice",
+            "action": "team_created",
+            "actor_id": owner["id"],
+        }
+        response = self.client.get("/api/audit", params=filters)
+        self.assertEqual(response.status_code, 200, response.text)
+        items = response.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["team_id"], selected["id"])
+        self.assertEqual(items[0]["reason"], "=invoice approval")
+        for extra in ({"outcome": "failed"}, {"until": start.isoformat()}):
+            self.assertEqual(
+                self.client.get("/api/audit", params={**filters, **extra}).json()[
+                    "items"
+                ],
+                [],
+            )
+        self.assertEqual(
+            self.client.get(
+                "/api/audit", params={"since": "2026-09-01T00:00:00"}
+            ).status_code,
+            422,
+        )
+        self.assertEqual(
+            self.client.get(
+                "/api/audit",
+                params={
+                    "since": "2026-09-02T00:00:00Z",
+                    "until": "2026-09-01T00:00:00Z",
+                },
+            ).status_code,
+            422,
+        )
+        for format in ("json", "csv", "jsonl", "otlp"):
+            with self.subTest(format=format):
+                export = self.client.get(
+                    "/api/audit/export", params={**filters, "format": format}
+                )
+                self.assertEqual(export.status_code, 200, export.text)
+                self.assertEqual(export.headers["x-audit-count"], "1")
+                self.assertIn("attachment;", export.headers["content-disposition"])
+                self.assertEqual(export.headers["cache-control"], "no-store")
+                if format == "json":
+                    self.assertEqual(export.json()["items"], items)
+                elif format == "jsonl":
+                    self.assertEqual(
+                        [json.loads(line) for line in export.text.splitlines()], items
+                    )
+                elif format == "csv":
+                    rows = list(csv.DictReader(io.StringIO(export.text)))
+                    self.assertEqual(rows[0]["reason"], "'=invoice approval")
+                    self.assertEqual(rows[0]["actor_id"], owner["id"])
+                else:
+                    resource = export.json()["resourceLogs"][0]
+                    records = resource["scopeLogs"][0]["logRecords"]
+                    self.assertEqual(len(records), 1)
+                    self.assertEqual(
+                        records[0]["body"]["stringValue"], "=invoice approval"
+                    )
+                    self.assertIsInstance(records[0]["timeUnixNano"], str)
+                    self.assertEqual(records[0]["severityNumber"], 9)
+                    self.assertNotIn("traceId", records[0])
+                    attributes = {
+                        item["key"]: item["value"] for item in records[0]["attributes"]
+                    }
+                    self.assertEqual(
+                        attributes["review_agent.audit.event_id"],
+                        {"intValue": str(items[0]["id"])},
+                    )
+        page = self.client.get(
+            "/api/audit/export",
+            params={"format": "json", "action": "team_created", "limit": 1},
+        )
+        self.assertEqual(page.status_code, 200, page.text)
+        next_id = page.headers["x-audit-next-before-id"]
+        older = self.client.get(
+            "/api/audit/export",
+            params={
+                "format": "json",
+                "action": "team_created",
+                "limit": 1,
+                "before_id": next_id,
+            },
+        )
+        self.assertNotEqual(
+            page.json()["items"][0]["id"], older.json()["items"][0]["id"]
+        )
+        self.assertEqual(
+            self.client.get("/api/audit/export?format=json&limit=1001").status_code, 422
+        )
+
+    def test_audit_exports_enforce_role_and_event_audience(self) -> None:
+        self.client.post(
+            "/api/users",
+            json={
+                "email": "admin2@example.com",
+                "password": test_admin_api.PASSWORD,
+                "role": "admin",
+            },
+        )
+        self.client.post(
+            "/api/users",
+            json={"email": "member@example.com", "password": test_admin_api.PASSWORD},
+        )
+        self.client.post(
+            "/api/teams", json={"name": "Payments", "reason": "Team access"}
+        )
+        self.fixture.login("admin2@example.com")
+        result = self.client.get("/api/audit/export?format=json")
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertTrue(result.json()["items"])
+        self.assertTrue(
+            all(not event["owner_only"] for event in result.json()["items"])
+        )
+        self.fixture.login("member@example.com")
+        self.assertEqual(
+            self.client.get("/api/audit/export?format=otlp").status_code, 403
+        )
+
     def test_repository_approval_is_atomic_idempotent_and_requires_platform_admin(
         self,
     ) -> None:

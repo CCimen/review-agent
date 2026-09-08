@@ -2106,7 +2106,7 @@ This feature is available in the source candidate and has not yet been released.
 The current v0.4.0-rc.4 image does not include it. Build both images from the same
 candidate checkout, or use a future qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 22.
+an older migration image: the current admin API requires PostgreSQL schema 23.
 
 After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
@@ -2165,6 +2165,45 @@ are visible only to owners. Only owners and admins can open audit pages, includi
 the audit tab within a team. Passwords,
 tokens, and provider credentials are omitted. The journal is part of the normal
 database backup; it is not a tamper-proof external log archive.
+
+### Search and export audit events
+
+Search matches all supplied words in the actor email, subject, reason, action,
+and recorded change details. Narrow results by action, outcome, actor account ID,
+or time. The form uses your local time and sends timezone-aware timestamps;
+`since` is inclusive and `until` is exclusive. Team audit tabs apply the same
+filters within that team. Global audit covers all teams. Events appear newest
+first, with **Older events** for the next page.
+
+New events preserve the actor email as recorded at the time of the action,
+alongside the stable account ID and role. Migration 23 copies the current account
+email into older events where available; it cannot reconstruct earlier email
+changes. Search uses PostgreSQL's full-text index, with no separate search service.
+
+Choose **Export matching events** to download JSON, CSV, JSON Lines, or
+OpenTelemetry OTLP JSON. A file contains up to 1,000 matching events and follows
+the same owner/admin visibility rules as the page. When more events remain, use
+**Export next 1,000**. Files start with the newest matching events independently
+of the page currently displayed. For API clients, pass the response's
+`X-Audit-Next-Before-ID` as `before_id` with the same filters. `X-Audit-Count`
+reports the number of events in the file. Each page reflects committed data when
+that request runs; exports are not a point-in-time database snapshot.
+
+JSON includes the event list and continuation cursor. JSON Lines contains one
+event per line. CSV quotes fields and prefixes formula-like cells with an
+apostrophe so spreadsheet applications treat them as text; use JSON or JSON Lines
+when exact text preservation is required.
+
+OTLP files use the [OpenTelemetry JSON encoding](https://opentelemetry.io/docs/specs/otlp/)
+and [log data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/):
+resource `service.name=review-agent-admin`, scope `review_agent.audit`, nanosecond
+event and observation timestamps, numeric severity, an event name, and typed
+`review_agent.audit.*` attributes. The reason is the log body. An operation UUID
+correlates related audit records; it is not presented as a trace or span ID.
+An administrator can forward the file to an authorized collector's OTLP/HTTP
+`/v1/logs` endpoint using `Content-Type: application/json`. The console prepares
+the file without contacting an external collector. Automatic forwarding and
+application tracing are not configured by this feature.
 
 ## What the numbers mean
 
@@ -2246,7 +2285,8 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `POST /api/teams/{id}/repository-requests`, `POST /api/repository-requests/{id}/withdraw` | Team maintainer, owner or admin | Submit or withdraw a pending request. |
 | `POST /api/repository-requests/{id}/approve`, `POST /api/repository-requests/{id}/reject` | Owner or admin | Verify and approve, or reject, a pending request. |
 | `PUT /api/repository-ownership/{id}`, `POST /api/teams/{id}/repositories/{repository_id}/remove` | Owner or admin | Conditional ownership assignment/transfer, or removal. |
-| `GET /api/teams/{id}/events`, `GET /api/audit` | Owner or admin | Keyset-paginated audit events, filtered by audience. Global audit supports actor and action filters. |
+| `GET /api/teams/{id}/events`, `GET /api/audit` | Owner or admin | Keyset-paginated audit events, filtered by audience. `/api/audit` supports text, action, actor, outcome, time and team filters. |
+| `GET /api/audit/export` | Owner or admin | Up to 1,000 matching events as JSON, CSV, JSON Lines or OTLP JSON, with count and continuation headers. |
 
 Repository reports accept optional `team_id`. Without it, a member receives the
 union of their teams; owners, admins, and explicit global viewers receive the

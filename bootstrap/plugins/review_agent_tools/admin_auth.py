@@ -166,10 +166,11 @@ async def _account_audit(
 ) -> None:
     await session.execute(
         text("""INSERT INTO review_agent.admin_audit_events
-            (actor_id, actor_role, action, subject, reason, details, owner_only)
-            VALUES (:actor_id, :actor_role, :action, :subject, :reason, CAST(:details AS JSONB), :owner_only)"""),
+            (actor_id, actor_email, actor_role, action, subject, reason, details, owner_only)
+            VALUES (:actor_id, :actor_email, :actor_role, :action, :subject, :reason, CAST(:details AS JSONB), :owner_only)"""),
         {
             "actor_id": actor.id if actor else None,
+            "actor_email": actor.email if actor else None,
             "actor_role": (actor_role or Account.from_user(actor).role).value
             if actor
             else "bootstrap",

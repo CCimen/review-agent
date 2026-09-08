@@ -1,5 +1,9 @@
+import {
+  ScopedLink as Link,
+  ScopedNavLink as NavLink,
+  useScope,
+} from "./scope";
 import { useEffect, useState } from "react";
-import { Link, NavLink } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { read } from "./api";
 import type { HistoryItem, HistoryPage, Overview } from "./api";
@@ -83,6 +87,7 @@ export function Phase({ item }: { item: HistoryItem }) {
 }
 
 export function ActivityPage() {
+  const scope = useScope();
   const { params, days, update } = useFilters();
   const status = params.get("status") ?? "all";
   const [repository, setRepository] = useState(params.get("repository") ?? "");
@@ -104,14 +109,14 @@ export function ActivityPage() {
     setPr(params.get("pr_number") ?? "");
   }, [params]);
   const query = useQuery({
-    queryKey: ["activity", queryParams.toString()],
+    queryKey: ["activity", queryParams.toString(), "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<HistoryPage>(`/api/history?${queryParams}`, signal),
+      read<HistoryPage>(scope.path(`/api/history?${queryParams}`), signal),
   });
   const overview = useQuery({
-    queryKey: ["overview", days],
+    queryKey: ["overview", days, "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<Overview>(`/api/overview?days=${days}`, signal),
+      read<Overview>(scope.path(`/api/overview?days=${days}`), signal),
   });
   const data = overview.data;
   return (
@@ -141,15 +146,17 @@ export function ActivityPage() {
           hint="Includes earlier failures followed by a successful review"
           attention={(data?.window.failed_requests ?? 0) > 0}
         />
-        <Stat
-          label="Review workers online"
-          value={data?.live_review_workers ?? null}
-          hint={
-            data
-              ? `${data.review_capacity} slots reported by online workers`
-              : undefined
-          }
-        />
+        {data?.live_review_workers != null ? (
+          <Stat
+            label="Review workers online"
+            value={data?.live_review_workers ?? null}
+            hint={
+              data
+                ? `${data.review_capacity} slots reported by online workers`
+                : undefined
+            }
+          />
+        ) : null}
       </div>
       <Freshness query={overview} quiet />
       <div className="toolbar activity-toolbar">

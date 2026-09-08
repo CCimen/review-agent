@@ -1,6 +1,15 @@
+import {
+  ScopedLink as Link,
+  ScopedNavLink as NavLink,
+  useScope,
+  ScopeSelector,
+  isAdmin,
+  roleLabels,
+  contextualTo,
+} from "./scope";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { read } from "./api";
 import type { Account, Overview, RepositoryPage } from "./api";
@@ -11,7 +20,10 @@ const sections = [
   { path: "/repositories", label: "Repositories", key: "R" },
   { path: "/quality", label: "Review quality", key: "Q" },
   { path: "/operations", label: "Health", key: "H", admin: true },
-  { path: "/settings", label: "Settings", key: "S", admin: true },
+  { path: "/teams", label: "Teams", key: "T" },
+  { path: "/audit", label: "Audit log", key: "L", admin: true },
+  { path: "/settings", label: "Settings", key: "S", owner: true },
+  { path: "/users", label: "Users", key: "U", admin: true },
 ];
 
 function initialTheme(): "light" | "dark" {
@@ -37,7 +49,8 @@ export function ConsoleLayout({
   logout: () => void;
   signingOut: boolean;
 }) {
-  const { pathname } = useLocation();
+  const scope = useScope();
+  const { pathname, search: routeSearch } = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
@@ -46,17 +59,22 @@ export function ConsoleLayout({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const palette = useRef<HTMLDialogElement>(null);
   const navigation = sections.filter(
-    (section) => !section.admin || current.role === "admin",
+    (section) =>
+      (!section.admin || isAdmin(current.role)) &&
+      (!section.owner || current.role === "owner"),
   );
   const overview = useQuery({
-    queryKey: ["overview", 30],
-    queryFn: ({ signal }) => read<Overview>("/api/overview?days=30", signal),
+    queryKey: ["overview", 30, "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<Overview>(scope.path("/api/overview?days=30"), signal),
   });
   const repositories = useQuery({
-    queryKey: ["command-repositories", searchTerm],
+    queryKey: ["command-repositories", searchTerm, "scoped", scope.key],
     queryFn: ({ signal }) =>
       read<RepositoryPage>(
-        `/api/repositories?limit=8&search=${encodeURIComponent(searchTerm)}`,
+        scope.path(
+          `/api/repositories?limit=8&search=${encodeURIComponent(searchTerm)}`,
+        ),
         signal,
       ),
     enabled: paletteOpen && searchTerm.length >= 2,
@@ -85,7 +103,7 @@ export function ConsoleLayout({
   }
   function go(path: string) {
     closePalette();
-    navigate(path);
+    navigate(contextualTo(path, routeSearch));
   }
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
@@ -136,7 +154,7 @@ export function ConsoleLayout({
     { path: "/history", label: "Pull requests", key: "P" },
     { path: "/overview", label: "Statistics", key: "T" },
     { path: "/account", label: "Your account", key: "U" },
-    ...(current.role === "admin"
+    ...(isAdmin(current.role)
       ? [{ path: "/users", label: "Manage users", key: "U" }]
       : []),
   ].filter((section) =>
@@ -157,6 +175,9 @@ export function ConsoleLayout({
           <span className="muted">Deployment</span>
           <strong>{window.location.hostname}</strong>
           <span className="muted">Advisory pull-request reviews</span>
+        </div>
+        <div className="rail-label">
+          <ScopeSelector />
         </div>
         <nav className="console-nav" aria-label="Console sections">
           {navigation.map((section) => (
@@ -179,26 +200,26 @@ export function ConsoleLayout({
             </NavLink>
           ))}
         </nav>
-        <div className="rail-capacity rail-label">
-          <span>Online review capacity</span>
-          <strong>
-            {overview.data ? number.format(overview.data.review_capacity) : "—"}{" "}
-            slots
-          </strong>
-          <small>
-            {overview.data
-              ? `${number.format(overview.data.live_review_workers)} review workers online`
-              : "Waiting for worker reports"}
-          </small>
-        </div>
+        {overview.data?.review_capacity != null ? (
+          <div className="rail-capacity rail-label">
+            <span>Online review capacity</span>
+            <strong>
+              {overview.data
+                ? number.format(overview.data.review_capacity ?? 0)
+                : "—"}{" "}
+              slots
+            </strong>
+            <small>
+              {overview.data
+                ? `${number.format(overview.data.live_review_workers ?? 0)} review workers online`
+                : "Waiting for worker reports"}
+            </small>
+          </div>
+        ) : null}
         <div className="rail-account">
           <Link className="rail-label" to="/account">
             {current.email}
-            <small>
-              {current.role === "admin"
-                ? "Your account · Admin"
-                : "Your account · Viewer"}
-            </small>
+            <small>Your account · {roleLabels[current.role]}</small>
           </Link>
           <button
             className="secondary icon-button"
@@ -260,8 +281,14 @@ export function ConsoleLayout({
             {signingOut ? "Signing out…" : "Sign out"}
           </button>
         </header>
+        <div className="mobile-scope">
+          <ScopeSelector />
+        </div>
         {children}
         <footer className="console-statusbar">
+          <a href="/api/docs" target="_blank" rel="noreferrer">
+            API reference
+          </a>
           <span>
             Active requests{" "}
             <strong>
@@ -270,14 +297,16 @@ export function ConsoleLayout({
                 : "—"}
             </strong>
           </span>
-          <span>
-            Review workers online{" "}
-            <strong>
-              {overview.data
-                ? number.format(overview.data.live_review_workers)
-                : "—"}
-            </strong>
-          </span>
+          {overview.data?.live_review_workers != null ? (
+            <span>
+              Review workers online{" "}
+              <strong>
+                {overview.data
+                  ? number.format(overview.data.live_review_workers ?? 0)
+                  : "—"}
+              </strong>
+            </span>
+          ) : null}
           <span>
             Repositories{" "}
             <strong>

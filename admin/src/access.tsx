@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { components } from "./api.generated";
 import { read, write } from "./api";
-import { NavLink } from "react-router-dom";
+import { ScopedNavLink as NavLink, isAdmin } from "./scope";
 import type { Account } from "./api";
 import { Freshness, time } from "./ui";
 
@@ -10,7 +10,7 @@ export function RepositoryTabs({ role }: { role: Account["role"] }) {
   return (
     <nav className="page-tabs" aria-label="Repository views">
       <NavLink to="/repositories">Activity</NavLink>
-      {role === "admin" && <NavLink to="/access">Access management</NavLink>}
+      {isAdmin(role) && <NavLink to="/access">Access management</NavLink>}
     </nav>
   );
 }

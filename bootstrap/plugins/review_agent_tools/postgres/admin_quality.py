@@ -6,12 +6,14 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import psycopg
+from psycopg import sql
 from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
 from ..domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
 from ..domain.finding import FindingDecision
 from .reporting import FindingReport
+from .team_access import AccessScope, maintainer_predicate, repository_source
 
 
 class AdminQualityError(ValueError):
@@ -37,6 +39,7 @@ class QualityFeedbackItem:
     triage_actor: str | None
     triage_reason: str | None
     triaged_at: datetime | None
+    can_triage: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +76,7 @@ class AdminFindingDetail:
     decisions: tuple[FindingDecision, ...]
     has_more_decisions: bool
     next_decision_before_id: int | None
+    can_decide: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,16 +100,20 @@ class _FeedbackRow:
     triaged_at: datetime | None
     total: int
     pending: int
+    can_triage: bool
 
 
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
     if connection.info.transaction_status != TransactionStatus.INTRANS:
-        raise AdminQualityError("admin quality reporting requires an active transaction")
+        raise AdminQualityError(
+            "admin quality reporting requires an active transaction"
+        )
 
 
 def feedback_backlog(
     connection: psycopg.Connection[TupleRow],
     *,
+    scope: AccessScope | None = None,
     repository: str | None,
     limit: int,
     offset: int,
@@ -114,7 +122,7 @@ def feedback_backlog(
     _require_transaction(connection)
     with connection.cursor(row_factory=class_row(_FeedbackRow)) as cursor:
         rows = cursor.execute(
-            """
+            sql.SQL("""
             WITH feedback_with_triage AS (
                 SELECT feedback.id, repository.full_name AS repository,
                        pull_request.number AS pr_number,
@@ -126,11 +134,12 @@ def feedback_backlog(
                        latest.evidence_reference, latest.path, latest.category,
                        latest.actor AS triage_actor,
                        latest.reason AS triage_reason,
-                       latest.created_at AS triaged_at
+                       latest.created_at AS triaged_at,
+                       {can_triage} AS can_triage
                 FROM review_agent.review_quality_feedback AS feedback
                 JOIN review_agent.pull_requests AS pull_request
                   ON pull_request.id = feedback.pull_request_id
-                JOIN review_agent.repositories AS repository
+                JOIN {repositories} AS repository
                   ON repository.id = pull_request.repository_id
                 LEFT JOIN LATERAL (
                     SELECT triage.status, triage.stable_key,
@@ -154,7 +163,10 @@ def feedback_backlog(
             FROM feedback_with_triage
             ORDER BY (triage_status = 'pending') DESC, created_at, id
             LIMIT %s OFFSET %s
-            """,
+            """).format(
+                repositories=repository_source(scope),
+                can_triage=maintainer_predicate(scope, sql.SQL("repository.id")),
+            ),
             (repository, repository, limit + 1, offset),
         ).fetchall()
     page_rows = rows[:limit]
@@ -188,6 +200,7 @@ def feedback_backlog(
                 triage_actor=row.triage_actor,
                 triage_reason=row.triage_reason,
                 triaged_at=row.triaged_at,
+                can_triage=row.can_triage,
             )
         )
     first = rows[0] if rows else None

@@ -9,12 +9,20 @@ import type {
   PasswordChange,
 } from "./api";
 import { Stat } from "./ui";
-import { NavLink } from "react-router-dom";
+import {
+  ScopedNavLink as NavLink,
+  useScope,
+  isAdmin,
+  roleLabels,
+} from "./scope";
 
 export function SettingsTabs() {
+  const { current } = useScope();
   return (
     <nav className="page-tabs" aria-label="Settings views">
-      <NavLink to="/settings">General</NavLink>
+      {current.role === "owner" ? (
+        <NavLink to="/settings">General</NavLink>
+      ) : null}
       <NavLink to="/users">Users &amp; roles</NavLink>
     </nav>
   );
@@ -102,9 +110,10 @@ export function Users({ current }: { current: Account }) {
   const [adding, setAdding] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
   const [createdEmail, setCreatedEmail] = useState("");
+  const [reason, setReason] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<NewAccount["role"]>("viewer");
+  const [role, setRole] = useState<NewAccount["role"]>("member");
   const [filter, setFilter] = useState("");
   const [view, setView] = useState("all");
   const query = useQuery({
@@ -118,11 +127,13 @@ export function Users({ current }: { current: Account }) {
         email,
         password,
         role,
+        reason,
       } satisfies NewAccount),
     onSuccess: async (account) => {
       setEmail("");
+      setReason("");
       setPassword("");
-      setRole("viewer");
+      setRole("member");
       setAdding(false);
       setCreatedEmail(account.email);
       await client.invalidateQueries({ queryKey: ["users"] });
@@ -147,7 +158,10 @@ export function Users({ current }: { current: Account }) {
       <div className="page-heading">
         <div>
           <h1>Users &amp; roles</h1>
-          <p>Control who can view review activity and manage access.</p>
+          <p>
+            Platform administration · Manage accounts and platform roles. Team
+            roles are assigned in Teams.
+          </p>
         </div>
         <button
           ref={addButton}
@@ -168,10 +182,11 @@ export function Users({ current }: { current: Account }) {
       <details className="metric-note">
         <summary>What the roles allow</summary>
         <p>
-          <strong>Viewer</strong> can read statistics and review history for all
-          repositories and inspect review quality. <strong>Admin</strong> can
-          also manage accounts, repository access, review actions, finding
-          decisions, and deployment settings.
+          <strong>Members</strong> receive access through their teams as viewers
+          or maintainers. <strong>Global viewers</strong> can read review data
+          across the deployment. <strong>Admins</strong> manage teams,
+          repositories, and member accounts. <strong>Owners</strong> also manage
+          privileged accounts, provider credentials, and platform settings.
         </p>
       </details>
       {createdEmail && (
@@ -225,14 +240,33 @@ export function Users({ current }: { current: Account }) {
                 value={role}
                 disabled={create.isPending}
                 onChange={(event) =>
-                  setRole(event.target.value === "admin" ? "admin" : "viewer")
+                  setRole(event.target.value as Account["role"])
                 }
               >
-                <option value="viewer">Viewer</option>
-                <option value="admin">Admin</option>
+                {Object.entries(roleLabels)
+                  .filter(
+                    ([value]) =>
+                      current.role === "owner" ||
+                      value === "member" ||
+                      value === "viewer",
+                  )
+                  .map(([value, label]) => (
+                    <option value={value} key={value}>
+                      {label}
+                    </option>
+                  ))}
               </select>
             </label>
           </div>
+          <label className="field">
+            Reason
+            <textarea
+              required
+              maxLength={500}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </label>
           {create.isError && (
             <p className="notice error" role="alert">
               {create.error.message}
@@ -256,7 +290,7 @@ export function Users({ current }: { current: Account }) {
             <Stat label="Accounts" value={query.data.total} />
             <Stat label="Admins" value={query.data.admin_count} />
             <Stat
-              label="Viewers"
+              label="Team members & global viewers"
               value={query.data.total - query.data.admin_count}
             />
             <Stat label="Disabled" value={query.data.disabled_count} />
@@ -283,8 +317,10 @@ export function Users({ current }: { current: Account }) {
                 onChange={(event) => setView(event.target.value)}
               >
                 <option value="all">All accounts</option>
+                <option value="owner">Owners</option>
                 <option value="admin">Admins</option>
-                <option value="viewer">Viewers</option>
+                <option value="member">Members</option>
+                <option value="viewer">Global viewers</option>
                 <option value="disabled">Disabled</option>
               </select>
             </label>
@@ -332,6 +368,8 @@ export function Users({ current }: { current: Account }) {
 
 function UserRow({ account, current }: { account: Account; current: Account }) {
   const client = useQueryClient();
+  const protectedAccount = current.role !== "owner" && isAdmin(account.role);
+  const [reason, setReason] = useState("");
   const [role, setRole] = useState(account.role);
   const [active, setActive] = useState(account.active);
   const [password, setPassword] = useState("");
@@ -345,18 +383,18 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
   const changes: string[] = [];
   if (role !== account.role)
     changes.push(
-      `Change the role from ${account.role === "admin" ? "Admin" : "Viewer"} to ${role === "admin" ? "Admin" : "Viewer"}`,
+      `Change the role from ${roleLabels[account.role]} to ${roleLabels[role]}`,
     );
   if (active !== account.active)
     changes.push(active ? "Restore access" : "Disable access");
   if (password) changes.push("Replace the password");
   const self = account.id === current.id;
-  const losesAdmin = self && account.role === "admin" && role === "viewer";
+  const losesAdmin = self && isAdmin(account.role) && !isAdmin(role);
   const locksSelfOut = self && account.active && !active;
   // Editing the fields after arming invalidates what was reviewed.
   useEffect(() => {
     setArmed(false);
-  }, [role, active, password]);
+  }, [role, active, password, reason]);
   useEffect(() => {
     if (armed) confirmButton.current?.focus();
   }, [armed]);
@@ -365,6 +403,7 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
       write<Account>(`/api/users/${account.id}`, "PATCH", {
         role,
         active,
+        reason,
         ...(password ? { password } : {}),
       } satisfies AccountUpdate),
     onSuccess: async () => {
@@ -394,120 +433,158 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
             <span className="subtext">Your account</span>
           )}
         </span>
-        <span>{account.role === "admin" ? "Admin" : "Viewer"}</span>
+        <span>{roleLabels[account.role]}</span>
         <span
           className={`status ${account.active ? "published" : "superseded"}`}
         >
           {account.active ? "Active" : "Disabled"}
         </span>
-        <span className="expand-label">Edit</span>
+        <span className="expand-label">
+          {protectedAccount ? "View" : "Edit"}
+        </span>
       </summary>
       <form
         className="user-edit"
         onSubmit={(event) => {
           event.preventDefault();
-          if (changed && !mutation.isPending) setArmed(true);
+          if (
+            changed &&
+            reason.trim() &&
+            !protectedAccount &&
+            !mutation.isPending
+          )
+            setArmed(true);
         }}
       >
-        <div className="form-fields">
+        {protectedAccount ? (
+          <p className="notice">
+            Only a platform owner can change this account.
+          </p>
+        ) : null}
+        <fieldset
+          className="account-fields"
+          disabled={protectedAccount || mutation.isPending}
+        >
+          <div className="form-fields">
+            <label className="field">
+              Role
+              <select
+                value={role}
+                disabled={mutation.isPending}
+                onChange={(event) =>
+                  setRole(event.target.value as Account["role"])
+                }
+              >
+                {Object.entries(roleLabels)
+                  .filter(
+                    ([value]) =>
+                      current.role === "owner" ||
+                      value === "member" ||
+                      value === "viewer" ||
+                      value === account.role,
+                  )
+                  .map(([value, label]) => (
+                    <option value={value} key={value}>
+                      {label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="field">
+              Access
+              <select
+                value={String(active)}
+                disabled={mutation.isPending}
+                onChange={(event) => setActive(event.target.value === "true")}
+              >
+                <option value="true">Active</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label className="field">
+              Reset password
+              <input
+                type="password"
+                autoComplete="new-password"
+                disabled={mutation.isPending}
+                minLength={15}
+                maxLength={128}
+                placeholder="Leave blank to keep it"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
+          </div>
           <label className="field">
-            Role
-            <select
-              value={role}
-              disabled={mutation.isPending}
-              onChange={(event) =>
-                setRole(event.target.value === "admin" ? "admin" : "viewer")
-              }
-            >
-              <option value="viewer">Viewer</option>
-              <option value="admin">Admin</option>
-            </select>
-          </label>
-          <label className="field">
-            Access
-            <select
-              value={String(active)}
-              disabled={mutation.isPending}
-              onChange={(event) => setActive(event.target.value === "true")}
-            >
-              <option value="true">Active</option>
-              <option value="false">Disabled</option>
-            </select>
-          </label>
-          <label className="field">
-            Reset password
-            <input
-              type="password"
-              autoComplete="new-password"
-              disabled={mutation.isPending}
-              minLength={15}
-              maxLength={128}
-              placeholder="Leave blank to keep it"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
+            Reason
+            <textarea
+              required
+              maxLength={500}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
             />
           </label>
-        </div>
-        <p className="field-help">
-          Saving signs this account out on all devices. At least one active
-          administrator must remain, so the last one cannot be demoted or
-          disabled.
-        </p>
-        {mutation.isError && (
-          <p className="notice error" role="alert">
-            {mutation.error.message}
+          <p className="field-help">
+            Saving signs this account out on all devices. At least one active
+            platform owner must remain, so the last one cannot be demoted or
+            disabled.
           </p>
-        )}
-        {mutation.isSuccess && (
-          <p role="status" className="save-result">
-            Account updated.
-          </p>
-        )}
-        {armed ? (
-          <div className="confirm" role="group" aria-label="Confirm changes">
-            <p className="confirm-title">
-              Apply these changes to <strong>{account.email}</strong>?
+          {mutation.isError && (
+            <p className="notice error" role="alert">
+              {mutation.error.message}
             </p>
-            <ul>
-              {changes.map((change) => (
-                <li key={change}>{change}</li>
-              ))}
-              <li>Sign this account out on all devices</li>
-            </ul>
-            {(losesAdmin || locksSelfOut) && (
-              <p className="notice error">
-                {locksSelfOut
-                  ? "This is your own account. You will be signed out and will not be able to sign back in."
-                  : "This is your own account. You will lose administrator access, including this page."}
+          )}
+          {mutation.isSuccess && (
+            <p role="status" className="save-result">
+              Account updated.
+            </p>
+          )}
+          {armed ? (
+            <div className="confirm" role="group" aria-label="Confirm changes">
+              <p className="confirm-title">
+                Apply these changes to <strong>{account.email}</strong>?
               </p>
-            )}
-            <div className="confirm-actions">
-              <button
-                ref={confirmButton}
-                disabled={mutation.isPending}
-                onClick={() => mutation.mutate()}
-              >
-                {mutation.isPending ? "Saving…" : "Save changes"}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={mutation.isPending}
-                onClick={() => setArmed(false)}
-              >
-                Keep editing
-              </button>
+              <ul>
+                {changes.map((change) => (
+                  <li key={change}>{change}</li>
+                ))}
+                <li>Sign this account out on all devices</li>
+              </ul>
+              {(losesAdmin || locksSelfOut) && (
+                <p className="notice error">
+                  {locksSelfOut
+                    ? "This is your own account. You will be signed out and will not be able to sign back in."
+                    : "This is your own account. You will lose administrator access, including this page."}
+                </p>
+              )}
+              <div className="confirm-actions">
+                <button
+                  ref={confirmButton}
+                  disabled={mutation.isPending}
+                  onClick={() => mutation.mutate()}
+                >
+                  {mutation.isPending ? "Saving…" : "Save changes"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={mutation.isPending}
+                  onClick={() => setArmed(false)}
+                >
+                  Keep editing
+                </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            disabled={mutation.isPending || !changed}
-            onClick={() => setArmed(true)}
-          >
-            Review changes
-          </button>
-        )}
+          ) : (
+            <button
+              type="button"
+              disabled={mutation.isPending || !changed || !reason.trim()}
+              onClick={() => setArmed(true)}
+            >
+              Review changes
+            </button>
+          )}
+        </fieldset>
       </form>
     </details>
   );
@@ -543,7 +620,7 @@ export function MyAccount({ current }: { current: Account }) {
         <div>
           <h1>Your account</h1>
           <p>
-            {current.email} · {current.role === "admin" ? "Admin" : "Viewer"}
+            {current.email} · {roleLabels[current.role]}
           </p>
         </div>
       </div>

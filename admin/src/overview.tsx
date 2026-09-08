@@ -1,5 +1,5 @@
+import { ScopedLink as Link, useScope } from "./scope";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { read } from "./api";
 import { ActivityTabs } from "./activity";
@@ -301,14 +301,15 @@ function Activity({ counts }: { counts: ActivityCounts }) {
 }
 
 export function OverviewPage() {
+  const scope = useScope();
   const { days, update } = useFilters();
   useEffect(() => {
     document.title = "Review Agent · Overview";
   }, []);
   const query = useQuery({
-    queryKey: ["overview", days],
+    queryKey: ["overview", days, "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<Overview>(`/api/overview?days=${days}`, signal),
+      read<Overview>(scope.path(`/api/overview?days=${days}`), signal),
   });
   const data = query.data;
   const series = data
@@ -328,7 +329,7 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <ActivityTabs/>
+      <ActivityTabs />
       {/* Current work and worker presence answer a different question from the
           reporting period, so they are stated separately and first. */}
       <Section
@@ -340,15 +341,19 @@ export function OverviewPage() {
             label="Active requests"
             value={data ? data.active_requests : null}
           />
-          <Stat
-            label="Online review workers"
-            value={data ? data.live_review_workers : null}
-          />
-          <Stat
-            label="Review capacity"
-            value={data ? data.review_capacity : null}
-            hint="Concurrent reviews"
-          />
+          {data?.live_review_workers != null ? (
+            <>
+              <Stat
+                label="Online review workers"
+                value={data ? data.live_review_workers : null}
+              />
+              <Stat
+                label="Review capacity"
+                value={data ? data.review_capacity : null}
+                hint="Concurrent reviews"
+              />
+            </>
+          ) : null}
           <Stat
             label="Repositories"
             value={data ? data.repository_count : null}

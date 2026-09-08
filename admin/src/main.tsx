@@ -5,13 +5,26 @@ import {
   RouterProvider,
   ScrollRestoration,
 } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { App } from "./App";
 import { APIError } from "./api";
 import "./fonts.css";
 import "./styles.css";
 
 const client = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      if (error instanceof APIError && [401, 403, 404].includes(error.status)) {
+        query.setState({ data: undefined });
+        if (query.queryKey[0] !== "me")
+          void client.invalidateQueries({ queryKey: ["me"] });
+      }
+    },
+  }),
   defaultOptions: {
     queries: {
       staleTime: 5_000,

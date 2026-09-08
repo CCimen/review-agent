@@ -21,6 +21,17 @@ export type NewAccount = components["schemas"]["NewAccount"];
 export type AccountUpdate = components["schemas"]["AccountUpdate"];
 export type PasswordChange = components["schemas"]["PasswordChange"];
 
+export type Team = components["schemas"]["Team"];
+export type TeamPage = components["schemas"]["TeamPage"];
+export type TeamMember = components["schemas"]["TeamMember"];
+export type TeamMemberPage = components["schemas"]["TeamMemberPage"];
+export type AuditPage = components["schemas"]["AuditPage"];
+export type AuditEvent = components["schemas"]["AuditEvent"];
+export type RepositoryRequest = components["schemas"]["RepositoryRequest"];
+export type RepositoryRequestPage =
+  components["schemas"]["RepositoryRequestPage"];
+export type TeamRepositoryPage = components["schemas"]["TeamRepositoryPage"];
+
 export class APIError extends Error {
   constructor(
     public status: number,

@@ -130,7 +130,7 @@ class DokployDeployment:
 
 
 def create_router(auth: AdminAuth) -> APIRouter:
-    router = APIRouter(dependencies=[Depends(auth.current_admin)])
+    router = APIRouter(dependencies=[Depends(auth.current_owner)])
     values = tuple(
         os.environ.get(name, "").strip()
         for name in (

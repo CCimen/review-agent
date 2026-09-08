@@ -7,10 +7,12 @@ from datetime import datetime
 from typing import Literal
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
 from ..domain.review import ReviewRunId
 from . import coverage as postgres_coverage
+from .team_access import AccessScope, repository_source
 
 
 HistoryStatus = Literal[
@@ -23,7 +25,10 @@ RunState = Literal[
 
 @dataclass(frozen=True, slots=True)
 class RepositoryActivity:
+    repository_id: int
     repository: str
+    team_id: int | None
+    team_name: str | None
     prs_reviewed: int
     published_requests: int
     failed_requests: int
@@ -107,6 +112,7 @@ class HistoryPage:
 def repositories(
     connection: psycopg.Connection[TupleRow],
     *,
+    scope: AccessScope | None = None,
     since: datetime,
     until: datetime,
     now: datetime,
@@ -115,7 +121,7 @@ def repositories(
     offset: int,
     limit: int,
 ) -> RepositoryPage:
-    query = """
+    query = sql.SQL("""
             WITH activity AS (
                 SELECT pr.repository_id,
                     count(DISTINCT pr.id) FILTER (
@@ -137,21 +143,25 @@ def repositories(
                     max(coalesce(run.completed_at, run.last_heartbeat_at)) AS last_activity_at
                 FROM review_agent.review_runs AS run
                 JOIN review_agent.pull_requests AS pr ON pr.id = run.pull_request_id
+                JOIN {repositories} scoped_repo ON scoped_repo.id = pr.repository_id
                 LEFT JOIN review_agent.publications AS pub ON pub.review_run_id = run.id
                 WHERE (run.started_at >= %(since)s AND run.started_at < %(until)s) OR run.status = 'running'
                 GROUP BY pr.repository_id
             )
-            SELECT repo.full_name AS repository,
+            SELECT repo.id AS repository_id, repo.full_name AS repository,
+                ownership.team_id, team.name AS team_name,
                 coalesce(a.prs_reviewed, 0) AS prs_reviewed,
                 coalesce(a.published_requests, 0) AS published_requests,
                 coalesce(a.failed_requests, 0) AS failed_requests,
                 coalesce(a.active_requests, 0) AS active_requests,
                 coalesce(a.latest_failed_prs, 0) AS latest_failed_prs,
                 a.last_activity_at
-            FROM review_agent.repositories AS repo
+            FROM {repositories} AS repo
             LEFT JOIN activity AS a ON a.repository_id = repo.id
+            LEFT JOIN review_agent.team_repositories ownership ON ownership.repository_id = repo.id
+            LEFT JOIN review_agent.teams team ON team.id = ownership.team_id
             WHERE position(lower(%(search)s) IN lower(repo.full_name)) > 0
-                """
+                """).format(repositories=repository_source(scope))
     parameters = {
         "since": since,
         "until": until,
@@ -160,17 +170,21 @@ def repositories(
         "offset": offset,
     }
     totals = connection.execute(
-        "SELECT count(*), coalesce(sum(prs_reviewed), 0)::bigint, "
-        "coalesce(sum(published_requests), 0)::bigint, coalesce(sum(failed_requests), 0)::bigint, "
-        "coalesce(sum(active_requests), 0)::bigint, coalesce(sum(latest_failed_prs), 0)::bigint "
-        "FROM (" + query + ") AS matching",
+        sql.SQL(
+            "SELECT count(*), coalesce(sum(prs_reviewed), 0)::bigint, "
+            "coalesce(sum(published_requests), 0)::bigint, coalesce(sum(failed_requests), 0)::bigint, "
+            "coalesce(sum(active_requests), 0)::bigint, coalesce(sum(latest_failed_prs), 0)::bigint "
+            "FROM ({}) AS matching"
+        ).format(query),
         parameters,
     ).fetchone()
     assert totals is not None
     with connection.cursor(row_factory=class_row(RepositoryActivity)) as cursor:
         rows = cursor.execute(
             query
-            + " ORDER BY lower(repo.full_name), repo.id LIMIT %(limit)s OFFSET %(offset)s",
+            + sql.SQL(
+                " ORDER BY lower(repo.full_name), repo.id LIMIT %(limit)s OFFSET %(offset)s"
+            ),
             parameters,
         ).fetchall()
     return RepositoryPage(
@@ -214,7 +228,7 @@ _HISTORY_SELECT = """
                 )) AS recovered
             FROM review_agent.review_runs AS run
             JOIN review_agent.pull_requests AS pr ON pr.id = run.pull_request_id
-            JOIN review_agent.repositories AS repo ON repo.id = pr.repository_id
+            JOIN {repositories} AS repo ON repo.id = pr.repository_id
             JOIN review_agent.review_subjects AS subject ON subject.id = run.review_subject_id
             LEFT JOIN review_agent.review_jobs AS job ON job.review_run_id = run.id
             LEFT JOIN review_agent.publications AS pub ON pub.review_run_id = run.id
@@ -242,6 +256,7 @@ _HISTORY_QUERY = (
 def history(
     connection: psycopg.Connection[TupleRow],
     *,
+    scope: AccessScope | None = None,
     since: datetime,
     until: datetime,
     now: datetime,
@@ -252,7 +267,7 @@ def history(
     limit: int,
     before_id: int | None,
 ) -> HistoryPage:
-    query = _HISTORY_QUERY
+    query = sql.SQL(_HISTORY_QUERY).format(repositories=repository_source(scope))
     parameters = {
         "repository": repository,
         "pr": pr_number,
@@ -263,13 +278,15 @@ def history(
         "limit": limit + 1,
     }
     total = connection.execute(
-        "SELECT count(*) FROM (" + query + ") AS matching", parameters
+        sql.SQL("SELECT count(*) FROM ({}) AS matching").format(query), parameters
     ).fetchone()
     assert total is not None
     with connection.cursor(row_factory=class_row(HistoryRow)) as cursor:
         rows = cursor.execute(
             query
-            + " AND (%(before)s::bigint IS NULL OR run.id < %(before)s) ORDER BY run.id DESC LIMIT %(limit)s",
+            + sql.SQL(
+                " AND (%(before)s::bigint IS NULL OR run.id < %(before)s) ORDER BY run.id DESC LIMIT %(limit)s"
+            ),
             parameters,
         ).fetchall()
     items = _history_items(connection, rows[:limit])
@@ -351,25 +368,32 @@ class ReviewDetail:
     requests: tuple[HistoryItem, ...]
     next_cursor: int | None
     generated_at: datetime
+    can_maintain: bool = False
 
 
 def review_detail(
     connection: psycopg.Connection[TupleRow],
     *,
+    scope: AccessScope | None = None,
     run_id: ReviewRunId,
     before_id: int | None,
     now: datetime,
 ) -> ReviewDetail | None:
     with connection.cursor(row_factory=class_row(HistoryRow)) as cursor:
         selected = cursor.execute(
-            _HISTORY_SELECT + " WHERE run.id = %s", (run_id,)
+            sql.SQL(_HISTORY_SELECT + " WHERE run.id = %s").format(
+                repositories=repository_source(scope)
+            ),
+            (run_id,),
         ).fetchone()
         if selected is None:
             return None
         rows = cursor.execute(
-            _HISTORY_SELECT
-            + " WHERE run.pull_request_id = %s AND (%s::bigint IS NULL OR run.id < %s)"
-            " ORDER BY run.id DESC LIMIT 21",
+            sql.SQL(
+                _HISTORY_SELECT
+                + " WHERE run.pull_request_id = %s AND (%s::bigint IS NULL OR run.id < %s)"
+                " ORDER BY run.id DESC LIMIT 21"
+            ).format(repositories=repository_source(scope)),
             (selected.pull_request_id, before_id, before_id),
         ).fetchall()
     items = _history_items(connection, [selected, *rows[:20]])
@@ -447,6 +471,7 @@ class _GroupRow:
 def pull_requests(
     connection: psycopg.Connection[TupleRow],
     *,
+    scope: AccessScope | None = None,
     since: datetime,
     until: datetime,
     now: datetime,
@@ -465,34 +490,36 @@ def pull_requests(
         "before": before_id,
         "limit": limit + 1,
     }
-    grouped = (
+    grouped = sql.SQL(
         "WITH matching AS ("
         + _HISTORY_QUERY
         + """), grouped AS (
         SELECT pull_request_id, count(*) AS matching_requests, max(id) AS latest_id
         FROM matching GROUP BY pull_request_id
     ) """
-    )
+    ).format(repositories=repository_source(scope))
     total = connection.execute(
-        grouped + "SELECT count(*) FROM grouped", parameters
+        grouped + sql.SQL("SELECT count(*) FROM grouped"), parameters
     ).fetchone()
     assert total is not None
     with connection.cursor(row_factory=class_row(_GroupRow)) as cursor:
         groups = cursor.execute(
             grouped
-            + """
+            + sql.SQL("""
             SELECT g.*, (SELECT count(*) FROM review_agent.review_runs r
                 WHERE r.pull_request_id = g.pull_request_id) AS total_requests
             FROM grouped g
             WHERE (%(before)s::bigint IS NULL OR latest_id < %(before)s)
             ORDER BY latest_id DESC LIMIT %(limit)s
-        """,
+        """),
             parameters,
         ).fetchall()
     selected = groups[:limit]
     with connection.cursor(row_factory=class_row(HistoryRow)) as cursor:
         rows = cursor.execute(
-            _HISTORY_QUERY + " AND run.id = ANY(%(ids)s)",
+            sql.SQL(_HISTORY_QUERY + " AND run.id = ANY(%(ids)s)").format(
+                repositories=repository_source(scope)
+            ),
             {**parameters, "ids": [group.latest_id for group in selected]},
         ).fetchall()
     details = {item.id: item for item in _history_items(connection, rows)}

@@ -3,14 +3,15 @@
 import argparse
 import asyncio
 import getpass
+import json
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
-from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users import (
     BaseUserManager,
     FastAPIUsers,
@@ -39,7 +40,10 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, aliased, mapped_column
 
+from .domain.access import Role
 from .settings import PostgresDatabaseUrl, ReviewAgentSettings
+from .postgres.team_access import AccessRequest
+from .postgres.audit import AuditAction
 
 
 SESSION_SECONDS = 8 * 60 * 60
@@ -52,6 +56,9 @@ class Base(DeclarativeBase):
 class User(SQLAlchemyBaseUserTableUUID, Base):
     __tablename__ = "admin_users"
     __table_args__ = {"schema": "review_agent"}
+    is_global_viewer: Mapped[bool] = mapped_column(default=False)
+    is_platform_owner: Mapped[bool] = mapped_column(default=False)
+    access_revision: Mapped[int] = mapped_column(default=0)
 
 
 class SessionToken(SQLAlchemyBaseAccessTokenTable[uuid.UUID], Base):
@@ -65,24 +72,29 @@ class SessionToken(SQLAlchemyBaseAccessTokenTable[uuid.UUID], Base):
         )
 
 
-class Role(StrEnum):
-    VIEWER = "viewer"
-    ADMIN = "admin"
-
-
 class Account(BaseModel):
     id: uuid.UUID
     email: str
     role: Role
     active: bool
+    access_revision: int = 0
 
     @classmethod
     def from_user(cls, user: User) -> "Account":
         return cls(
             id=user.id,
             email=user.email,
-            role=Role.ADMIN if user.is_superuser else Role.VIEWER,
+            role=(
+                Role.OWNER
+                if user.is_platform_owner
+                else Role.ADMIN
+                if user.is_superuser
+                else Role.VIEWER
+                if user.is_global_viewer
+                else Role.MEMBER
+            ),
             active=user.is_active,
+            access_revision=user.access_revision,
         )
 
 
@@ -97,10 +109,22 @@ class AccountPage(BaseModel):
 class NewAccount(BaseModel):
     email: EmailStr
     password: Annotated[SecretStr, Field(min_length=15, max_length=128)]
-    role: Role = Role.VIEWER
+    role: Role = Role.MEMBER
+    reason: str = Field(default="Account created", min_length=1, max_length=500)
+
+
+class UserCreate(schemas.BaseUserCreate):
+    is_platform_owner: bool = False
+    is_global_viewer: bool = False
+
+
+class UserUpdate(schemas.BaseUserUpdate):
+    is_platform_owner: bool | None = None
+    is_global_viewer: bool | None = None
 
 
 class AccountUpdate(BaseModel):
+    reason: str = Field(default="Account access updated", min_length=1, max_length=500)
     role: Role | None = None
     active: bool | None = None
     password: Annotated[SecretStr | None, Field(min_length=15, max_length=128)] = None
@@ -111,10 +135,65 @@ class PasswordChange(BaseModel):
     password: Annotated[SecretStr, Field(min_length=15, max_length=128)]
 
 
+class UserDatabase(SQLAlchemyUserDatabase[User, uuid.UUID]):
+    """Let the account operation commit credentials, revocation and audit together."""
+
+    async def create(self, create_dict: dict[str, object]) -> User:
+        user = User(**create_dict)
+        self.session.add(user)
+        await self.session.flush()
+        await self.session.refresh(user)
+        return user
+
+    async def update(self, user: User, update_dict: dict[str, object]) -> User:
+        for key, value in update_dict.items():
+            setattr(user, key, value)
+        await self.session.flush()
+        await self.session.refresh(user)
+        return user
+
+
+async def _account_audit(
+    session: AsyncSession,
+    *,
+    actor: User | None,
+    user: User,
+    action: AuditAction,
+    reason: str,
+    details: dict[str, str | int | bool | None],
+    was_privileged: bool = False,
+    actor_role: Role | None = None,
+) -> None:
+    await session.execute(
+        text("""INSERT INTO review_agent.admin_audit_events
+            (actor_id, actor_role, action, subject, reason, details, owner_only)
+            VALUES (:actor_id, :actor_role, :action, :subject, :reason, CAST(:details AS JSONB), :owner_only)"""),
+        {
+            "actor_id": actor.id if actor else None,
+            "actor_role": (actor_role or Account.from_user(actor).role).value
+            if actor
+            else "bootstrap",
+            "action": action.value,
+            "subject": str(user.id),
+            "reason": reason,
+            "details": json.dumps(details),
+            "owner_only": was_privileged or user.is_superuser,
+        },
+    )
+
+
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     def __init__(self, session: AsyncSession) -> None:
-        super().__init__(SQLAlchemyUserDatabase[User, uuid.UUID](session, User))
+        super().__init__(UserDatabase(session, User))
         self.session = session
+
+    async def authenticate(self, credentials: OAuth2PasswordRequestForm) -> User | None:
+        # Authentication and any password rehash complete before revocation can
+        # take the account-change lock and invalidate the issued session.
+        await self.session.execute(
+            text("LOCK TABLE review_agent.admin_users IN SHARE MODE")
+        )
+        return await super().authenticate(credentials)
 
     async def on_after_login(
         self,
@@ -142,6 +221,45 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             raise exceptions.InvalidPasswordException(
                 reason="Use a password of 15–128 characters."
             )
+
+
+class SessionStrategy(DatabaseStrategy[User, uuid.UUID, SessionToken]):
+    def __init__(self, session: AsyncSession, *, method: str = "password") -> None:
+        super().__init__(
+            SQLAlchemyAccessTokenDatabase(session, SessionToken),
+            lifetime_seconds=SESSION_SECONDS,
+        )
+        self.session = session
+        self.method = method
+
+    async def write_token(self, user: User) -> str:
+        await self.session.execute(
+            text("LOCK TABLE review_agent.admin_users IN SHARE MODE")
+        )
+        await self.session.refresh(user)
+        if not user.is_active:
+            raise HTTPException(401, "Sign in to continue")
+        await _account_audit(
+            self.session,
+            actor=user,
+            user=user,
+            action=AuditAction.SIGNED_IN,
+            reason="Sign-in succeeded",
+            details={"method": self.method},
+        )
+        return await super().write_token(user)
+
+    async def destroy_token(self, token: str, user: User) -> None:
+        if await self.database.get_by_token(token) is not None:
+            await _account_audit(
+                self.session,
+                actor=user,
+                user=user,
+                action=AuditAction.SIGNED_OUT,
+                reason="Signed out by account holder",
+                details={},
+            )
+            await super().destroy_token(token, user)
 
 
 def _engine(database_url: PostgresDatabaseUrl) -> AsyncEngine:
@@ -202,10 +320,7 @@ class AdminAuth:
         async def strategy_dependency(
             session: Annotated[AsyncSession, Depends(session_dependency)],
         ) -> DatabaseStrategy[User, uuid.UUID, SessionToken]:
-            return DatabaseStrategy(
-                SQLAlchemyAccessTokenDatabase(session, SessionToken),
-                lifetime_seconds=SESSION_SECONDS,
-            )
+            return SessionStrategy(session)
 
         secure = parsed.scheme == "https"
         transport = CookieTransport(
@@ -222,6 +337,25 @@ class AdminAuth:
         users = FastAPIUsers[User, uuid.UUID](manager_dependency, [backend])
         self.current_user = users.current_user(active=True)
         self.current_admin = users.current_user(active=True, superuser=True)
+
+        async def current_owner(
+            user: Annotated[User, Depends(self.current_admin)],
+        ) -> User:
+            if not user.is_platform_owner:
+                raise HTTPException(403, "Platform owner access required")
+            return user
+
+        self.current_owner = current_owner
+
+        def current_scope(
+            user: Annotated[User, Depends(self.current_user)],
+            selected_team_id: Annotated[
+                int | None, Query(alias="team_id", ge=1, le=9223372036854775807)
+            ] = None,
+        ) -> AccessRequest:
+            return AccessRequest(user.id, selected_team_id)
+
+        self.current_scope = current_scope
         self.auth_router = users.get_auth_router(backend)
         self.router = APIRouter()
 
@@ -276,18 +410,31 @@ class AdminAuth:
             await session.refresh(actor)
             if not actor.is_active or not actor.is_superuser:
                 raise HTTPException(403, "Administrator access required")
+            if account.role in (Role.ADMIN, Role.OWNER) and not actor.is_platform_owner:
+                raise HTTPException(403, "Only owners can manage privileged accounts")
             try:
                 user = await manager.create(
-                    schemas.BaseUserCreate(
+                    UserCreate(
                         email=account.email,
                         password=account.password.get_secret_value(),
-                        is_superuser=account.role is Role.ADMIN,
+                        is_superuser=account.role in (Role.ADMIN, Role.OWNER),
+                        is_platform_owner=account.role is Role.OWNER,
+                        is_global_viewer=account.role is Role.VIEWER,
                     )
                 )
             except exceptions.UserAlreadyExists as exc:
                 raise HTTPException(
                     409, "An account with this email already exists"
                 ) from exc
+            await _account_audit(
+                session,
+                actor=actor,
+                user=user,
+                action=AuditAction.ACCOUNT_CREATED,
+                reason=account.reason,
+                details={"email": user.email, "role": account.role.value},
+            )
+            await session.commit()
             return Account.from_user(user)
 
         async def update_user(
@@ -304,21 +451,34 @@ class AdminAuth:
             user = await session.get(User, user_id)
             if user is None:
                 raise HTTPException(404, "Account not found")
+            if not actor.is_platform_owner and (
+                user.is_superuser or change.role in (Role.ADMIN, Role.OWNER)
+            ):
+                raise HTTPException(403, "Only owners can manage privileged accounts")
             if (
                 user.is_active
-                and user.is_superuser
-                and (change.active is False or change.role is Role.VIEWER)
+                and user.is_platform_owner
+                and (
+                    change.active is False
+                    or (change.role is not None and change.role is not Role.OWNER)
+                )
             ):
                 count = await session.scalar(
                     select(func.count())
                     .select_from(User)
-                    .where(User.__table__.c.is_active, User.__table__.c.is_superuser)
+                    .where(
+                        User.__table__.c.is_active, User.__table__.c.is_platform_owner
+                    )
                 )
                 if count is None or count <= 1:
-                    raise HTTPException(409, "Keep at least one active administrator")
-            values = schemas.BaseUserUpdate()
+                    raise HTTPException(409, "Keep at least one active owner")
+            previous = Account.from_user(user)
+            actor_snapshot = Account.from_user(actor)
+            values = UserUpdate()
             if change.role is not None:
-                values.is_superuser = change.role is Role.ADMIN
+                values.is_superuser = change.role in (Role.ADMIN, Role.OWNER)
+                values.is_platform_owner = change.role is Role.OWNER
+                values.is_global_viewer = change.role is Role.VIEWER
             if change.active is not None:
                 values.is_active = change.active
             if change.password is not None:
@@ -326,9 +486,25 @@ class AdminAuth:
             await session.execute(
                 delete(SessionToken).where(SessionToken.__table__.c.user_id == user.id)
             )
-            # The library commits the account update and session revocation in
-            # this same transaction. Disabled accounts cannot resume old sessions.
-            return Account.from_user(await manager.update(values, user))
+            updated = await manager.update(values, user)
+            await _account_audit(
+                session,
+                actor=actor,
+                user=updated,
+                action=AuditAction.ACCOUNT_UPDATED,
+                reason=change.reason,
+                was_privileged=previous.role in (Role.ADMIN, Role.OWNER),
+                actor_role=actor_snapshot.role,
+                details={
+                    "previous_role": previous.role.value,
+                    "role": Account.from_user(updated).role.value,
+                    "previous_active": previous.active,
+                    "active": updated.is_active,
+                    "password_reset": change.password is not None,
+                },
+            )
+            await session.commit()
+            return Account.from_user(updated)
 
         async def change_password(
             change: PasswordChange,
@@ -353,6 +529,15 @@ class AdminAuth:
                 user,
                 safe=True,
             )
+            await _account_audit(
+                session,
+                actor=user,
+                user=user,
+                action=AuditAction.PASSWORD_CHANGED,
+                reason="Password changed by account holder",
+                details={},
+            )
+            await session.commit()
 
         self.router.add_api_route("/api/me", me, methods=["GET"])
         self.router.add_api_route("/api/users", list_users, methods=["GET"])
@@ -380,11 +565,25 @@ async def bootstrap_admin(
                     "Accounts already exist. Sign in as an administrator to manage users."
                 )
             manager = UserManager(session)
-            await manager.create(
-                schemas.BaseUserCreate.model_validate(
-                    {"email": email, "password": password, "is_superuser": True}
+            user = await manager.create(
+                UserCreate.model_validate(
+                    {
+                        "email": email,
+                        "password": password,
+                        "is_superuser": True,
+                        "is_platform_owner": True,
+                    }
                 )
             )
+            await _account_audit(
+                session,
+                actor=None,
+                user=user,
+                action=AuditAction.ACCOUNT_CREATED,
+                reason="Initial platform owner created",
+                details={"email": user.email, "role": "owner"},
+            )
+            await session.commit()
     finally:
         await engine.dispose()
 

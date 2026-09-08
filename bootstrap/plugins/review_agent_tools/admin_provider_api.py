@@ -62,7 +62,7 @@ def create_router(auth: AdminAuth) -> APIRouter:
     )
     router = APIRouter(
         prefix="/api/providers",
-        dependencies=[Depends(auth.current_admin)],
+        dependencies=[Depends(auth.current_owner)],
         tags=["providers"],
     )
 

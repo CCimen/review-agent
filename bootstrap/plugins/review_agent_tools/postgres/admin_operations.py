@@ -8,7 +8,10 @@ from typing import Literal
 from uuid import UUID
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import TupleRow, class_row
+
+from .team_access import AccessScope, repository_source, run_source
 
 WorkerKind = Literal["review", "publisher", "webhook"]
 
@@ -49,8 +52,8 @@ class Overview:
     active_requests: int
     started_attempts: int
     reported_attempts: int
-    live_review_workers: int
-    review_capacity: int
+    live_review_workers: int | None
+    review_capacity: int | None
     lifetime: ActivityCounts
     window: ActivityCounts
     daily_publications: tuple[ActivityDay, ...]
@@ -58,11 +61,14 @@ class Overview:
 
 
 def _counts(
-    connection: psycopg.Connection[TupleRow], start: datetime | None, end: datetime
+    connection: psycopg.Connection[TupleRow],
+    start: datetime | None,
+    end: datetime,
+    scope: AccessScope | None,
 ) -> ActivityCounts:
     with connection.cursor(row_factory=class_row(ActivityCounts)) as cursor:
         result = cursor.execute(
-            """
+            sql.SQL("""
             WITH review_counts AS (
             SELECT
                 count(*) FILTER (WHERE %(start)s::timestamptz IS NULL OR r.started_at >= %(start)s) AS requests,
@@ -71,20 +77,22 @@ def _counts(
                 count(*) FILTER (WHERE r.status = 'failed' AND r.completed_at < %(end)s AND (%(start)s::timestamptz IS NULL OR r.completed_at >= %(start)s)) AS failed_requests,
                 percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM p.posted_at - r.started_at)) FILTER (WHERE p.posted_at < %(end)s AND (%(start)s::timestamptz IS NULL OR p.posted_at >= %(start)s)) AS median_publication_seconds,
                 percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM p.posted_at - r.started_at)) FILTER (WHERE p.posted_at < %(end)s AND (%(start)s::timestamptz IS NULL OR p.posted_at >= %(start)s)) AS p95_publication_seconds
-            FROM review_agent.review_runs r
+            FROM {runs} r
             LEFT JOIN review_agent.publications p ON p.review_run_id = r.id
             WHERE r.started_at < %(end)s
             ), usage AS (
-                SELECT sum(prompt_tokens)::bigint AS prompt_tokens,
-                    sum(completion_tokens)::bigint AS completion_tokens,
-                    sum(total_tokens)::bigint AS total_tokens,
+                SELECT sum(u.prompt_tokens)::bigint AS prompt_tokens,
+                    sum(u.completion_tokens)::bigint AS completion_tokens,
+                    sum(u.total_tokens)::bigint AS total_tokens,
                     count(*) AS reported_attempts
-                FROM review_agent.review_attempt_usage
-                WHERE recorded_at < %(end)s
-                  AND (%(start)s::timestamptz IS NULL OR recorded_at >= %(start)s)
+                FROM review_agent.review_attempt_usage u
+                JOIN review_agent.review_jobs j ON j.id = u.job_id
+                JOIN {runs} r ON r.id = j.review_run_id
+                WHERE u.recorded_at < %(end)s
+                  AND (%(start)s::timestamptz IS NULL OR u.recorded_at >= %(start)s)
             )
             SELECT review_counts.*, usage.* FROM review_counts CROSS JOIN usage
-        """,
+        """).format(runs=run_source(scope), repositories=repository_source(scope)),
             {"start": start, "end": end},
         ).fetchone()
     assert result is not None
@@ -94,41 +102,42 @@ def _counts(
 def overview(
     connection: psycopg.Connection[TupleRow],
     *,
+    scope: AccessScope | None = None,
     start: datetime,
     end: datetime,
     now: datetime,
 ) -> Overview:
     totals = connection.execute(
-        """
-        SELECT (SELECT min(started_at) FROM review_agent.review_runs),
-            (SELECT count(*) FROM review_agent.repositories),
-            (SELECT count(*) FROM review_agent.review_runs WHERE status = 'running'),
-            (SELECT coalesce(sum(lease_generation), 0)::bigint FROM review_agent.review_jobs),
-            (SELECT count(*) FROM review_agent.review_attempt_usage),
+        sql.SQL("""
+        SELECT (SELECT min(started_at) FROM {runs} r),
+            (SELECT count(*) FROM {repositories} AS repositories),
+            (SELECT count(*) FROM {runs} r WHERE status = 'running'),
+            (SELECT coalesce(sum(j.lease_generation), 0)::bigint FROM review_agent.review_jobs j JOIN {runs} r ON r.id = j.review_run_id),
+            (SELECT count(*) FROM review_agent.review_attempt_usage u JOIN review_agent.review_jobs j ON j.id = u.job_id JOIN {runs} r ON r.id = j.review_run_id),
             count(*) FILTER (WHERE kind = 'review' AND state = 'running' AND last_seen_at > %(now)s - interval '90 seconds'),
             coalesce(sum(capacity) FILTER (WHERE kind = 'review' AND state = 'running' AND last_seen_at > %(now)s - interval '90 seconds'), 0)::bigint
         FROM review_agent.worker_instances
-    """,
+    """).format(runs=run_source(scope), repositories=repository_source(scope)),
         {"now": now},
     ).fetchone()
     assert totals is not None
     with connection.cursor(row_factory=class_row(ActivityDay)) as cursor:
         days = cursor.execute(
-            """
+            sql.SQL("""
             SELECT date_trunc('day', posted_at, 'UTC') AS date, count(*) AS published_reviews
-            FROM review_agent.publications WHERE posted_at >= %s AND posted_at < %s
+            FROM review_agent.publications p JOIN {runs} r ON r.id = p.review_run_id WHERE posted_at >= %s AND posted_at < %s
             GROUP BY 1 ORDER BY 1
-        """,
+        """).format(runs=run_source(scope), repositories=repository_source(scope)),
             (start, end),
         ).fetchall()
     with connection.cursor(row_factory=class_row(FailureCount)) as cursor:
         failures = cursor.execute(
-            """
+            sql.SQL("""
             SELECT coalesce(failure_code, 'unknown') AS failure_code, count(*) AS requests
-            FROM review_agent.review_runs
+            FROM {runs} r
             WHERE status = 'failed' AND completed_at >= %s AND completed_at < %s
             GROUP BY 1 ORDER BY requests DESC, failure_code LIMIT 10
-        """,
+        """).format(runs=run_source(scope), repositories=repository_source(scope)),
             (start, end),
         ).fetchall()
     return Overview(
@@ -140,10 +149,14 @@ def overview(
         totals[2],
         totals[3],
         totals[4],
-        totals[5],
-        totals[6],
-        _counts(connection, None, now),
-        _counts(connection, start, end),
+        totals[5]
+        if scope is None or (scope.global_read and scope.team_id is None)
+        else None,
+        totals[6]
+        if scope is None or (scope.global_read and scope.team_id is None)
+        else None,
+        _counts(connection, None, now, scope),
+        _counts(connection, start, end, scope),
         tuple(days),
         tuple(failures),
     )

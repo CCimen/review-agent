@@ -5,6 +5,9 @@ const target = "http://127.0.0.1:8090";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rolldownOptions: { input: ["index.html", "api-docs.html"] },
+  },
   server: {
     proxy: {
       // The admin API rejects writes whose Origin is not its own, so the dev

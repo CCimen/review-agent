@@ -10,13 +10,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
 from review_agent_tools import operator_application  # noqa: E402
+from review_agent_tools.postgres.team_access import AccessRequest
 from review_agent_tools.admin_quality_api import create_router  # noqa: E402
 from review_agent_tools.domain.finding import (  # noqa: E402
     DecisionKind,
@@ -38,6 +39,10 @@ DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 
 class _Auth:
     @staticmethod
+    def current_scope() -> AccessRequest:
+        return AccessRequest(ADMIN_ID)
+
+    @staticmethod
     def current_user() -> object:
         return SimpleNamespace(id=ADMIN_ID, email="viewer@example.test")
 
@@ -56,7 +61,9 @@ class AdminQualityAPITests(unittest.TestCase):
     def tearDown(self) -> None:
         self.client.close()
 
-    def test_decision_requires_exact_occurrence_and_derives_actor(self) -> None:
+    def test_decision_requires_exact_occurrence_and_passes_authenticated_identity(
+        self,
+    ) -> None:
         now = datetime(2026, 9, 8, tzinfo=timezone.utc)
         result = operator_application.OperatorDecisionResult(
             id=FindingDecisionId(1),
@@ -71,7 +78,7 @@ class AdminQualityAPITests(unittest.TestCase):
             expires_at=now,
         )
         with patch(
-            "review_agent_tools.admin_quality_api.operator_application.decide_finding",
+            "review_agent_tools.admin_quality_api.admin_application.decide_finding",
             return_value=result,
         ) as decide:
             response = self.client.post(
@@ -89,7 +96,8 @@ class AdminQualityAPITests(unittest.TestCase):
         self.assertFalse(request.latest)
         self.assertIsNone(request.pr_number)
         self.assertEqual(request.local_reference, "")
-        self.assertEqual(request.actor, f"admin:{ADMIN_ID}")
+        self.assertEqual(decide.call_args.kwargs["access"], AccessRequest(ADMIN_ID))
+        self.assertEqual(request.actor, "")
 
         missing = self.client.post(
             f"/api/findings/{'a' * 64}/decisions",
@@ -100,57 +108,6 @@ class AdminQualityAPITests(unittest.TestCase):
             },
         )
         self.assertEqual(missing.status_code, 422)
-
-    def test_viewer_can_read_but_cannot_decide_or_triage(self) -> None:
-        class ViewerAuth(_Auth):
-            @staticmethod
-            def current_admin() -> object:
-                raise HTTPException(403, "Forbidden")
-
-        app = FastAPI()
-        app.include_router(create_router(self.runtime, ViewerAuth()))  # type: ignore[arg-type]
-        client = self.enterContext(TestClient(app))
-        with patch(
-            "review_agent_tools.admin_quality_api.operator_application.quality_report"
-        ) as report:
-            report.return_value = {
-                "schema_version": 1,
-                "window_started_at": "2026-08-09T00:00:00Z",
-                "window_ended_at": "2026-09-08T00:00:00Z",
-                "window_days": 30,
-                "repository": None,
-                "completed_reviews": 0,
-                "published_findings": 0,
-                "complete_coverage_reviews": 0,
-                "false_positive_signals": {"count": 0, "denominator": 0, "denominator_name": "published_findings"},
-                "scope_confusion_signals": {"count": 0, "denominator": 0, "denominator_name": "published_findings"},
-                "missed_issue_signals": {"count": 0, "denominator": 0, "denominator_name": "completed_reviews"},
-                "triage_backlog": 0,
-                "oldest_triage_backlog_seconds": None,
-                "actionable_missed_issues_by_target_owner": [],
-                "active_suppressions": 0,
-                "suppressions_invalidated_by_context": 0,
-                "repeat_findings_after_suppressive_decision": 0,
-                "noisy_rule_ids": [],
-                "coverage_failure_codes": [],
-                "cohorts": [],
-            }
-            self.assertEqual(client.get("/api/quality").status_code, 200)
-        decision = client.post(
-            f"/api/findings/{'a' * 64}/decisions",
-            json={
-                "repository": "owner/repository",
-                "occurrence_id": 1,
-                "decision": "resolved",
-                "reason": "Fixed.",
-            },
-        )
-        triage = client.post(
-            "/api/quality/feedback/1/triage",
-            json={"status": "insufficient", "reason": "No reproduction."},
-        )
-        self.assertEqual(decision.status_code, 403)
-        self.assertEqual(triage.status_code, 403)
 
     def test_contract_does_not_accept_an_actor_or_ambiguous_target(self) -> None:
         schema = self.client.get("/openapi.json").json()["components"]["schemas"]
@@ -240,7 +197,9 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         self.assertEqual(len(page.items), 1)
         self.assertEqual(page.items[0].fingerprint, first.items[0].fingerprint)
         self.assertEqual(page.items[0].occurrence_id, int(first.items[0].occurrence_id))
-        self.assertNotEqual(page.items[0].occurrence_id, int(later.items[0].occurrence_id))
+        self.assertNotEqual(
+            page.items[0].occurrence_id, int(later.items[0].occurrence_id)
+        )
         self.assertNotEqual(page.items[0].fingerprint, other.items[0].fingerprint)
         exact = operator_application.show_finding(
             self.runtime,

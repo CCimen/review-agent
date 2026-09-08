@@ -72,6 +72,7 @@ REVIEW_AGENT_POSTGRES_DSN="postgresql://postgres:postgres@127.0.0.1:$HOST_PORT/r
         tests.test_postgres_retention \
         tests.test_postgres_roles \
         tests.test_admin_api \
+        tests.test_admin_teams \
         tests.test_github_app_processor
 
 # Seed one stable application row so backup/restore proves domain state, not

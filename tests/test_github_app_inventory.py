@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 from typing import cast
 import unittest
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,9 +65,7 @@ class _Authenticator:
         self.token_requests.append((provider_installation_id, permissions))
         return self.token
 
-    def installation_json(
-        self, path: str, token: app_auth.InstallationToken
-    ) -> object:
+    def installation_json(self, path: str, token: app_auth.InstallationToken) -> object:
         self.assert_token(token)
         self.installation_paths.append(path)
         page = len(self.installation_paths)
@@ -147,9 +145,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
 
     def test_rejects_invalid_repository_installation_identity(self) -> None:
         class InvalidAuthenticator(_Authenticator):
-            def app_json(
-                self, path: str, *, now: datetime | None = None
-            ) -> object:
+            def app_json(self, path: str, *, now: datetime | None = None) -> object:
                 self.app_paths.append(path)
                 return {"id": False}
 
@@ -235,6 +231,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
             (101, app_inventory.GitHubAppInventoryPermanent),
         ):
             with self.subTest(total=total):
+
                 class IncompleteAuthenticator(_Authenticator):
                     def installation_json(
                         self, path: str, token: app_auth.InstallationToken
@@ -337,7 +334,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
             ),
         )
 
-    def test_onboard_enables_only_verified_repository_and_rejects_foreign_installation(
+    def test_onboard_verifies_outside_database_and_applies_observed_grant(
         self,
     ) -> None:
         definition = github_app.InstallationDefinition(
@@ -368,62 +365,36 @@ class GitHubAppInventoryTests(unittest.TestCase):
             events.append("provider")
             return inventory
 
-        for foreign in (False, True):
-            events.clear()
-            with (
-                self.subTest(foreign=foreign),
-                patch.object(
-                    app_inventory,
-                    "read_repository_inventory",
-                    side_effect=read_inventory,
-                ),
-                patch.object(
-                    github_app,
-                    "sync_installation",
-                    return_value=Mock(
-                        id=7, status=github_app.InstallationStatus.ACTIVE
-                    ),
-                ),
-                patch.object(
-                    github_app,
-                    "grant_repository_access",
-                    return_value=Mock(
-                        installation_id=8 if foreign else 7, repository_id=11
-                    ),
-                ) as grant,
-                patch.object(github_app, "enable_repository") as enable,
-            ):
-
-                def onboard():
-                    return operator_application.onboard_github_app_repository(
-                        cast(PostgreSQLRuntime, Runtime()),
-                        cast(app_auth.GitHubAppAuthenticator, object()),
-                        repository="CCimen/review-agent",
-                        profile="default-standard",
-                        actor="github:CCimen",
-                        reason="approved repository onboarding",
-                    )
-
-                if foreign:
-                    with self.assertRaises(operator_application.OperatorInputError):
-                        onboard()
-                    enable.assert_not_called()
-                else:
-                    result = onboard()
-                    self.assertEqual(result.reconciliation.repositories_seen, 1)
-                    self.assertEqual(result.reconciliation.repositories_removed, 0)
-                    self.assertEqual(
-                        grant.call_args.kwargs["provider_repository_id"], 9001
-                    )
-                    enable.assert_called_once_with(
-                        ANY,
-                        repository_id=11,
-                        profile_key="default-standard",
-                        trigger_mode=github_app.TriggerMode.MANUAL,
-                        actor="github:CCimen",
-                        reason="approved repository onboarding",
-                    )
-                self.assertEqual(events, ["provider", "database"])
+        observation = github_app.RepositoryAccessObservation(None, None, None)
+        installed = Mock(id=7)
+        enabled = Mock(repository_id=11)
+        with (
+            patch.object(
+                app_inventory, "read_repository_inventory", side_effect=read_inventory
+            ),
+            patch.object(
+                github_app, "observe_repository_access", return_value=observation
+            ),
+            patch.object(
+                github_app,
+                "accept_verified_repository",
+                return_value=(installed, enabled),
+            ) as accept,
+        ):
+            result = operator_application.onboard_github_app_repository(
+                cast(PostgreSQLRuntime, Runtime()),
+                cast(app_auth.GitHubAppAuthenticator, object()),
+                repository="CCimen/review-agent",
+                profile="default-standard",
+                actor="github:CCimen",
+                reason="approved repository onboarding",
+            )
+        self.assertEqual(events, ["database", "provider", "database"])
+        self.assertEqual(result.access, enabled)
+        self.assertEqual(result.reconciliation.repositories_seen, 1)
+        self.assertEqual(accept.call_args.kwargs["observation"], observation)
+        self.assertEqual(accept.call_args.kwargs["repository"], inventory.repository)
+        self.assertEqual(accept.call_args.kwargs["definition"], definition)
 
     def test_cli_requires_sync_identity_before_loading_runtime(self) -> None:
         stderr = io.StringIO()
@@ -496,7 +467,12 @@ class GitHubAppInventoryTests(unittest.TestCase):
             side_effect = outcome if isinstance(outcome, Exception) else None
             return_value = None if side_effect is not None else outcome
             with (
-                patch.object(admin_cli, "_runtime", side_effect=open_error or None, return_value=runtime),
+                patch.object(
+                    admin_cli,
+                    "_runtime",
+                    side_effect=open_error or None,
+                    return_value=runtime,
+                ),
                 patch.object(
                     admin_cli.operator_setup,
                     "github_app_authenticator",

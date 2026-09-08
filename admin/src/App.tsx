@@ -1,6 +1,9 @@
+import { TeamsPage, TeamDetail, RepositoryRequests } from "./teams";
+import { AuditLog } from "./audit";
+import { ScopedLink as Link, useScope, ScopeProvider, isAdmin } from "./scope";
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { APIError, read, write } from "./api";
 import type { Account, RepositoryPage } from "./api";
@@ -17,6 +20,7 @@ import { History, ReviewPage } from "./history";
 import { Empty, Freshness, Period, Stat, number, time, useFilters } from "./ui";
 
 function Repositories({ current }: { current: Account }) {
+  const scope = useScope();
   const { params, days, update } = useFilters();
   const search = params.get("search") ?? "";
   const offset = Math.max(0, Number(params.get("offset")) || 0);
@@ -34,9 +38,12 @@ function Repositories({ current }: { current: Account }) {
     limit: "50",
   });
   const query = useQuery({
-    queryKey: ["repositories", queryParams.toString()],
+    queryKey: ["repositories", queryParams.toString(), "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<RepositoryPage>(`/api/repositories?${queryParams}`, signal),
+      read<RepositoryPage>(
+        scope.path(`/api/repositories?${queryParams}`),
+        signal,
+      ),
   });
   const totals = query.data?.totals;
   function submit(event: FormEvent) {
@@ -146,6 +153,9 @@ function Repositories({ current }: { current: Account }) {
                           {repo.last_activity_at
                             ? `Last activity ${time(repo.last_activity_at)}`
                             : "No activity in this period"}
+                        </span>
+                        <span className="subtext">
+                          {repo.team_id ? <Link to={`/teams/${repo.team_id}?team_id=${repo.team_id}`}>{repo.team_name}</Link> : isAdmin(current.role) ? <Link to={`/teams?${new URLSearchParams({ assign_repository: String(repo.repository_id), repository_name: repo.repository })}`}>Assign to a team</Link> : "Unassigned"}
                         </span>
                       </th>
                       <td className="numeric" role="cell">
@@ -319,86 +329,96 @@ export function App() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <ConsoleLayout
-        current={current}
-        logout={() => logout.mutate()}
-        signingOut={logout.isPending}
-      >
-        <main id="main" ref={main} tabIndex={-1}>
-          {logout.isError && (
-            <p className="notice error" role="alert">
-              Could not sign out. Please try again.
-            </p>
-          )}
-          <Routes>
-            <Route path="/" element={<ActivityPage />} />
-            <Route path="/overview" element={<OverviewPage />} />
-            <Route
-              path="/repositories"
-              element={<Repositories current={current} />}
-            />
-            <Route path="/history" element={<History />} />
-            <Route
-              path="/history/:runId"
-              element={<ReviewPage current={current} />}
-            />
-            <Route
-              path="/quality"
-              element={<QualityPage current={current} />}
-            />
-            <Route
-              path="/findings/:fingerprint"
-              element={
-                <FindingPage
-                  key={`${pathname}${routeSearch}`}
-                  current={current}
-                />
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                current.role === "admin" ? (
-                  <SettingsPage />
-                ) : (
-                  <Navigate to="/" replace />
-                )
-              }
-            />
-            <Route
-              path="/access"
-              element={
-                current.role === "admin" ? (
-                  <Access />
-                ) : (
-                  <Navigate to="/" replace />
-                )
-              }
-            />
-            <Route
-              path="/operations"
-              element={
-                current.role === "admin" ? (
-                  <OperationsPage />
-                ) : (
-                  <Navigate to="/" replace />
-                )
-              }
-            />
-            <Route
-              path="/users"
-              element={
-                current.role === "admin" ? (
-                  <Users current={current} />
-                ) : (
-                  <Navigate to="/" replace />
-                )
-              }
-            />
-            <Route path="/account" element={<MyAccount current={current} />} />
-          </Routes>
-        </main>
-      </ConsoleLayout>
+      <ScopeProvider current={current}>
+        <ConsoleLayout
+          current={current}
+          logout={() => logout.mutate()}
+          signingOut={logout.isPending}
+        >
+          <main id="main" ref={main} tabIndex={-1}>
+            {logout.isError && (
+              <p className="notice error" role="alert">
+                Could not sign out. Please try again.
+              </p>
+            )}
+            <Routes>
+              <Route path="/teams" element={<TeamsPage />} />
+              <Route path="/teams/:teamId" element={<TeamDetail />} />
+              <Route
+                path="/repository-requests"
+                element={<RepositoryRequests />}
+              />
+              <Route
+                path="/audit"
+                element={
+                  isAdmin(current.role) ? (
+                    <AuditLog />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route path="/" element={<ActivityPage />} />
+              <Route path="/overview" element={<OverviewPage />} />
+              <Route
+                path="/repositories"
+                element={<Repositories current={current} />}
+              />
+              <Route path="/history" element={<History />} />
+              <Route path="/history/:runId" element={<ReviewPage />} />
+              <Route path="/quality" element={<QualityPage />} />
+              <Route
+                path="/findings/:fingerprint"
+                element={<FindingPage key={`${pathname}${routeSearch}`} />}
+              />
+              <Route
+                path="/settings"
+                element={
+                  current.role === "owner" ? (
+                    <SettingsPage />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/access"
+                element={
+                  isAdmin(current.role) ? (
+                    <Access />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/operations"
+                element={
+                  isAdmin(current.role) ? (
+                    <OperationsPage />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/users"
+                element={
+                  isAdmin(current.role) ? (
+                    <Users current={current} />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/account"
+                element={<MyAccount current={current} />}
+              />
+            </Routes>
+          </main>
+        </ConsoleLayout>
+      </ScopeProvider>
     </>
   );
 }

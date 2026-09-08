@@ -114,8 +114,14 @@ class DeploymentSettingsTests(unittest.TestCase):
             replace(values, worker_concurrency=0)
 
     def test_admin_transport_rejects_viewers_and_returns_conflicts(self) -> None:
+        from review_agent_tools.postgres.team_access import AccessRequest
+        from review_agent_tools import admin_application
+
         class Auth:
-            def current_admin(self) -> object:
+            def current_scope(self) -> AccessRequest:
+                return AccessRequest(UUID(int=1))
+
+            def current_owner(self) -> object:
                 return SimpleNamespace(id=UUID(int=1))
 
         app = FastAPI()
@@ -129,13 +135,13 @@ class DeploymentSettingsTests(unittest.TestCase):
             "expected_revision": 0,
             "reason": "adjust capacity",
         }
-        with patch.object(store, "save", side_effect=store.SettingsConflict("Reload")):
+        with patch.object(admin_application, "save_deployment_settings", side_effect=store.SettingsConflict("Reload")):
             self.assertEqual(client.put("/api/settings", json=body).status_code, 409)
 
         def denied() -> None:
             raise HTTPException(403, "Forbidden")
 
-        app.dependency_overrides[auth.current_admin] = denied
+        app.dependency_overrides[auth.current_owner] = denied
         self.assertEqual(client.get("/api/settings").status_code, 403)
         self.assertEqual(client.put("/api/settings", json=body).status_code, 403)
 

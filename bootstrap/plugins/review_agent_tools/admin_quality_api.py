@@ -5,8 +5,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import operator_application
-from .admin_auth import AdminAuth, User
+from . import admin_application, operator_application
+from .admin_auth import AdminAuth
+from .postgres.team_access import AccessRequest
 from .domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
 from .domain.finding import DecisionKind
 from .postgres import admin_quality, quality_reporting, quality_triage, reporting
@@ -48,11 +49,6 @@ class QualityTriageRequest(BaseModel):
     category: Annotated[str, Field(max_length=80)] = ""
 
 
-def _actor(user: User) -> str:
-    """Use the immutable authenticated account id for the audit actor."""
-    return f"admin:{user.id}"
-
-
 def _input_error(error: ValueError) -> HTTPException:
     return HTTPException(status_code=422, detail=str(error))
 
@@ -62,27 +58,27 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     router = APIRouter(dependencies=[Depends(auth.current_user)])
 
     def report(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Annotated[int, Query(ge=1, le=90)] = 30,
         repository: OptionalRepository = None,
     ) -> quality_reporting.QualityReport:
         try:
-            return operator_application.quality_report(
-                runtime, repository=repository, days=days
+            return admin_application.quality_report(
+                runtime, access=access, repository=repository, days=days
             )
         except ValueError as exc:
             raise _input_error(exc) from exc
 
     def feedback(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         repository: OptionalRepository = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0, le=10000)] = 0,
     ) -> admin_quality.QualityFeedbackPage:
-        with runtime.transaction() as connection:
-            return admin_quality.feedback_backlog(
-                connection, repository=repository, limit=limit, offset=offset
-            )
+        return admin_application.quality_feedback(runtime, access=access, repository=repository, limit=limit, offset=offset)
 
     def finding(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         fingerprint: Fingerprint,
         repository: Repository,
         occurrence_id: Annotated[
@@ -91,43 +87,25 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
         decisions_before_id: Annotated[int | None, Query(ge=1)] = None,
     ) -> admin_quality.AdminFindingDetail:
         try:
-            detail = operator_application.show_finding(
-                runtime,
-                repository=repository,
-                fingerprint=fingerprint,
-                occurrence_id=occurrence_id,
-                decision_limit=101,
-                decision_before_id=decisions_before_id,
-            )
-            decisions = detail.decisions[:100]
-            return admin_quality.AdminFindingDetail(
-                finding=detail.finding,
-                decisions=decisions,
-                has_more_decisions=len(detail.decisions) > 100,
-                next_decision_before_id=(
-                    int(decisions[-1].id)
-                    if len(detail.decisions) > 100 and decisions
-                    else None
-                ),
-            )
+            return admin_application.show_finding(runtime, access=access, repository=repository, fingerprint=fingerprint, occurrence_id=occurrence_id, decisions_before_id=decisions_before_id)
         except reporting.FindingNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise _input_error(exc) from exc
 
     def findings_for_review(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         run_id: Annotated[int, Path(ge=1)],
     ) -> admin_quality.ReviewFindingPage:
-        with runtime.transaction() as connection:
-            return admin_quality.review_findings(connection, run_id=run_id)
+        return admin_application.review_findings(runtime, access=access, run_id=run_id)
 
     def decide(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         fingerprint: Fingerprint,
         request: FindingDecisionRequest,
-        actor: Annotated[User, Depends(auth.current_admin)],
     ) -> operator_application.OperatorDecisionResult:
         try:
-            return operator_application.decide_finding(
+            return admin_application.decide_finding(
                 runtime,
                 operator_application.OperatorDecisionRequest(
                     repository=request.repository,
@@ -135,10 +113,11 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                     occurrence_id=request.occurrence_id,
                     decision=request.decision.value,
                     reason=request.reason,
-                    actor=_actor(actor),
+                    actor="",
                     adr_id=request.adr_id,
                     expires_days=request.expires_days,
                 ),
+                access=access,
             )
         except reporting.FindingNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -146,13 +125,13 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             raise _input_error(exc) from exc
 
     def triage(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         feedback_id: Annotated[int, Path(ge=1)],
         request: QualityTriageRequest,
-        actor: Annotated[User, Depends(auth.current_admin)],
     ) -> quality_triage.QualityFeedbackTriage:
         try:
-            return operator_application.triage_review_feedback(
-                runtime,
+            return admin_application.triage_review_feedback(
+                runtime, access=access,
                 feedback_id=feedback_id,
                 status=request.status.value,
                 stable_key=request.stable_key,
@@ -164,7 +143,6 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 evidence_reference=request.evidence_reference,
                 path=request.path,
                 category=request.category,
-                actor=_actor(actor),
                 reason=request.reason,
             )
         except quality_triage.QualityFeedbackNotFound as exc:

@@ -42,6 +42,7 @@ class AdminAPITests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         static = Path(directory.name)
         (static / "index.html").write_text("<html>Admin</html>")
+        (static / "api-docs.html").write_text("<html>API reference</html>")
         self.app = create_app(
             PostgreSQLRuntime(PostgresDatabaseUrl(DSN)),
             public_url=ORIGIN,
@@ -71,6 +72,7 @@ class AdminAPITests(unittest.TestCase):
             "/api/operations/events",
             "/api/users",
             "/api/openapi.json",
+            "/api/docs",
         ):
             self.assertEqual(self.client.get(path).status_code, 401, path)
         self.assertEqual(
@@ -84,6 +86,9 @@ class AdminAPITests(unittest.TestCase):
             400,
         )
         self.login()
+        api_docs = self.client.get("/api/docs")
+        self.assertEqual(api_docs.status_code, 200)
+        self.assertIn("script-src 'self'", api_docs.headers["content-security-policy"])
         cookie = self.client.cookies.get("__Host-review_agent_session")
         self.assertTrue(cookie)
         self.assertEqual(self.client.get("/api/repositories").json()["items"], [])

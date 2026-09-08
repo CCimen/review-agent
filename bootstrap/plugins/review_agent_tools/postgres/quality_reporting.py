@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import psycopg
+from psycopg import sql
 from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow
 
 from ..domain.finding import SUPPRESSIVE_DECISION_KINDS
 from . import reporting as base_reporting
+from .team_access import AccessScope, repository_source
 
 
 class QualityReportingError(ValueError):
@@ -63,24 +65,22 @@ class QualityReport:
     noisy_rule_ids: tuple[RankedCount, ...]
     coverage_failure_codes: tuple[RankedCount, ...]
     cohorts: tuple[QualityCohort, ...]
+    cohorts_truncated: bool = False
 
 
 _RANKING_LIMIT = 10
-_SUPPRESSIVE_DECISIONS = tuple(
-    item.value for item in SUPPRESSIVE_DECISION_KINDS
-)
+_SUPPRESSIVE_DECISIONS = tuple(item.value for item in SUPPRESSIVE_DECISION_KINDS)
 
 
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
     if connection.info.transaction_status != TransactionStatus.INTRANS:
-        raise QualityReportingError(
-            "quality reporting requires an active transaction"
-        )
+        raise QualityReportingError("quality reporting requires an active transaction")
 
 
 def build_report(
     connection: psycopg.Connection[TupleRow],
     *,
+    scope: AccessScope | None = None,
     repository: str | None,
     window_started_at: datetime,
     window_ended_at: datetime,
@@ -89,10 +89,10 @@ def build_report(
     """Build one read-only report from explicit persisted signals."""
     _require_transaction(connection)
     row = connection.execute(
-        """
+        sql.SQL("""
         WITH scoped_repositories AS (
             SELECT id
-            FROM review_agent.repositories
+            FROM {repositories} AS visible_repositories
             WHERE %s::text IS NULL OR lower(full_name) = lower(%s::text)
         ), completed_runs AS (
             SELECT run.id, run.changed_files_reported,
@@ -177,7 +177,7 @@ def build_report(
                   AND feedback.created_at >= %s
                   AND feedback.created_at < %s
             )
-        """,
+        """).format(repositories=repository_source(scope)),
         (
             repository,
             repository,
@@ -196,19 +196,17 @@ def build_report(
     if row is None:
         raise QualityReportingError("quality totals could not be computed")
     if repository is not None and not bool(row[0]):
-        raise base_reporting.RepositoryNotFound(
-            "repository is not registered"
-        )
+        raise base_reporting.RepositoryNotFound("repository is not registered")
     completed_reviews = int(row[1])
     published_findings = int(row[2])
     triage_rows = connection.execute(
-        """
+        sql.SQL("""
         WITH scoped_feedback AS (
             SELECT feedback.id, feedback.created_at
             FROM review_agent.review_quality_feedback AS feedback
             JOIN review_agent.pull_requests AS pull_request
               ON pull_request.id = feedback.pull_request_id
-            JOIN review_agent.repositories AS repository
+            JOIN {repositories} AS repository
               ON repository.id = pull_request.repository_id
             WHERE feedback.category = 'missed_issue'
               AND feedback.created_at < %s
@@ -235,7 +233,7 @@ def build_report(
         LEFT JOIN latest_triage AS latest ON latest.feedback_id = feedback.id
         GROUP BY status, latest.target_owner
         ORDER BY status, latest.target_owner
-        """,
+        """).format(repositories=repository_source(scope)),
         (
             window_ended_at,
             repository,
@@ -255,17 +253,18 @@ def build_report(
     )
     finding_state = base_reporting.finding_stats(
         connection,
+        scope=scope,
         repository=repository,
         expiring_at=window_ended_at,
         expiring_within_days=0,
         now=window_ended_at,
     )
     finding_totals = connection.execute(
-        """
+        sql.SQL("""
         WITH scoped_identities AS (
             SELECT identity.id
             FROM review_agent.finding_identities AS identity
-            JOIN review_agent.repositories AS repository
+            JOIN {repositories} AS repository
               ON repository.id = identity.repository_id
             WHERE %s::text IS NULL
                OR lower(repository.full_name) = lower(%s::text)
@@ -310,7 +309,7 @@ def build_report(
         FROM latest_occurrence AS occurrence
         LEFT JOIN latest_decision AS decision
           ON decision.finding_id = occurrence.finding_id
-        """,
+        """).format(repositories=repository_source(scope)),
         (
             repository,
             repository,
@@ -324,12 +323,12 @@ def build_report(
     if finding_totals is None:
         raise QualityReportingError("quality finding totals could not be computed")
     noisy_rows = connection.execute(
-        """
+        sql.SQL("""
         SELECT identity.rule_id, count(*)::integer
         FROM review_agent.finding_decisions AS decision
         JOIN review_agent.finding_identities AS identity
           ON identity.id = decision.finding_id
-        JOIN review_agent.repositories AS repository
+        JOIN {repositories} AS repository
           ON repository.id = identity.repository_id
         WHERE decision.decision = 'false_positive'
           AND decision.created_at >= %s
@@ -341,7 +340,7 @@ def build_report(
         GROUP BY identity.rule_id
         ORDER BY count(*) DESC, identity.rule_id
         LIMIT %s
-        """,
+        """).format(repositories=repository_source(scope)),
         (
             window_started_at,
             window_ended_at,
@@ -351,7 +350,7 @@ def build_report(
         ),
     ).fetchall()
     coverage_rows = connection.execute(
-        """
+        sql.SQL("""
         SELECT
             CASE
                 WHEN file.diff_state = 'truncated' THEN 'diff_truncated'
@@ -362,7 +361,7 @@ def build_report(
         JOIN review_agent.review_runs AS run ON run.id = file.review_run_id
         JOIN review_agent.pull_requests AS pull_request
           ON pull_request.id = run.pull_request_id
-        JOIN review_agent.repositories AS repository
+        JOIN {repositories} AS repository
           ON repository.id = pull_request.repository_id
         WHERE run.status = 'completed'
           AND run.completed_at >= %s
@@ -376,7 +375,7 @@ def build_report(
         GROUP BY 1
         ORDER BY count(*) DESC, failure_code
         LIMIT %s
-        """,
+        """).format(repositories=repository_source(scope)),
         (
             window_started_at,
             window_ended_at,
@@ -386,7 +385,7 @@ def build_report(
         ),
     ).fetchall()
     cohort_rows = connection.execute(
-        """
+        sql.SQL("""
         SELECT repository.full_name,
                COALESCE(
                    NULLIF(subject.resolved_config ->> 'profile', ''),
@@ -419,7 +418,7 @@ def build_report(
         FROM review_agent.review_runs AS run
         JOIN review_agent.pull_requests AS pull_request
           ON pull_request.id = run.pull_request_id
-        JOIN review_agent.repositories AS repository
+        JOIN {repositories} AS repository
           ON repository.id = pull_request.repository_id
         JOIN review_agent.review_subjects AS subject
           ON subject.id = run.review_subject_id
@@ -434,7 +433,8 @@ def build_report(
                  model_provider, model, subject.policy_revision
         ORDER BY repository.full_name, profile, review_contract_hash,
                  model_provider, model, subject.policy_revision
-        """,
+        LIMIT 201
+        """).format(repositories=repository_source(scope)),
         (
             window_started_at,
             window_ended_at,
@@ -476,13 +476,13 @@ def build_report(
         suppressions_invalidated_by_context=int(finding_totals[0]),
         repeat_findings_after_suppressive_decision=int(finding_totals[1]),
         noisy_rule_ids=tuple(
-            RankedCount(value=str(item[0]), count=int(item[1]))
-            for item in noisy_rows
+            RankedCount(value=str(item[0]), count=int(item[1])) for item in noisy_rows
         ),
         coverage_failure_codes=tuple(
             RankedCount(value=str(item[0]), count=int(item[1]))
             for item in coverage_rows
         ),
+        cohorts_truncated=len(cohort_rows) > 200,
         cohorts=tuple(
             QualityCohort(
                 repository=str(item[0]),
@@ -493,7 +493,7 @@ def build_report(
                 policy_revision=str(item[5]),
                 completed_reviews=int(item[6]),
             )
-            for item in cohort_rows
+            for item in cohort_rows[:200]
         ),
     )
 

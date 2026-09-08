@@ -1,9 +1,8 @@
+import { ScopedLink as Link, useScope } from "./scope";
 import { RunControls } from "./runControls";
 import { ReviewFindings } from "./reviewFindings";
-import type { Account } from "./api";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
-  Link,
   useLocation,
   useNavigate,
   useParams,
@@ -177,39 +176,29 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
   );
 }
 
-export function ReviewPage({ current }: { current: Account }) {
+export function ReviewPage() {
   const { runId } = useParams();
   const location = useLocation();
   // Reset disclosure state when another run is selected, including browser Back.
   return (
-    <ReviewReader
-      key={runId}
-      runId={runId ?? ""}
-      search={location.search}
-      current={current}
-    />
+    <ReviewReader key={runId} runId={runId ?? ""} search={location.search} />
   );
 }
 
-function ReviewReader({
-  runId,
-  search,
-  current,
-}: {
-  runId: string;
-  search: string;
-  current: Account;
-}) {
+function ReviewReader({ runId, search }: { runId: string; search: string }) {
+  const scope = useScope();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const before = params.get("requests_before");
   const cursor = before && /^[1-9]\d*$/.test(before) ? before : null;
   const query = useQuery({
-    queryKey: ["review", runId, cursor],
+    queryKey: ["review", runId, cursor, "scoped", scope.key],
     placeholderData: keepPreviousData,
     queryFn: ({ signal }) =>
       read<ReviewDetail>(
-        `/api/history/${encodeURIComponent(runId)}${cursor ? `?before_id=${cursor}` : ""}`,
+        scope.path(
+          `/api/history/${encodeURIComponent(runId)}${cursor ? `?before_id=${cursor}` : ""}`,
+        ),
         signal,
       ),
   });
@@ -353,7 +342,7 @@ function ReviewReader({
               <div className="review-summary">
                 <div className="review-status-row">
                   <Result item={item} />
-                  {current.role === "admin" && <RunControls runId={item.id} />}
+                  {data.can_maintain && <RunControls runId={item.id} />}
                 </div>
                 <p className="review-commit">
                   Request head{" "}
@@ -556,6 +545,7 @@ function RunDetails({ item }: { item: HistoryItem }) {
 }
 
 export function History() {
+  const scope = useScope();
   const { params, days, update } = useFilters();
   const repository = params.get("repository") ?? "";
   const status = params.get("status") ?? "all";
@@ -576,9 +566,12 @@ export function History() {
     setPrDraft(params.get("pr_number") ?? "");
   }, [params]);
   const query = useQuery({
-    queryKey: ["pull-requests", queryParams.toString()],
+    queryKey: ["pull-requests", queryParams.toString(), "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<PullRequestPage>(`/api/pull-requests?${queryParams}`, signal),
+      read<PullRequestPage>(
+        scope.path(`/api/pull-requests?${queryParams}`),
+        signal,
+      ),
   });
   return (
     <>

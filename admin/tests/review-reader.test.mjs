@@ -17,12 +17,28 @@ let SettingsPage;
 let QualityPage;
 let HermesHealth;
 let settingsDefaults;
+let ScopeProvider;
+let contextualTo;
+const account = (role = "owner", access_revision = 0) => ({
+  id: "test-account",
+  email: "owner@example.test",
+  active: true,
+  role,
+  access_revision,
+});
+const scopedKey = (key, role = "viewer", revision = 0) => [
+  ...key,
+  "scoped",
+  `test-account:${role}:${revision}:all:`,
+];
 before(async () => {
   server = await createServer({
     server: { middlewareMode: true },
     appType: "custom",
   });
   ({ ReviewMarkdown } = await server.ssrLoadModule("/src/reviewMarkdown.tsx"));
+  ({ ScopeProvider, contextualTo } =
+    await server.ssrLoadModule("/src/scope.tsx"));
   ({ ReviewPage } = await server.ssrLoadModule("/src/history.tsx"));
   ({ APIError } = await server.ssrLoadModule("/src/api.ts"));
   ({ Users } = await server.ssrLoadModule("/src/accounts.tsx"));
@@ -55,12 +71,20 @@ const renderConsolePage = (component, cache) => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
-  for (const [key, value] of cache) client.setQueryData(key, value);
+  for (const [key, value] of cache)
+    client.setQueryData(
+      key[0] === "quality" ? scopedKey(key, "owner") : key,
+      value,
+    );
   const html = renderToStaticMarkup(
     createElement(
       QueryClientProvider,
       { client },
-      createElement(MemoryRouter, null, component),
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(ScopeProvider, { current: account() }, component),
+      ),
     ),
   );
   client.clear();
@@ -284,7 +308,7 @@ const review = {
   requests: [request],
   next_cursor: null,
 };
-const renderReader = async (client, role = "viewer") => {
+const renderReader = async (client, role = "viewer", revision = 0) => {
   const stream = await renderToReadableStream(
     createElement(
       QueryClientProvider,
@@ -295,12 +319,16 @@ const renderReader = async (client, role = "viewer") => {
           initialEntries: ["/history/24?days=7&status=published&before_id=99"],
         },
         createElement(
-          Routes,
-          null,
-          createElement(Route, {
-            path: "/history/:runId",
-            element: createElement(ReviewPage, { current: { role } }),
-          }),
+          ScopeProvider,
+          { current: account(role, revision) },
+          createElement(
+            Routes,
+            null,
+            createElement(Route, {
+              path: "/history/:runId",
+              element: createElement(ReviewPage),
+            }),
+          ),
         ),
       ),
     ),
@@ -313,7 +341,7 @@ test("review destination leads with publication and coverage, preserves filters 
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
-  client.setQueryData(["review", "24", null], review);
+  client.setQueryData(scopedKey(["review", "24", null]), review);
   const html = await renderReader(client);
   assert.match(
     html,
@@ -338,7 +366,7 @@ test("a request removed by retention does not continue displaying its cached pub
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
-  const queryKey = ["review", "24", null];
+  const queryKey = scopedKey(["review", "24", null]);
   client.setQueryData(queryKey, review);
   await assert.rejects(
     client.fetchQuery({
@@ -370,13 +398,14 @@ test("queued reviews expose contextual admin actions without premature coverage 
       changed_paths_with_complete_diff: 0,
     },
   };
-  client.setQueryData(["review", "24", null], {
+  client.setQueryData(scopedKey(["review", "24", null], "admin"), {
+    can_maintain: true,
     ...review,
     item: queued,
     requests: [queued],
     markdown: null,
   });
-  client.setQueryData(["run-controls", 24], {
+  client.setQueryData(scopedKey(["run-controls", 24], "admin"), {
     run: {
       id: 24,
       status: "running",
@@ -413,6 +442,13 @@ test("queued reviews expose contextual admin actions without premature coverage 
   assert.match(html, /Cancel review/);
   assert.doesNotMatch(html, />Retry now<|>Run controls</);
   assert.ok(html.indexOf("Review actions") < html.indexOf("Execution details"));
+  client.setQueryData(scopedKey(["review", "24", null]), {
+    ...review,
+    item: queued,
+    requests: [queued],
+    can_maintain: false,
+    markdown: null,
+  });
   const viewer = await renderReader(client);
   assert.doesNotMatch(viewer, /Review actions|Cancel review/);
   client.clear();
@@ -436,7 +472,11 @@ test("user management has Settings navigation and retains account totals and cre
       createElement(
         MemoryRouter,
         { initialEntries: ["/users"] },
-        createElement(Users, { current: { role: "admin" } }),
+        createElement(
+          ScopeProvider,
+          { current: account() },
+          createElement(Users, { current: account() }),
+        ),
       ),
     ),
   );
@@ -451,4 +491,84 @@ test("user management has Settings navigation and retains account totals and cre
   assert.match(html, />12</);
   assert.doesNotMatch(html, /Neither role changes reviews or jobs/);
   client.clear();
+});
+
+test("navigation keeps team and reporting period while leaving page filters local", () => {
+  assert.deepEqual(
+    contextualTo(
+      "/quality?repository=example%2Frepository",
+      "?team_id=12&days=7&status=failed&before_id=99",
+    ),
+    {
+      pathname: "/quality",
+      search: "?repository=example%2Frepository&team_id=12&days=7",
+    },
+  );
+  assert.equal(
+    contextualTo("https://github.com/example/repository", "?team_id=12"),
+    "https://github.com/example/repository",
+  );
+});
+
+test("a membership revision cannot reuse the previous scope's cached review", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  client.setQueryData(scopedKey(["review", "24", null]), review);
+  const before = await renderReader(client);
+  assert.match(before, /F1: Handle cancellation/);
+  const after = await renderReader(client, "viewer", 1);
+  assert.doesNotMatch(after, /F1: Handle cancellation|Recorded publication/);
+  client.clear();
+});
+
+test("members with one team need no selector; multiple teams and platform admins can switch", async () => {
+  const { ScopeSelector } = await server.ssrLoadModule("/src/scope.tsx");
+  const renderSelector = (role, teams) => {
+    const current = account(role);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+    });
+    client.setQueryData(["teams", "selector", `test-account:${role}:0`], {
+      total: teams.length,
+      items: teams,
+      next_after_id: null,
+    });
+    const html = renderToStaticMarkup(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(
+          MemoryRouter,
+          { initialEntries: ["/teams"] },
+          createElement(
+            ScopeProvider,
+            { current },
+            createElement(ScopeSelector),
+          ),
+        ),
+      ),
+    );
+    client.clear();
+    return html;
+  };
+  const teams = [
+    { id: 10, name: "Payments", repository_count: 3, role: "viewer" },
+    { id: 20, name: "Service desk", repository_count: 1, role: "maintainer" },
+  ];
+  const single = renderSelector("member", teams.slice(0, 1));
+  assert.match(single, /Payments/);
+  assert.doesNotMatch(
+    single,
+    /Switch team|popoverTarget|popovertarget|All teams/,
+  );
+  const multiple = renderSelector("member", teams);
+  assert.match(multiple, /Switch team/);
+  assert.match(multiple, /All my teams/);
+  for (const role of ["admin", "owner"]) {
+    const platform = renderSelector(role, teams.slice(0, 1));
+    assert.match(platform, /Switch team/);
+    assert.match(platform, /All teams/);
+    assert.match(platform, /Manage teams/);
+  }
 });

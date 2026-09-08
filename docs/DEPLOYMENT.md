@@ -458,6 +458,12 @@ the diff is read again. Keep the added columns when recovering; no data removal
 or reverse migration is needed. The previous coverage queries remain compatible,
 but an image rollback still requires the release-specific checks below.
 
+Schema 22 introduces team access and separate owner/admin roles in the console.
+Earlier console images do not enforce these boundaries and treat new team members
+as global viewers. Do not roll back the console image alone after this upgrade;
+use a forward fix or coordinated image and database recovery. Database-ahead
+readiness alone does not prove that an older image preserves access policy.
+
 Roll back only to the exact prior Review Agent digest named in the release
 record. That record must include the post-migration schema version and a receipt
 showing that the prior digest passed `database ready`, `doctor`, and the smoke

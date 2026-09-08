@@ -1,10 +1,10 @@
+import { ScopedLink as Link, useScope } from "./scope";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { components } from "./api.generated";
 import { APIError, read, write } from "./api";
-import type { Account } from "./api";
 import { Empty, Freshness, Period, Stat, number, time, useFilters } from "./ui";
 
 type QualityReport = components["schemas"]["QualityReport"];
@@ -31,6 +31,7 @@ function FeedbackRow({
   item: QualityFeedbackItem;
   admin: boolean;
 }) {
+  const scope = useScope();
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [status, setStatus] =
@@ -51,7 +52,7 @@ function FeedbackRow({
         category: "",
       };
       return write<QualityFeedbackTriage>(
-        `/api/quality/feedback/${item.id}/triage`,
+        scope.path(`/api/quality/feedback/${item.id}/triage`),
         "POST",
         body,
       );
@@ -180,7 +181,8 @@ function FeedbackRow({
   );
 }
 
-export function QualityPage({ current }: { current: Account }) {
+export function QualityPage() {
+  const scope = useScope();
   const { params, days, update } = useFilters();
   const repository = params.get("repository") ?? "";
   const feedbackOffset = Math.max(
@@ -197,15 +199,27 @@ export function QualityPage({ current }: { current: Account }) {
     feedbackParams.set("repository", repository);
   }
   const report = useQuery({
-    queryKey: ["quality", "report", reportParams.toString()],
+    queryKey: [
+      "quality",
+      "report",
+      reportParams.toString(),
+      "scoped",
+      scope.key,
+    ],
     queryFn: ({ signal }) =>
-      read<QualityReport>(`/api/quality?${reportParams}`, signal),
+      read<QualityReport>(scope.path(`/api/quality?${reportParams}`), signal),
   });
   const feedback = useQuery({
-    queryKey: ["quality", "feedback", feedbackParams.toString()],
+    queryKey: [
+      "quality",
+      "feedback",
+      feedbackParams.toString(),
+      "scoped",
+      scope.key,
+    ],
     queryFn: ({ signal }) =>
       read<QualityFeedbackPage>(
-        `/api/quality/feedback?${feedbackParams}`,
+        scope.path(`/api/quality/feedback?${feedbackParams}`),
         signal,
       ),
   });
@@ -288,7 +302,7 @@ export function QualityPage({ current }: { current: Account }) {
                     <FeedbackRow
                       key={item.id}
                       item={item}
-                      admin={current.role === "admin"}
+                      admin={item.can_triage ?? false}
                     />
                   ))}
                 </div>
@@ -361,6 +375,12 @@ export function QualityPage({ current }: { current: Account }) {
                 Completed reviews grouped by repository, model, and saved
                 policy. Missing model information is shown as not recorded.
               </p>
+              {data.cohorts_truncated ? (
+                <p className="notice">
+                  Showing the first 200 groups. Select a repository or a shorter
+                  period to narrow this breakdown.
+                </p>
+              ) : null}
               {data.cohorts.length ? (
                 <div
                   className="table-scroll"
@@ -428,7 +448,8 @@ const decisions: FindingDecisionRequest["decision"][] = [
   "reopen",
 ];
 
-export function FindingPage({ current }: { current: Account }) {
+export function FindingPage() {
+  const scope = useScope();
   const { fingerprint = "" } = useParams();
   const [params] = useSearchParams();
   const repository = params.get("repository") ?? "";
@@ -446,10 +467,14 @@ export function FindingPage({ current }: { current: Account }) {
       fingerprint,
       occurrenceId,
       decisionsBefore,
+      "scoped",
+      scope.key,
     ],
     queryFn: ({ signal }) =>
       read<FindingDetail>(
-        `/api/findings/${encodeURIComponent(fingerprint)}?${detailParams}`,
+        scope.path(
+          `/api/findings/${encodeURIComponent(fingerprint)}?${detailParams}`,
+        ),
         signal,
       ),
     enabled: Boolean(
@@ -464,7 +489,9 @@ export function FindingPage({ current }: { current: Account }) {
   const mutation = useMutation({
     mutationFn: () =>
       write<OperatorDecisionResult>(
-        `/api/findings/${encodeURIComponent(fingerprint)}/decisions`,
+        scope.path(
+          `/api/findings/${encodeURIComponent(fingerprint)}/decisions`,
+        ),
         "POST",
         {
           repository,
@@ -553,7 +580,7 @@ export function FindingPage({ current }: { current: Account }) {
                     Older decisions
                   </Link>
                 ) : null}
-                {current.role === "admin" ? (
+                {query.data?.can_decide ? (
                   <form
                     className="decision-form"
                     onSubmit={(event) => {

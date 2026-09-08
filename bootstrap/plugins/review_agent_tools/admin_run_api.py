@@ -1,13 +1,15 @@
 """Admin-only HTTP transport for fenced review-run controls."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, field_validator
 
-from .admin_auth import AdminAuth, User
-from .domain.review import ReviewRunId, ReviewStatus
+from . import admin_application
+from .admin_auth import AdminAuth
+from .postgres.team_access import AccessRequest
+from .domain.review import ReviewStatus
 from .postgres import admin_run_actions, jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime
 
@@ -141,51 +143,29 @@ def _response(value: admin_run_actions.RunControls) -> RunControls:
 
 def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     router = APIRouter(
-        dependencies=[Depends(auth.current_admin)],
+        dependencies=[Depends(auth.current_user)],
         tags=["run controls"],
     )
 
-    def controls(run_id: RunId) -> RunControls:
-        try:
-            with runtime.transaction() as connection:
-                return _response(
-                    admin_run_actions.controls(
-                        connection,
-                        run_id=ReviewRunId(run_id),
-                    )
-                )
-        except review_runs.ReviewRunNotFound as exc:
-            raise HTTPException(404, "Review run not found.") from exc
+    def controls(run_id: RunId, access: Annotated[AccessRequest, Depends(auth.current_scope)]) -> RunControls:
+        return _response(admin_application.run_controls(runtime, access=access, run_id=run_id))
 
     def apply_action(
         run_id: RunId,
         request: RunActionRequest,
-        actor: Annotated[User, Depends(auth.current_admin)],
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
     ) -> RunControls:
-        moment = datetime.now(timezone.utc)
         try:
-            with runtime.transaction() as connection:
-                admin_run_actions.apply_action(
-                    connection,
-                    run_id=ReviewRunId(run_id),
-                    request=admin_run_actions.ActionRequest(
-                        action=request.action,
-                        expected_job_id=request.expected_job_id,
-                        expected_lease_generation=request.expected_lease_generation,
-                        expected_status=request.expected_status,
-                        expected_available_at=request.expected_available_at,
-                        actor=f"admin:{actor.id}",
-                        reason=request.reason,
-                        stale_after_minutes=request.stale_after_minutes,
-                    ),
-                    now=moment,
-                )
-                result = admin_run_actions.controls(
-                    connection,
-                    run_id=ReviewRunId(run_id),
-                    now=moment,
-                    stale_after_minutes=request.stale_after_minutes or 15,
-                )
+            result = admin_application.apply_run_action(runtime, access=access, run_id=run_id, request=admin_run_actions.ActionRequest(
+                action=request.action,
+                expected_job_id=request.expected_job_id,
+                expected_lease_generation=request.expected_lease_generation,
+                expected_status=request.expected_status,
+                expected_available_at=request.expected_available_at,
+                actor="",
+                reason=request.reason,
+                stale_after_minutes=request.stale_after_minutes,
+            ))
         except review_runs.ReviewRunNotFound as exc:
             raise HTTPException(404, "Review run not found.") from exc
         except admin_run_actions.AdminRunActionStale as exc:

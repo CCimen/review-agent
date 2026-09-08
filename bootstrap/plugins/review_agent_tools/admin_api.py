@@ -26,10 +26,21 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
-from . import (admin_access_api, admin_application, admin_quality_api,
-               admin_run_api, admin_provider_api, admin_settings_api, admin_deployment_api)
+from . import (
+    admin_repository_requests_api,
+    admin_access_api,
+    admin_application,
+    admin_quality_api,
+    admin_run_api,
+    admin_provider_api,
+    admin_settings_api,
+    admin_deployment_api,
+    admin_teams_api,
+)
 from .admin_auth import AdminAuth
-from .postgres import admin_operations, admin_reporting
+from .postgres import admin_operations, admin_reporting, audit
+from .postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
+from .postgres.teams import TeamConflict
 from .postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
@@ -101,6 +112,7 @@ def create_app(
         )
 
     def repositories(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Days = 30,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -111,6 +123,7 @@ def create_app(
         try:
             return admin_application.repositories(
                 runtime,
+                access=access,
                 days=days,
                 start=start,
                 end=end,
@@ -122,6 +135,7 @@ def create_app(
             raise HTTPException(422, str(exc)) from exc
 
     def history(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Days = 30,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -134,6 +148,7 @@ def create_app(
         try:
             return admin_application.history(
                 runtime,
+                access=access,
                 days=days,
                 start=start,
                 end=end,
@@ -147,11 +162,12 @@ def create_app(
             raise HTTPException(422, str(exc)) from exc
 
     def review_detail(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         run_id: Annotated[int, PathParameter(ge=1, le=9223372036854775807)],
         before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
     ) -> admin_reporting.ReviewDetail:
         result = admin_application.review_detail(
-            runtime, run_id=run_id, before_id=before_id
+            runtime, access=access, run_id=run_id, before_id=before_id
         )
         if result is None:
             raise HTTPException(
@@ -160,6 +176,7 @@ def create_app(
         return result
 
     def pull_requests(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Days = 30,
         start: datetime | None = None,
         end: datetime | None = None,
@@ -172,6 +189,7 @@ def create_app(
         try:
             return admin_application.pull_requests(
                 runtime,
+                access=access,
                 days=days,
                 start=start,
                 end=end,
@@ -185,29 +203,55 @@ def create_app(
             raise HTTPException(422, str(exc)) from exc
 
     def overview(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Days = 30,
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> admin_operations.Overview:
         try:
-            return admin_application.overview(runtime, days=days, start=start, end=end)
+            return admin_application.overview(
+                runtime, access=access, days=days, start=start, end=end
+            )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
-    def operations() -> admin_operations.Operations:
-        return admin_application.operations(runtime)
+    def operations(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> admin_operations.Operations:
+        return admin_application.operations(runtime, access=access)
 
     def events(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
         limit: Limit = 50,
         worker_id: UUID | None = None,
         before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
     ) -> admin_operations.WorkerEventPage:
         return admin_application.events(
-            runtime, worker_id=worker_id, before_id=before_id, limit=limit
+            runtime,
+            access=access,
+            worker_id=worker_id,
+            before_id=before_id,
+            limit=limit,
         )
 
     def openapi() -> JSONResponse:
         return JSONResponse(app.openapi())
+
+    def audit_events(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+        limit: Limit = 50,
+        before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
+        actor_id: UUID | None = None,
+        action: audit.AuditAction | None = None,
+    ) -> audit.AuditPage:
+        return admin_application.audit_events(
+            runtime,
+            access=access,
+            limit=limit,
+            before_id=before_id,
+            actor_id=actor_id,
+            action=action,
+        )
 
     def health() -> dict[str, str]:
         runtime.readiness()
@@ -230,6 +274,9 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(static_dir / "index.html")
 
+    def api_docs() -> FileResponse:
+        return FileResponse(static_dir / "api-docs.html")
+
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=[auth.hostname, "127.0.0.1", "localhost"]
     )
@@ -237,11 +284,25 @@ def create_app(
     app.add_exception_handler(PostgreSQLRuntimeError, database_unavailable)
     app.add_exception_handler(SQLAlchemyError, database_unavailable)
     app.add_exception_handler(RequestValidationError, invalid_request)
+
+    def access_denied(_request: Request, error: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=error.status if isinstance(error, AccessDenied) else 404,
+            content={"detail": str(error)},
+        )
+
+    def team_conflict(_request: Request, error: Exception) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(error)})
+
+    app.add_exception_handler(AccessDenied, access_denied)
+    app.add_exception_handler(ResourceNotFound, access_denied)
+    app.add_exception_handler(TeamConflict, team_conflict)
     router.add_api_route("/api/repositories", repositories, methods=["GET"])
     router.add_api_route("/api/history", history, methods=["GET"])
     router.add_api_route("/api/history/{run_id}", review_detail, methods=["GET"])
     router.add_api_route("/api/pull-requests", pull_requests, methods=["GET"])
     router.add_api_route("/api/overview", overview, methods=["GET"])
+    router.add_api_route("/api/audit", audit_events, methods=["GET"], tags=["audit"])
     router.add_api_route(
         "/api/operations",
         operations,
@@ -257,6 +318,9 @@ def create_app(
     router.add_api_route(
         "/api/openapi.json", openapi, methods=["GET"], include_in_schema=False
     )
+    router.add_api_route(
+        "/api/docs", api_docs, methods=["GET"], include_in_schema=False
+    )
     app.add_api_route("/healthz", health, methods=["GET"], include_in_schema=False)
     app.add_api_route("/", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/history", index, methods=["GET"], include_in_schema=False)
@@ -266,12 +330,16 @@ def create_app(
     app.add_api_route("/overview", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/operations", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/users", index, methods=["GET"], include_in_schema=False)
+    for path in ("/teams", "/teams/{team_id}", "/repository-requests", "/audit"):
+        app.add_api_route(path, index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/account", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/repositories", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/access", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/quality", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/settings", index, methods=["GET"], include_in_schema=False)
-    app.add_api_route("/findings/{fingerprint}", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route(
+        "/findings/{fingerprint}", index, methods=["GET"], include_in_schema=False
+    )
     app.include_router(auth.auth_router, prefix="/api/auth")
     app.include_router(auth.router)
     app.include_router(router)
@@ -281,6 +349,8 @@ def create_app(
     app.include_router(admin_settings_api.create_router(runtime, auth))
     app.include_router(admin_deployment_api.create_router(auth))
     app.include_router(admin_access_api.create_router(runtime, auth))
+    app.include_router(admin_teams_api.create_router(runtime, auth))
+    app.include_router(admin_repository_requests_api.create_router(runtime, auth))
     app.mount(
         "/assets",
         StaticFiles(directory=static_dir / "assets", check_dir=False),

@@ -65,7 +65,7 @@ class FakeAuth:
     def __init__(self, *, admin: bool = True) -> None:
         self.admin = admin
 
-    def current_admin(self) -> object:
+    def current_owner(self) -> object:
         if not self.admin:
             raise HTTPException(403, "Forbidden")
         return SimpleNamespace(id="admin")

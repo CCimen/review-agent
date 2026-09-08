@@ -40,12 +40,15 @@ CONTRACT = review_contract.ReviewContract(
 
 
 class DeniedAuth:
-    def current_admin(self) -> object:
+    def current_user(self) -> object:
+        raise HTTPException(403, "Forbidden")
+
+    def current_scope(self) -> object:
         raise HTTPException(403, "Forbidden")
 
 
 class AdminRunAuthorizationTests(unittest.TestCase):
-    def test_controls_require_an_admin(self) -> None:
+    def test_controls_require_authorized_access(self) -> None:
         app = FastAPI()
         app.include_router(create_router(Mock(), DeniedAuth()))  # type: ignore[arg-type]
         client = TestClient(app)
@@ -87,7 +90,9 @@ class AdminRunActionTests(unittest.TestCase):
                     full_name=f"team/run-actions-{suffix}",
                 ),
             )
-            pull_request = registry.ensure_pull_request(connection, repository.id, suffix)
+            pull_request = registry.ensure_pull_request(
+                connection, repository.id, suffix
+            )
             subject = registry.create_or_get_subject(
                 connection,
                 pull_request.id,
@@ -161,7 +166,9 @@ class AdminRunActionTests(unittest.TestCase):
             admin_run_actions.apply_action(
                 connection,
                 run_id=current.review_run_id,
-                request=self.request(current, admin_run_actions.RunAction.RELEASE_RETRY),
+                request=self.request(
+                    current, admin_run_actions.RunAction.RELEASE_RETRY
+                ),
             )
             controls = admin_run_actions.controls(
                 connection, run_id=current.review_run_id
@@ -173,7 +180,9 @@ class AdminRunActionTests(unittest.TestCase):
         self.assertLess(controls.job.available_at, current.available_at)
         self.assertEqual(controls.job.lease_generation, current.lease_generation)
         self.assertEqual(run_count, (1,))
-        self.assertEqual(controls.audit[0].action, admin_run_actions.RunAction.RELEASE_RETRY)
+        self.assertEqual(
+            controls.audit[0].action, admin_run_actions.RunAction.RELEASE_RETRY
+        )
 
     def test_cancel_terminalizes_the_exact_running_run_and_job_with_one_audit(
         self,

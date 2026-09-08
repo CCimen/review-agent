@@ -1,3 +1,4 @@
+import { useScope } from "./scope";
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { components } from "./api.generated";
@@ -22,6 +23,7 @@ const summaries: Record<RunAction, string> = {
 };
 
 export function RunControls({ runId }: { runId: number }) {
+  const scope = useScope();
   const queryClient = useQueryClient();
   const dialog = useRef<HTMLDialogElement>(null);
   const [action, setAction] = useState<RunAction | null>(null);
@@ -29,9 +31,12 @@ export function RunControls({ runId }: { runId: number }) {
   const [snapshot, setSnapshot] = useState<RunControlsResponse["job"]>(null);
   const [staleAfterMinutes, setStaleAfterMinutes] = useState(15);
   const query = useQuery({
-    queryKey: ["run-controls", runId],
+    queryKey: ["run-controls", runId, "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<RunControlsResponse>(`/api/history/${runId}/controls`, signal),
+      read<RunControlsResponse>(
+        scope.path(`/api/history/${runId}/controls`),
+        signal,
+      ),
   });
   const mutation = useMutation({
     mutationFn: async () => {
@@ -39,7 +44,7 @@ export function RunControls({ runId }: { runId: number }) {
       if (!action || !job)
         throw new Error("Refresh the run controls and try again.");
       return write<RunControlsResponse>(
-        `/api/history/${runId}/actions`,
+        scope.path(`/api/history/${runId}/actions`),
         "POST",
         {
           action,
@@ -55,7 +60,10 @@ export function RunControls({ runId }: { runId: number }) {
       );
     },
     onSuccess: (data) => {
-      queryClient.setQueryData(["run-controls", runId], data);
+      queryClient.setQueryData(
+        ["run-controls", runId, "scoped", scope.key],
+        data,
+      );
       setReason("");
       setSnapshot(null);
       setAction(null);

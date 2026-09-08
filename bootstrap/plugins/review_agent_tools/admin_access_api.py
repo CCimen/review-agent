@@ -12,6 +12,7 @@ from . import operator_application, operator_setup
 from .admin_auth import AdminAuth, User
 from .github import app_auth, app_inventory
 from .postgres import github_app, registry
+from .postgres.team_access import AccessRequest
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLRuntimeError
 from .settings import ReviewAgentSettings
 
@@ -312,11 +313,16 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             checked_at=datetime.now(timezone.utc),
         )
 
-    def installations(limit: Limit = 50, after_id: AfterId = 0) -> InstallationPage:
+    def installations(
+        actor: Annotated[User, Depends(auth.current_admin)],
+        limit: Limit = 50,
+        after_id: AfterId = 0,
+    ) -> InstallationPage:
         items = operator_application.list_github_app_installations(
             runtime,
             limit=limit,
             after_provider_installation_id=after_id,
+            access_request=AccessRequest(actor.id),
         )
         return InstallationPage(
             capability=capability,
@@ -326,11 +332,16 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             ),
         )
 
-    def repositories(limit: Limit = 50, after_id: AfterId = 0) -> RepositoryAccessPage:
+    def repositories(
+        actor: Annotated[User, Depends(auth.current_admin)],
+        limit: Limit = 50,
+        after_id: AfterId = 0,
+    ) -> RepositoryAccessPage:
         items = operator_application.list_github_app_repositories(
             runtime,
             limit=limit,
             after_provider_repository_id=after_id,
+            access_request=AccessRequest(actor.id),
         )
         return RepositoryAccessPage(
             capability=capability,
@@ -351,6 +362,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 require_authenticator(),
                 provider_installation_id=installation_id,
                 actor=actor_identity(actor),
+                access_request=AccessRequest(actor.id),
                 reason=_normalized_reason(request.reason),
             )
         except HTTPException:
@@ -390,6 +402,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 provider_installation_id=installation_id,
                 policy=request.policy,
                 actor=actor_identity(actor),
+                access_request=AccessRequest(actor.id),
                 reason=_normalized_reason(request.reason),
             )
         except HTTPException:
@@ -422,6 +435,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 provider_repository_id=repository_id,
                 profile=_normalized_profile(request.profile),
                 actor=actor_identity(actor),
+                access_request=AccessRequest(actor.id),
                 reason=_normalized_reason(request.reason),
             )
         except HTTPException:
@@ -450,6 +464,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 runtime,
                 provider_repository_id=repository_id,
                 actor=actor_identity(actor),
+                access_request=AccessRequest(actor.id),
                 reason=_normalized_reason(request.reason),
             )
         except HTTPException:
@@ -479,6 +494,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
                 repository=request.repository,
                 profile=_normalized_profile(request.profile),
                 actor=actor_identity(actor),
+                access_request=AccessRequest(actor.id),
                 reason=_normalized_reason(request.reason),
             )
         except HTTPException:

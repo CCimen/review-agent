@@ -1,3 +1,4 @@
+import { useScope } from "./scope";
 import { EngineServices, HermesHealth, ProviderHealth } from "./deployment";
 import { GitHubConnection } from "./access";
 import { useEffect, useState } from "react";
@@ -334,6 +335,7 @@ function Events({ workerId, clear }: { workerId: string; clear: () => void }) {
 }
 
 export function OperationsPage() {
+  const { current } = useScope();
   const [workerId, setWorkerId] = useState("");
   useEffect(() => {
     document.title = "Review Agent · Health";
@@ -490,10 +492,10 @@ export function OperationsPage() {
         description="Container status and provider authentication are separate from worker reports."
       >
         <div className="integration-grid">
-          <EngineServices />
-          <HermesHealth />
+          {current.role === "owner" ? <EngineServices /> : null}
+          {current.role === "owner" ? <HermesHealth /> : null}
           <GitHubConnection />
-          <ProviderHealth />
+          {current.role === "owner" ? <ProviderHealth /> : null}
         </div>
       </Section>
     </>

@@ -56,8 +56,9 @@ translate the deployment guide.
 For an optional operator UI, also request the [admin panel](ADMIN_PANEL.md).
 It is currently a source preview, so a release-based installation must wait for
 a qualified release containing both images. The agent can prepare the optional
-Compose service and hostname; the owner enters the first account password in
-the container terminal. Do not add account passwords to the non-secret plan.
+Compose service and hostname; the owner enters the first platform-owner password in
+the container terminal. New users receive team membership, and repository
+requests require platform approval. Do not add account passwords to the non-secret plan.
 
 ## Configure only one repository
 

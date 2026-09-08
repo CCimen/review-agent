@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import psycopg
+from psycopg.rows import TupleRow
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -44,6 +47,7 @@ from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import reporting as postgres_reporting
 from .postgres import review_runs as postgres_review_runs
 from .postgres.runtime import PostgreSQLRuntime
+from .postgres import audit as postgres_audit, team_access
 
 
 class OperatorInputError(ValueError):
@@ -88,9 +92,7 @@ def queue_health(runtime: PostgreSQLRuntime) -> QueueHealth:
         )
 
 
-def deployment_health(
-    runtime: PostgreSQLRuntime, *, profile: str
-) -> DeploymentHealth:
+def deployment_health(runtime: PostgreSQLRuntime, *, profile: str) -> DeploymentHealth:
     """Read one consistent, set-oriented operator health snapshot."""
     with runtime.transaction() as connection:
         return DeploymentHealth(
@@ -170,14 +172,50 @@ ACTIVE_JOB_STATUSES = (
 )
 
 
+def _console_admin_access(
+    connection: psycopg.Connection[TupleRow],
+    access: team_access.AccessRequest | None,
+    *,
+    write: bool = False,
+) -> team_access.AccessScope | None:
+    if access is None:
+        return None
+    scope = team_access.resolve_scope(connection, access, write=write)
+    team_access.require_admin(scope)
+    return scope
+
+
+def _record_access_change(
+    connection: psycopg.Connection[TupleRow],
+    scope: team_access.AccessScope | None,
+    *,
+    operation: str,
+    subject: str,
+    reason: str,
+    repository_id: int | None = None,
+) -> None:
+    if scope is not None:
+        postgres_audit.record(
+            connection,
+            scope,
+            action=postgres_audit.AuditAction.ACCESS_UPDATED,
+            subject=subject,
+            reason=reason,
+            details={"operation": operation},
+            repository_id=repository_id,
+        )
+
+
 def list_github_app_installations(
     runtime: PostgreSQLRuntime,
     *,
     limit: int,
     after_provider_installation_id: int = 0,
+    access_request: team_access.AccessRequest | None = None,
 ) -> tuple[postgres_github_app.GitHubAppInstallation, ...]:
     """Return one stable installation inventory page for operators."""
     with runtime.transaction() as connection:
+        _console_admin_access(connection, access_request)
         return postgres_github_app.list_installations(
             connection,
             limit=limit,
@@ -190,9 +228,11 @@ def list_github_app_repositories(
     *,
     limit: int,
     after_provider_repository_id: int = 0,
+    access_request: team_access.AccessRequest | None = None,
 ) -> tuple[postgres_github_app.RepositoryAccessState, ...]:
     """Return one stable repository access inventory page for operators."""
     with runtime.transaction() as connection:
+        _console_admin_access(connection, access_request)
         return postgres_github_app.list_repository_access(
             connection,
             limit=limit,
@@ -208,6 +248,7 @@ def sync_github_app_installation(
     actor: str,
     reason: str,
     now: datetime | None = None,
+    access_request: team_access.AccessRequest | None = None,
 ) -> postgres_github_app.InstallationReconciliationResult:
     """Fetch a complete provider snapshot, then reconcile it in one transaction."""
     installation_id = _positive(
@@ -219,7 +260,9 @@ def sync_github_app_installation(
         now=now,
     )
     with runtime.transaction() as connection:
-        return postgres_github_app.reconcile_selected_installation(
+        scope = _console_admin_access(connection, access_request, write=True)
+        actor = scope.actor if scope is not None else actor
+        result = postgres_github_app.reconcile_selected_installation(
             connection,
             definition=inventory.definition,
             status=inventory.status,
@@ -227,6 +270,15 @@ def sync_github_app_installation(
             actor=actor,
             reason=reason,
         )
+
+        _record_access_change(
+            connection,
+            scope,
+            operation="installation_synced",
+            subject=str(provider_installation_id),
+            reason=reason,
+        )
+        return result
 
 
 def approve_github_app_installation(
@@ -238,6 +290,7 @@ def approve_github_app_installation(
     actor: str,
     reason: str,
     now: datetime | None = None,
+    access_request: team_access.AccessRequest | None = None,
 ) -> postgres_github_app.GitHubAppInstallation:
     """Approve or restrict lazy repository activation for one installation."""
     installation_id = _positive(
@@ -249,6 +302,8 @@ def approve_github_app_installation(
         now=now,
     )
     with runtime.transaction() as connection:
+        scope = _console_admin_access(connection, access_request, write=True)
+        actor = scope.actor if scope is not None else actor
         installation = postgres_github_app.sync_installation(
             connection, metadata.definition
         )
@@ -260,13 +315,22 @@ def approve_github_app_installation(
                 actor=actor,
                 reason=reason,
             )
-        return postgres_github_app.set_repository_activation_policy(
+        result = postgres_github_app.set_repository_activation_policy(
             connection,
             installation_id=installation.id,
             policy=policy,
             actor=actor,
             reason=reason,
         )
+
+        _record_access_change(
+            connection,
+            scope,
+            operation="activation_policy_changed",
+            subject=str(provider_installation_id),
+            reason=reason,
+        )
+        return result
 
 
 def enable_github_app_repository(
@@ -276,14 +340,17 @@ def enable_github_app_repository(
     profile: str,
     actor: str,
     reason: str,
+    access_request: team_access.AccessRequest | None = None,
 ) -> postgres_github_app.RepositoryAccessState:
     """Enable direct-App admission by GitHub's stable repository ID."""
     with runtime.transaction() as connection:
+        scope = _console_admin_access(connection, access_request, write=True)
+        actor = scope.actor if scope is not None else actor
         current = postgres_github_app.get_repository_access_by_provider_id(
             connection,
             _positive(provider_repository_id, field="provider_repository_id"),
         )
-        return postgres_github_app.enable_repository(
+        result = postgres_github_app.enable_repository(
             connection,
             repository_id=current.repository_id,
             profile_key=profile,
@@ -291,6 +358,16 @@ def enable_github_app_repository(
             actor=actor,
             reason=reason,
         )
+
+        _record_access_change(
+            connection,
+            scope,
+            operation="repository_enabled",
+            subject=str(provider_repository_id),
+            reason=reason,
+            repository_id=int(current.repository_id),
+        )
+        return result
 
 
 def onboard_github_app_repository(
@@ -301,42 +378,38 @@ def onboard_github_app_repository(
     profile: str,
     actor: str,
     reason: str,
+    access_request: team_access.AccessRequest | None = None,
 ) -> RepositoryOnboardingResult:
     """Verify and enable exactly one repository in either installation scope."""
+    with runtime.transaction() as connection:
+        _console_admin_access(connection, access_request)
+        observation = postgres_github_app.observe_repository_access(
+            connection, repository=repository
+        )
     inventory = app_inventory.read_repository_inventory(
         authenticator, repository=repository
     )
     metadata = inventory.installation
     with runtime.transaction() as connection:
-        installation = postgres_github_app.sync_installation(
-            connection, metadata.definition
-        )
-        if installation.status is not metadata.status:
-            installation = postgres_github_app.set_installation_status(
-                connection,
-                installation_id=installation.id,
-                status=metadata.status,
-                actor=actor,
-                reason=reason,
-            )
-        current = postgres_github_app.grant_repository_access(
+        scope = _console_admin_access(connection, access_request, write=True)
+        actor = scope.actor if scope is not None else actor
+        installation, access = postgres_github_app.accept_verified_repository(
             connection,
-            installation_id=installation.id,
-            provider_repository_id=inventory.repository.provider_repository_id,
-            full_name=inventory.repository.full_name,
+            definition=metadata.definition,
+            status=metadata.status,
+            repository=inventory.repository,
+            observation=observation,
+            profile=profile,
             actor=actor,
             reason=reason,
-            trigger_mode=postgres_github_app.TriggerMode.MANUAL,
         )
-        if current.installation_id != installation.id:
-            raise OperatorInputError("repository belongs to another App installation")
-        access = postgres_github_app.enable_repository(
+        _record_access_change(
             connection,
-            repository_id=current.repository_id,
-            profile_key=profile,
-            trigger_mode=postgres_github_app.TriggerMode.MANUAL,
-            actor=actor,
+            scope,
+            operation="repository_onboarded",
+            subject=repository,
             reason=reason,
+            repository_id=int(access.repository_id),
         )
     return RepositoryOnboardingResult(
         reconciliation=postgres_github_app.InstallationReconciliationResult(
@@ -355,19 +428,32 @@ def disable_github_app_repository(
     provider_repository_id: int,
     actor: str,
     reason: str,
+    access_request: team_access.AccessRequest | None = None,
 ) -> postgres_github_app.RepositoryAccessState:
     """Disable direct-App admission by GitHub's stable repository ID."""
     with runtime.transaction() as connection:
+        scope = _console_admin_access(connection, access_request, write=True)
+        actor = scope.actor if scope is not None else actor
         current = postgres_github_app.get_repository_access_by_provider_id(
             connection,
             _positive(provider_repository_id, field="provider_repository_id"),
         )
-        return postgres_github_app.disable_repository(
+        result = postgres_github_app.disable_repository(
             connection,
             repository_id=current.repository_id,
             actor=actor,
             reason=reason,
         )
+
+        _record_access_change(
+            connection,
+            scope,
+            operation="repository_disabled",
+            subject=str(provider_repository_id),
+            reason=reason,
+            repository_id=int(current.repository_id),
+        )
+        return result
 
 
 def _now(value: datetime | None) -> datetime:
@@ -460,45 +546,74 @@ def show_finding(
     decision_before_id: int | None = None,
     now: datetime | None = None,
 ) -> postgres_reporting.FindingDetail:
+    with runtime.transaction() as connection:
+        return show_finding_in_transaction(
+            connection,
+            repository=repository,
+            fingerprint=fingerprint,
+            occurrence_id=occurrence_id,
+            decision_limit=decision_limit,
+            decision_before_id=decision_before_id,
+            now=now,
+        )
+
+
+def show_finding_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    repository: str,
+    fingerprint: str,
+    occurrence_id: int | None = None,
+    decision_limit: int | None = None,
+    decision_before_id: int | None = None,
+    now: datetime | None = None,
+) -> postgres_reporting.FindingDetail:
     normalized_repository = resolve_repository(repository)
     query = resolve_fingerprint_query(fingerprint)
     moment = _now(now)
-    with runtime.transaction() as connection:
-        scope = postgres_reporting.repository_scope(
-            connection, repository=normalized_repository
-        )
-        resolved = postgres_findings.resolve_fingerprint(
-            connection,
-            repository_id=scope.id,
-            query=query,
-        )
-        return postgres_reporting.finding_detail(
-            connection,
-            repository_id=scope.id,
-            fingerprint=resolved,
-            now=moment,
-            occurrence_id=(
-                FindingOccurrenceId(_positive(occurrence_id, field="occurrence_id"))
-                if occurrence_id is not None
-                else None
-            ),
-            decision_limit=(
-                _positive(decision_limit, field="decision_limit")
-                if decision_limit is not None
-                else None
-            ),
-            decision_before_id=(
-                FindingDecisionId(
-                    _positive(decision_before_id, field="decision_before_id")
-                )
-                if decision_before_id is not None
-                else None
-            ),
-        )
+    scope = postgres_reporting.repository_scope(
+        connection, repository=normalized_repository
+    )
+    resolved = postgres_findings.resolve_fingerprint(
+        connection,
+        repository_id=scope.id,
+        query=query,
+    )
+    return postgres_reporting.finding_detail(
+        connection,
+        repository_id=scope.id,
+        fingerprint=resolved,
+        now=moment,
+        occurrence_id=(
+            FindingOccurrenceId(_positive(occurrence_id, field="occurrence_id"))
+            if occurrence_id is not None
+            else None
+        ),
+        decision_limit=(
+            _positive(decision_limit, field="decision_limit")
+            if decision_limit is not None
+            else None
+        ),
+        decision_before_id=(
+            FindingDecisionId(_positive(decision_before_id, field="decision_before_id"))
+            if decision_before_id is not None
+            else None
+        ),
+    )
 
 
 def decide_finding(
     runtime: PostgreSQLRuntime,
+    request: OperatorDecisionRequest,
+    *,
+    now: datetime | None = None,
+) -> OperatorDecisionResult:
+    with runtime.transaction() as connection:
+        return decide_finding_in_transaction(connection, request, now=now)
+
+
+def decide_finding_in_transaction(
+    connection: psycopg.Connection[TupleRow],
     request: OperatorDecisionRequest,
     *,
     now: datetime | None = None,
@@ -534,46 +649,45 @@ def decide_finding(
         )
     except FindingDomainError as exc:
         raise OperatorInputError(str(exc)) from exc
-    with runtime.transaction() as connection:
-        scope = postgres_reporting.repository_scope(connection, repository=repository)
-        fingerprint = postgres_findings.resolve_fingerprint(
+    scope = postgres_reporting.repository_scope(connection, repository=repository)
+    fingerprint = postgres_findings.resolve_fingerprint(
+        connection,
+        repository_id=scope.id,
+        query=query,
+    )
+    target = postgres_reporting.decision_target(
+        connection,
+        repository_id=scope.id,
+        fingerprint=fingerprint,
+        occurrence_id=occurrence_id,
+        pr_number=pr_number,
+        local_reference=local_reference,
+        latest=request.latest,
+    )
+    intentional_evidence = None
+    if definition.decision is DecisionKind.INTENTIONAL_BY_DESIGN:
+        decision_context = postgres_repository_decisions.load_context(
             connection,
-            repository_id=scope.id,
-            query=query,
+            run_id=target.review_run_id,
         )
-        target = postgres_reporting.decision_target(
-            connection,
-            repository_id=scope.id,
-            fingerprint=fingerprint,
-            occurrence_id=occurrence_id,
-            pr_number=pr_number,
-            local_reference=local_reference,
-            latest=request.latest,
+        intentional_evidence = repository_decision_context.intentional_evidence(
+            decision_context,
+            review_run_id=target.review_run_id,
+            adr_id=definition.adr_id or "",
+            finding_path=target.path,
         )
-        intentional_evidence = None
-        if definition.decision is DecisionKind.INTENTIONAL_BY_DESIGN:
-            decision_context = postgres_repository_decisions.load_context(
-                connection,
-                run_id=target.review_run_id,
+        if intentional_evidence is None:
+            raise OperatorInputError(
+                "intentional decision does not match the occurrence's exact "
+                "accepted ADR snapshot and path"
             )
-            intentional_evidence = repository_decision_context.intentional_evidence(
-                decision_context,
-                review_run_id=target.review_run_id,
-                adr_id=definition.adr_id or "",
-                finding_path=target.path,
-            )
-            if intentional_evidence is None:
-                raise OperatorInputError(
-                    "intentional decision does not match the occurrence's exact "
-                    "accepted ADR snapshot and path"
-                )
-        stored = postgres_decisions.append_operator_decision(
-            connection,
-            finding_id=target.finding_id,
-            occurrence_id=target.occurrence_id,
-            definition=definition,
-            intentional_evidence=intentional_evidence,
-        )
+    stored = postgres_decisions.append_operator_decision(
+        connection,
+        finding_id=target.finding_id,
+        occurrence_id=target.occurrence_id,
+        definition=definition,
+        intentional_evidence=intentional_evidence,
+    )
     return OperatorDecisionResult(
         id=stored.id,
         fingerprint=fingerprint,
@@ -847,6 +961,36 @@ def triage_review_feedback(
     reason: str,
     now: datetime | None = None,
 ) -> postgres_quality_triage.QualityFeedbackTriage:
+    with runtime.transaction() as connection:
+        return triage_review_feedback_in_transaction(
+            connection,
+            feedback_id=feedback_id,
+            status=status,
+            stable_key=stable_key,
+            target_owner=target_owner,
+            evidence_reference=evidence_reference,
+            path=path,
+            category=category,
+            actor=actor,
+            reason=reason,
+            now=now,
+        )
+
+
+def triage_review_feedback_in_transaction(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    feedback_id: int,
+    status: str,
+    stable_key: str,
+    target_owner: str,
+    evidence_reference: str,
+    path: str,
+    category: str,
+    actor: str,
+    reason: str,
+    now: datetime | None = None,
+) -> postgres_quality_triage.QualityFeedbackTriage:
     """Append one governed classification for missed-issue feedback."""
     resolved_feedback_id = _positive(feedback_id, field="feedback_id")
     definition = resolve_feedback_triage(
@@ -860,13 +1004,12 @@ def triage_review_feedback(
         reason=reason,
     )
     moment = _now(now)
-    with runtime.transaction() as connection:
-        return postgres_quality_triage.append_triage(
-            connection,
-            feedback_id=resolved_feedback_id,
-            definition=definition,
-            created_at=moment,
-        )
+    return postgres_quality_triage.append_triage(
+        connection,
+        feedback_id=resolved_feedback_id,
+        definition=definition,
+        created_at=moment,
+    )
 
 
 def verification_export_source(

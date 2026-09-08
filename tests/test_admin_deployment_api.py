@@ -83,7 +83,7 @@ class AdminDeploymentTests(unittest.TestCase):
 
     def test_missing_configuration_is_explicit_and_viewers_are_denied(self) -> None:
         class Auth:
-            def current_admin(self) -> object:
+            def current_owner(self) -> object:
                 return object()
 
         auth = Auth()
@@ -96,6 +96,6 @@ class AdminDeploymentTests(unittest.TestCase):
         def denied() -> None:
             raise HTTPException(403, "Forbidden")
 
-        app.dependency_overrides[auth.current_admin] = denied
+        app.dependency_overrides[auth.current_owner] = denied
         self.assertEqual(client.get("/api/deployment").status_code, 403)
         self.assertEqual(client.post("/api/deployment").status_code, 405)

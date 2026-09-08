@@ -1,17 +1,19 @@
 ---
 title: Team access and model accounts
 slug: /team-access-and-model-accounts
-description: Proposed team permissions, shared or dedicated Hermes accounts, and provider quota reporting.
-status: proposal
+description: Team permissions and repository ownership, with the design for independent model connections and provider quota reporting.
+status: transitional
 last_verified: 2026-09-08
 ---
 
 # Team access and model accounts
 
-This is a design proposal, not a shipped feature. It supports one shared model
-account today and independently managed team accounts later, without a Nous
-Portal dependency. Implementation and rollout remain separate work on the
-existing board. Design issue: `ra-quality-2026-09-614.4.11`.
+Team membership, repository ownership and requests, scoped console reports and
+actions, owner/admin roles, and the audit journal are implemented in the source
+candidate. See [Admin panel](ADMIN_PANEL.md) for the current operator contract.
+The model-connection, quota, and machine-integration sections below describe the
+remaining approved design. Track implementation and rollout on the existing
+`ra-teams-and-integrations-wtd` epic.
 
 ## Smallest useful product model
 
@@ -29,12 +31,13 @@ policy engine, custom-role editor, nested groups, or a second identity service.
 
 | Role | Scope and capabilities |
 | --- | --- |
-| Platform administrator | Manage teams, users, repository ownership, shared connections, deployment settings, and all operational controls. |
+| Platform owner | All teams, privileged accounts, shared connections, deployment settings, sensitive audit events, and operational controls. |
+| Platform admin | All teams, member accounts, repository ownership and approval, ordinary audit events, and review operations. Cannot change owner/admin accounts or global credentials/settings. |
 | Team maintainer | Request repository onboarding; manage membership of their team among existing active users; choose allowed models and connections; triage feedback and retry or cancel their team's reviews. Cannot grant platform privileges or move repositories between teams. |
 | Team viewer | Read their team's reviews, quality reports, and operational usage. Cannot change access, accounts, model policy, or review state. |
 
 Team maintainers can reconnect a team-owned account. Shared-account login,
-replacement, and disconnection remain platform-administrator operations because
+replacement, and disconnection remain platform-owner operations because
 they affect other teams. Display the affected teams before a shared change.
 Keep the existing global viewer role during migration; explicitly label it as
 deployment-wide access. Convert users to scoped membership deliberately rather
@@ -130,7 +133,8 @@ delete repositories or other teams' access from the shared App installation.
 ## Team and platform views
 
 Use one console with a team selector. A user belonging to one team lands directly
-in that team's overview; a multi-team user can switch between their teams. The
+in that team's workspace and sees no selector; a multi-team user can switch
+between their teams. The
 same Activity, Reviews, and Review quality pages use the selected team's scope.
 The team overview shows its repositories, recent review outcomes, queue health,
 model connection and available quota, and feedback requiring attention. Team
@@ -377,8 +381,10 @@ connections second; quota display and fair scheduling after the provider
 projection is proven. Keep the existing deployment as the shared default. Do
 not copy OAuth stores, introduce a database per team, add nested groups/custom
 role builders, build a new inference proxy, or provision arbitrary containers
-from a team-facing form. SSO and automated provisioning can follow demonstrated
-onboarding demand.
+from a team-facing form. Generic OIDC sign-in and basic SCIM provisioning are
+approved as a separate identity slice on the same epic. Keep existing-account
+linking explicit, identify OIDC users by issuer and subject, and preserve local
+role/owner safeguards during provisioning.
 
 Acceptance must include cross-team direct-link and aggregate denial, multi-team
 membership, duplicate and concurrent onboarding approvals, missing/revoked GitHub

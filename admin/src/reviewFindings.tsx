@@ -1,5 +1,5 @@
+import { ScopedLink as Link, useScope } from "./scope";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { read } from "./api";
 import type { components } from "./api.generated";
 import { Freshness } from "./ui";
@@ -12,10 +12,11 @@ export function ReviewFindings({
   runId: number;
   repository: string;
 }) {
+  const scope = useScope();
   const query = useQuery({
-    queryKey: ["review-findings", runId],
+    queryKey: ["review-findings", runId, "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<Findings>(`/api/history/${runId}/findings`, signal),
+      read<Findings>(scope.path(`/api/history/${runId}/findings`), signal),
   });
   if (query.data?.total === 0) return null;
   return (

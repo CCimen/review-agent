@@ -28,3 +28,11 @@ screens. Operational settings use at most three columns, with advanced controls
 progressively disclosed. Label GitHub's repository scope separately from Review
 Agent activation. Live checks, stored state, and startup observations each show
 their source and timing; background refresh must not replace an editor's draft.
+
+Team context stays visible near the top of the rail, with a compact counterpart on
+small screens. A member with one team enters that workspace automatically and sees
+its name without a selector. Members of multiple teams use a searchable native
+popover; owners and admins can view all teams or select one. The picker shows team
+names, repository counts, and a link to team management. Team and reporting-period
+context follow console navigation. Platform administration pages identify their
+scope in the page introduction.

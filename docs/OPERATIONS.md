@@ -116,7 +116,8 @@ worker replicas × (worker concurrency + 1)
 + Hermes replicas × 4
 + publisher replicas × 2
 + feedback replicas × 4
-+ one connection per concurrent operator command
++ operator command processes × 4 (normally one connection in use)
++ console replicas × 6 (four application connections and two authentication connections)
 ```
 
 Pools open connections on demand. Keep the configured maximum below the
@@ -308,6 +309,7 @@ Durable history is preserved unless this table explicitly says otherwise:
 | `finding_identities`, `finding_occurrences`, `finding_suggestions`, `finding_decisions`, `intentional_design_evidence`, `decision_audit`, `pull_request_finding_references` | Repository owner | Preserve finding history and explicit human decisions. |
 | `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
 | `admin_users`, `admin_sessions` | Deployment owner | Preserve admin-panel accounts and revocable login sessions; treat backups as credential-bearing data. |
+| `teams`, `team_members`, `team_repositories`, `repository_requests`, `admin_audit_events` | Deployment owner | Preserve team access, repository ownership, request decisions, and the console audit journal. The current retention command does not prune these records. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage, and idempotency receipts. |
 | `coach_runs`, `coach_candidates`, `coach_intervention_outcomes`, `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | Quality owner | Preserve private coaching and verification evidence; unavailable to the live reviewer. |
 

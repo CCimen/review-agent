@@ -192,6 +192,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit Events */
+        get: operations["audit_events_api_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/operations": {
         parameters: {
             query?: never;
@@ -652,6 +669,230 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List teams visible to the current account */
+        get: operations["list_teams_api_teams_get"];
+        put?: never;
+        /** Create a team (platform administrator) */
+        post: operations["create_team_api_teams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/teams/{team_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Team */
+        get: operations["get_team_api_teams__team_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Team */
+        patch: operations["update_team_api_teams__team_id__patch"];
+        trace?: never;
+    };
+    "/api/teams/{team_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Members */
+        get: operations["members_api_teams__team_id__members_get"];
+        /** Add or change membership by exact account email */
+        put: operations["put_member_api_teams__team_id__members_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/teams/{team_id}/members/{user_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove Member */
+        post: operations["remove_member_api_teams__team_id__members__user_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/teams/{team_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Events */
+        get: operations["events_api_teams__team_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repository-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Requests */
+        get: operations["requests_api_repository_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/teams/{team_id}/repository-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit */
+        post: operations["submit_api_teams__team_id__repository_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repository-requests/{request_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve */
+        post: operations["approve_api_repository_requests__request_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repository-requests/{request_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject */
+        post: operations["reject_api_repository_requests__request_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repository-requests/{request_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw */
+        post: operations["withdraw_api_repository_requests__request_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/teams/{team_id}/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Repositories */
+        get: operations["repositories_api_teams__team_id__repositories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repository-ownership/{repository_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign */
+        put: operations["assign_api_repository_ownership__repository_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/teams/{team_id}/repositories/{repository_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove */
+        post: operations["remove_api_teams__team_id__repositories__repository_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -677,6 +918,11 @@ export interface components {
             role: components["schemas"]["Role"];
             /** Active */
             active: boolean;
+            /**
+             * Access Revision
+             * @default 0
+             */
+            access_revision: number;
         };
         /** AccountPage */
         AccountPage: {
@@ -698,6 +944,11 @@ export interface components {
         AccountType: "user" | "organization";
         /** AccountUpdate */
         AccountUpdate: {
+            /**
+             * Reason
+             * @default Account access updated
+             */
+            reason: string;
             role?: components["schemas"]["Role"] | null;
             /** Active */
             active?: boolean | null;
@@ -753,6 +1004,11 @@ export interface components {
             has_more_decisions: boolean;
             /** Next Decision Before Id */
             next_decision_before_id: number | null;
+            /**
+             * Can Decide
+             * @default false
+             */
+            can_decide: boolean;
         };
         /** AppConnection */
         AppConnection: {
@@ -779,6 +1035,55 @@ export interface components {
             install_url?: string | null;
             /** Issues */
             issues?: string[];
+        };
+        /**
+         * AuditAction
+         * @enum {string}
+         */
+        AuditAction: "team_created" | "team_updated" | "member_added" | "member_updated" | "member_removed" | "repository_assigned" | "repository_transferred" | "repository_removed" | "repository_requested" | "request_approved" | "request_rejected" | "request_withdrawn" | "account_created" | "account_updated" | "password_changed" | "signed_in" | "signed_out" | "finding_decided" | "feedback_triaged" | "run_action" | "settings_updated" | "access_updated" | "provider_login" | "provider_logout" | "provider_login_cancelled" | "connection_created" | "connection_updated" | "connection_removed" | "identity_linked" | "scim_provisioned" | "scim_updated" | "scim_deactivated";
+        /** AuditEvent */
+        AuditEvent: {
+            /** Id */
+            id: number;
+            /** Team Id */
+            team_id: number | null;
+            /** Actor Id */
+            actor_id: string | null;
+            /** Actor Email */
+            actor_email: string | null;
+            /** Actor Role */
+            actor_role: string;
+            action: components["schemas"]["AuditAction"];
+            /** Subject */
+            subject: string;
+            /** Reason */
+            reason: string;
+            /** Details */
+            details: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** Owner Only */
+            owner_only: boolean;
+            /** Operation Id */
+            operation_id: string | null;
+            outcome: components["schemas"]["AuditOutcome"];
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+        };
+        /**
+         * AuditOutcome
+         * @enum {string}
+         */
+        AuditOutcome: "started" | "succeeded" | "failed";
+        /** AuditPage */
+        AuditPage: {
+            /** Items */
+            items: components["schemas"]["AuditEvent"][];
+            /** Next Before Id */
+            next_before_id: number | null;
         };
         /** AuditReason */
         AuditReason: {
@@ -815,6 +1120,11 @@ export interface components {
             cancelled: boolean;
             /** Session Id */
             session_id: string;
+        };
+        /** ChangeReason */
+        ChangeReason: {
+            /** Reason */
+            reason: string;
         };
         /**
          * CoverageState
@@ -1383,8 +1693,25 @@ export interface components {
              * Format: password
              */
             password: string;
-            /** @default viewer */
+            /** @default member */
             role: components["schemas"]["Role"];
+            /**
+             * Reason
+             * @default Account created
+             */
+            reason: string;
+        };
+        /** NewTeam */
+        NewTeam: {
+            /** Reason */
+            reason: string;
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
         };
         /** Operations */
         Operations: {
@@ -1455,9 +1782,9 @@ export interface components {
             /** Reported Attempts */
             reported_attempts: number;
             /** Live Review Workers */
-            live_review_workers: number;
+            live_review_workers: number | null;
             /** Review Capacity */
-            review_capacity: number;
+            review_capacity: number | null;
             lifetime: components["schemas"]["ActivityCounts"];
             window: components["schemas"]["ActivityCounts"];
             /** Daily Publications */
@@ -1619,6 +1946,11 @@ export interface components {
             triage_reason: string | null;
             /** Triaged At */
             triaged_at: string | null;
+            /**
+             * Can Triage
+             * @default false
+             */
+            can_triage: boolean;
         };
         /** QualityFeedbackPage */
         QualityFeedbackPage: {
@@ -1706,6 +2038,11 @@ export interface components {
             coverage_failure_codes: components["schemas"]["RankedCount"][];
             /** Cohorts */
             cohorts: components["schemas"]["QualityCohort"][];
+            /**
+             * Cohorts Truncated
+             * @default false
+             */
+            cohorts_truncated: boolean;
         };
         /** QualityTriageRequest */
         QualityTriageRequest: {
@@ -1790,8 +2127,14 @@ export interface components {
         RepositoryActivationPolicy: "explicit" | "automatic";
         /** RepositoryActivity */
         RepositoryActivity: {
+            /** Repository Id */
+            repository_id: number;
             /** Repository */
             repository: string;
+            /** Team Id */
+            team_id: number | null;
+            /** Team Name */
+            team_name: string | null;
             /** Prs Reviewed */
             prs_reviewed: number;
             /** Published Requests */
@@ -1804,6 +2147,22 @@ export interface components {
             latest_failed_prs: number;
             /** Last Activity At */
             last_activity_at: string | null;
+        };
+        /** RepositoryApproval */
+        RepositoryApproval: {
+            /** Reason */
+            reason: string;
+            /** Profile */
+            profile?: string | null;
+        };
+        /** RepositoryAssignment */
+        RepositoryAssignment: {
+            /** Reason */
+            reason: string;
+            /** Team Id */
+            team_id: number;
+            /** Expected Team Id */
+            expected_team_id: number | null;
         };
         /** RepositoryEnablement */
         RepositoryEnablement: {
@@ -1848,11 +2207,59 @@ export interface components {
             total: number;
             totals: components["schemas"]["RepositoryTotals"];
         };
+        /** RepositoryRequest */
+        RepositoryRequest: {
+            /** Id */
+            id: number;
+            /** Team Id */
+            team_id: number;
+            /** Team Name */
+            team_name: string;
+            /**
+             * Requester Id
+             * Format: uuid
+             */
+            requester_id: string;
+            /** Repository Name */
+            repository_name: string;
+            /** Repository Id */
+            repository_id: number | null;
+            /** Reason */
+            reason: string;
+            status: components["schemas"]["RequestStatus"];
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            /** Decided By */
+            decided_by: string | null;
+            /** Decided At */
+            decided_at: string | null;
+            /** Decision Reason */
+            decision_reason: string | null;
+        };
+        /** RepositoryRequestPage */
+        RepositoryRequestPage: {
+            /** Items */
+            items: components["schemas"]["RepositoryRequest"][];
+            /** Pending */
+            pending: number;
+            /** Next Before Id */
+            next_before_id: number | null;
+        };
         /**
          * RepositorySelection
          * @enum {string}
          */
         RepositorySelection: "selected" | "all";
+        /** RepositorySubmission */
+        RepositorySubmission: {
+            /** Reason */
+            reason: string;
+            /** Repository */
+            repository: string;
+        };
         /** RepositoryTotals */
         RepositoryTotals: {
             /** Prs Reviewed */
@@ -1866,6 +2273,11 @@ export interface components {
             /** Latest Failed Prs */
             latest_failed_prs: number;
         };
+        /**
+         * RequestStatus
+         * @enum {string}
+         */
+        RequestStatus: "pending" | "approved" | "rejected" | "withdrawn";
         /** ReviewDetail */
         ReviewDetail: {
             item: components["schemas"]["HistoryItem"];
@@ -1886,6 +2298,11 @@ export interface components {
              * Format: date-time
              */
             generated_at: string;
+            /**
+             * Can Maintain
+             * @default false
+             */
+            can_maintain: boolean;
         };
         /** ReviewFindingItem */
         ReviewFindingItem: {
@@ -1940,7 +2357,7 @@ export interface components {
          * Role
          * @enum {string}
          */
-        Role: "viewer" | "admin";
+        Role: "member" | "viewer" | "admin" | "owner";
         /**
          * RunAction
          * @enum {string}
@@ -2088,6 +2505,114 @@ export interface components {
             denominator: number;
             /** Denominator Name */
             denominator_name: string;
+        };
+        /** Team */
+        Team: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Revision */
+            revision: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            role: components["schemas"]["TeamRole"] | null;
+            /** Member Count */
+            member_count: number;
+            /** Repository Count */
+            repository_count: number;
+            /** Pending Requests */
+            pending_requests: number;
+        };
+        /** TeamMember */
+        TeamMember: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Email */
+            email: string;
+            role: components["schemas"]["TeamRole"];
+            /** Active */
+            active: boolean;
+        };
+        /** TeamMemberPage */
+        TeamMemberPage: {
+            /** Items */
+            items: components["schemas"]["TeamMember"][];
+            /** Next Offset */
+            next_offset: number | null;
+        };
+        /** TeamMemberUpdate */
+        TeamMemberUpdate: {
+            /** Reason */
+            reason: string;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            role: components["schemas"]["TeamRole"];
+        };
+        /** TeamPage */
+        TeamPage: {
+            /** Items */
+            items: components["schemas"]["Team"][];
+            /** Total */
+            total: number;
+            /** Next After Id */
+            next_after_id: number | null;
+        };
+        /** TeamRepository */
+        TeamRepository: {
+            /** Repository Id */
+            repository_id: number;
+            /** Provider Repository Id */
+            provider_repository_id: number;
+            /** Repository */
+            repository: string;
+            /** Enabled */
+            enabled: boolean;
+            access: components["schemas"]["review_agent_tools__postgres__github_app__RepositoryAccess"] | null;
+            /** Profile */
+            profile: string | null;
+            /**
+             * Assigned At
+             * Format: date-time
+             */
+            assigned_at: string;
+        };
+        /** TeamRepositoryPage */
+        TeamRepositoryPage: {
+            /** Items */
+            items: components["schemas"]["TeamRepository"][];
+            /** Next After Id */
+            next_after_id: number | null;
+        };
+        /**
+         * TeamRole
+         * @enum {string}
+         */
+        TeamRole: "maintainer" | "viewer";
+        /** TeamUpdate */
+        TeamUpdate: {
+            /** Reason */
+            reason: string;
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Expected Revision */
+            expected_revision: number;
         };
         /**
          * TriggerMode
@@ -2453,6 +2978,7 @@ export interface operations {
                 limit?: number;
                 search?: string;
                 offset?: number;
+                team_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -2491,6 +3017,7 @@ export interface operations {
                 status?: "all" | "active" | "published" | "failed" | "latest_failed" | "superseded";
                 pr_number?: number | null;
                 before_id?: number | null;
+                team_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -2522,6 +3049,7 @@ export interface operations {
         parameters: {
             query?: {
                 before_id?: number | null;
+                team_id?: number | null;
             };
             header?: never;
             path: {
@@ -2562,6 +3090,7 @@ export interface operations {
                 status?: "all" | "active" | "published" | "failed" | "latest_failed" | "superseded";
                 pr_number?: number | null;
                 before_id?: number | null;
+                team_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -2595,6 +3124,7 @@ export interface operations {
                 days?: number;
                 start?: string | null;
                 end?: string | null;
+                team_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -2622,9 +3152,46 @@ export interface operations {
             };
         };
     };
+    audit_events_api_audit_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before_id?: number | null;
+                actor_id?: string | null;
+                action?: components["schemas"]["AuditAction"] | null;
+                team_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     operations_api_operations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2640,6 +3207,15 @@ export interface operations {
                     "application/json": components["schemas"]["Operations"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     events_api_operations_events_get: {
@@ -2648,6 +3224,7 @@ export interface operations {
                 limit?: number;
                 worker_id?: string | null;
                 before_id?: number | null;
+                team_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -2680,6 +3257,7 @@ export interface operations {
             query?: {
                 days?: number;
                 repository?: string | null;
+                team_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -2713,6 +3291,7 @@ export interface operations {
                 repository?: string | null;
                 limit?: number;
                 offset?: number;
+                team_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -2746,6 +3325,7 @@ export interface operations {
                 repository: string;
                 occurrence_id?: number | null;
                 decisions_before_id?: number | null;
+                team_id?: number | null;
             };
             header?: never;
             path: {
@@ -2777,7 +3357,9 @@ export interface operations {
     };
     findings_for_review_api_history__run_id__findings_get: {
         parameters: {
-            query?: never;
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path: {
                 run_id: number;
@@ -2808,7 +3390,9 @@ export interface operations {
     };
     decide_api_findings__fingerprint__decisions_post: {
         parameters: {
-            query?: never;
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path: {
                 fingerprint: string;
@@ -2843,7 +3427,9 @@ export interface operations {
     };
     triage_api_quality_feedback__feedback_id__triage_post: {
         parameters: {
-            query?: never;
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path: {
                 feedback_id: number;
@@ -2878,7 +3464,9 @@ export interface operations {
     };
     controls_api_history__run_id__controls_get: {
         parameters: {
-            query?: never;
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path: {
                 run_id: number;
@@ -2909,7 +3497,9 @@ export interface operations {
     };
     apply_action_api_history__run_id__actions_post: {
         parameters: {
-            query?: never;
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path: {
                 run_id: number;
@@ -3088,6 +3678,7 @@ export interface operations {
         parameters: {
             query?: {
                 before_id?: number | null;
+                team_id?: number | null;
             };
             header?: never;
             path?: never;
@@ -3117,7 +3708,9 @@ export interface operations {
     };
     save_settings_api_settings_put: {
         parameters: {
-            query?: never;
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3444,6 +4037,576 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["review_agent_tools__admin_access_api__RepositoryAccess"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_teams_api_teams_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                after_id?: number;
+                search?: string;
+                team_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_team_api_teams_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewTeam"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_team_api_teams__team_id__get: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_team_api_teams__team_id__patch: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    members_api_teams__team_id__members_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMemberPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_member_api_teams__team_id__members_put: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMemberUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMember"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_member_api_teams__team_id__members__user_id__remove_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeReason"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    events_api_teams__team_id__events_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before_id?: number | null;
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    requests_api_repository_requests_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["RequestStatus"] | null;
+                limit?: number;
+                before_id?: number | null;
+                team_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryRequestPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_api_teams__team_id__repository_requests_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositorySubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_api_repository_requests__request_id__approve_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                request_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositoryApproval"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_api_repository_requests__request_id__reject_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                request_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeReason"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_api_repository_requests__request_id__withdraw_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                request_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeReason"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    repositories_api_teams__team_id__repositories_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                after_id?: number;
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamRepositoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_api_repository_ownership__repository_id__put: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositoryAssignment"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_api_teams__team_id__repositories__repository_id__remove_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+                repository_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeReason"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

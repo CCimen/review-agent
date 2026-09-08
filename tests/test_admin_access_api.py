@@ -19,6 +19,7 @@ from review_agent_tools.admin_access_api import create_router  # noqa: E402
 from review_agent_tools.domain.review import RepositoryId  # noqa: E402
 from review_agent_tools.github import app_auth, app_inventory  # noqa: E402
 from review_agent_tools.postgres import github_app  # noqa: E402
+from review_agent_tools.postgres.team_access import AccessRequest  # noqa: E402
 
 
 NOW = datetime(2026, 9, 8, 10, 30, tzinfo=timezone.utc)
@@ -148,11 +149,13 @@ class AdminAccessAPITests(unittest.TestCase):
             ANY,
             limit=1,
             after_provider_installation_id=20,
+            access_request=AccessRequest(ADMIN_ID),
         )
         list_repositories.assert_called_once_with(
             ANY,
             limit=50,
             after_provider_repository_id=0,
+            access_request=AccessRequest(ADMIN_ID),
         )
         self.assertEqual(
             TestClient(self.app(admin=False)).get("/api/access/installations").status_code,

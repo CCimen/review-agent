@@ -9,18 +9,75 @@ last_verified: 2026-09-08
 
 # Review Agent operator console
 
-The optional console provides Activity, Repositories, Review quality, Health,
-and Settings. Sign in with an individual email address and password. Viewers can
-read reviews and quality evidence across the deployment. Administrators can
-manage accounts, repository access, finding decisions, feedback triage, review
-run controls, and deployment policy. GitHub remains the source of review requests
-and the destination for published reviews.
+The optional console provides team workspaces for review activity, repositories,
+quality evidence, and membership. Owners and admins also manage platform access
+and inspect the audit log. Platform settings and provider credentials belong to
+owners. GitHub remains the source of review requests and the destination for
+published reviews.
 
 This feature is available in the source candidate and has not yet been released.
 The current v0.4.0-rc.4 image does not include it. Build both images from the same
 candidate checkout, or use a future qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 21.
+an older migration image: the current admin API requires PostgreSQL schema 22.
+
+After this upgrade, do not roll back the console image alone. Earlier consoles
+interpret ordinary accounts as global viewers and do not enforce team access or
+the owner/admin boundary. Use a forward fix, or the coordinated image and verified
+database recovery procedure in [Deployment](./DEPLOYMENT.md#upgrade-and-roll-back-production).
+
+## Teams, roles, and repository ownership
+
+Each repository has one owning team. Accounts receive a platform role separately
+from their role in each team:
+
+| Role | Access |
+| --- | --- |
+| Owner | All teams and platform operations, including privileged accounts, provider credentials, settings, and the complete console audit log. |
+| Admin | All teams, repository ownership and approval, operational controls, and member/global-viewer account management. Cannot change owner/admin accounts or sensitive platform settings. |
+| Member | Access through team memberships. A team viewer reads review data; a team maintainer also manages membership, requests repositories, triages feedback, records finding decisions, and retries or cancels reviews. |
+| Global viewer | Explicit read access across the deployment. Retained for existing viewer accounts during migration. |
+
+New accounts default to Member. Create a team in **Teams**, then add an existing
+active account by its exact email as Viewer or Maintainer. One-team members enter
+that workspace automatically and see its name without a selector. Members in
+several teams can search and switch teams. Owners and admins can view all teams
+or select one; team and period filters follow navigation. Platform administration
+pages identify their scope even when a team filter is retained for navigation.
+
+Team permissions apply on the server to lists, search, totals, quality cohorts,
+direct links, and actions. Members cannot inspect unassigned repositories. A
+repository transfer moves access to its retained review content to the new team.
+Membership and ownership changes invalidate the affected accounts' cached views;
+subsequent server operations always resolve current access. Team views omit
+deployment-wide worker and capacity figures.
+
+In a team's Repositories tab, maintainers submit `owner/repository` or its HTTPS
+GitHub URL with a reason. Owners and admins approve or reject requests in
+**Repository requests**. Approval verifies the current GitHub App grant, assigns
+ownership, enables reviews, and records the decision in one database transaction.
+Repeating the same approval returns the stored decision. A competing owner or
+newer revoked grant rejects approval without partially enabling the repository.
+If the repository was renamed while a request was pending, withdraw it and submit
+its current name. Existing owned repositories retain identity through their
+GitHub repository ID.
+
+For retained repositories without an owner, use **Repositories → Assign team**
+to select the owning team. This preserves history and the current activation state.
+Owners and admins can transfer a repository to another team, or remove it from a
+team. Removal disables reviews and detaches ownership while retaining history
+for platform access. GitHub grants remain independently managed through the App
+installation. Adding teams does not change an installation's existing automatic
+activation policy.
+
+**Audit log** records who changed an account, membership, repository request,
+ownership, review decision, run state, or settings, together with a timestamp
+and reason. Admins see team, repository, and ordinary account changes regardless
+of the actor's role. Owner/admin account changes and sensitive platform changes
+are visible only to owners. Only owners and admins can open audit pages, including
+the audit tab within a team. Passwords,
+tokens, and provider credentials are omitted. The journal is part of the normal
+database backup; it is not a tamper-proof external log archive.
 
 ## What the numbers mean
 
@@ -64,34 +121,52 @@ email and role filters currently apply to the displayed account page.
 
 ## Reporting and operations API
 
-The source candidate exposes the following authenticated endpoints for admin
-clients. The frontend uses `admin/openapi.json` and the generated
+The source candidate exposes the following authenticated endpoints. Open
+**API reference** in the console, or `/api/docs`, for the self-hosted Swagger UI.
+It uses the current account session and the same server permissions. The schema
+is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and the generated
 `admin/src/api.generated.ts` contract.
 
 | Endpoint | Access | Data |
 | --- | --- | --- |
-| `GET /api/overview` | Viewer or admin | Lifetime and selected-period totals, UTC daily publications, publication latency, recent failure reasons, and reporting review workers and capacity. |
-| `GET /api/repositories` | Viewer or admin | Paginated repositories, `total` matching repositories, and aggregate `totals` across every matching repository. |
-| `GET /api/pull-requests` | Viewer or admin | Paginated PR groups, total matching PRs, matching and lifetime request counts, and the latest matching request. |
-| `GET /api/history` | Viewer or admin | Paginated requests, `total` matching requests before the cursor is applied, and per-request token usage. |
-| `GET /api/history/{run_id}` | Viewer or admin | Selected request, original published Markdown and GitHub links, plus up to 20 retained requests for the same PR. `before_id` pages that PR's history; selection is independent of the cursor and reporting period. Missing requests return 404. |
-| `GET /api/operations` | Admin | Worker presence and capacity, active leases, and webhook, review, and publication queue counts. |
-| `GET /api/operations/events` | Admin | Structured process and review events, with optional `worker_id` and `before_id` filters. |
-| `GET /api/users` | Admin | `AccountPage`: `items`, `total`, `admin_count`, `disabled_count`, and `has_more`. |
-| `GET /api/access/installations`, `GET /api/access/repositories` | Admin | Bounded GitHub App access inventory and capability state. |
-| `GET /api/access/connection` | Admin | Live App authentication, permission and event checks, plus App management links. |
-| `GET /api/access/installations/{id}/status` | Admin | Live installation scope, status, permission gaps, and its GitHub settings URL. |
-| `POST /api/access/repositories/onboard` | Admin | Verify and enable one named repository using `{repository, profile, reason}`. |
-| `POST /api/access/...` | Admin | Installation approval and selected-inventory refresh; repository enablement and disablement. |
-| `GET /api/quality`, `GET /api/quality/feedback` | Viewer or admin | Quality cohorts and paginated retained feedback. |
-| `GET /api/history/{run_id}/findings`, `GET /api/findings/{fingerprint}` | Viewer or admin | Published finding occurrences and bounded decision history. |
-| `POST /api/findings/{fingerprint}/decisions`, `POST /api/quality/feedback/{id}/triage` | Admin | Audited human decisions and feedback triage. |
-| `GET /api/history/{run_id}/controls`, `POST /api/history/{run_id}/actions` | Admin | Available run controls, snapshot preconditions, and audit events. |
-| `GET /api/settings`, `PUT /api/settings` | Admin | Current policy, bounded revision history, startup records, and conditional saves. |
-| `GET /api/deployment` | Admin | Optional Dokploy container state for this application. |
-| `GET /api/providers`, `GET /api/providers/models` | Admin | Optional Hermes provider state and model catalog. |
-| `GET /api/providers/runtime` | Admin | Optional bounded Hermes readiness checks, version, active agents, shutdown state, API support, and default model. |
-| `POST /api/providers/openai-codex/login`, `GET /api/providers/openai-codex/login/{id}`, `POST /api/providers/openai-codex/login/{id}/cancel` | Admin | Hermes-owned device login lifecycle. |
+| `GET /api/overview` | Team reader or global role | Lifetime and selected-period totals, UTC daily publications, publication latency, recent failure reasons, and reporting review workers and capacity. |
+| `GET /api/repositories` | Team reader or global role | Paginated repositories, `total` matching repositories, and aggregate `totals` across every matching repository. |
+| `GET /api/pull-requests` | Team reader or global role | Paginated PR groups, total matching PRs, matching and lifetime request counts, and the latest matching request. |
+| `GET /api/history` | Team reader or global role | Paginated requests, `total` matching requests before the cursor is applied, and per-request token usage. |
+| `GET /api/history/{run_id}` | Team reader or global role | Selected request, original published Markdown and GitHub links, plus up to 20 retained requests for the same PR. `before_id` pages that PR's history; selection is independent of the cursor and reporting period. Missing requests return 404. |
+| `GET /api/operations` | Owner or admin | Worker presence and capacity, active leases, and webhook, review, and publication queue counts. |
+| `GET /api/operations/events` | Owner or admin | Structured process and review events, with optional `worker_id` and `before_id` filters. |
+| `GET /api/users` | Owner or admin | `AccountPage`: `items`, `total`, `admin_count`, `disabled_count`, and `has_more`. |
+| `GET /api/access/installations`, `GET /api/access/repositories` | Owner or admin | Bounded GitHub App access inventory and capability state. |
+| `GET /api/access/connection` | Owner or admin | Live App authentication, permission and event checks, plus App management links. |
+| `GET /api/access/installations/{id}/status` | Owner or admin | Live installation scope, status, permission gaps, and its GitHub settings URL. |
+| `POST /api/access/repositories/onboard` | Owner or admin | Verify and enable one named repository using `{repository, profile, reason}`. |
+| `POST /api/access/...` | Owner or admin | Installation approval and selected-inventory refresh; repository enablement and disablement. |
+| `GET /api/quality`, `GET /api/quality/feedback` | Team reader or global role | Quality cohorts and paginated retained feedback. |
+| `GET /api/history/{run_id}/findings`, `GET /api/findings/{fingerprint}` | Team reader or global role | Published finding occurrences and bounded decision history. |
+| `POST /api/findings/{fingerprint}/decisions`, `POST /api/quality/feedback/{id}/triage` | Team maintainer, owner or admin | Audited human decisions and feedback triage. |
+| `GET /api/history/{run_id}/controls`, `POST /api/history/{run_id}/actions` | Team maintainer, owner or admin | Available run controls, snapshot preconditions, and audit events. Stalled-run recovery requires owner/admin access. |
+| `GET /api/settings`, `PUT /api/settings` | Owner | Current policy, bounded revision history, startup records, and conditional saves. |
+| `GET /api/deployment` | Owner | Optional Dokploy container state for this application. |
+| `GET /api/providers`, `GET /api/providers/models` | Owner | Optional Hermes provider state and model catalog. |
+| `GET /api/providers/runtime` | Owner | Optional bounded Hermes readiness checks, version, active agents, shutdown state, API support, and default model. |
+| `POST /api/providers/openai-codex/login`, `GET /api/providers/openai-codex/login/{id}`, `POST /api/providers/openai-codex/login/{id}/cancel` | Owner | Hermes-owned device login lifecycle. |
+| `GET /api/teams`, `GET /api/teams/{id}` | Team reader or global role | Searchable teams and the current account's team role. |
+| `POST /api/teams`, `PATCH /api/teams/{id}` | Owner or admin | Team creation and conditional metadata changes. |
+| `GET /api/teams/{id}/members` | Team reader or global role | Bounded membership list. |
+| `PUT /api/teams/{id}/members`, `POST /api/teams/{id}/members/{user_id}/remove` | Team maintainer, owner or admin | Add, change, or remove membership with a reason. |
+| `GET /api/teams/{id}/repositories`, `GET /api/repository-requests` | Team reader or global role | Owned repositories and request decisions. |
+| `POST /api/teams/{id}/repository-requests`, `POST /api/repository-requests/{id}/withdraw` | Team maintainer, owner or admin | Submit or withdraw a pending request. |
+| `POST /api/repository-requests/{id}/approve`, `POST /api/repository-requests/{id}/reject` | Owner or admin | Verify and approve, or reject, a pending request. |
+| `PUT /api/repository-ownership/{id}`, `POST /api/teams/{id}/repositories/{repository_id}/remove` | Owner or admin | Conditional ownership assignment/transfer, or removal. |
+| `GET /api/teams/{id}/events`, `GET /api/audit` | Owner or admin | Keyset-paginated audit events, filtered by audience. Global audit supports actor and action filters. |
+
+Repository reports accept optional `team_id`. Without it, a member receives the
+union of their teams; owners, admins, and explicit global viewers receive the
+deployment view. A foreign resource returns 404 without revealing its owner.
+Finding details, review details, and feedback rows report whether the current
+account can act on that exact resource. Clients must still handle access changing
+before submission.
 
 Overview, repositories, PR groups, and history accept either `days` (1–90; default 30), or
 both `start` and `end` as RFC 3339 timestamps with timezone offsets. Explicit
@@ -187,8 +262,8 @@ Open **Finding decisions** from a published review to inspect an exact finding
 occurrence. A human decision refers to that occurrence even if a later review
 contains the same fingerprint. Intentional-by-design decisions still require the
 accepted ADR snapshot and matching path. Review quality shows the reporting
-cohorts and retained feedback backlog; administrators can classify pending
-feedback using the existing triage states.
+cohorts and retained feedback backlog; team maintainers and platform admins can
+classify pending feedback using the existing triage states.
 
 A request's **Review actions** can release a delayed retry, cancel queued or leased
 work, or fail stale work after checking its heartbeat and lease. The confirmation
@@ -259,9 +334,12 @@ under **Advanced operational settings**.
 | `REVIEW_AGENT_DOKPLOY_URL`, `REVIEW_AGENT_DOKPLOY_COMPOSE_ID`, `REVIEW_AGENT_DOKPLOY_API_KEY` | Deployment integration binding and credential; fixes which external application the admin service may inspect. |
 | `REVIEW_AGENT_OPENAI_API_KEY`, `REVIEW_AGENT_HERMES_CONTROL_TOKEN`, `API_SERVER_KEY` | Deployment secrets; embedding, provider-companion and Hermes API credentials. They are never stored in policy revisions or sent to the browser. |
 
-When upgrading this candidate, apply migration 21 before starting the updated
-services. It adds publisher and webhook startup observations without rewriting
-existing policy revisions or review data. Restore policy by loading an earlier
+When upgrading this candidate, back up PostgreSQL and apply migration 22 before
+starting the matching admin frontend/API. Existing admins become owners; existing
+viewers retain explicit global read access. New accounts default to team-scoped
+membership. Repository ownership starts unassigned, and existing GitHub activation
+policy is preserved. Assign repositories before converting global viewers to
+members. Restore policy by loading an earlier
 revision into the editor and saving it with a reason. Use a coordinated application
 rollback with the normal database backup procedure; an older application cannot
 read revisions containing newly introduced fields.
@@ -371,7 +449,7 @@ frontend and API together on port `8090`; Node.js is used only during the build.
    panel join the shared ingress network; database, gateway, and Hermes remain
    private. A separate Dokploy application is unnecessary.
 
-4. After migrations complete, create the first administrator from the panel
+4. After migrations complete, create the first platform owner from the panel
    container's terminal:
 
    ```bash
@@ -390,8 +468,8 @@ frontend and API together on port `8090`; Node.js is used only during the build.
    account only when no accounts exist; service restarts never reset passwords.
 
 5. Open the admin hostname and sign in. Check repository counts and a known
-   review, then use **Users** to add an account. A viewer should see statistics
-   and history without access to user administration.
+   review, then use **Users** to add a Member account. Add it to a team as Viewer
+   and verify that it can read that team’s repositories without user administration.
 
 ## Accounts and recovery
 
@@ -400,11 +478,11 @@ PostgreSQL sessions. HTTPS cookies are HttpOnly and SameSite Strict and expire
 after eight hours. There is no public registration or email service. Share an
 initial password privately; users can change it under **Your account**.
 
-An administrator can disable an account or set a replacement password. Account
-changes revoke its sessions, and logout revokes the current session. The panel
-prevents disabling or demoting the last active administrator. Keep access to a
-second administrator for password recovery; the bootstrap command deliberately
-does not replace existing accounts.
+Owners can disable or reset any account; admins can manage Member and Global
+viewer accounts. Account changes revoke sessions, and logout revokes the current
+session. The panel protects the last active owner from demotion or disablement.
+Keep a second owner for privileged-account recovery. The bootstrap command
+deliberately does not replace existing accounts.
 
 Users and sessions are included in the existing PostgreSQL backup. Back up the
 database before upgrading both images. To remove the panel, remove its route
@@ -412,6 +490,9 @@ and optional service while preserving PostgreSQL. Removing the panel does not
 require deleting its tables. Follow the existing database recovery procedure
 for a full version rollback; do not reverse migrations manually.
 
-The panel currently provides deployment-wide visibility and account management.
-It does not provide per-repository roles, review retries, queue cancellation, or
-a Kanban board.
+The console shares the existing PostgreSQL runtime. Its application pool permits
+at most four connections and sixteen waiting queries; the authentication pool
+permits two connections without overflow. Include both in the deployment’s
+connection budget. Team, request, and audit pages use bounded pages. Quality
+cohorts return at most 200 rows and signal truncation. Swagger assets are built
+separately and load only when the API reference is opened.

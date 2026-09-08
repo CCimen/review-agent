@@ -10,6 +10,7 @@ let server;
 let ReviewMarkdown;
 let ReviewPage;
 let APIError;
+let Users;
 before(async () => {
   server = await createServer({
     server: { middlewareMode: true },
@@ -18,6 +19,7 @@ before(async () => {
   ({ ReviewMarkdown } = await server.ssrLoadModule("/src/reviewMarkdown.tsx"));
   ({ ReviewPage } = await server.ssrLoadModule("/src/history.tsx"));
   ({ APIError } = await server.ssrLoadModule("/src/api.ts"));
+  ({ Users } = await server.ssrLoadModule("/src/accounts.tsx"));
 });
 after(async () => {
   await server?.close();
@@ -102,7 +104,7 @@ const review = {
   requests: [request],
   next_cursor: null,
 };
-const renderReader = async (client) => {
+const renderReader = async (client, role = "viewer") => {
   const stream = await renderToReadableStream(
     createElement(
       QueryClientProvider,
@@ -117,7 +119,7 @@ const renderReader = async (client) => {
           null,
           createElement(Route, {
             path: "/history/:runId",
-            element: createElement(ReviewPage, { current: { role: "viewer" } }),
+            element: createElement(ReviewPage, { current: { role } }),
           }),
         ),
       ),
@@ -169,5 +171,104 @@ test("a request removed by retention does not continue displaying its cached pub
   const html = await renderReader(client);
   assert.match(html, /Review request not found/);
   assert.doesNotMatch(html, /F1: Handle cancellation|Recorded publication/);
+  client.clear();
+});
+
+test("queued reviews expose contextual admin actions without premature coverage or duplicate waiting content", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const queued = {
+    ...request,
+    state: "queued",
+    phase: "accepted",
+    posted_at: null,
+    completed_at: null,
+    coverage: {
+      ...request.coverage,
+      registration_complete: true,
+      changed_paths_with_complete_diff: 0,
+    },
+  };
+  client.setQueryData(["review", "24", null], {
+    ...review,
+    item: queued,
+    requests: [queued],
+    markdown: null,
+  });
+  client.setQueryData(["run-controls", 24], {
+    run: {
+      id: 24,
+      status: "running",
+      phase: "accepted",
+      last_heartbeat_at: request.last_heartbeat_at,
+    },
+    job: {
+      id: 1,
+      status: "queued",
+      lease_generation: 0,
+      available_at: request.started_at,
+    },
+    actions: {
+      release_retry: {
+        available: false,
+        reason: "Only delayed retries can be released.",
+      },
+      cancel: { available: true, reason: "Cancel this review." },
+      mark_stalled: {
+        available: true,
+        reason: "Mark failed if the worker heartbeat is stale.",
+      },
+    },
+    audit: [],
+  });
+  const html = await renderReader(client, "admin");
+  assert.match(html, /Waiting for a worker/);
+  assert.doesNotMatch(
+    html,
+    /Complete diffs were available|may leave changes unreviewed|Review not published yet/,
+  );
+  assert.match(html, /aria-haspopup="dialog"[^>]*>Review actions/);
+  assert.match(html, /<summary>Advanced actions<\/summary>/);
+  assert.match(html, /Cancel review/);
+  assert.doesNotMatch(html, />Retry now<|>Run controls</);
+  assert.ok(html.indexOf("Review actions") < html.indexOf("Execution details"));
+  const viewer = await renderReader(client);
+  assert.doesNotMatch(viewer, /Review actions|Cancel review/);
+  client.clear();
+});
+
+test("user management has Settings navigation and retains account totals and creation", () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  client.setQueryData(["users", 0], {
+    items: [],
+    total: 12,
+    admin_count: 3,
+    disabled_count: 2,
+    has_more: false,
+  });
+  const html = renderToStaticMarkup(
+    createElement(
+      QueryClientProvider,
+      { client },
+      createElement(
+        MemoryRouter,
+        { initialEntries: ["/users"] },
+        createElement(Users, { current: { role: "admin" } }),
+      ),
+    ),
+  );
+  assert.match(html, /aria-label="Settings views"/);
+  assert.match(html, /href="\/settings"/);
+  assert.match(
+    html,
+    /aria-current="page"[^>]*href="\/users"[^>]*>Users &amp; roles/,
+  );
+  assert.match(html, /Add user/);
+  assert.match(html, /Accounts/);
+  assert.match(html, />12</);
+  assert.doesNotMatch(html, /Neither role changes reviews or jobs/);
   client.clear();
 });

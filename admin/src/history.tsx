@@ -59,7 +59,13 @@ function Result({ item }: { item: HistoryItem }) {
               ? failureSentence(item.failure_code ?? "")
               : item.state === "superseded"
                 ? "A newer request replaced this run"
-                : "No published result yet"}
+                : item.state === "queued"
+                  ? "Waiting for a worker"
+                  : item.state === "running"
+                    ? "Review in progress"
+                    : item.state === "publishing"
+                      ? "Delivering the result to GitHub"
+                      : "No published result yet"}
         {item.coverage.state !== "complete" && item.posted_at !== null ? (
           <span className="coverage-label">
             {" "}
@@ -151,14 +157,16 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
           </p>
         </div>
       )}
-      {item.coverage.state !== "complete" && (
-        <p className="notice">
-          {item.coverage.state === "unknown"
-            ? "Coverage has not been established."
-            : `Complete diffs were available for ${item.coverage.changed_paths_with_complete_diff} of ${item.coverage.changed_files_reported ?? "an unknown number of"} changed files.`}{" "}
-          A published result may leave changes unreviewed.
-        </p>
-      )}
+      {item.coverage.state !== "complete" &&
+        (item.posted_at !== null ||
+          (item.state !== "queued" && item.coverage.registration_complete)) && (
+          <p className="notice">
+            {item.coverage.state === "unknown"
+              ? "Coverage has not been established."
+              : `Complete diffs were available for ${item.coverage.changed_paths_with_complete_diff} of ${item.coverage.changed_files_reported ?? "an unknown number of"} changed files.`}{" "}
+            A published result may leave changes unreviewed.
+          </p>
+        )}
       {(item.publication_superseded || item.state === "superseded") && (
         <p className="notice">
           This review has been superseded. Select a later request to inspect
@@ -337,21 +345,18 @@ function ReviewReader({
                   </button>
                 </div>
               ) : null}
-              {current.role === "admin" && (
-                <details className="execution-details">
-                  <summary>Run controls</summary>
-                  <RunControls runId={item.id} />
-                </details>
-              )}
             </aside>
             <section
               className="review-reading"
               aria-label={`Review request ${item.id}`}
             >
               <div className="review-summary">
-                <Result item={item} />
+                <div className="review-status-row">
+                  <Result item={item} />
+                  {current.role === "admin" && <RunControls runId={item.id} />}
+                </div>
                 <p className="review-commit">
-                  Reviewed head{" "}
+                  Request head{" "}
                   <Copy value={item.head_sha} label="reviewed head SHA">
                     <code>{item.head_sha.slice(0, 12)}</code>
                   </Copy>
@@ -419,6 +424,13 @@ function ReviewReader({
                     />
                   </Suspense>
                 </>
+              ) : !item.posted_at &&
+                (item.state === "queued" ||
+                  item.state === "running" ||
+                  item.state === "publishing") ? (
+                <p className="review-waiting">
+                  This page updates automatically as the review progresses.
+                </p>
               ) : (
                 <Empty
                   title={

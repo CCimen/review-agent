@@ -7,16 +7,16 @@ type RunControlsResponse = components["schemas"]["RunControls"];
 type RunAction = "release_retry" | "cancel" | "mark_stalled";
 
 const labels: Record<RunAction, string> = {
-  release_retry: "Release retry",
+  release_retry: "Retry now",
   cancel: "Cancel review",
-  mark_stalled: "Mark stalled",
+  mark_stalled: "Mark as stalled",
 };
 
 const summaries: Record<RunAction, string> = {
   release_retry:
     "Release this delayed retry now. This keeps the same review request and attempt budget.",
   cancel:
-    "Cancel this running review. Its queued or leased job becomes terminal immediately.",
+    "Cancel this review and stop further processing of its queued or running job.",
   mark_stalled:
     "Mark this review failed only if its heartbeat is older than the selected cutoff and no live worker lease remains.",
 };
@@ -70,7 +70,6 @@ export function RunControls({ runId }: { runId: number }) {
       if (error instanceof APIError && error.status === 409) {
         setReason("");
         setAction(null);
-        dialog.current?.close();
         await query.refetch();
       }
     },
@@ -81,63 +80,139 @@ export function RunControls({ runId }: { runId: number }) {
     setReason("");
     setSnapshot(query.data?.job ?? null);
     setAction(nextAction);
-    dialog.current?.showModal();
   }
 
-  if (query.isPending) return <p role="status">Loading run controls…</p>;
-  if (query.isError)
-    return (
-      <div className="notice error" role="alert">
-        <p>Could not load run controls.</p>
-        <button onClick={() => void query.refetch()}>Retry</button>
-      </div>
-    );
-  if (!query.data) return null;
-
   const controls = query.data;
-  const actions: [RunAction, { available: boolean; reason: string }][] = [
-    ["release_retry", controls.actions.release_retry],
-    ["cancel", controls.actions.cancel],
-    ["mark_stalled", controls.actions.mark_stalled],
-  ];
   return (
-    <section
-      className="panel run-controls"
-      aria-labelledby="run-controls-heading"
-    >
-      <div className="panel-heading">
-        <div>
-          <h2 id="run-controls-heading">Run controls</h2>
-          <span>
-            {controls.job
-              ? `Job ${controls.job.id} · ${controls.job.status.replaceAll("_", " ")}`
-              : "No durable job"}
-          </span>
-        </div>
-      </div>
-      <div className="button-row">
-        {actions.map(([name, availability]) => (
-          <button
-            key={name}
-            type="button"
-            disabled={!availability.available}
-            title={availability.reason}
-            onClick={() => confirm(name)}
-          >
-            {labels[name]}
-          </button>
-        ))}
-      </div>
-      <dl className="detail-list">
-        {actions.map(([name, availability]) => (
-          <div key={name}>
-            <dt>{labels[name]}</dt>
-            <dd>{availability.reason}</dd>
-          </div>
-        ))}
-      </dl>
-      <dialog ref={dialog} aria-labelledby="run-action-heading">
-        {action && (
+    <>
+      <button
+        type="button"
+        className="secondary"
+        aria-haspopup="dialog"
+        onClick={() => {
+          mutation.reset();
+          setAction(null);
+          setReason("");
+          dialog.current?.showModal();
+          void query.refetch();
+        }}
+      >
+        Review actions
+      </button>
+      <dialog
+        ref={dialog}
+        className="review-actions-dialog"
+        aria-labelledby="run-action-heading"
+        onCancel={(event) => {
+          if (mutation.isPending) event.preventDefault();
+        }}
+      >
+        {!action ? (
+          <>
+            <div className="panel-heading">
+              <h2 id="run-action-heading">Review actions</h2>
+              <button
+                type="button"
+                className="secondary"
+                autoFocus
+                onClick={() => dialog.current?.close()}
+              >
+                Close
+              </button>
+            </div>
+            <p className="muted">Request #{runId}</p>
+            {query.isFetching && (
+              <p role="status">Checking available actions…</p>
+            )}
+            {query.isError && (
+              <div className="notice error" role="alert">
+                <p>Could not check available actions.</p>
+                <button type="button" onClick={() => void query.refetch()}>
+                  Try again
+                </button>
+              </div>
+            )}
+            {mutation.isError && (
+              <p className="notice error" role="alert">
+                {mutation.error.message}
+              </p>
+            )}
+            {controls && !query.isError && (
+              <>
+                <div className="review-action-list">
+                  {controls.actions.release_retry.available && (
+                    <div>
+                      <button
+                        type="button"
+                        disabled={query.isFetching}
+                        onClick={() => confirm("release_retry")}
+                      >
+                        Retry now
+                      </button>
+                      <p>
+                        Start the delayed retry without waiting for its
+                        scheduled time.
+                      </p>
+                    </div>
+                  )}
+                  {controls.actions.cancel.available && (
+                    <div>
+                      <button
+                        type="button"
+                        className="secondary destructive"
+                        disabled={query.isFetching}
+                        onClick={() => confirm("cancel")}
+                      >
+                        Cancel review
+                      </button>
+                      <p>Stop further processing of this request.</p>
+                    </div>
+                  )}
+                </div>
+                {controls.actions.mark_stalled.available && (
+                  <details className="review-advanced-actions">
+                    <summary>Advanced actions</summary>
+                    <p>
+                      Mark the review as failed if its heartbeat is stale and no
+                      worker holds a live lease.
+                    </p>
+                    <button
+                      type="button"
+                      className="secondary destructive"
+                      disabled={query.isFetching}
+                      onClick={() => confirm("mark_stalled")}
+                    >
+                      Mark as stalled
+                    </button>
+                  </details>
+                )}
+                {!Object.values(controls.actions).some(
+                  (availability) => availability.available,
+                ) && (
+                  <p>
+                    No actions are available for this request in its current
+                    state.
+                  </p>
+                )}
+                {controls.audit.length > 0 && (
+                  <details className="review-advanced-actions">
+                    <summary>
+                      Administrative history ({controls.audit.length})
+                    </summary>
+                    <ol className="event-list">
+                      {controls.audit.map((event) => (
+                        <li key={event.id}>
+                          <strong>{labels[event.action]}</strong> by{" "}
+                          {event.actor}: {event.reason}
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                )}
+              </>
+            )}
+          </>
+        ) : (
           <form
             method="dialog"
             onSubmit={(event) => {
@@ -184,35 +259,34 @@ export function RunControls({ runId }: { runId: number }) {
               </p>
             )}
             <div className="button-row">
-              <button disabled={mutation.isPending} type="submit">
+              <button
+                className={
+                  action === "release_retry"
+                    ? undefined
+                    : "secondary destructive"
+                }
+                disabled={mutation.isPending}
+                type="submit"
+              >
                 {mutation.isPending
                   ? "Saving…"
                   : `Confirm ${labels[action].toLowerCase()}`}
               </button>
               <button
                 type="button"
+                className="secondary"
                 disabled={mutation.isPending}
-                onClick={() => dialog.current?.close()}
+                onClick={() => {
+                  setAction(null);
+                  mutation.reset();
+                }}
               >
-                Keep run unchanged
+                Go back
               </button>
             </div>
           </form>
         )}
       </dialog>
-      {controls.audit.length > 0 && (
-        <details>
-          <summary>Administrative history ({controls.audit.length})</summary>
-          <ol className="event-list">
-            {controls.audit.map((event) => (
-              <li key={event.id}>
-                <strong>{labels[event.action]}</strong> by {event.actor}:{" "}
-                {event.reason}
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-    </section>
+    </>
   );
 }

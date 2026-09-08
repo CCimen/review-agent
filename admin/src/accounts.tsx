@@ -9,6 +9,16 @@ import type {
   PasswordChange,
 } from "./api";
 import { Stat } from "./ui";
+import { NavLink } from "react-router-dom";
+
+export function SettingsTabs() {
+  return (
+    <nav className="page-tabs" aria-label="Settings views">
+      <NavLink to="/settings">General</NavLink>
+      <NavLink to="/users">Users &amp; roles</NavLink>
+    </nav>
+  );
+}
 
 export function Login() {
   const client = useQueryClient();
@@ -136,7 +146,7 @@ export function Users({ current }: { current: Account }) {
     <>
       <div className="page-heading">
         <div>
-          <h1>Users</h1>
+          <h1>Users &amp; roles</h1>
           <p>Control who can view review activity and manage access.</p>
         </div>
         <button
@@ -154,12 +164,14 @@ export function Users({ current }: { current: Account }) {
           {adding ? "Cancel adding user" : "Add user"}
         </button>
       </div>
+      <SettingsTabs />
       <details className="metric-note">
         <summary>What the roles allow</summary>
         <p>
           <strong>Viewer</strong> can read statistics and review history for all
-          repositories. <strong>Admin</strong> can also manage accounts. Neither
-          role changes reviews or jobs through this panel.
+          repositories and inspect review quality. <strong>Admin</strong> can
+          also manage accounts, repository access, review actions, finding
+          decisions, and deployment settings.
         </p>
       </details>
       {createdEmail && (

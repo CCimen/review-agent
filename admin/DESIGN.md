@@ -12,7 +12,9 @@ dark themes, controls, and responsive behavior. Keep forms, dialogs, disclosures
 tables, and focus behavior native where possible.
 
 Published review text is the primary content on the reader page. Request history
-and administrative controls belong in the secondary rail. Finding decisions link
+belongs in the secondary rail; review actions open from the selected request status.
+Recovery actions remain under an advanced disclosure, with confirmation before a
+change. Settings and user management share persistent navigation. Finding decisions link
 to an exact published occurrence. Historical results, live worker state, container
 state, and provider authentication must retain their distinct meanings.
 

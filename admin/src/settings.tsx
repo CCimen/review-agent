@@ -1,7 +1,7 @@
 import { DeploymentLink } from "./deployment";
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { SettingsTabs } from "./accounts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { read, write } from "./api";
 import type { components } from "./api.generated";
@@ -71,10 +71,8 @@ export function SettingsPage() {
           <h1>Settings</h1>
           <p>Model connections and deployment policy.</p>
         </div>
-        <Link className="button secondary" to="/users">
-          Manage accounts
-        </Link>
       </div>
+      <SettingsTabs />
       <Providers />
       <Freshness query={query} />
       {query.data && (

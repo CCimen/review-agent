@@ -2189,6 +2189,58 @@ code {
   align-items: center;
   gap: var(--space-3);
 }
+.review-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+.review-status-row > button {
+  flex-shrink: 0;
+}
+.review-actions-dialog .panel-heading {
+  padding: 0;
+  border: 0;
+  align-items: center;
+}
+.review-actions-dialog h2 {
+  margin: 0;
+}
+.review-action-list {
+  display: grid;
+  gap: var(--space-4);
+}
+.review-action-list p,
+.review-advanced-actions p {
+  color: var(--muted);
+  font-size: var(--step-1);
+  margin-block: var(--space-2);
+}
+.review-advanced-actions {
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-3);
+}
+.review-advanced-actions > summary {
+  min-height: 36px;
+  cursor: pointer;
+  font-weight: 500;
+}
+button.secondary.destructive {
+  color: var(--danger);
+  border-color: var(--danger-line);
+}
+button.secondary.destructive:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+.review-waiting {
+  margin-block: var(--space-4);
+  color: var(--muted);
+}
+.review-waiting ~ .execution-details {
+  margin-top: var(--space-4);
+}
 .review-summary .subtext {
   margin: 0;
   font-size: var(--step-3);
@@ -2481,20 +2533,4 @@ dialog form {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-.run-controls .button-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px;
-}
-.run-controls .detail-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 0 12px 12px;
-  font-size: var(--step-0);
-}
-.run-controls .detail-list dd {
-  margin-top: 3px;
 }

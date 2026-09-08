@@ -73,8 +73,9 @@ class PostgreSQLRetentionTests(unittest.TestCase):
         with psycopg.connect(DSN) as connection:
             with connection.transaction():
                 self._seed(connection)
-                result = retention.prune_terminal_webhook_deliveries(
+                result = retention.prune_receipts(
                     connection,
+                    target="terminal_webhook_deliveries",
                     before=cutoff,
                     limit=1,
                     apply=False,
@@ -87,7 +88,7 @@ class PostgreSQLRetentionTests(unittest.TestCase):
         self.assertEqual(result.deleted, 0)
         self.assertTrue(result.more)
         self.assertEqual(
-            result.oldest_processed_at,
+            result.oldest_timestamp,
             datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc),
         )
         self.assertEqual(remaining, (4,))
@@ -97,8 +98,9 @@ class PostgreSQLRetentionTests(unittest.TestCase):
         with psycopg.connect(DSN) as connection:
             with connection.transaction():
                 self._seed(connection)
-                result = retention.prune_terminal_webhook_deliveries(
+                result = retention.prune_receipts(
                     connection,
+                    target="terminal_webhook_deliveries",
                     before=cutoff,
                     limit=1,
                     apply=True,
@@ -135,8 +137,9 @@ class PostgreSQLRetentionTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 barrier.wait()
                 with connection.transaction():
-                    return retention.prune_terminal_webhook_deliveries(
+                    return retention.prune_receipts(
                         connection,
+                        target="terminal_webhook_deliveries",
                         before=cutoff,
                         limit=1,
                         apply=True,
@@ -162,17 +165,71 @@ class PostgreSQLRetentionTests(unittest.TestCase):
     def test_invalid_cutoff_and_limit_are_rejected_before_querying(self) -> None:
         connection = Mock()
         with self.assertRaises(retention.RetentionError):
-            retention.prune_terminal_webhook_deliveries(
+            retention.prune_receipts(
                 connection,
+                target="terminal_webhook_deliveries",
                 before=datetime(2026, 3, 1),
                 limit=1,
                 apply=False,
             )
         with self.assertRaises(retention.RetentionError):
-            retention.prune_terminal_webhook_deliveries(
+            retention.prune_receipts(
                 connection,
+                target="terminal_webhook_deliveries",
                 before=datetime(2026, 3, 1, tzinfo=timezone.utc),
                 limit=0,
                 apply=False,
             )
         connection.execute.assert_not_called()
+
+    def test_integration_retention_preserves_changes_failed_reads_and_newer_reads(
+        self,
+    ) -> None:
+        cutoff = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        with psycopg.connect(DSN) as connection:
+            connection.execute(
+                """INSERT INTO review_agent.admin_audit_events
+                   (actor_role, action, subject, reason, outcome, recorded_at)
+                   VALUES
+                   ('integration', 'integration_read', 'oldest', 'Report read', 'succeeded', '2026-01-01Z'),
+                   ('integration', 'integration_read', 'second', 'Report read', 'succeeded', '2026-02-01Z'),
+                   ('integration', 'integration_read', 'newer', 'Report read', 'succeeded', '2026-08-01Z'),
+                   ('admin', 'integration_revoked', 'change', 'Access revoked', 'succeeded', '2026-01-01Z'),
+                   ('integration', 'integration_read', 'failed', 'Read denied', 'failed', '2026-01-01Z'),
+                   ('admin', 'integration_read', 'human', 'Human read receipt', 'succeeded', '2026-01-01Z')"""
+            )
+            preview = retention.prune_receipts(
+                connection,
+                target="integration_reads",
+                before=cutoff,
+                limit=1,
+                apply=False,
+            )
+            self.assertEqual(
+                (preview.matched, preview.deleted, preview.more), (1, 0, True)
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.admin_audit_events"
+                ).fetchone(),
+                (6,),
+            )
+            applied = retention.prune_receipts(
+                connection,
+                target="integration_reads",
+                before=cutoff,
+                limit=1,
+                apply=True,
+            )
+            self.assertEqual(
+                (applied.matched, applied.deleted, applied.more), (1, 1, True)
+            )
+            self.assertEqual(
+                [
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT subject FROM review_agent.admin_audit_events ORDER BY id"
+                    )
+                ],
+                ["second", "newer", "change", "failed", "human"],
+            )

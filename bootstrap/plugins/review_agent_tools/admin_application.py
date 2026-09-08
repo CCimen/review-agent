@@ -51,6 +51,7 @@ def _report_transaction(
     runtime: PostgreSQLRuntime,
     access: ReadAccessRequest,
     operation: IntegrationOperation,
+    details: dict[str, str | int | bool | None] | None = None,
 ) -> Iterator[tuple[psycopg.Connection[TupleRow], ReadScope]]:
     with _transaction(runtime, access) as (connection, scope):
         yield connection, scope
@@ -61,7 +62,7 @@ def _report_transaction(
                 action=audit.AuditAction.INTEGRATION_READ,
                 subject=f"integration:{scope.id}",
                 reason="Read an authorized integration report",
-                details={"operation": operation},
+                details={**(details or {}), "operation": operation},
                 team_id=scope.team_id,
             )
 
@@ -261,7 +262,20 @@ def repositories(
     ):
         raise ValueError("repository cursor exceeds its bounds")
     since, until, now = report_window(days=days, start=start, end=end)
-    with _report_transaction(runtime, access, "repositories") as (connection, scope):
+    with _report_transaction(
+        runtime,
+        access,
+        "repositories",
+        {
+            "start": since.isoformat(),
+            "end": until.isoformat(),
+            "search": search.strip(),
+            "offset": offset,
+            "limit": limit,
+            "after_id": after_id,
+            "watermark_id": watermark_id,
+        },
+    ) as (connection, scope):
         return admin_reporting.repositories(
             connection,
             scope=scope,
@@ -302,7 +316,21 @@ def history(
     since, until, now = report_window(days=days, start=start, end=end)
     if watermark_id is not None and not 0 <= watermark_id <= 9223372036854775807:
         raise ValueError("history watermark exceeds its bounds")
-    with _report_transaction(runtime, access, "reviews") as (connection, scope):
+    with _report_transaction(
+        runtime,
+        access,
+        "reviews",
+        {
+            "start": since.isoformat(),
+            "end": until.isoformat(),
+            "repository": normalized,
+            "status": status,
+            "pr_number": pr_number,
+            "limit": limit,
+            "before_id": before_id,
+            "watermark_id": watermark_id,
+        },
+    ) as (connection, scope):
         return admin_reporting.history(
             connection,
             scope=scope,
@@ -333,7 +361,9 @@ def review_detail(
 ) -> admin_reporting.ReviewDetail | None:
     if run_id < 1 or (before_id is not None and before_id < 1):
         raise ValueError("Request ID and cursor must be positive")
-    with _report_transaction(runtime, access, "review_content") as (connection, scope):
+    with _report_transaction(
+        runtime, access, "review_content", {"run_id": run_id, "before_id": before_id}
+    ) as (connection, scope):
         if isinstance(scope, IntegrationScope) and not scope.read_review_content:
             raise AccessDenied("This integration does not have review content access")
         result = admin_reporting.review_detail(
@@ -381,7 +411,12 @@ def overview(
 ) -> admin_operations.Overview:
     _bounds(days=days, limit=1)
     window_start, window_end, now = report_window(days=days, start=start, end=end)
-    with _report_transaction(runtime, access, "overview") as (connection, scope):
+    with _report_transaction(
+        runtime,
+        access,
+        "overview",
+        {"start": window_start.isoformat(), "end": window_end.isoformat()},
+    ) as (connection, scope):
         return admin_operations.overview(
             connection, scope=scope, start=window_start, end=window_end, now=now
         )
@@ -486,7 +521,16 @@ def quality_report(
     _bounds(days=days, limit=1)
     window_start, window_end, _ = report_window(days=days, start=start, end=end)
     normalized = resolve_repository(repository) if repository is not None else None
-    with _report_transaction(runtime, access, "quality") as (connection, scope):
+    with _report_transaction(
+        runtime,
+        access,
+        "quality",
+        {
+            "start": window_start.isoformat(),
+            "end": window_end.isoformat(),
+            "repository": normalized,
+        },
+    ) as (connection, scope):
         if normalized is not None:
             team_access.require_repository(connection, scope, normalized)
         return quality_reporting.build_report(

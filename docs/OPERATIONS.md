@@ -309,7 +309,8 @@ Durable history is preserved unless this table explicitly says otherwise:
 | `finding_identities`, `finding_occurrences`, `finding_suggestions`, `finding_decisions`, `intentional_design_evidence`, `decision_audit`, `pull_request_finding_references` | Repository owner | Preserve finding history and explicit human decisions. |
 | `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
 | `admin_users`, `admin_sessions` | Deployment owner | Preserve admin-panel accounts and revocable login sessions; treat backups as credential-bearing data. |
-| `teams`, `team_members`, `team_repositories`, `repository_requests`, `admin_audit_events` | Deployment owner | Preserve team access, repository ownership, request decisions, and the console audit journal. The current retention command does not prune these records. |
+| `teams`, `team_members`, `team_repositories`, `repository_requests` | Deployment owner | Preserve team access, repository ownership and request decisions. |
+| `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage, and idempotency receipts. |
 | `coach_runs`, `coach_candidates`, `coach_intervention_outcomes`, `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | Quality owner | Preserve private coaching and verification evidence; unavailable to the live reviewer. |
 
@@ -329,6 +330,32 @@ whether more rows remain. Take and verify a backup, then repeat the same command
 with `--apply`. Each apply transaction locks and deletes only one oldest-first
 batch. Concurrent apply commands serialize on that ordering, so `more` remains
 truthful; active deliveries and every other table are untouched.
+
+Before enabling scheduled application reports, choose a retention window for
+their read receipts and a cleanup cadence. Every successful report read appends
+an event and updates the audit indexes. Review Agent does not choose a retention
+period or delete these events automatically.
+
+Preview one batch using the approved cutoff:
+
+```bash
+review-agent-admin database prune-integration-reads \
+  --before 2026-01-01T00:00:00Z \
+  --limit 100 \
+  --actor "operator:alice" \
+  --reason "approved application read retention window"
+```
+
+This command uses the same preview/apply workflow and batch cap. Its JSON receipt
+identifies `integration_reads` and reports `oldest_recorded_at`. Only successful
+`integration_read` events recorded by an integration before the cutoff are
+eligible. Credential creation and revocation, failed reads, human audit events,
+and newer receipts are preserved. Keep any required export or verified backup
+before applying cleanup with `--apply`. Save the resulting CLI receipt with the
+deployment's maintenance records; it is the evidence of each pruning operation.
+Each invocation deletes at most one batch; `more: true` means another batch
+remains. Schedule repeated bounded invocations through the deployment's existing
+maintenance tooling after approving that policy.
 
 ## Connect The Model Provider
 

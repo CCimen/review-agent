@@ -100,14 +100,26 @@ class IntegrationAPITests(unittest.TestCase):
         self.assertEqual(report["data"]["repository_count"], 1)
         self.assertEqual(report["evidence_scope"], "retained_records")
         self.assertIsNone(report["data"]["review_capacity"])
+        with self.helper.runtime.transaction() as connection:
+            details = connection.execute(
+                "SELECT details FROM review_agent.admin_audit_events WHERE action = 'integration_read' ORDER BY id DESC LIMIT 1"
+            ).fetchone()[0]
+            self.assertEqual(details["start"], self.window["start"])
+            self.assertEqual(details["end"], self.window["end"])
         repositories = self.client.get(
-            "/api/v1/repositories", params=self.window
+            "/api/v1/repositories", params={**self.window, "search": " payments "}
         ).json()["data"]
         self.assertEqual(repositories["window_days"], 2)
         self.assertEqual(
             [item["repository"] for item in repositories["items"]],
             ["example/payments"],
         )
+        with self.helper.runtime.transaction() as connection:
+            details = connection.execute(
+                "SELECT details FROM review_agent.admin_audit_events WHERE action = 'integration_read' ORDER BY id DESC LIMIT 1"
+            ).fetchone()[0]
+            self.assertEqual(details["search"], "payments")
+            self.assertEqual(details["after_id"], 0)
         self.assertEqual(
             self.client.get(
                 "/api/v1/overview",

@@ -487,23 +487,25 @@ def _audit_text(value: str, *, field: str, maximum: int) -> str:
     return normalized
 
 
-def prune_webhook_delivery_history(
+def prune_receipt_history(
     runtime: PostgreSQLRuntime,
     *,
+    target: postgres_retention.RetentionTarget,
     before: datetime,
     limit: int,
     apply: bool,
     actor: str,
     reason: str,
 ) -> RetentionReceipt:
-    """Preview or apply one explicitly approved terminal-delivery batch."""
+    """Preview or apply one explicitly approved receipt batch."""
     cutoff = _now(before)
     batch_limit = _positive(limit, field="limit")
     normalized_actor = _audit_text(actor, field="actor", maximum=120)
     normalized_reason = _audit_text(reason, field="reason", maximum=500)
     with runtime.transaction() as connection:
-        result = postgres_retention.prune_terminal_webhook_deliveries(
+        result = postgres_retention.prune_receipts(
             connection,
+            target=target,
             before=cutoff,
             limit=batch_limit,
             apply=apply,

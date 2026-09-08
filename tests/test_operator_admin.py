@@ -547,71 +547,81 @@ class OperatorAdminCliTests(unittest.TestCase):
     def test_database_retention_is_dry_run_by_default_and_emits_a_receipt(
         self,
     ) -> None:
-        admin = _load_admin_cli()
-        runtime = Mock()
-        before = datetime(2026, 3, 1, tzinfo=timezone.utc)
-        result = operator_application.RetentionReceipt(
-            result=retention.RetentionResult(
-                before=before,
-                limit=25,
-                matched=25,
-                deleted=0,
-                more=True,
-                oldest_processed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        for command, target, oldest_field in (
+            (
+                "prune-webhook-deliveries",
+                "terminal_webhook_deliveries",
+                "oldest_processed_at",
             ),
-            actor="operator:ccimen",
-            reason="approved retention window",
-        )
-        stdout = io.StringIO()
-        with (
-            patch.object(admin, "_runtime", return_value=runtime),
-            patch.object(
-                admin.operator_application,
-                "prune_webhook_delivery_history",
-                return_value=result,
-            ) as prune,
-            redirect_stdout(stdout),
+            ("prune-integration-reads", "integration_reads", "oldest_recorded_at"),
         ):
-            status = admin.main(
-                [
-                    "database",
-                    "prune-webhook-deliveries",
-                    "--before",
-                    "2026-03-01T00:00:00Z",
-                    "--limit",
-                    "25",
-                    "--actor",
-                    "operator:ccimen",
-                    "--reason",
-                    "approved retention window",
-                ]
-            )
+            with self.subTest(command=command):
+                admin = _load_admin_cli()
+                runtime = Mock()
+                before = datetime(2026, 3, 1, tzinfo=timezone.utc)
+                result = operator_application.RetentionReceipt(
+                    result=retention.RetentionResult(
+                        before=before,
+                        limit=25,
+                        matched=25,
+                        deleted=0,
+                        more=True,
+                        oldest_timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    ),
+                    actor="operator:ccimen",
+                    reason="approved retention window",
+                )
+                stdout = io.StringIO()
+                with (
+                    patch.object(admin, "_runtime", return_value=runtime),
+                    patch.object(
+                        admin.operator_application,
+                        "prune_receipt_history",
+                        return_value=result,
+                    ) as prune,
+                    redirect_stdout(stdout),
+                ):
+                    status = admin.main(
+                        [
+                            "database",
+                            command,
+                            "--before",
+                            "2026-03-01T00:00:00Z",
+                            "--limit",
+                            "25",
+                            "--actor",
+                            "operator:ccimen",
+                            "--reason",
+                            "approved retention window",
+                        ]
+                    )
 
-        self.assertEqual(status, 0)
-        prune.assert_called_once_with(
-            runtime,
-            before=before,
-            limit=25,
-            apply=False,
-            actor="operator:ccimen",
-            reason="approved retention window",
-        )
-        runtime.close.assert_called_once()
-        self.assertEqual(
-            json.loads(stdout.getvalue()),
-            {
-                "actor": "operator:ccimen",
-                "before": "2026-03-01T00:00:00+00:00",
-                "deleted": 0,
-                "dry_run": True,
-                "limit": 25,
-                "matched": 25,
-                "more": True,
-                "oldest_processed_at": "2026-01-01T00:00:00+00:00",
-                "reason": "approved retention window",
-                "target": "terminal_webhook_deliveries",
-            },
-        )
+                self.assertEqual(status, 0)
+                prune.assert_called_once_with(
+                    runtime,
+                    target=target,
+                    before=before,
+                    limit=25,
+                    apply=False,
+                    actor="operator:ccimen",
+                    reason="approved retention window",
+                )
+                runtime.close.assert_called_once()
+                self.assertEqual(
+                    json.loads(stdout.getvalue()),
+                    {
+                        "actor": "operator:ccimen",
+                        "before": "2026-03-01T00:00:00+00:00",
+                        "deleted": 0,
+                        "dry_run": True,
+                        "limit": 25,
+                        "matched": 25,
+                        "more": True,
+                        oldest_field: "2026-01-01T00:00:00+00:00",
+                        "reason": "approved retention window",
+                        "target": target,
+                    },
+                )
 
     def test_database_prepare_migrates_then_configures_runtime_role_secret_safely(
         self,
@@ -776,7 +786,7 @@ class OperatorAdminCliTests(unittest.TestCase):
             patch.object(admin, "_runtime", return_value=runtime),
             patch.object(
                 admin.operator_application,
-                "prune_webhook_delivery_history",
+                "prune_receipt_history",
                 side_effect=PostgreSQLUnavailable("host=secret.internal"),
             ),
             redirect_stderr(stderr),

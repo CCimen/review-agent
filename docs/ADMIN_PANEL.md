@@ -321,7 +321,12 @@ checked in every reporting transaction, without an authorization cache. Subseque
 reads fail after revocation; an already-running request may finish. Neither action
 can retract data already downloaded by a consumer. Creation, revocation and
 successful reads enter the existing audit journal with the integration ID and
-operation name, without the credential or review text.
+operation name, UTC interval and applicable resource filters, without the
+credential or review text. Before enabling scheduled consumers, choose a retention
+window for their read receipts and configure bounded cleanup using the
+[operator retention command](./OPERATIONS.md#retention-ownership). Each successful
+read produces an audit event; polling frequency affects database and index growth.
+Access changes and other audit events remain preserved.
 
 The versioned HTTP contract uses the existing admin host and TLS configuration:
 

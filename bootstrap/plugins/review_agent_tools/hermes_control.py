@@ -10,9 +10,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
 from urllib.parse import urlsplit
+from uuid import UUID
+
+from . import review_contract
+from .model_accounts import (
+    AccountAvailability,
+    ManagedRuntimeStatus,
+    ModelProvider,
+    RuntimeAccount,
+)
 
 
 MAX_RESPONSE_BYTES = 256 * 1024
+MANAGED_REVIEW_PATH = "/v1/review-agent/review"
 TIMEOUT_SECONDS = 20.0
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{22,80}$")
 _PROVIDERS = {"openai-codex", "anthropic"}
@@ -56,6 +66,55 @@ class LoginSession:
 class Cancellation:
     cancelled: bool
     session_id: str
+
+
+def _managed_status(payload: dict[str, object]) -> ManagedRuntimeStatus:
+    raw_accounts = payload.get("accounts")
+    if not isinstance(raw_accounts, list) or len(
+        cast(list[object], raw_accounts)
+    ) != len(ModelProvider):
+        raise HermesControlError("Managed account status is invalid")
+    accounts: list[RuntimeAccount] = []
+    try:
+        for raw in cast(list[object], raw_accounts):
+            if not isinstance(raw, dict):
+                raise ValueError("Invalid account")
+            row = cast(dict[str, object], raw)
+            count = row.get("account_count")
+            fingerprint = row.get("identity_sha256")
+            if type(count) is not int or not 0 <= count <= 1000:
+                raise ValueError("Invalid account count")
+            if fingerprint is not None and (
+                not isinstance(fingerprint, str)
+                or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+            ):
+                raise ValueError("Invalid account identity")
+            availability = AccountAvailability(row.get("availability"))
+            if (availability is AccountAvailability.AVAILABLE) != (
+                count == 1 and fingerprint is not None
+            ):
+                raise ValueError("Inconsistent account status")
+            accounts.append(
+                RuntimeAccount(
+                    ModelProvider(row.get("provider")), availability, count, fingerprint
+                )
+            )
+        if {account.provider for account in accounts} != set(ModelProvider):
+            raise ValueError("Duplicate account")
+        runtime_key = payload.get("runtime_key")
+        if (
+            not isinstance(runtime_key, str)
+            or re.fullmatch(r"[a-z][a-z0-9-]{0,62}", runtime_key) is None
+        ):
+            raise ValueError("Invalid runtime identity")
+        return ManagedRuntimeStatus(
+            runtime_key,
+            UUID(str(payload.get("instance_id"))),
+            review_contract.parse_contract(payload.get("contract")),
+            tuple(accounts),
+        )
+    except (ValueError, TypeError) as exc:
+        raise HermesControlError("Managed account status is invalid") from exc
 
 
 Readiness = Literal["ok", "degraded", "unavailable", "retrying", "unknown"]
@@ -261,7 +320,9 @@ class HermesControlClient:
                 try:
                     expires_at = datetime.fromisoformat(expires.replace("Z", "+00:00"))
                 except ValueError as exc:
-                    raise HermesControlError("Hermes provider expiry is invalid") from exc
+                    raise HermesControlError(
+                        "Hermes provider expiry is invalid"
+                    ) from exc
             found[provider] = ProviderStatus(
                 provider=provider,
                 name=(
@@ -321,6 +382,9 @@ class HermesControlClient:
                 )
         return tuple(models[:200])
 
+    def managed_status(self) -> ManagedRuntimeStatus:
+        return _managed_status(self._request("GET", "/api/managed-runtime"))
+
     def start_codex_login(self) -> LoginSession:
         payload = self._request("POST", "/api/providers/oauth/openai-codex/start")
         session_id = validate_session_id(
@@ -376,7 +440,10 @@ class HermesRuntimeClient:
         self.opener = urllib.request.build_opener(_NoRedirect())
 
     def _get(
-        self, path: Literal["/health/detailed", "/v1/capabilities"]
+        self,
+        path: Literal[
+            "/health/detailed", "/v1/capabilities", "/v1/review-agent/status"
+        ],
     ) -> dict[str, object]:
         request = urllib.request.Request(
             self.base_url + path,
@@ -401,6 +468,9 @@ class HermesRuntimeClient:
         if not isinstance(payload, dict):
             raise HermesControlError("Hermes runtime response is invalid")
         return cast(dict[str, object], payload)
+
+    def managed_status(self) -> ManagedRuntimeStatus:
+        return _managed_status(self._get("/v1/review-agent/status"))
 
     def status(self) -> HermesRuntimeStatus:
         health = self._get("/health/detailed")

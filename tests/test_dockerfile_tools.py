@@ -118,6 +118,7 @@ class DockerfileToolsTests(unittest.TestCase):
                 "PyJWT==2.13.0",
                 "cryptography==50.0.0",
                 "tornado==6.5.8",
+                "aiohttp==3.14.3",
             ],
         )
         self.assertIn(

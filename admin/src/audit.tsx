@@ -1,10 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { APIError, read } from "./api";
+import { APIError, read, write } from "./api";
 import type { AuditEvent, AuditPage } from "./api";
+import type { components } from "./api.generated";
 import { useScope, ScopedLink as Link } from "./scope";
 import { Empty, Freshness, time } from "./ui";
+
+type AuditAccess = components["schemas"]["AuditAccess"];
+type AuditAccessRequest = components["schemas"]["AuditAccessRequest"];
+const purposes: Record<AuditAccess["purpose"], string> = {
+  incident_investigation: "Incident investigation",
+  access_review: "Access review",
+  support: "Support request",
+  routine_review: "Routine review",
+  other: "Other reason",
+};
 
 const filterFields = [
   "search",
@@ -15,6 +26,10 @@ const filterFields = [
   "until",
 ] as const;
 const actions: readonly AuditEvent["action"][] = [
+  "audit_access_started",
+  "audit_access_ended",
+  "audit_viewed",
+  "audit_exported",
   "team_created",
   "team_updated",
   "member_added",
@@ -39,6 +54,10 @@ const actions: readonly AuditEvent["action"][] = [
   "access_updated",
   "provider_login",
   "provider_login_cancelled",
+  "provider_logout",
+  "connection_created",
+  "connection_updated",
+  "connection_removed",
 ];
 
 function localTime(value: string | null) {
@@ -51,7 +70,15 @@ function localTime(value: string | null) {
         .slice(0, 16);
 }
 
-function AuditExport({ filters }: { filters: string }) {
+function AuditExport({
+  filters,
+  grant,
+  onExpired,
+}: {
+  filters: string;
+  grant: AuditAccess;
+  onExpired: () => void;
+}) {
   const [format, setFormat] = useState("json");
   const request = useRef<AbortController | null>(null);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
@@ -67,13 +94,16 @@ function AuditExport({ filters }: { filters: string }) {
       if (before) params.set("before_id", before);
       const response = await fetch(`/api/audit/export?${params}`, {
         credentials: "same-origin",
+        headers: { "X-Audit-Access-ID": grant.id },
         signal: controller.signal,
       });
-      if (!response.ok)
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) onExpired();
         throw new APIError(
           response.status,
           "The audit export could not be prepared. Check the filters and try again.",
         );
+      }
       const blob = await response.blob();
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(blob);
@@ -149,6 +179,189 @@ function AuditExport({ filters }: { filters: string }) {
 
 export function AuditLog({ teamId }: { teamId?: number }) {
   const scope = useScope();
+  useEffect(() => {
+    if (!teamId) document.title = "Review Agent · Audit log";
+  }, [teamId]);
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          {teamId ? <h2>Team audit log</h2> : <h1>Audit log</h1>}
+          <p>
+            {teamId
+              ? "Administration events for this team."
+              : "Platform administration · All teams."}{" "}
+            {scope.current.role === "owner"
+              ? "Account, team, and platform changes visible to owners."
+              : "Team, repository, and member changes. Privileged account and sensitive platform changes are visible to owners."}
+          </p>
+        </div>
+      </div>
+      <AuditAccessGate
+        key={`${scope.key}:${teamId ?? "all"}`}
+        teamId={teamId}
+      />
+    </>
+  );
+}
+
+function AuditAccessGate({ teamId }: { teamId?: number }) {
+  const [grant, setGrant] = useState<AuditAccess | null>(null);
+  const [notice, setNotice] = useState("");
+  const [purpose, setPurpose] = useState<AuditAccess["purpose"] | "">("");
+  const [reason, setReason] = useState("");
+  const accessPath = (path: string) =>
+    teamId ? `${path}?team_id=${teamId}` : path;
+  const start = useMutation({
+    mutationFn: (request: AuditAccessRequest) =>
+      write<AuditAccess>(accessPath("/api/audit/access"), "POST", request),
+    onSuccess: (value) => {
+      setGrant(value);
+      setNotice("");
+    },
+  });
+  const end = useMutation({
+    mutationFn: (value: AuditAccess) =>
+      write(accessPath(`/api/audit/access/${value.id}/end`), "POST"),
+    onSuccess: () => {
+      setGrant(null);
+      setNotice("Audit access ended.");
+    },
+    onError: (error) => {
+      if (error instanceof APIError && [401, 403].includes(error.status))
+        setGrant(null);
+    },
+  });
+  const expire = () => {
+    setGrant(null);
+    setNotice(
+      "Audit access expired or your permissions changed. Explain why you need access to continue.",
+    );
+  };
+  useEffect(() => {
+    if (!grant) return;
+    const timer = window.setTimeout(
+      () => {
+        setGrant(null);
+        setNotice(
+          "Audit access expired. Explain why you need access to continue.",
+        );
+      },
+      Math.max(0, new Date(grant.expires_at).getTime() - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [grant]);
+  if (grant)
+    return (
+      <>
+        <div className="audit-session">
+          <div>
+            <strong>{purposes[grant.purpose]}</strong>
+            <p>{grant.reason}</p>
+            <span className="field-hint">
+              Access ends {time(grant.expires_at)}. Views and exports are
+              recorded.
+            </span>
+          </div>
+          <button
+            className="secondary"
+            disabled={end.isPending}
+            onClick={() => end.mutate(grant)}
+          >
+            {end.isPending ? "Ending access…" : "End audit access"}
+          </button>
+        </div>
+        {end.isError ? (
+          <p className="notice error" role="alert">
+            {end.error.message}
+          </p>
+        ) : null}
+        <AuditEvents teamId={teamId} grant={grant} onExpired={expire} />
+      </>
+    );
+  return (
+    <section
+      className="panel audit-access"
+      aria-labelledby="audit-access-title"
+    >
+      <h2 id="audit-access-title">Explain why you need access</h2>
+      <p>
+        Your purpose and justification will be recorded with each view or
+        export. Access lasts 30 minutes for {teamId ? "this team" : "all teams"}
+        .
+      </p>
+      {notice ? (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      ) : null}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (purpose) start.mutate({ purpose, reason: reason.trim() });
+        }}
+      >
+        <fieldset className="account-fields" disabled={start.isPending}>
+          <label className="field">
+            Purpose
+            <select
+              required
+              value={purpose}
+              onChange={(event) =>
+                setPurpose(event.target.value as AuditAccess["purpose"] | "")
+              }
+            >
+              <option value="" disabled>
+                Select a purpose
+              </option>
+              {Object.entries(purposes).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Justification
+            <textarea
+              required
+              minLength={10}
+              maxLength={500}
+              rows={4}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              aria-describedby="audit-reason-hint"
+              placeholder="Describe the incident, request, or review you are investigating."
+            />
+          </label>
+          <p className="field-hint" id="audit-reason-hint">
+            10–500 characters. Include enough detail to explain this access to
+            another administrator.
+          </p>
+          <button disabled={!purpose || reason.trim().length < 10}>
+            {start.isPending ? "Recording justification…" : "Access audit log"}
+          </button>
+        </fieldset>
+        {start.isError ? (
+          <p className="notice error" role="alert">
+            {start.error.message}
+          </p>
+        ) : null}
+      </form>
+    </section>
+  );
+}
+
+function AuditEvents({
+  teamId,
+  grant,
+  onExpired,
+}: {
+  teamId?: number;
+  grant: AuditAccess;
+  onExpired: () => void;
+}) {
+  const scope = useScope();
   const [location, setLocation] = useSearchParams();
   const before = location.get("before_id");
   const filters = new URLSearchParams();
@@ -167,29 +380,33 @@ export function AuditLog({ teamId }: { teamId?: number }) {
     setLocation(next);
   };
   const query = useQuery({
-    queryKey: ["audit", teamId, params.toString(), "scoped", scope.key],
-    queryFn: ({ signal }) => read<AuditPage>(`/api/audit?${params}`, signal),
+    queryKey: [
+      "audit",
+      grant.id,
+      teamId,
+      params.toString(),
+      "scoped",
+      scope.key,
+    ],
+    queryFn: ({ signal }) =>
+      read<AuditPage>(`/api/audit?${params}`, signal, {
+        "X-Audit-Access-ID": grant.id,
+      }),
+    gcTime: 0,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
   });
   useEffect(() => {
-    if (!teamId) document.title = "Review Agent · Audit log";
-  }, [teamId]);
+    if (
+      query.error instanceof APIError &&
+      [401, 403].includes(query.error.status)
+    )
+      onExpired();
+  }, [query.error, onExpired]);
   return (
     <>
-      {!teamId ? (
-        <div className="page-heading">
-          <div>
-            <h1>Audit log</h1>
-            <p>
-              Platform administration · All teams.{" "}
-              {scope.current.role === "owner"
-                ? "Account, team, and platform changes visible to owners."
-                : "Team, repository, and member changes. Privileged account and sensitive platform changes are visible to owners."}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <h2>Team audit log</h2>
-      )}
       <form
         className="audit-filters"
         key={filterKey}
@@ -304,7 +521,12 @@ export function AuditLog({ teamId }: { teamId?: number }) {
           </p>
         </details>
       </form>
-      <AuditExport key={filterKey} filters={filterKey} />
+      <AuditExport
+        key={filterKey}
+        filters={filterKey}
+        grant={grant}
+        onExpired={onExpired}
+      />
       <Freshness query={query} />
       {query.data?.items.length ? (
         <div
@@ -353,24 +575,7 @@ export function AuditLog({ teamId }: { teamId?: number }) {
                     ) : null}
                   </td>
                   <td>
-                    <details>
-                      <summary>View change</summary>
-                      <dl className="audit-details">
-                        {Object.entries(event.details).map(([key, value]) => (
-                          <div key={key}>
-                            <dt>{key.replaceAll("_", " ")}</dt>
-                            <dd>{value == null ? "—" : String(value)}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                      {event.operation_id ? (
-                        <p className="mono">Operation {event.operation_id}</p>
-                      ) : null}
-                      <span className="subtext">
-                        Event #{event.id}
-                        {event.owner_only ? " · Owners only" : ""}
-                      </span>
-                    </details>
+                    <AuditJSON event={event} />
                   </td>
                 </tr>
               ))}
@@ -402,5 +607,40 @@ export function AuditLog({ teamId }: { teamId?: number }) {
         </div>
       ) : null}
     </>
+  );
+}
+
+export function AuditJSON({ event }: { event: AuditEvent }) {
+  const json = JSON.stringify(event, null, 2);
+  const [copyStatus, setCopyStatus] = useState("");
+  return (
+    <details className="audit-json">
+      <summary>View JSON · #{event.id}</summary>
+      <div className="toolbar">
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => {
+            if (!navigator.clipboard) {
+              setCopyStatus("Select the JSON below to copy it.");
+              return;
+            }
+            void navigator.clipboard.writeText(json).then(
+              () => setCopyStatus("JSON copied."),
+              () =>
+                setCopyStatus("Copy failed. Select the JSON below to copy it."),
+            );
+          }}
+        >
+          Copy JSON
+        </button>
+        <span className="field-hint" role="status">
+          {copyStatus}
+        </span>
+      </div>
+      <pre tabIndex={0} aria-label={`JSON for audit event ${event.id}`}>
+        <code>{json}</code>
+      </pre>
+    </details>
   );
 }

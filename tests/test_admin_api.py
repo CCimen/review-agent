@@ -60,6 +60,18 @@ class AdminAPITests(unittest.TestCase):
             204,
         )
 
+    def authorize_audit(self, team_id: int | None = None) -> None:
+        response = self.client.post(
+            "/api/audit/access",
+            params={"team_id": team_id} if team_id is not None else {},
+            json={
+                "purpose": "access_review",
+                "reason": "Verify administration change attribution",
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        self.client.headers["X-Audit-Access-ID"] = response.json()["id"]
+
     def test_viewer_cannot_manage_users_and_logout_revokes_session(self) -> None:
         for path in (
             "/api/me",
@@ -251,6 +263,8 @@ class AdminAPITests(unittest.TestCase):
         self,
     ) -> None:
         self.login()
+        before = self.client.get("/api/me").json()["access_revision"]
+        self.authorize_audit()
         invalid = self.client.post(
             "/api/account/password",
             json={"current_password": PASSWORD, "password": "too-short"},
@@ -285,3 +299,7 @@ class AdminAPITests(unittest.TestCase):
             400,
         )
         self.login(password="replacement-test-password")
+        self.assertEqual(
+            self.client.get("/api/me").json()["access_revision"], before + 1
+        )
+        self.assertEqual(self.client.get("/api/audit").status_code, 403)

@@ -19,10 +19,10 @@ from ..feedback_commands import restore_review_feedback_command
 from ..memory_validation import ReviewMemoryError
 from ..postgres import (
     decisions as postgres_decisions,
-    deployment_settings,
     feedback as postgres_feedback,
     github_app,
     jobs,
+    model_connections,
     registry,
     review_runs,
     webhook_deliveries,
@@ -443,13 +443,17 @@ class GitHubAppProcessor:
                         contract, provider=frozen.model_provider,
                         model=frozen.model, effort=frozen.reasoning_effort,
                     )
+                    route = (
+                        review_contract.queued_model_route(recorded)
+                        if "model_route" in recorded else None
+                    )
                 else:
-                    saved = deployment_settings.latest(connection)
-                    if saved:
-                        contract = review_contract.with_model_route(
-                            contract, provider=saved.settings.model_provider,
-                            model=saved.settings.model, effort=saved.settings.reasoning_effort,
-                        )
+                    selected = model_connections.resolve_model(
+                        connection,
+                        provider_repository_id=authorized.provider_repository_id,
+                        installed=contract,
+                    )
+                    contract, route = selected.contract, selected.route
                 github_app.authorize_review_admission(
                     connection,
                     provider_repository_id=authorized.provider_repository_id,
@@ -466,9 +470,9 @@ class GitHubAppProcessor:
                         base_sha=authorized.base_sha,
                         head_sha=authorized.head_sha,
                         policy_revision=self._config.policy_revision,
-                        resolved_config_schema_version=2,
+                        resolved_config_schema_version=3 if route is not None else 2,
                         resolved_config=cast(
-                            JsonObject, review_contract.resolved_config(contract)
+                            JsonObject, review_contract.resolved_config(contract, model_route=route)
                         ),
                         request_key=request_key,
                         trigger_comment_id=authorized.comment_id,
@@ -490,6 +494,8 @@ class GitHubAppProcessor:
             raise _Reject("repository_not_authorized") from exc
         except jobs.ReviewQueueFull as exc:
             raise _WaitingForCapacity from exc
+        except model_connections.ModelPolicyUnavailable as exc:
+            raise _Retry("model_connection_unavailable") from exc
         except jobs.ReviewJobBusy as exc:
             raise _Retry("review_admission_busy") from exc
 

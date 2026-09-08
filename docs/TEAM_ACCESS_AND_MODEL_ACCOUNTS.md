@@ -11,8 +11,9 @@ last_verified: 2026-09-08
 Team membership, repository ownership and requests, scoped console reports and
 actions, owner/admin roles, and the audit journal are implemented in the source
 candidate. See [Admin panel](ADMIN_PANEL.md) for the current operator contract.
-The model-connection, quota, and machine-integration sections below describe the
-remaining approved design. Track implementation and rollout on the existing
+Model connections, team model choices, and justified JSON audit access are also
+implemented in the source candidate. Quota and machine-integration sections below
+describe the remaining approved design. Track implementation and rollout on the existing
 `ra-teams-and-integrations-wtd` epic.
 
 ## Smallest useful product model
@@ -33,7 +34,7 @@ policy engine, custom-role editor, nested groups, or a second identity service.
 | --- | --- |
 | Platform owner | All teams, privileged accounts, shared connections, deployment settings, sensitive audit events, and operational controls. |
 | Platform admin | All teams, member accounts, repository ownership and approval, ordinary audit events, and review operations. Cannot change owner/admin accounts or global credentials/settings. |
-| Team maintainer | Request repository onboarding; manage membership of their team among existing active users; choose allowed models and connections; triage feedback and retry or cancel their team's reviews. Cannot grant platform privileges or move repositories between teams. |
+| Team maintainer | Request repository onboarding; manage membership of their team among existing active users; choose allowed models; reconnect a team-owned account; triage feedback and retry or cancel their team's reviews. Connection assignment requires a platform administrator. Cannot grant platform privileges or move repositories between teams. |
 | Team viewer | Read their team's reviews, quality reports, and operational usage. Cannot change access, accounts, model policy, or review state. |
 
 Team maintainers can reconnect a team-owned account. Shared-account login,
@@ -202,8 +203,9 @@ account identity, quota, reconnect, and reporting unambiguous.
 
 For example, Platform and Web can share the existing connection, while Payments
 uses a dedicated Codex account. Adding another team does not create another
-runtime unless it needs independent credentials. A team may configure an
-approved second provider in its own connection as an explicit fallback.
+runtime unless it needs independent credentials. A connection can hold an
+authorized account for each supported provider; the team selects its route
+explicitly. Automatic fallback is not part of this implementation.
 
 Provider, model, and reasoning effort inherit deployment defaults. A team may
 override them within the administrator's allowed choices. Show both the effective
@@ -247,9 +249,8 @@ connection, rather than one complete Review Agent stack per team.
 
 Apply the connection boundary to fallback, compression, other auxiliary model
 calls, and any permitted subagents. A dedicated connection must not discover a
-shared or another team's account on failure. Disable implicit cross-provider
-fallback by default and expose only an explicit, bounded policy within the
-connection. Hermes's [fallback documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/fallback-providers)
+shared or another team's account on failure. The managed configuration disables
+implicit cross-provider fallback. Hermes's [fallback documentation](https://hermes-agent.nousresearch.com/docs/user-guide/features/fallback-providers)
 describes separate main and auxiliary paths; both need verification against the
 pinned image. Cross-connection fallback is deferred.
 

@@ -92,7 +92,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             opener.open.return_value = response
             client = HermesChatClient(
                 HermesChatSettings(
-                    endpoint="http://127.0.0.1:8642/v1/chat/completions",
+                    endpoint="http://127.0.0.1:8642/v1/review-agent/review",
                     bearer_token="test-token",
                     skill_path=skill,
                 ),
@@ -150,7 +150,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 HermesChatSettings(
                     endpoint=(
                         f"http://127.0.0.1:{self.server.server_port}"
-                        "/v1/chat/completions"
+                        "/v1/review-agent/review"
                     ),
                     bearer_token="test-token",
                     skill_path=skill_path,
@@ -206,7 +206,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 HermesChatSettings(
                     endpoint=(
                         f"http://127.0.0.1:{self.server.server_port}"
-                        "/v1/chat/completions"
+                        "/v1/review-agent/review"
                     ),
                     bearer_token="test-token",
                     skill_path=skill_path,
@@ -227,7 +227,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             skill_path.write_text("Review safely.\n", encoding="utf-8")
             client = HermesChatClient(
                 HermesChatSettings(
-                    endpoint="http://hermes-review:8642/v1/chat/completions",
+                    endpoint="http://hermes-review:8642/v1/review-agent/review",
                     bearer_token="internal-secret",
                     skill_path=skill_path,
                 )
@@ -241,7 +241,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         )
         handler = SameOriginHttpsRedirectHandler()
         request = urllib.request.Request(
-            "http://hermes-review:8642/v1/chat/completions",
+            "http://hermes-review:8642/v1/review-agent/review",
             headers={"Authorization": "Bearer internal-secret"},
         )
         self.assertIsNone(
@@ -251,7 +251,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 307,
                 "temporary redirect",
                 HTTPMessage(),
-                "http://other-service:8642/v1/chat/completions",
+                "http://other-service:8642/v1/review-agent/review",
             )
         )
 

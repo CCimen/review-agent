@@ -28,6 +28,7 @@ from starlette.responses import Response
 
 from . import (
     admin_audit_api,
+    admin_model_api,
     admin_repository_requests_api,
     admin_access_api,
     admin_application,
@@ -37,11 +38,14 @@ from . import (
     admin_settings_api,
     admin_deployment_api,
     admin_teams_api,
+    model_connection_config,
 )
 from .admin_auth import AdminAuth
 from .postgres import admin_operations, admin_reporting
 from .postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
 from .postgres.teams import TeamConflict
+from .postgres.model_connections import ConnectionConflict
+from .hermes_control import HermesControlError
 from .postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
@@ -282,6 +286,17 @@ def create_app(
     app.add_exception_handler(AccessDenied, access_denied)
     app.add_exception_handler(ResourceNotFound, access_denied)
     app.add_exception_handler(TeamConflict, team_conflict)
+    app.add_exception_handler(ConnectionConflict, team_conflict)
+
+    def provider_unavailable(_request: Request, _error: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": "Managed Hermes provider control is unavailable. Check the connection status before retrying."
+            },
+        )
+
+    app.add_exception_handler(HermesControlError, provider_unavailable)
     router.add_api_route("/api/repositories", repositories, methods=["GET"])
     router.add_api_route("/api/history", history, methods=["GET"])
     router.add_api_route("/api/history/{run_id}", review_detail, methods=["GET"])
@@ -314,7 +329,14 @@ def create_app(
     app.add_api_route("/overview", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/operations", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/users", index, methods=["GET"], include_in_schema=False)
-    for path in ("/teams", "/teams/{team_id}", "/repository-requests", "/audit"):
+    for path in (
+        "/teams",
+        "/teams/{team_id}",
+        "/repository-requests",
+        "/audit",
+        "/model-connections",
+        "/model-connections/{connection_id}",
+    ):
         app.add_api_route(path, index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/account", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/repositories", index, methods=["GET"], include_in_schema=False)
@@ -329,7 +351,11 @@ def create_app(
     app.include_router(router)
     app.include_router(admin_quality_api.create_router(runtime, auth))
     app.include_router(admin_run_api.create_router(runtime, auth))
-    app.include_router(admin_provider_api.create_router(auth))
+    controls = model_connection_config.load_controls(os.environ)
+    app.include_router(
+        admin_provider_api.create_router(auth, controls["shared"].client)
+    )
+    app.include_router(admin_model_api.create_router(runtime, auth, controls))
     app.include_router(admin_settings_api.create_router(runtime, auth))
     app.include_router(admin_deployment_api.create_router(auth))
     app.include_router(admin_access_api.create_router(runtime, auth))

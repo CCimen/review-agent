@@ -82,6 +82,7 @@ def _policy() -> WorkerPolicy:
             "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS", "900"
         ),
         concurrency=_positive_integer("REVIEW_AGENT_WORKER_CONCURRENCY", "4"),
+        runtime_key=os.environ.get("REVIEW_AGENT_MODEL_CONNECTION", "shared"),
     )
 
 
@@ -90,7 +91,7 @@ def _chat_settings() -> HermesChatSettings:
     return HermesChatSettings(
         endpoint=os.environ.get(
             "REVIEW_AGENT_HERMES_CHAT_URL",
-            "http://127.0.0.1:8642/v1/chat/completions",
+            "http://127.0.0.1:8642/v1/review-agent/review",
         ).strip(),
         bearer_token=os.environ.get("API_SERVER_KEY", "").strip(),
         skill_path=Path(

@@ -110,13 +110,23 @@ class ProviderHandler(BaseHTTPRequestHandler):
             return
         control = self.gateway.control
         try:
-            if self.command == "GET" and self.path == "/api/runtime":
+            if self.command == "GET" and self.path in {
+                "/api/runtime",
+                "/api/managed-runtime",
+            }:
                 if self.gateway.runtime is None:
                     self._reply(
                         503, {"error": "Hermes runtime diagnostics are not configured"}
                     )
                     return
-                payload: object = asdict(self.gateway.runtime.status())
+                if self.path == "/api/runtime":
+                    payload: object = asdict(self.gateway.runtime.status())
+                else:
+                    managed = self.gateway.runtime.managed_status()
+                    payload = {
+                        **asdict(managed),
+                        "instance_id": str(managed.instance_id),
+                    }
             elif self.command == "GET" and self.path == "/api/providers/oauth":
                 providers = control.provider_statuses()
                 payload = {

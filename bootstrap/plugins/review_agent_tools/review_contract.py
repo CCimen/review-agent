@@ -17,6 +17,8 @@ from typing import cast, Protocol
 RECEIPT_NAME = ".review-agent-profile.json"
 PROFILE_MANIFEST_NAME = "review-agent-profile.json"
 SCHEMA_VERSION = 2
+# Migration 024 reserves this identity for retained and unassigned shared work.
+SHARED_CONNECTION_ID = 1
 _PINNED_IMAGE_RE = re.compile(r"^\S+@sha256:[0-9a-f]{64}$")
 _PROFILE_KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -35,6 +37,40 @@ REASONING_EFFORTS = frozenset(
 
 class ReviewContractError(ValueError):
     """The installed reviewer does not match its signed-off receipt."""
+
+
+@dataclass(frozen=True, slots=True)
+class ModelRoute:
+    """Account assignment frozen with the exact pull-request subject."""
+
+    team_id: int | None
+    connection_id: int
+    connection_revision: int
+    account_revision: int
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.connection_id,
+            self.connection_revision,
+            self.account_revision,
+        ):
+            if type(value) is not int or not 1 <= value <= 9223372036854775807:
+                raise ReviewContractError(
+                    "model route has an invalid identity or revision"
+                )
+        if self.team_id is not None and (
+            type(self.team_id) is not int
+            or not 1 <= self.team_id <= 9223372036854775807
+        ):
+            raise ReviewContractError("model route has an invalid team identity")
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "team_id": self.team_id,
+            "connection_id": self.connection_id,
+            "connection_revision": self.connection_revision,
+            "account_revision": self.account_revision,
+        }
 
 
 class _YamlModule(Protocol):
@@ -117,16 +153,18 @@ def _load_config(path: Path) -> object:
         yaml_module = cast(_YamlModule, importlib.import_module("yaml"))
         content = path.read_text(encoding="utf-8")
     except (ImportError, OSError) as exc:
-        raise ReviewContractError("managed reviewer config is missing or invalid") from exc
+        raise ReviewContractError(
+            "managed reviewer config is missing or invalid"
+        ) from exc
     try:
         return yaml_module.safe_load(content)
     except Exception as exc:  # PyYAML exceptions have no stable shared base protocol.
-        raise ReviewContractError("managed reviewer config is missing or invalid") from exc
+        raise ReviewContractError(
+            "managed reviewer config is missing or invalid"
+        ) from exc
 
 
-def _deployment_text(
-    environment: Mapping[str, str], name: str, default: str
-) -> str:
+def _deployment_text(environment: Mapping[str, str], name: str, default: str) -> str:
     value = environment.get(name, default).strip()
     if not value or not value.isprintable():
         raise ReviewContractError(f"{name} must be one non-empty printable value")
@@ -181,9 +219,7 @@ def render_managed_config(
     )
     model = _deployment_text(environment, "REVIEW_AGENT_MODEL", default_model)
     effort = (
-        environment.get("REVIEW_AGENT_REASONING_EFFORT", default_effort)
-        .strip()
-        .lower()
+        environment.get("REVIEW_AGENT_REASONING_EFFORT", default_effort).strip().lower()
     )
     if effort not in REASONING_EFFORTS:
         choices = ", ".join(sorted(REASONING_EFFORTS))
@@ -247,7 +283,9 @@ def _bundle_hash(files: tuple[ContractFile, ...]) -> str:
 
 def _installed_files(
     home: Path, skills: tuple[str, ...]
-) -> tuple[tuple[ContractFile, ...], tuple[ContractFile, ...], tuple[ContractFile, ...]]:
+) -> tuple[
+    tuple[ContractFile, ...], tuple[ContractFile, ...], tuple[ContractFile, ...]
+]:
     profile_files = (
         _file(home / PROFILE_MANIFEST_NAME, "profile/profile.json"),
         _file(home / "SOUL.md", "profile/SOUL.md"),
@@ -272,7 +310,9 @@ def _profile_skills(manifest_path: Path) -> tuple[str, ...]:
             json.loads(manifest_path.read_text(encoding="utf-8")),
         )
     except (OSError, json.JSONDecodeError) as exc:
-        raise ReviewContractError("packaged review profile is missing or invalid") from exc
+        raise ReviewContractError(
+            "packaged review profile is missing or invalid"
+        ) from exc
     if not isinstance(raw, dict):
         raise ReviewContractError("packaged review profile has an invalid shape")
     raw_mapping = cast(dict[str, object], raw)
@@ -427,7 +467,7 @@ def load_packaged_contract(
     )
 
 
-def _contract_from_json(value: object) -> ReviewContract:
+def parse_contract(value: object) -> ReviewContract:
     if not isinstance(value, dict):
         raise ReviewContractError("installed contract must be an object")
     raw = cast(dict[str, object], value)
@@ -462,21 +502,17 @@ def _contract_from_json(value: object) -> ReviewContract:
         raise ReviewContractError("installed review contract has invalid text fields")
     image = cast(str, text_fields["hermes_image"])
     if _PINNED_IMAGE_RE.fullmatch(image) is None:
-        raise ReviewContractError("installed review contract has an invalid Hermes image")
+        raise ReviewContractError(
+            "installed review contract has an invalid Hermes image"
+        )
     result_limit = raw["plugin_result_max_chars"]
     if type(result_limit) is not int or result_limit < 1:
         raise ReviewContractError(
             "installed review contract has an invalid plugin result limit"
         )
-    profile_hash = _sha256(
-        raw["profile_bundle_sha256"], field="profile bundle digest"
-    )
-    config_hash = _sha256(
-        raw["managed_config_sha256"], field="managed config digest"
-    )
-    engine_hash = _sha256(
-        raw["engine_bundle_sha256"], field="engine bundle digest"
-    )
+    profile_hash = _sha256(raw["profile_bundle_sha256"], field="profile bundle digest")
+    config_hash = _sha256(raw["managed_config_sha256"], field="managed config digest")
+    engine_hash = _sha256(raw["engine_bundle_sha256"], field="engine bundle digest")
     contract = ReviewContract(
         profile=cast(str, text_fields["profile"]),
         hermes_image=image,
@@ -521,8 +557,7 @@ def write_receipt(
     payload = {
         "contract": contract.to_json(),
         "files": [
-            item.to_json()
-            for item in (*profile_files, *config_files, *engine_files)
+            item.to_json() for item in (*profile_files, *config_files, *engine_files)
         ],
         "schema_version": SCHEMA_VERSION,
         "skills": list(skills),
@@ -538,9 +573,7 @@ def write_receipt(
 
 def load_installed_contract(home: Path | None = None) -> ReviewContract:
     """Read and verify the receipt against every installed behavior file."""
-    resolved_home = (
-        home or Path(os.environ.get("HERMES_HOME", "/opt/data"))
-    ).resolve()
+    resolved_home = (home or Path(os.environ.get("HERMES_HOME", "/opt/data"))).resolve()
     try:
         raw_object = cast(
             object,
@@ -571,16 +604,15 @@ def load_installed_contract(home: Path | None = None) -> ReviewContract:
             "installed review contract receipt has an invalid shape"
         )
     skills_objects = cast(list[object], skills_raw)
-    if (
-        any(not isinstance(item, str) or not item for item in skills_objects)
-        or not isinstance(files_raw, list)
-    ):
+    if any(
+        not isinstance(item, str) or not item for item in skills_objects
+    ) or not isinstance(files_raw, list):
         raise ReviewContractError(
             "installed review contract receipt has an invalid shape"
         )
     if len(set(cast(list[str], skills_objects))) != len(skills_objects):
         raise ReviewContractError("installed review contract skills contain duplicates")
-    contract = _contract_from_json(contract_raw)
+    contract = parse_contract(contract_raw)
     installed_skills = _profile_skills(resolved_home / PROFILE_MANIFEST_NAME)
     receipt_skills = tuple(cast(list[str], skills_objects))
     if installed_skills != receipt_skills:
@@ -616,9 +648,17 @@ def load_installed_contract(home: Path | None = None) -> ReviewContract:
     return contract
 
 
-def resolved_config(contract: ReviewContract) -> dict[str, object]:
-    """Return resolved_config schema v2 for one exact review subject."""
-    return {"profile": contract.profile, "review_contract": contract.to_json()}
+def resolved_config(
+    contract: ReviewContract, *, model_route: ModelRoute | None = None
+) -> dict[str, object]:
+    """Build an exact subject; schema v3 also records its account assignment."""
+    result: dict[str, object] = {
+        "profile": contract.profile,
+        "review_contract": contract.to_json(),
+    }
+    if model_route is not None:
+        result["model_route"] = model_route.to_json()
+    return result
 
 
 def require_matching_resolved_config(value: object, installed: ReviewContract) -> None:
@@ -635,12 +675,22 @@ def with_model_route(
     if provider not in {"openai-codex", "anthropic"}:
         raise ReviewContractError("unsupported review model provider")
     if not model.strip() or len(model) > 200 or not model.isprintable():
-        raise ReviewContractError("review model must be printable and at most 200 characters")
+        raise ReviewContractError(
+            "review model must be printable and at most 200 characters"
+        )
     if effort not in REASONING_EFFORTS:
         raise ReviewContractError("unsupported review reasoning effort")
-    selected = replace(installed, model_provider=provider, model=model.strip(), reasoning_effort=effort)
-    digest = _digest(json.dumps(selected.behavior_json(), ensure_ascii=False,
-                              separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    selected = replace(
+        installed, model_provider=provider, model=model.strip(), reasoning_effort=effort
+    )
+    digest = _digest(
+        json.dumps(
+            selected.behavior_json(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
     return replace(selected, sha256=digest)
 
 
@@ -648,20 +698,57 @@ def queued_contract(value: object) -> ReviewContract:
     if not isinstance(value, dict):
         raise ReviewContractError("queued review configuration must be an object")
     raw = cast(dict[str, object], value)
-    if set(raw) != {"profile", "review_contract"}:
+    if set(raw) not in (
+        {"profile", "review_contract"},
+        {"profile", "review_contract", "model_route"},
+    ):
         raise ReviewContractError("queued review configuration has an invalid shape")
-    contract = _contract_from_json(raw["review_contract"])
+    queued_model_route(raw)
+    contract = parse_contract(raw["review_contract"])
     if raw["profile"] != contract.profile:
         raise ReviewContractError("queued review profile does not match its contract")
     return contract
 
 
-def require_matching_execution_contract(value: object, installed: ReviewContract) -> None:
+def queued_model_route(value: object) -> ModelRoute:
+    """Older retained subjects belong to the original shared account revision."""
+    if not isinstance(value, dict):
+        raise ReviewContractError("queued review configuration must be an object")
+    raw = cast(dict[str, object], value)
+    if "model_route" not in raw:
+        return ModelRoute(None, SHARED_CONNECTION_ID, 1, 1)
+    route = raw["model_route"]
+    if not isinstance(route, dict) or set(cast(dict[str, object], route)) != {
+        "team_id",
+        "connection_id",
+        "connection_revision",
+        "account_revision",
+    }:
+        raise ReviewContractError("queued model route has an invalid shape")
+    fields = cast(dict[str, object], route)
+    # ModelRoute validates exact integer types and database bounds at this boundary.
+    return ModelRoute(
+        team_id=cast(int | None, fields["team_id"]),
+        connection_id=cast(int, fields["connection_id"]),
+        connection_revision=cast(int, fields["connection_revision"]),
+        account_revision=cast(int, fields["account_revision"]),
+    )
+
+
+def require_matching_execution_contract(
+    value: object, installed: ReviewContract
+) -> None:
     """Only the explicitly recorded model route may differ from the installed receipt."""
     if value == resolved_config(installed):
         return
     queued = queued_contract(value)
-    expected = with_model_route(installed, provider=queued.model_provider,
-                               model=queued.model, effort=queued.reasoning_effort)
+    expected = with_model_route(
+        installed,
+        provider=queued.model_provider,
+        model=queued.model,
+        effort=queued.reasoning_effort,
+    )
     if queued != expected:
-        raise ReviewContractError("queued review contract does not match the installed reviewer")
+        raise ReviewContractError(
+            "queued review contract does not match the installed reviewer"
+        )

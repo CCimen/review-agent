@@ -12,6 +12,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import socket
 import threading
 import time
@@ -23,6 +24,7 @@ import psycopg
 
 from . import failure_codes, review_contract, review_run_application
 from .domain.review import JsonObject
+from .hermes_control import MANAGED_REVIEW_PATH
 from .postgres import jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
 from .source_control import SameOriginHttpsRedirectHandler
@@ -62,6 +64,7 @@ class WorkerPolicy:
     recovery_batch_size: int
     priority_aging_interval: timedelta
     concurrency: int = 1
+    runtime_key: str = "shared"
 
     def __post_init__(self) -> None:
         positive_durations = {
@@ -84,6 +87,8 @@ class WorkerPolicy:
             raise WorkerConfigurationError("recovery_batch_size must be positive")
         if isinstance(self.concurrency, bool) or self.concurrency < 1:
             raise WorkerConfigurationError("concurrency must be positive")
+        if re.fullmatch(r"[a-z][a-z0-9-]{0,62}", self.runtime_key) is None:
+            raise WorkerConfigurationError("model connection must be a valid runtime key")
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +99,14 @@ class HermesChatSettings:
 
     def __post_init__(self) -> None:
         parsed = parse.urlsplit(self.endpoint)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise WorkerConfigurationError("Hermes endpoint must be an HTTP URL")
+        if (
+            parsed.scheme not in {"http", "https"} or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or parsed.path != MANAGED_REVIEW_PATH or parsed.query or parsed.fragment
+        ):
+            raise WorkerConfigurationError(
+                f"Hermes endpoint must be an HTTP URL ending in {MANAGED_REVIEW_PATH}"
+            )
         if not self.bearer_token.strip():
             raise WorkerConfigurationError("Hermes bearer token is required")
         if not self.skill_path.is_file():
@@ -351,6 +362,7 @@ class ReviewWorker:
                 lease_owner=self._lease_owner,
                 lease_duration=self._policy.lease_duration,
                 priority_aging_interval=self._policy.priority_aging_interval,
+                runtime_key=self._policy.runtime_key,
             )
             if job is None:
                 return None

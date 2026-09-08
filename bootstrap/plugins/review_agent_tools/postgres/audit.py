@@ -3,16 +3,20 @@
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
-from .team_access import AccessScope, require_admin, require_team
+from .team_access import AccessDenied, AccessScope, require_admin, require_team
 
 
 class AuditAction(StrEnum):
+    AUDIT_ACCESS_STARTED = "audit_access_started"
+    AUDIT_ACCESS_ENDED = "audit_access_ended"
+    AUDIT_VIEWED = "audit_viewed"
+    AUDIT_EXPORTED = "audit_exported"
     TEAM_CREATED = "team_created"
     TEAM_UPDATED = "team_updated"
     MEMBER_ADDED = "member_added"
@@ -87,6 +91,108 @@ class AuditFilters:
     until: datetime | None = None
 
 
+class AuditPurpose(StrEnum):
+    INCIDENT_INVESTIGATION = "incident_investigation"
+    ACCESS_REVIEW = "access_review"
+    SUPPORT = "support"
+    ROUTINE_REVIEW = "routine_review"
+    OTHER = "other"
+
+
+@dataclass(frozen=True, slots=True)
+class AuditAccess:
+    id: UUID
+    purpose: AuditPurpose
+    reason: str
+    team_id: int | None
+    expires_at: datetime
+
+
+def _access(
+    connection: psycopg.Connection[TupleRow],
+    scope: AccessScope,
+    access_id: UUID | None,
+    team_id: int | None,
+) -> AuditAccess:
+    require_admin(scope)
+    # The immutable start event owns the grant; end events revoke it. Both use
+    # the operation index, so access validation never scans the journal.
+    with connection.cursor(row_factory=class_row(AuditAccess)) as cursor:
+        row = cursor.execute(
+            """SELECT event.operation_id AS id, event.details->>'purpose' AS purpose,
+                      event.reason, event.team_id,
+                      event.recorded_at + interval '30 minutes' AS expires_at
+               FROM review_agent.admin_audit_events event
+               JOIN review_agent.admin_users account ON account.id = event.actor_id
+               WHERE event.operation_id = %s AND event.action = 'audit_access_started'
+                 AND event.actor_id = %s AND event.team_id IS NOT DISTINCT FROM %s::bigint
+                 AND event.actor_role = %s
+                 AND event.details->>'access_revision' = account.access_revision::text
+                 AND event.recorded_at > clock_timestamp() - interval '30 minutes'
+                 AND NOT EXISTS (
+                     SELECT 1 FROM review_agent.admin_audit_events ended
+                     WHERE ended.operation_id = event.operation_id AND ended.action = 'audit_access_ended')""",
+            (access_id, scope.user_id, team_id, scope.role.value),
+        ).fetchone()
+    if row is None:
+        raise AccessDenied(
+            "State a purpose and justification to access this audit log."
+        )
+    return replace(row, purpose=AuditPurpose(row.purpose))
+
+
+def start_access(
+    connection: psycopg.Connection[TupleRow],
+    scope: AccessScope,
+    *,
+    purpose: AuditPurpose,
+    reason: str,
+) -> AuditAccess:
+    require_admin(scope)
+    reason = reason.strip()
+    if not 10 <= len(reason) <= 500:
+        raise ValueError("Audit justification must contain 10 to 500 characters.")
+    row = connection.execute(
+        "SELECT access_revision FROM review_agent.admin_users WHERE id = %s",
+        (scope.user_id,),
+    ).fetchone()
+    if row is None:
+        raise AccessDenied()
+    access_id = uuid4()
+    record(
+        connection,
+        scope,
+        action=AuditAction.AUDIT_ACCESS_STARTED,
+        subject="audit",
+        reason=reason,
+        details={"purpose": purpose.value, "access_revision": row[0]},
+        team_id=scope.team_id,
+        operation_id=access_id,
+        owner_only=scope.is_owner,
+    )
+    return _access(connection, scope, access_id, scope.team_id)
+
+
+def end_access(
+    connection: psycopg.Connection[TupleRow],
+    scope: AccessScope,
+    *,
+    access_id: UUID,
+) -> None:
+    grant = _access(connection, scope, access_id, scope.team_id)
+    record(
+        connection,
+        scope,
+        action=AuditAction.AUDIT_ACCESS_ENDED,
+        subject="audit",
+        reason=grant.reason,
+        details={"purpose": grant.purpose.value},
+        team_id=scope.team_id,
+        operation_id=access_id,
+        owner_only=scope.is_owner,
+    )
+
+
 def record(
     connection: psycopg.Connection[TupleRow],
     scope: AccessScope,
@@ -135,10 +241,13 @@ def events(
     team_id: int | None,
     limit: int,
     filters: AuditFilters,
+    access_id: UUID | None,
+    export_format: str | None = None,
 ) -> AuditPage:
     require_admin(scope)
     if team_id is not None:
         require_team(connection, scope, team_id)
+    grant = _access(connection, scope, access_id, team_id)
     with connection.cursor(row_factory=class_row(AuditEvent)) as cursor:
         rows = cursor.execute(
             """SELECT event.id, team_id, actor_id, actor_email, actor_role, action, subject, reason, details,
@@ -169,7 +278,7 @@ def events(
                 "limit": limit + 1,
             },
         ).fetchall()
-    return AuditPage(
+    page = AuditPage(
         tuple(
             replace(
                 row, action=AuditAction(row.action), outcome=AuditOutcome(row.outcome)
@@ -178,3 +287,31 @@ def events(
         ),
         rows[limit - 1].id if len(rows) > limit else None,
     )
+    record(
+        connection,
+        scope,
+        action=AuditAction.AUDIT_EXPORTED
+        if export_format
+        else AuditAction.AUDIT_VIEWED,
+        subject="audit",
+        reason=grant.reason,
+        team_id=team_id,
+        operation_id=grant.id,
+        owner_only=scope.is_owner,
+        details={
+            "purpose": grant.purpose.value,
+            "format": export_format,
+            "before_id": filters.before_id,
+            "actor_id": str(filters.actor_id) if filters.actor_id else None,
+            "action": filters.action.value if filters.action else None,
+            "outcome": filters.outcome.value if filters.outcome else None,
+            "search": filters.search,
+            "since": filters.since.isoformat() if filters.since else None,
+            "until": filters.until.isoformat() if filters.until else None,
+            "limit": limit,
+            "returned_count": len(page.items),
+            "first_event_id": page.items[0].id if page.items else None,
+            "last_event_id": page.items[-1].id if page.items else None,
+        },
+    )
+    return page

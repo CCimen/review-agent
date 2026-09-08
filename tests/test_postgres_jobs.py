@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 import psycopg
 
@@ -70,6 +71,66 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.runtime = PostgreSQLRuntime(PostgresDatabaseUrl(DSN))
         self.runtime.open()
         self.addCleanup(self.runtime.close)
+
+    def test_remote_execution_keeps_account_busy_after_worker_lease_expires(
+        self,
+    ) -> None:
+        pr = self.pull_request(provider_id=934, number=1)
+        subject = self.subject(pr, head_character="a")
+        run, _ = self.accept_job(pr, subject, request_key="remote-execution")
+        instance = uuid4()
+        with self.runtime.transaction() as connection:
+            claimed = self.claim_job(
+                connection, lease_owner="worker", lease_duration=timedelta(minutes=2)
+            )
+            self.assertIsNotNone(claimed)
+            session = jobs.WorkerLeaseSession(claimed.id, claimed.lease_generation)
+            jobs.begin_model_execution(
+                connection,
+                session=session,
+                runtime_key="shared",
+                runtime_instance=instance,
+                provider="openai-codex",
+                model="gpt-test",
+                reasoning_effort="high",
+                identity_sha256="a" * 64,
+            )
+            connection.execute(
+                "UPDATE review_agent.review_jobs SET last_heartbeat_at = started_at, lease_expires_at = statement_timestamp() WHERE id = %s",
+                (claimed.id,),
+            )
+        with self.runtime.transaction() as connection:
+            jobs.recover_expired_leases(connection, limit=10)
+            self.assertEqual(
+                jobs.active_model_executions(connection, connection_id=1), 1
+            )
+            self.assertIsNone(
+                self.claim_job(
+                    connection, lease_owner="retry", lease_duration=timedelta(minutes=2)
+                )
+            )
+            jobs.finish_model_execution(
+                connection, session=session, runtime_instance=instance
+            )
+            self.assertEqual(
+                jobs.active_model_executions(connection, connection_id=1), 0
+            )
+            retry = self.claim_job(
+                connection, lease_owner="retry", lease_duration=timedelta(minutes=2)
+            )
+            self.assertEqual(retry.review_run_id if retry else None, run.run.id)
+        with self.runtime.transaction() as connection:
+            with self.assertRaises(jobs.ReviewJobError):
+                jobs.begin_model_execution(
+                    connection,
+                    session=jobs.WorkerLeaseSession(retry.id, retry.lease_generation),
+                    runtime_key="shared",
+                    runtime_instance=instance,
+                    provider="openai-codex",
+                    model="gpt-test",
+                    reasoning_effort="high",
+                    identity_sha256="b" * 64,
+                )
 
     def pull_request(self, *, provider_id: int, number: int) -> registry.PullRequest:
         with self.runtime.transaction() as connection:

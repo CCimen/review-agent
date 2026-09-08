@@ -19,6 +19,8 @@ let HermesHealth;
 let settingsDefaults;
 let ScopeProvider;
 let contextualTo;
+let AuditLog;
+let AuditJSON;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -46,6 +48,7 @@ before(async () => {
   ({ SettingsPage } = await server.ssrLoadModule("/src/settings.tsx"));
   ({ QualityPage } = await server.ssrLoadModule("/src/quality.tsx"));
   ({ HermesHealth } = await server.ssrLoadModule("/src/deployment.tsx"));
+  ({ AuditLog, AuditJSON } = await server.ssrLoadModule("/src/audit.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -90,6 +93,26 @@ const renderConsolePage = (component, cache) => {
   client.clear();
   return html;
 };
+
+test("audit requires a purpose and justification before rendering records", () => {
+  const html = renderConsolePage(createElement(AuditLog), []);
+  assert.match(html, /Explain why you need access/);
+  assert.match(html, /Incident investigation/);
+  assert.match(html, /minLength="10"/);
+  assert.match(html, /maxLength="500"/);
+  assert.doesNotMatch(html, /Export matching events|Audit events<\/table>/);
+});
+
+test("audit event JSON preserves nested values and escapes untrusted content", () => {
+  const event = { id: 42, action: "audit_viewed", reason: "Investigate <script>unsafe</script>", details: { purpose: "access_review", returned_count: 5 } };
+  const html = renderToStaticMarkup(createElement(AuditJSON, { event }));
+  assert.match(html, /View JSON · #42/);
+  assert.match(html, /Copy JSON/);
+  assert.match(html, /&quot;returned_count&quot;: 5/);
+  assert.match(html, /&quot;purpose&quot;: &quot;access_review&quot;/);
+  assert.match(html, /&lt;script&gt;unsafe&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+});
 
 test("access distinguishes GitHub scope from review activation and preserves disabled repositories", () => {
   const capability = {

@@ -1,3 +1,27 @@
+.model-choices {
+  display: grid;
+  gap: var(--space-4);
+}
+.model-choice {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.model-choice legend { padding-inline: var(--space-2); }
+.model-efforts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-block: var(--space-3);
+}
+.model-efforts label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 :root {
   /* Page frame. The header, main and footer all derive their inline padding
      from these so their content shares one left edge at every width. */
@@ -2824,8 +2848,49 @@ dialog form {
   overflow-wrap: anywhere;
   white-space: normal;
 }
-.audit-details {
-  margin: 12px 0;
+.audit-access {
+  max-width: 720px;
+  padding: var(--space-6);
+}
+.audit-access h2 {
+  margin-top: 0;
+}
+.audit-access p,
+.audit-session p {
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+}
+.audit-session {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--line);
+}
+.audit-session p {
+  margin: var(--space-2) 0;
+}
+.audit-json {
+  min-width: 220px;
+  max-width: 600px;
+}
+.audit-json .toolbar {
+  margin: var(--space-3) 0;
+  flex-wrap: wrap;
+}
+.audit-json pre {
+  max-height: 28rem;
+  padding: var(--space-3);
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
 }
 
 .audit-filters {
@@ -2846,13 +2911,6 @@ dialog form {
 .audit-export .toolbar {
   gap: var(--space-3);
   flex-wrap: wrap;
-}
-.audit-details dt {
-  color: var(--muted);
-}
-.audit-details dd {
-  margin: 2px 0 10px;
-  overflow-wrap: anywhere;
 }
 .account-fields {
   border: 0;

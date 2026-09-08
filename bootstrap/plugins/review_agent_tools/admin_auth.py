@@ -487,6 +487,7 @@ class AdminAuth:
             await session.execute(
                 delete(SessionToken).where(SessionToken.__table__.c.user_id == user.id)
             )
+            user.access_revision += 1
             updated = await manager.update(values, user)
             await _account_audit(
                 session,
@@ -525,6 +526,7 @@ class AdminAuth:
             await session.execute(
                 delete(SessionToken).where(SessionToken.__table__.c.user_id == user.id)
             )
+            user.access_revision += 1
             await manager.update(
                 schemas.BaseUserUpdate(password=change.password.get_secret_value()),
                 user,

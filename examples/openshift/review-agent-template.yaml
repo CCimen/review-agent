@@ -532,7 +532,7 @@ objects:
                       name: review-agent-database
                       key: REVIEW_AGENT_RUNTIME_DATABASE_URL
                 - name: REVIEW_AGENT_HERMES_CHAT_URL
-                  value: http://hermes-review:8642/v1/chat/completions
+                  value: http://hermes-review:8642/v1/review-agent/review
                 - name: API_SERVER_KEY
                   valueFrom:
                     secretKeyRef:

@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Header, Path, Query
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from . import admin_application
@@ -125,11 +125,19 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     def events(
         team_id: TeamId,
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
+        audit_access_id: Annotated[
+            UUID | None, Header(alias="X-Audit-Access-ID")
+        ] = None,
         limit: Limit = 50,
         before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
     ) -> audit.AuditPage:
         return admin_application.team_events(
-            runtime, access=access, team_id=team_id, limit=limit, before_id=before_id
+            runtime,
+            access=access,
+            team_id=team_id,
+            limit=limit,
+            before_id=before_id,
+            access_id=audit_access_id,
         )
 
     router.add_api_route(

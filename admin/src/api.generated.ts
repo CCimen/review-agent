@@ -413,7 +413,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/providers/openai-codex/login": {
+    "/api/model-connections/runtimes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Runtimes */
+        get: operations["runtimes_api_model_connections_runtimes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connections */
+        get: operations["list_connections_api_model_connections_get"];
+        put?: never;
+        /** Create Connection */
+        post: operations["create_connection_api_model_connections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-connections/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Connection */
+        get: operations["get_connection_api_model_connections__connection_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Connection */
+        patch: operations["update_connection_api_model_connections__connection_id__patch"];
+        trace?: never;
+    };
+    "/api/model-connections/{connection_id}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enabled */
+        post: operations["enabled_api_model_connections__connection_id__enabled_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-connections/{connection_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reconcile */
+        post: operations["reconcile_api_model_connections__connection_id__reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-connections/{connection_id}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Runtime Status */
+        get: operations["runtime_status_api_model_connections__connection_id__runtime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-connections/{connection_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire */
+        post: operations["retire_api_model_connections__connection_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-connections/{connection_id}/login": {
         parameters: {
             query?: never;
             header?: never;
@@ -423,22 +544,22 @@ export interface paths {
         get?: never;
         put?: never;
         /** Start Login */
-        post: operations["start_login_api_providers_openai_codex_login_post"];
+        post: operations["start_login_api_model_connections__connection_id__login_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/providers/openai-codex/login/{session_id}": {
+    "/api/model-connections/{connection_id}/login/{operation_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Poll Login */
-        get: operations["poll_login_api_providers_openai_codex_login__session_id__get"];
+        /** Get Login */
+        get: operations["get_login_api_model_connections__connection_id__login__operation_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -447,7 +568,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/providers/openai-codex/login/{session_id}/cancel": {
+    "/api/model-connections/{connection_id}/login/{operation_id}/poll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Poll Login */
+        post: operations["poll_login_api_model_connections__connection_id__login__operation_id__poll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/model-connections/{connection_id}/login/{operation_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -457,7 +595,25 @@ export interface paths {
         get?: never;
         put?: never;
         /** Cancel Login */
-        post: operations["cancel_login_api_providers_openai_codex_login__session_id__cancel_post"];
+        post: operations["cancel_login_api_model_connections__connection_id__login__operation_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/teams/{team_id}/model-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Team Policy */
+        get: operations["team_policy_api_teams__team_id__model_policy_get"];
+        /** Save Team Policy */
+        put: operations["save_team_policy_api_teams__team_id__model_policy_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -740,6 +896,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/audit/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a purpose and justification for 30 minutes of audit access
+         * @description Owner or admin required. The returned ID is bound to the actor, current permissions, and selected team_id (or all teams). Send it in X-Audit-Access-ID for every audit read or export. Each request records its filters and returned event range in the journal.
+         */
+        post: operations["start_access_api_audit_access_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/audit/access/{access_id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End the current actor's audit access in this scope */
+        post: operations["end_access_api_audit_access__access_id__end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/audit": {
         parameters: {
             query?: never;
@@ -944,6 +1137,11 @@ export interface components {
              */
             access_revision: number;
         };
+        /**
+         * AccountAvailability
+         * @enum {string}
+         */
+        AccountAvailability: "available" | "disconnected" | "multiple_accounts" | "identity_unavailable" | "isolation_required";
         /** AccountPage */
         AccountPage: {
             /** Items */
@@ -1056,11 +1254,35 @@ export interface components {
             /** Issues */
             issues?: string[];
         };
+        /** AuditAccess */
+        AuditAccess: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            purpose: components["schemas"]["AuditPurpose"];
+            /** Reason */
+            reason: string;
+            /** Team Id */
+            team_id: number | null;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /** AuditAccessRequest */
+        AuditAccessRequest: {
+            purpose: components["schemas"]["AuditPurpose"];
+            /** Reason */
+            reason: string;
+        };
         /**
          * AuditAction
          * @enum {string}
          */
-        AuditAction: "team_created" | "team_updated" | "member_added" | "member_updated" | "member_removed" | "repository_assigned" | "repository_transferred" | "repository_removed" | "repository_requested" | "request_approved" | "request_rejected" | "request_withdrawn" | "account_created" | "account_updated" | "password_changed" | "signed_in" | "signed_out" | "finding_decided" | "feedback_triaged" | "run_action" | "settings_updated" | "access_updated" | "provider_login" | "provider_logout" | "provider_login_cancelled" | "connection_created" | "connection_updated" | "connection_removed" | "identity_linked" | "scim_provisioned" | "scim_updated" | "scim_deactivated";
+        AuditAction: "audit_access_started" | "audit_access_ended" | "audit_viewed" | "audit_exported" | "team_created" | "team_updated" | "member_added" | "member_updated" | "member_removed" | "repository_assigned" | "repository_transferred" | "repository_removed" | "repository_requested" | "request_approved" | "request_rejected" | "request_withdrawn" | "account_created" | "account_updated" | "password_changed" | "signed_in" | "signed_out" | "finding_decided" | "feedback_triaged" | "run_action" | "settings_updated" | "access_updated" | "provider_login" | "provider_logout" | "provider_login_cancelled" | "connection_created" | "connection_updated" | "connection_removed" | "identity_linked" | "scim_provisioned" | "scim_updated" | "scim_deactivated";
         /** AuditEvent */
         AuditEvent: {
             /** Id */
@@ -1110,6 +1332,11 @@ export interface components {
             /** Next Before Id */
             next_before_id: number | null;
         };
+        /**
+         * AuditPurpose
+         * @enum {string}
+         */
+        AuditPurpose: "incident_investigation" | "access_review" | "support" | "routine_review" | "other";
         /** AuditReason */
         AuditReason: {
             /** Reason */
@@ -1139,17 +1366,93 @@ export interface components {
              */
             client_secret?: string | null;
         };
-        /** Cancellation */
-        Cancellation: {
-            /** Cancelled */
-            cancelled: boolean;
-            /** Session Id */
-            session_id: string;
-        };
         /** ChangeReason */
         ChangeReason: {
             /** Reason */
             reason: string;
+        };
+        /** ConnectionAccount */
+        ConnectionAccount: {
+            provider: components["schemas"]["ModelProvider"];
+            /** Revision */
+            revision: number;
+            /** Label */
+            label: string;
+            /** Verified */
+            verified: boolean;
+            /** Observed At */
+            observed_at: string | null;
+        };
+        /** ConnectionChange */
+        ConnectionChange: {
+            /** Reason */
+            reason: string;
+            /** Expected Revision */
+            expected_revision: number;
+        };
+        /** ConnectionCreate */
+        ConnectionCreate: {
+            /** Reason */
+            reason: string;
+            /** Name */
+            name: string;
+            /** Allowed Routes */
+            allowed_routes?: components["schemas"]["ModelChoiceInput"][];
+            /** Runtime Key */
+            runtime_key: string;
+            /** Team Id */
+            team_id?: number | null;
+        };
+        /** ConnectionEnabled */
+        ConnectionEnabled: {
+            /** Reason */
+            reason: string;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** ConnectionPage */
+        ConnectionPage: {
+            /** Items */
+            items: components["schemas"]["ModelConnection"][];
+            /** Next After Id */
+            next_after_id: number | null;
+        };
+        /** ConnectionReconcile */
+        ConnectionReconcile: {
+            /** Reason */
+            reason: string;
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Runtime Restarted
+             * @default false
+             */
+            runtime_restarted: boolean;
+        };
+        /** ConnectionRuntime */
+        ConnectionRuntime: {
+            /** Configured */
+            configured: boolean;
+            /** Accounts */
+            accounts: components["schemas"]["ProviderAccountStatus"][];
+        };
+        /**
+         * ConnectionState
+         * @enum {string}
+         */
+        ConnectionState: "enabled" | "disabled" | "authenticating" | "needs_attention" | "retired";
+        /** ConnectionUpdate */
+        ConnectionUpdate: {
+            /** Reason */
+            reason: string;
+            /** Name */
+            name: string;
+            /** Allowed Routes */
+            allowed_routes?: components["schemas"]["ModelChoiceInput"][];
+            /** Expected Revision */
+            expected_revision: number;
         };
         /**
          * CoverageState
@@ -1691,21 +1994,89 @@ export interface components {
              */
             checked_at: string;
         };
-        /** LoginSession */
-        LoginSession: {
-            /** Session Id */
-            session_id: string;
-            /** Status */
-            status: string;
-            /** User Code */
-            user_code: string | null;
-            /** Verification Url */
-            verification_url: string | null;
-            /** Expires In */
-            expires_in: number | null;
-            /** Poll Interval */
-            poll_interval: number;
+        /**
+         * LoginState
+         * @enum {string}
+         */
+        LoginState: "starting" | "pending" | "polling" | "cancelling" | "approved" | "denied" | "expired" | "cancelled" | "needs_attention";
+        /** ModelChoice */
+        ModelChoice: {
+            provider: components["schemas"]["ModelProvider"];
+            /** Model */
+            model: string;
+            /** Reasoning Efforts */
+            reasoning_efforts: string[];
         };
+        /** ModelChoiceInput */
+        ModelChoiceInput: {
+            provider: components["schemas"]["ModelProvider"];
+            /** Model */
+            model: string;
+            /** Reasoning Efforts */
+            reasoning_efforts: string[];
+        };
+        /** ModelConnection */
+        ModelConnection: {
+            /** Id */
+            id: number;
+            /** Runtime Key */
+            runtime_key: string;
+            /** Name */
+            name: string;
+            /** Team Id */
+            team_id: number | null;
+            /** Team Name */
+            team_name: string | null;
+            state: components["schemas"]["ConnectionState"];
+            /** Revision */
+            revision: number;
+            /** Allowed Routes */
+            allowed_routes: components["schemas"]["ModelChoice"][];
+            /** Accounts */
+            accounts: components["schemas"]["ConnectionAccount"][];
+            /** Queued Jobs */
+            queued_jobs: number | null;
+            /** Leased Jobs */
+            leased_jobs: number | null;
+            /** Active Executions */
+            active_executions: number | null;
+            /** Can Manage */
+            can_manage: boolean;
+            /** Can Configure */
+            can_configure: boolean;
+            /** Active Login Id */
+            active_login_id: string | null;
+        };
+        /** ModelLogin */
+        ModelLogin: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Connection Id */
+            connection_id: number;
+            status: components["schemas"]["LoginState"];
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Poll Interval
+             * @default 5
+             */
+            poll_interval: number;
+            /** User Code */
+            user_code?: string | null;
+            /** Verification Url */
+            verification_url?: string | null;
+        };
+        /**
+         * ModelProvider
+         * @enum {string}
+         */
+        ModelProvider: "openai-codex" | "anthropic";
         /** NewAccount */
         NewAccount: {
             /**
@@ -1835,6 +2206,13 @@ export interface components {
          * @enum {string}
          */
         PermissionLevel: "none" | "read" | "write";
+        /** ProviderAccountStatus */
+        ProviderAccountStatus: {
+            provider: components["schemas"]["ModelProvider"];
+            availability: components["schemas"]["AccountAvailability"];
+            /** Account Count */
+            account_count: number;
+        };
         /** ProviderCapability */
         ProviderCapability: {
             /** Configured */
@@ -2584,6 +2962,40 @@ export interface components {
              */
             email: string;
             role: components["schemas"]["TeamRole"];
+        };
+        /** TeamModelPolicy */
+        TeamModelPolicy: {
+            /** Team Id */
+            team_id: number;
+            /** Revision */
+            revision: number;
+            /** Connection Id */
+            connection_id: number | null;
+            provider: components["schemas"]["ModelProvider"] | null;
+            /** Model */
+            model: string | null;
+            /** Reasoning Effort */
+            reasoning_effort: string | null;
+            effective_provider: components["schemas"]["ModelProvider"];
+            /** Effective Model */
+            effective_model: string;
+            /** Effective Reasoning Effort */
+            effective_reasoning_effort: string;
+            connection: components["schemas"]["ModelConnection"];
+        };
+        /** TeamModelUpdate */
+        TeamModelUpdate: {
+            /** Reason */
+            reason: string;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Connection Id */
+            connection_id?: number | null;
+            provider?: components["schemas"]["ModelProvider"] | null;
+            /** Model */
+            model?: string | null;
+            /** Reasoning Effort */
+            reasoning_effort?: string | null;
         };
         /** TeamPage */
         TeamPage: {
@@ -3582,9 +3994,11 @@ export interface operations {
             };
         };
     };
-    start_login_api_providers_openai_codex_login_post: {
+    runtimes_api_model_connections_runtimes_get: {
         parameters: {
-            query?: never;
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3597,29 +4011,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LoginSession"];
-                };
-            };
-        };
-    };
-    poll_login_api_providers_openai_codex_login__session_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LoginSession"];
+                    "application/json": string[];
                 };
             };
             /** @description Validation Error */
@@ -3633,12 +4025,82 @@ export interface operations {
             };
         };
     };
-    cancel_login_api_providers_openai_codex_login__session_id__cancel_post: {
+    list_connections_api_model_connections_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                after_id?: number;
+                team_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_connection_api_model_connections_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelConnection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_connection_api_model_connections__connection_id__get: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
             header?: never;
             path: {
-                session_id: string;
+                connection_id: number;
             };
             cookie?: never;
         };
@@ -3650,7 +4112,397 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Cancellation"];
+                    "application/json": components["schemas"]["ModelConnection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_connection_api_model_connections__connection_id__patch: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelConnection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enabled_api_model_connections__connection_id__enabled_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionEnabled"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelConnection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reconcile_api_model_connections__connection_id__reconcile_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionReconcile"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelConnection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    runtime_status_api_model_connections__connection_id__runtime_get: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRuntime"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_api_model_connections__connection_id__retire_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelConnection"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_login_api_model_connections__connection_id__login_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLogin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_login_api_model_connections__connection_id__login__operation_id__get: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLogin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    poll_login_api_model_connections__connection_id__login__operation_id__poll_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLogin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_login_api_model_connections__connection_id__login__operation_id__cancel_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelLogin"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    team_policy_api_teams__team_id__model_policy_get: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamModelPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_team_policy_api_teams__team_id__model_policy_put: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamModelUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamModelPolicy"];
                 };
             };
             /** @description Validation Error */
@@ -4293,7 +5145,9 @@ export interface operations {
                 before_id?: number | null;
                 team_id?: number | null;
             };
-            header?: never;
+            header?: {
+                "X-Audit-Access-ID"?: string | null;
+            };
             path: {
                 team_id: number;
             };
@@ -4321,6 +5175,72 @@ export interface operations {
             };
         };
     };
+    start_access_api_audit_access_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuditAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditAccess"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    end_access_api_audit_access__access_id__end_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                access_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     events_api_audit_get: {
         parameters: {
             query?: {
@@ -4334,7 +5254,9 @@ export interface operations {
                 since?: string | null;
                 until?: string | null;
             };
-            header?: never;
+            header?: {
+                "X-Audit-Access-ID"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -4374,7 +5296,9 @@ export interface operations {
                 since?: string | null;
                 until?: string | null;
             };
-            header?: never;
+            header?: {
+                "X-Audit-Access-ID"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

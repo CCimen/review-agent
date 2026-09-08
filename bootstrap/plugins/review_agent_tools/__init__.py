@@ -7,6 +7,10 @@ from typing import Any, Callable, Protocol, cast
 
 
 class ToolRegistry(Protocol):
+    def register_platform_handler(
+        self, platform: str, factory: Callable[[object, object], None]
+    ) -> None: ...
+
     def register_tool(
         self,
         *,
@@ -45,6 +49,8 @@ def register(ctx: ToolRegistry) -> None:
     memory_tools = import_module(f"{__name__}.review_memory_tools")
     delivery_tool = import_module(f"{__name__}.review_delivery_tool")
     graph_tool = import_module(f"{__name__}.review_code_graph_tool")
+    runtime_api = import_module(f"{__name__}.hermes_runtime_api")
+    ctx.register_platform_handler("api_server", getattr(runtime_api, "wire_api"))
 
     ctx.register_tool(
         name="review_agent_begin",

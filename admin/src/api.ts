@@ -91,11 +91,15 @@ export async function login(email: string, password: string): Promise<void> {
     );
 }
 
-export async function read<T>(path: string, signal: AbortSignal): Promise<T> {
+export async function read<T>(
+  path: string,
+  signal: AbortSignal,
+  headers: Record<string, string> = {},
+): Promise<T> {
   const response = await fetch(path, {
     signal,
     credentials: "same-origin",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...headers },
   });
   if (!response.ok) throw new APIError(response.status);
   return response.json() as Promise<T>;

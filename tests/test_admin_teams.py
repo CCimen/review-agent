@@ -400,6 +400,7 @@ class AdminTeamTests(unittest.TestCase):
             "/api/users",
             json={"email": "member@example.com", "password": test_admin_api.PASSWORD},
         ).json()
+        self.fixture.authorize_audit()
         result = self.client.get("/api/audit")
         self.assertEqual(result.status_code, 200, result.text)
         events = result.json()["items"]
@@ -423,6 +424,7 @@ class AdminTeamTests(unittest.TestCase):
             any(event["subject"] in (owner["id"], admin["id"]) for event in events)
         )
         self.fixture.login()
+        self.fixture.authorize_audit()
         own = self.client.get("/api/audit?limit=1").json()
         self.assertIsNotNone(own["next_before_id"])
         older = self.client.get(f"/api/audit?before_id={own['next_before_id']}").json()
@@ -454,6 +456,7 @@ class AdminTeamTests(unittest.TestCase):
             "action": "team_created",
             "actor_id": owner["id"],
         }
+        self.fixture.authorize_audit()
         response = self.client.get("/api/audit", params=filters)
         self.assertEqual(response.status_code, 200, response.text)
         items = response.json()["items"]
@@ -541,6 +544,119 @@ class AdminTeamTests(unittest.TestCase):
             self.client.get("/api/audit/export?format=json&limit=1001").status_code, 422
         )
 
+    def test_audit_access_requires_justification_and_records_reads_and_exports(
+        self,
+    ) -> None:
+        owner = self.client.get("/api/me").json()
+        team = self.client.post(
+            "/api/teams", json={"name": "Audit access", "reason": "Onboard"}
+        ).json()
+        for path in (
+            "/api/audit",
+            "/api/audit/export",
+            f"/api/teams/{team['id']}/events",
+        ):
+            self.assertEqual(self.client.get(path).status_code, 403, path)
+        self.assertEqual(
+            self.client.post(
+                "/api/audit/access",
+                json={"purpose": "access_review", "reason": "short"},
+            ).status_code,
+            422,
+        )
+        reason = "Investigate an unexpected repository access change"
+        response = self.client.post(
+            "/api/audit/access", json={"purpose": "access_review", "reason": reason}
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        grant = response.json()
+        headers = {"X-Audit-Access-ID": grant["id"]}
+        result = self.client.get("/api/audit?action=team_created", headers=headers)
+        self.assertEqual(result.status_code, 200, result.text)
+        self.assertEqual(len(result.json()["items"]), 1)
+        result = self.client.get(
+            "/api/audit/export?format=json&action=team_created", headers=headers
+        )
+        self.assertEqual(result.status_code, 200, result.text)
+        with psycopg.connect(DSN) as connection:
+            rows = connection.execute(
+                "SELECT action, actor_id, reason, details, owner_only FROM review_agent.admin_audit_events WHERE operation_id = %s ORDER BY id",
+                (grant["id"],),
+            ).fetchall()
+        self.assertEqual(
+            [row[0] for row in rows],
+            ["audit_access_started", "audit_viewed", "audit_exported"],
+        )
+        for row in rows:
+            self.assertEqual(str(row[1]), owner["id"])
+            self.assertEqual(row[2], reason)
+            self.assertEqual(row[3]["purpose"], "access_review")
+            self.assertTrue(row[4])
+        self.assertEqual(rows[-1][3]["format"], "json")
+        self.assertEqual(rows[-1][3]["returned_count"], 1)
+        self.assertEqual(rows[-1][3]["action"], "team_created")
+        self.assertEqual(
+            self.client.post(f"/api/audit/access/{grant['id']}/end").status_code, 204
+        )
+        self.assertEqual(
+            self.client.get("/api/audit", headers=headers).status_code, 403
+        )
+
+    def test_audit_access_is_bound_to_actor_scope_expiry_and_current_permissions(
+        self,
+    ) -> None:
+        owner = self.client.get("/api/me").json()
+        team = self.client.post(
+            "/api/teams", json={"name": "Audit scope", "reason": "Onboard"}
+        ).json()
+        self.client.post(
+            "/api/users",
+            json={
+                "email": "audit-admin@example.com",
+                "password": test_admin_api.PASSWORD,
+                "role": "admin",
+            },
+        )
+        reason = {
+            "purpose": "incident_investigation",
+            "reason": "Investigate unexpected configuration changes",
+        }
+        grant = self.client.post(
+            f"/api/audit/access?team_id={team['id']}", json=reason
+        ).json()
+        headers = {"X-Audit-Access-ID": grant["id"]}
+        path = f"/api/teams/{team['id']}/events"
+        self.assertEqual(self.client.get(path, headers=headers).status_code, 200)
+        self.assertEqual(
+            self.client.get("/api/audit", headers=headers).status_code, 403
+        )
+        self.assertEqual(
+            self.client.get("/api/audit/export", headers=headers).status_code, 403
+        )
+        self.fixture.login("audit-admin@example.com")
+        self.assertEqual(self.client.get(path, headers=headers).status_code, 403)
+        self.fixture.login()
+        changed = self.client.patch(
+            f"/api/users/{owner['id']}",
+            json={"active": True, "reason": "Reconfirm owner account access"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(
+            changed.json()["access_revision"], owner["access_revision"] + 1
+        )
+        self.fixture.login()
+        self.assertEqual(self.client.get(path, headers=headers).status_code, 403)
+        grant = self.client.post("/api/audit/access", json=reason).json()
+        headers = {"X-Audit-Access-ID": grant["id"]}
+        with psycopg.connect(DSN) as connection:
+            connection.execute(
+                "UPDATE review_agent.admin_audit_events SET recorded_at = now() - interval '31 minutes' WHERE operation_id = %s",
+                (grant["id"],),
+            )
+        self.assertEqual(
+            self.client.get("/api/audit/export", headers=headers).status_code, 403
+        )
+
     def test_audit_exports_enforce_role_and_event_audience(self) -> None:
         self.client.post(
             "/api/users",
@@ -558,6 +674,7 @@ class AdminTeamTests(unittest.TestCase):
             "/api/teams", json={"name": "Payments", "reason": "Team access"}
         )
         self.fixture.login("admin2@example.com")
+        self.fixture.authorize_audit()
         result = self.client.get("/api/audit/export?format=json")
         self.assertEqual(result.status_code, 200, result.text)
         self.assertTrue(result.json()["items"])
@@ -702,6 +819,7 @@ class AdminTeamTests(unittest.TestCase):
                 ],
                 1,
             )
+        self.fixture.authorize_audit(team["id"])
         events = self.client.get(f"/api/teams/{team['id']}/events").json()["items"]
         self.assertEqual(
             sum(event["action"] == "request_approved" for event in events), 1
@@ -890,6 +1008,7 @@ class AdminTeamTests(unittest.TestCase):
             self.client.get(f"/api/teams/{team['id']}/events").status_code, 403
         )
         self.fixture.login()
+        self.fixture.authorize_audit(team["id"])
         events = self.client.get(f"/api/teams/{team['id']}/events").json()["items"]
         action = next(event for event in events if event["action"] == "run_action")
         self.assertEqual(action["actor_id"], user["id"])

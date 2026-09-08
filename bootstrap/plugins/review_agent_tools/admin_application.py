@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
-from collections.abc import Iterator
-from contextlib import contextmanager
 
 import psycopg
 from psycopg.rows import TupleRow
@@ -30,28 +28,8 @@ from .postgres import (
     teams,
 )
 from .postgres.team_access import AccessRequest, AccessScope, TeamRole
+from .postgres.team_access import authorized_transaction as _transaction
 from .postgres.runtime import PostgreSQLRuntime
-
-
-@contextmanager
-def _transaction(
-    runtime: PostgreSQLRuntime,
-    access: AccessRequest,
-    *,
-    write: bool = False,
-    access_change: bool = False,
-) -> Iterator[tuple[psycopg.Connection[TupleRow], AccessScope]]:
-    with runtime.transaction() as connection:
-        if access_change:
-            team_access.lock_access_change(connection)
-        elif not write:
-            connection.execute(
-                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
-            )
-        scope = team_access.resolve_scope(
-            connection, access, write=write and not access_change
-        )
-        yield connection, scope
 
 
 def list_teams(
@@ -161,14 +139,16 @@ def team_events(
     team_id: int,
     limit: int,
     before_id: int | None,
+    access_id: UUID | None,
 ) -> audit.AuditPage:
-    with _transaction(runtime, access) as (connection, scope):
+    with _transaction(runtime, access, write=True) as (connection, scope):
         return audit.events(
             connection,
             scope,
             team_id=team_id,
             limit=limit,
             filters=audit.AuditFilters(before_id=before_id),
+            access_id=access_id,
         )
 
 
@@ -609,8 +589,10 @@ def audit_events(
     access: AccessRequest,
     limit: int,
     filters: audit.AuditFilters,
+    access_id: UUID | None,
+    export_format: str | None = None,
 ) -> audit.AuditPage:
-    with _transaction(runtime, access) as (connection, scope):
+    with _transaction(runtime, access, write=True) as (connection, scope):
         team_access.require_admin(scope)
         return audit.events(
             connection,
@@ -618,7 +600,27 @@ def audit_events(
             team_id=scope.team_id,
             limit=limit,
             filters=filters,
+            access_id=access_id,
+            export_format=export_format,
         )
+
+
+def start_audit_access(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    purpose: audit.AuditPurpose,
+    reason: str,
+) -> audit.AuditAccess:
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        return audit.start_access(connection, scope, purpose=purpose, reason=reason)
+
+
+def end_audit_access(
+    runtime: PostgreSQLRuntime, *, access: AccessRequest, access_id: UUID
+) -> None:
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        audit.end_access(connection, scope, access_id=access_id)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,6 +1,8 @@
 """Console authorization resolved against current accounts and team ownership."""
 
 from dataclasses import dataclass
+from collections.abc import Iterator
+from contextlib import contextmanager
 from uuid import UUID
 
 import psycopg
@@ -9,6 +11,7 @@ from psycopg.rows import TupleRow
 
 
 from ..domain.access import Role, TeamRole
+from .runtime import PostgreSQLRuntime
 
 
 class AccessDenied(PermissionError):
@@ -58,6 +61,26 @@ class AccessScope:
         return (
             f"{self.role.value if self.is_admin else 'team-maintainer'}:{self.user_id}"
         )
+
+
+@contextmanager
+def authorized_transaction(
+    runtime: PostgreSQLRuntime,
+    access: AccessRequest,
+    *,
+    write: bool = False,
+    access_change: bool = False,
+) -> Iterator[tuple[psycopg.Connection[TupleRow], AccessScope]]:
+    """Resolve current authorization in the transaction containing the operation."""
+    with runtime.transaction() as connection:
+        if access_change:
+            lock_access_change(connection)
+        elif not write:
+            connection.execute(
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+            )
+        scope = resolve_scope(connection, access, write=write and not access_change)
+        yield connection, scope
 
 
 def lock_access_change(connection: psycopg.Connection[TupleRow]) -> None:

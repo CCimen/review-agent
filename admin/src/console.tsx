@@ -21,6 +21,7 @@ const sections = [
   { path: "/quality", label: "Review quality", key: "Q" },
   { path: "/operations", label: "Health", key: "H", admin: true },
   { path: "/teams", label: "Teams", key: "T" },
+  { path: "/model-connections", label: "Model connections", key: "M" },
   { path: "/audit", label: "Audit log", key: "L", admin: true },
   { path: "/settings", label: "Settings", key: "S", owner: true },
   { path: "/users", label: "Users", key: "U", admin: true },

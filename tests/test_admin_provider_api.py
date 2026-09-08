@@ -154,7 +154,9 @@ class HermesControlTests(unittest.TestCase):
                 b'{"slug":"anthropic","models":["claude-sonnet"]},'
                 b'{"slug":"other","models":["private-model"]}]}',
                 (
-                    b'{"session_id":"' + SESSION_ID.encode() + b'","flow":"device_code",'
+                    b'{"session_id":"'
+                    + SESSION_ID.encode()
+                    + b'","flow":"device_code",'
                     b'"user_code":"ABCD-EFGH","verification_url":"https://auth.openai.com/codex/device",'
                     b'"expires_in":900,"poll_interval":5,"device_code":"provider-secret"}'
                 ),
@@ -163,7 +165,9 @@ class HermesControlTests(unittest.TestCase):
             ]
         )
         client = HermesControlClient(
-            "http://hermes-dashboard:3000", TOKEN, opener=opener  # type: ignore[arg-type]
+            "http://hermes-dashboard:3000",
+            TOKEN,
+            opener=opener,  # type: ignore[arg-type]
         )
 
         statuses = client.provider_statuses()
@@ -172,11 +176,17 @@ class HermesControlTests(unittest.TestCase):
         polled = client.poll_codex_login(SESSION_ID)
         cancelled = client.cancel_codex_login(SESSION_ID)
 
-        self.assertEqual([item.provider for item in statuses], ["openai-codex", "anthropic"])
+        self.assertEqual(
+            [item.provider for item in statuses], ["openai-codex", "anthropic"]
+        )
         self.assertEqual(statuses[1].action, "hermes auth add anthropic")
-        self.assertEqual([item.model for item in models], ["gpt-5", "gpt-6", "claude-sonnet"])
+        self.assertEqual(
+            [item.model for item in models], ["gpt-5", "gpt-6", "claude-sonnet"]
+        )
         self.assertEqual(started.user_code, "ABCD-EFGH")
-        self.assertEqual(started.verification_url, "https://auth.openai.com/codex/device")
+        self.assertEqual(
+            started.verification_url, "https://auth.openai.com/codex/device"
+        )
         self.assertEqual(polled.status, "approved")
         self.assertTrue(cancelled.cancelled)
         self.assertEqual(
@@ -184,7 +194,10 @@ class HermesControlTests(unittest.TestCase):
             ["GET", "GET", "POST", "GET", "DELETE"],
         )
         self.assertTrue(
-            all(request.get_header("X-hermes-session-token") == TOKEN for request in opener.requests)
+            all(
+                request.get_header("X-hermes-session-token") == TOKEN
+                for request in opener.requests
+            )
         )
         safe = repr((statuses, models, started, polled, cancelled))
         for secret in ("SECRET", "raw", "provider-secret", "private-model"):
@@ -196,8 +209,9 @@ class HermesControlTests(unittest.TestCase):
             "https://hermes.test/api",
             "https://hermes.test?token=x",
         ):
-            with self.subTest(invalid=invalid), self.assertRaises(
-                HermesControlConfigurationError
+            with (
+                self.subTest(invalid=invalid),
+                self.assertRaises(HermesControlConfigurationError),
             ):
                 HermesControlClient(invalid, TOKEN)
         bad_verification = _Opener(
@@ -209,7 +223,9 @@ class HermesControlTests(unittest.TestCase):
         )
         with self.assertRaises(HermesControlError):
             HermesControlClient(
-                "http://hermes.test", TOKEN, opener=bad_verification  # type: ignore[arg-type]
+                "http://hermes.test",
+                TOKEN,
+                opener=bad_verification,  # type: ignore[arg-type]
             ).start_codex_login()
         redirect = urllib.error.HTTPError(
             "http://hermes.test/api/providers/oauth",
@@ -221,15 +237,19 @@ class HermesControlTests(unittest.TestCase):
         redirecting = _Opener([redirect])
         with self.assertRaises(HermesControlError):
             HermesControlClient(
-                "http://hermes.test", TOKEN, opener=redirecting  # type: ignore[arg-type]
+                "http://hermes.test",
+                TOKEN,
+                opener=redirecting,  # type: ignore[arg-type]
             ).provider_statuses()
         self.assertEqual(len(redirecting.requests), 1)
 
 
 class AdminProviderAPITests(unittest.TestCase):
-    def app(self, *, admin: bool = True) -> FastAPI:
+    def app(
+        self, *, admin: bool = True, control: HermesControlClient | None = None
+    ) -> FastAPI:
         app = FastAPI()
-        app.include_router(create_router(FakeAuth(admin=admin)))  # type: ignore[arg-type]
+        app.include_router(create_router(FakeAuth(admin=admin), control))  # type: ignore[arg-type]
         return app
 
     def test_unconfigured_and_admin_only(self) -> None:
@@ -260,7 +280,7 @@ class AdminProviderAPITests(unittest.TestCase):
             )
             self.assertEqual(models.status_code, 200)
             self.assertEqual(models.json()["items"], [])
-            self.assertEqual(start.status_code, 503)
+            self.assertEqual(start.status_code, 404)
             denied = TestClient(self.app(admin=False))
             self.assertEqual(denied.get("/api/providers").status_code, 403)
 
@@ -297,26 +317,23 @@ class AdminProviderAPITests(unittest.TestCase):
             SESSION_ID, "approved", None, None, None, 5
         )
         control.cancel_codex_login.return_value = Cancellation(True, SESSION_ID)
-        environment = {
-            "REVIEW_AGENT_HERMES_CONTROL_URL": "http://hermes.test",
-            "REVIEW_AGENT_HERMES_CONTROL_TOKEN": TOKEN,
-        }
-        with patch.dict(os.environ, environment, clear=True), patch(
-            "review_agent_tools.admin_provider_api.HermesControlClient",
-            return_value=control,
-        ):
-            client = TestClient(self.app())
-            responses = (
-                client.get("/api/providers"),
-                client.get("/api/providers/models"),
-                client.post("/api/providers/openai-codex/login"),
-                client.get(f"/api/providers/openai-codex/login/{SESSION_ID}"),
-                client.post(f"/api/providers/openai-codex/login/{SESSION_ID}/cancel"),
-            )
-            invalid = client.get("/api/providers/openai-codex/login/not-safe")
+        client = TestClient(self.app(control=control))
+        responses = (
+            client.get("/api/providers"),
+            client.get("/api/providers/models"),
+            client.post("/api/providers/openai-codex/login"),
+            client.get(f"/api/providers/openai-codex/login/{SESSION_ID}"),
+            client.post(f"/api/providers/openai-codex/login/{SESSION_ID}/cancel"),
+        )
+        invalid = client.get("/api/providers/openai-codex/login/not-safe")
 
-        self.assertEqual([response.status_code for response in responses], [200] * 5)
-        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(
+            [response.status_code for response in responses], [200, 200, 404, 404, 404]
+        )
+        self.assertEqual(invalid.status_code, 404)
+        control.start_codex_login.assert_not_called()
+        control.poll_codex_login.assert_not_called()
+        control.cancel_codex_login.assert_not_called()
         combined = " ".join(response.text for response in responses)
         self.assertNotIn(TOKEN, combined)
         self.assertNotIn("token_preview", combined)
@@ -327,15 +344,7 @@ class AdminProviderAPITests(unittest.TestCase):
         control.provider_statuses.side_effect = HermesControlError(
             "provider raw error with SECRET"
         )
-        environment = {
-            "REVIEW_AGENT_HERMES_CONTROL_URL": "http://hermes.test",
-            "REVIEW_AGENT_HERMES_CONTROL_TOKEN": TOKEN,
-        }
-        with patch.dict(os.environ, environment, clear=True), patch(
-            "review_agent_tools.admin_provider_api.HermesControlClient",
-            return_value=control,
-        ):
-            response = TestClient(self.app()).get("/api/providers")
+        response = TestClient(self.app(control=control)).get("/api/providers")
         self.assertEqual(response.status_code, 502)
         self.assertNotIn("SECRET", response.text)
 

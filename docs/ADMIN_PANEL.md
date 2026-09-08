@@ -19,7 +19,7 @@ This feature is available in the source candidate and has not yet been released.
 The current v0.4.0-rc.4 image does not include it. Build both images from the same
 candidate checkout, or use a future qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 23.
+an older migration image: the current admin API requires PostgreSQL schema 24.
 
 After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
@@ -81,6 +81,19 @@ database backup; it is not a tamper-proof external log archive.
 
 ### Search and export audit events
 
+Before opening the log, select a purpose and enter a justification of 10–500
+characters. Access lasts 30 minutes for the selected team or all teams. Each view
+and export records the actor, purpose, justification, filters, event count, and
+returned event range. Owner access records remain owner-only because their
+filters can refer to privileged events. **End audit access** closes the session;
+expiry or a change to the account's permissions requires a new justification.
+Leaving the page clears the displayed records and requires a new justification
+on the next visit.
+
+Use **View JSON** on an event to inspect its complete formatted JSON, including
+the actor, reason, outcome, and change details. **Copy JSON** copies the exact
+event values.
+
 Search matches all supplied words in the actor email, subject, reason, action,
 and recorded change details. Narrow results by action, outcome, actor account ID,
 or time. The form uses your local time and sends timezone-aware timestamps;
@@ -101,6 +114,15 @@ of the page currently displayed. For API clients, pass the response's
 `X-Audit-Next-Before-ID` as `before_id` with the same filters. `X-Audit-Count`
 reports the number of events in the file. Each page reflects committed data when
 that request runs; exports are not a point-in-time database snapshot.
+
+API clients first call `POST /api/audit/access` with a `purpose` and `reason`.
+Purposes are `incident_investigation`, `access_review`, `support`, `routine_review`,
+and `other`. Include `team_id` in the query for team access. Send the returned
+`id` in `X-Audit-Access-ID` on every list or export request, using the same team
+scope. The ID is bound to the authenticated account and its current permissions;
+it does not replace the login session. The legacy team events endpoint also
+requires it. Call `POST /api/audit/access/{id}/end` in the same scope to end access
+early. Access grants and reads use the existing journal and its operation index.
 
 JSON includes the event list and continuation cursor. JSON Lines contains one
 event per line. CSV quotes fields and prefixes formula-like cells with an
@@ -189,7 +211,13 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `GET /api/deployment` | Owner | Optional Dokploy container state for this application. |
 | `GET /api/providers`, `GET /api/providers/models` | Owner | Optional Hermes provider state and model catalog. |
 | `GET /api/providers/runtime` | Owner | Optional bounded Hermes readiness checks, version, active agents, shutdown state, API support, and default model. |
-| `POST /api/providers/openai-codex/login`, `GET /api/providers/openai-codex/login/{id}`, `POST /api/providers/openai-codex/login/{id}/cancel` | Owner | Hermes-owned device login lifecycle. |
+| `GET /api/model-connections`, `GET /api/model-connections/{id}` | Scoped member, owner or admin | Shared or team-owned connections, recorded accounts, and permitted controls. |
+| `POST /api/model-connections`, `GET /api/model-connections/runtimes` | Owner | Register a pre-provisioned runtime from the server's trusted catalog. |
+| `PATCH /api/model-connections/{id}`, `POST /api/model-connections/{id}/retire` | Owner; admin for a team-owned connection | Update allowed model choices or retire a paused, drained, unassigned connection. |
+| `POST /api/model-connections/{id}/enabled`, `POST /api/model-connections/{id}/reconcile` | Owner; owning team maintainer or admin for a dedicated connection | Pause/enable dispatch or record an account change after draining. Recovery after an interrupted remote operation requires an owner and runtime restart. |
+| `GET /api/model-connections/{id}/runtime` | Connection manager | Redacted current account observation from the owning Hermes process. |
+| `POST /api/model-connections/{id}/login`, `GET /api/model-connections/{id}/login/{operation}`, `POST …/{operation}/poll`, `POST …/{operation}/cancel` | Connection manager; login operations bound to their initiator | Audited Hermes-owned Codex device login. The old global provider-login routes are removed. |
+| `GET /api/teams/{id}/model-policy`, `PUT /api/teams/{id}/model-policy` | Team member for reads; maintainer or platform administrator for writes | Inherited or explicitly selected allowed model route. Connection assignment requires a platform administrator. |
 | `GET /api/teams`, `GET /api/teams/{id}` | Team reader or global role | Searchable teams and the current account's team role. |
 | `POST /api/teams`, `PATCH /api/teams/{id}` | Owner or admin | Team creation and conditional metadata changes. |
 | `GET /api/teams/{id}/members` | Team reader or global role | Bounded membership list. |
@@ -198,8 +226,9 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `POST /api/teams/{id}/repository-requests`, `POST /api/repository-requests/{id}/withdraw` | Team maintainer, owner or admin | Submit or withdraw a pending request. |
 | `POST /api/repository-requests/{id}/approve`, `POST /api/repository-requests/{id}/reject` | Owner or admin | Verify and approve, or reject, a pending request. |
 | `PUT /api/repository-ownership/{id}`, `POST /api/teams/{id}/repositories/{repository_id}/remove` | Owner or admin | Conditional ownership assignment/transfer, or removal. |
-| `GET /api/teams/{id}/events`, `GET /api/audit` | Owner or admin | Keyset-paginated audit events, filtered by audience. `/api/audit` supports text, action, actor, outcome, time and team filters. |
-| `GET /api/audit/export` | Owner or admin | Up to 1,000 matching events as JSON, CSV, JSON Lines or OTLP JSON, with count and continuation headers. |
+| `POST /api/audit/access`, `POST /api/audit/access/{id}/end` | Owner or admin | Start justified audit access for 30 minutes in one scope, or end it early. |
+| `GET /api/teams/{id}/events`, `GET /api/audit` | Owner or admin with justified access | Keyset-paginated events filtered by audience; requires `X-Audit-Access-ID`. `/api/audit` supports text, action, actor, outcome, time and team filters. Each read is recorded. |
+| `GET /api/audit/export` | Owner or admin with justified access | Up to 1,000 matching events as JSON, CSV, JSON Lines or OTLP JSON, with count and continuation headers. Requires `X-Audit-Access-ID` and records the export. |
 
 Repository reports accept optional `team_id`. Without it, a member receives the
 union of their teams; owners, admins, and explicit global viewers receive the
@@ -374,7 +403,7 @@ under **Advanced operational settings**.
 | `REVIEW_AGENT_DOKPLOY_URL`, `REVIEW_AGENT_DOKPLOY_COMPOSE_ID`, `REVIEW_AGENT_DOKPLOY_API_KEY` | Deployment integration binding and credential; fixes which external application the admin service may inspect. |
 | `REVIEW_AGENT_OPENAI_API_KEY`, `REVIEW_AGENT_HERMES_CONTROL_TOKEN`, `API_SERVER_KEY` | Deployment secrets; embedding, provider-companion and Hermes API credentials. They are never stored in policy revisions or sent to the browser. |
 
-When upgrading this candidate, back up PostgreSQL and apply migration 22 before
+When upgrading this candidate, back up PostgreSQL and apply migrations through 24 before
 starting the matching admin frontend/API. Existing admins become owners; existing
 viewers retain explicit global read access. New accounts default to team-scoped
 membership. Repository ownership starts unassigned, and existing GitHub activation
@@ -419,7 +448,7 @@ the ingress network. When recreating Hermes, recreate its provider-control
 companion in the same Compose operation.
 
 The companion also receives the existing `API_SERVER_KEY` to read Hermes'
-`/health/detailed` and `/v1/capabilities` endpoints over loopback. This bearer key
+`/health/detailed`, `/v1/capabilities`, and `/v1/review-agent/status` endpoints over loopback. This bearer key
 is not passed to the admin service. The companion projects fixed readiness
 statuses, version, agent count, shutdown state, API support and default model;
 it omits raw diagnostics, paths, credentials, commands and process details.
@@ -427,12 +456,90 @@ Health labels these engine checks separately from worker heartbeats, container
 state, and provider authentication. They do not call the model provider or imply
 that a review will succeed. See the [pinned Hermes API contract](https://github.com/NousResearch/hermes-agent/blob/v2026.8.31/website/docs/user-guide/features/api-server.md).
 
-In Settings, connect OpenAI Codex, open the displayed OpenAI verification page,
-and enter the one-time code. Hermes stores and refreshes the resulting credential.
-Cancellation and expiry end polling in the console. Anthropic authentication uses
-`hermes auth add anthropic` from the Hermes container's terminal because the pinned
-Hermes version provides that external flow. Connection status does not prove that
-a model can complete a review.
+Open **Model connections** and select the shared or team-owned connection.
+Pause it, finish active work, and cancel or finish queued reviews before replacing
+its account. Start **Connect Codex**, open the displayed OpenAI verification page,
+and enter the one-time code. Hermes stores and refreshes the credential. Only the
+person who started the login can poll or cancel it, and their permission is
+rechecked on each operation. A browser reload can resume that person's pending
+operation; the one-time challenge is not stored in the database.
+
+Successful login records the account and leaves the connection paused. Review its
+state and choose **Enable** explicitly. A timeout or interrupted operation leaves
+the connection requiring attention. An owner must stop the old Hermes process,
+its dashboard/login service and provider-control companion, restart the complete
+runtime, and confirm that recovery before recording its accounts. The API also
+requires a different Hermes process instance. Worker lease expiry alone cannot
+prove that remote inference or authentication stopped.
+
+One account per provider is allowed in each connection. Multiple pool entries or
+a profile inheriting another home's credentials block managed execution. Codex
+account identity survives token refresh; changing the account increments its
+recorded revision. The worker and native Hermes endpoint check the frozen
+connection, account revision, lease, model, and reasoning before inference.
+Queued reviews never adopt a replacement account. Pausing after a claim but
+before inference returns the unstarted job without consuming its attempt.
+
+For Anthropic, use an authorized API-key integration through Hermes's terminal
+and then **Record current accounts** while the connection is paused and drained.
+The console does not offer Claude consumer OAuth login or infer account identity
+from an opaque consumer token. See [provider authentication constraints](TEAM_ACCESS_AND_MODEL_ACCOUNTS.md#oauth-and-quota-visibility).
+Recorded accounts and live credential observations are labelled separately;
+neither proves that a model can complete a review.
+
+In a team's **Models** tab, administrators assign its connection. Maintainers can
+select from that connection's allowed model and reasoning choices or inherit the
+deployment default. The effective values and their source are shown together.
+These changes apply to new requests; each admitted request retains its model
+route and admission-time team attribution. Implicit provider fallback is disabled.
+The image applies a source-checked patch to Hermes's auxiliary fallback owner;
+the managed profile sets `auxiliary.allow_fallback: false`. Image checks exercise
+missing and exhausted credentials without contacting a provider. When upgrading
+Hermes, update and verify this patch before building a release candidate.
+
+### Provision another connection
+
+Teams sharing an account reuse the shared runtime. Independent credentials need
+an additional Hermes runtime, worker, and provider-control companion, using the
+same application image, managed profile, database, and existing network roles.
+The console registers these services; it does not provision containers.
+
+1. Give the runtime its own empty credential volume at `/opt/data` and run the
+   existing profile installer against that volume. Its worker mounts that same
+   volume read-only for the installed contract. Do not copy another runtime's
+   credential store or supply ambient credentials from a different connection.
+2. Set `REVIEW_AGENT_MODEL_CONNECTION` to one stable key, such as `payments`, on
+   both the Hermes process and its worker. Point the worker's
+   `REVIEW_AGENT_HERMES_CHAT_URL` at that runtime's private
+   `/v1/review-agent/review` endpoint. Give that runtime, worker, and companion a
+   matching dedicated `API_SERVER_KEY`.
+3. Configure its loopback dashboard and provider companion as in
+   `compose.providers.yaml`, with a separate control token. Keep the companion
+   in that runtime's network namespace and its control port private. The admin
+   service receives the control token, without the Hermes API key or volume.
+4. Mount a JSON catalog read-only into `review-admin` and set
+   `REVIEW_AGENT_CONNECTIONS_FILE` to its container path. Store the referenced
+   token in the admin service's deployment secrets, then restart the admin service:
+
+   ```json
+   [
+     {
+       "key": "payments",
+       "control_url": "http://hermes-payments:9120",
+       "token_env": "PAYMENTS_HERMES_CONTROL_TOKEN"
+     }
+   ]
+   ```
+
+5. As an owner, choose **Add connection**, select that runtime, name its connection,
+   select the owning team, and define permitted model choices. Connect or record
+   its account, enable it, then assign it in the team's Models tab.
+
+The catalog accepts at most 1,000 entries in 256 KiB. Runtime keys and control
+origins must be unique. Console users cannot supply endpoints or control tokens.
+Retiring a connection preserves its audit and usage history and requires its
+queue to be drained and its teams reassigned. Remove the retired services through
+the deployment platform after accounting for retained credentials and backups.
 
 Without these optional connections, the console reports their unavailable state;
 review history, quality evidence, and database-backed controls remain available.

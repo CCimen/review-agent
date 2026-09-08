@@ -28,6 +28,26 @@ def main() -> int:
     model_tools = _source("model_tools.py")
     registry = _source("tools/registry.py")
     system_prompt = _source("agent/system_prompt.py")
+    compressor = _source("agent/context_compressor.py")
+
+    _require(
+        compressor,
+        '"main_runtime": {\n'
+        '                    "model": self.model,\n'
+        '                    "provider": self.provider,\n'
+        '                    "base_url": self.base_url,\n'
+        '                    "api_key": self.api_key,',
+        "compression must pass its selected model, provider, endpoint, and key to auxiliary inference",
+    )
+    _require(
+        compressor,
+        'call_kwargs.setdefault("main_runtime", {\n'
+        '                "model": self.model,\n'
+        '                "provider": self.provider or "",\n'
+        '                "base_url": self.base_url or "",\n'
+        '                "api_key": self.api_key or "",',
+        "micro-summarization must preserve the selected account and model",
+    )
 
     _require(
         api_server,

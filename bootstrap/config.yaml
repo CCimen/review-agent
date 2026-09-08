@@ -22,6 +22,13 @@ model:
   provider: openai-codex
   default: gpt-5.6-sol
 
+# Admission freezes one provider account. Provider changes require a new review;
+# no implicit fallback may choose a different account after dispatch.
+fallback_providers: []
+fallback_model: null
+auxiliary:
+  allow_fallback: false
+
 # The worker judges completion from PostgreSQL, not assistant prose. Keep
 # progress messages out of API responses and logs used by operators.
 display:

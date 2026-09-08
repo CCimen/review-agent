@@ -429,8 +429,7 @@ def build_report(
               %s::text IS NULL
               OR lower(repository.full_name) = lower(%s::text)
           )
-        GROUP BY repository.full_name, profile, review_contract_hash,
-                 model_provider, model, subject.policy_revision
+        GROUP BY 1, 2, 3, 4, 5, 6
         ORDER BY repository.full_name, profile, review_contract_hash,
                  model_provider, model, subject.policy_revision
         LIMIT 201

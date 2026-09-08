@@ -8,9 +8,9 @@ from enum import StrEnum
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import AwareDatetime, TypeAdapter
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 
 from . import admin_application
 from .admin_auth import AdminAuth
@@ -24,6 +24,12 @@ class AuditFormat(StrEnum):
     CSV = "csv"
     JSONL = "jsonl"
     OTLP = "otlp"
+
+
+class AuditAccessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    purpose: audit.AuditPurpose
+    reason: str = Field(min_length=10, max_length=500)
 
 
 _PAGE = TypeAdapter(audit.AuditPage)
@@ -184,20 +190,35 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     def events(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         filters: Annotated[audit.AuditFilters, Depends(_filters)],
+        audit_access_id: Annotated[
+            UUID | None, Header(alias="X-Audit-Access-ID")
+        ] = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
     ) -> audit.AuditPage:
         return admin_application.audit_events(
-            runtime, access=access, limit=limit, filters=filters
+            runtime,
+            access=access,
+            limit=limit,
+            filters=filters,
+            access_id=audit_access_id,
         )
 
     def export(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         filters: Annotated[audit.AuditFilters, Depends(_filters)],
+        audit_access_id: Annotated[
+            UUID | None, Header(alias="X-Audit-Access-ID")
+        ] = None,
         format: AuditFormat = AuditFormat.JSON,
         limit: Annotated[int, Query(ge=1, le=1000)] = 1000,
     ) -> Response:
         page = admin_application.audit_events(
-            runtime, access=access, limit=limit, filters=filters
+            runtime,
+            access=access,
+            limit=limit,
+            filters=filters,
+            access_id=audit_access_id,
+            export_format=format.value,
         )
         if format is AuditFormat.CSV:
             content, media_type, extension = _csv(page), "text/csv", "csv"
@@ -224,6 +245,36 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
         if page.next_before_id is not None:
             headers["X-Audit-Next-Before-ID"] = str(page.next_before_id)
         return Response(content, media_type=media_type, headers=headers)
+
+    def start_access(
+        request: AuditAccessRequest,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> audit.AuditAccess:
+        return admin_application.start_audit_access(
+            runtime, access=access, purpose=request.purpose, reason=request.reason
+        )
+
+    def end_access(
+        access_id: UUID,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> None:
+        admin_application.end_audit_access(runtime, access=access, access_id=access_id)
+
+    router.add_api_route(
+        "/access",
+        start_access,
+        methods=["POST"],
+        status_code=201,
+        summary="Record a purpose and justification for 30 minutes of audit access",
+        description="Owner or admin required. The returned ID is bound to the actor, current permissions, and selected team_id (or all teams). Send it in X-Audit-Access-ID for every audit read or export. Each request records its filters and returned event range in the journal.",
+    )
+    router.add_api_route(
+        "/access/{access_id}/end",
+        end_access,
+        methods=["POST"],
+        status_code=204,
+        summary="End the current actor's audit access in this scope",
+    )
 
     router.add_api_route(
         "",

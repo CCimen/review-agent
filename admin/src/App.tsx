@@ -1,7 +1,7 @@
 import { TeamsPage, TeamDetail, RepositoryRequests } from "./teams";
 import { AuditLog } from "./audit";
 import { ScopedLink as Link, useScope, ScopeProvider, isAdmin } from "./scope";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,6 +18,17 @@ import { QualityPage, FindingPage } from "./quality";
 import { OperationsPage } from "./operations";
 import { History, ReviewPage } from "./history";
 import { Empty, Freshness, Period, Stat, number, time, useFilters } from "./ui";
+
+const ModelConnectionPage = lazy(() =>
+  import("./modelConnections").then((module) => ({
+    default: module.ModelConnectionPage,
+  })),
+);
+const ModelConnectionsPage = lazy(() =>
+  import("./modelConnections").then((module) => ({
+    default: module.ModelConnectionsPage,
+  })),
+);
 
 function Repositories({ current }: { current: Account }) {
   const scope = useScope();
@@ -155,7 +166,21 @@ function Repositories({ current }: { current: Account }) {
                             : "No activity in this period"}
                         </span>
                         <span className="subtext">
-                          {repo.team_id ? <Link to={`/teams/${repo.team_id}?team_id=${repo.team_id}`}>{repo.team_name}</Link> : isAdmin(current.role) ? <Link to={`/teams?${new URLSearchParams({ assign_repository: String(repo.repository_id), repository_name: repo.repository })}`}>Assign to a team</Link> : "Unassigned"}
+                          {repo.team_id ? (
+                            <Link
+                              to={`/teams/${repo.team_id}?team_id=${repo.team_id}`}
+                            >
+                              {repo.team_name}
+                            </Link>
+                          ) : isAdmin(current.role) ? (
+                            <Link
+                              to={`/teams?${new URLSearchParams({ assign_repository: String(repo.repository_id), repository_name: repo.repository })}`}
+                            >
+                              Assign to a team
+                            </Link>
+                          ) : (
+                            "Unassigned"
+                          )}
                         </span>
                       </th>
                       <td className="numeric" role="cell">
@@ -366,6 +391,24 @@ export function App() {
               />
               <Route path="/history" element={<History />} />
               <Route path="/history/:runId" element={<ReviewPage />} />
+              <Route
+                path="/model-connections"
+                element={
+                  <Suspense
+                    fallback={<p role="status">Loading model connections…</p>}
+                  >
+                    <ModelConnectionsPage />
+                  </Suspense>
+                }
+              />
+              <Route
+                path="/model-connections/:connectionId"
+                element={
+                  <Suspense fallback={<p role="status">Loading connection…</p>}>
+                    <ModelConnectionPage />
+                  </Suspense>
+                }
+              />
               <Route path="/quality" element={<QualityPage />} />
               <Route
                 path="/findings/:fingerprint"

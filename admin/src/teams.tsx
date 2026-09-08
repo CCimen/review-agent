@@ -15,6 +15,9 @@ import { Empty, Freshness, time } from "./ui";
 import { AuditLog } from "./audit";
 
 type TeamRole = components["schemas"]["TeamRole"];
+type ModelPolicy = components["schemas"]["TeamModelPolicy"];
+type ModelConnection = components["schemas"]["ModelConnection"];
+type ModelConnectionPage = components["schemas"]["ConnectionPage"];
 
 function useTeamRefresh() {
   const client = useQueryClient();
@@ -953,6 +956,256 @@ export function RepositoryRequests({
   );
 }
 
+function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
+  const scope = useScope();
+  const client = useQueryClient();
+  const [selected, setSelected] = useState<ModelConnection>(policy.connection);
+  const [after, setAfter] = useState(0);
+  const [route, setRoute] = useState(
+    policy.provider === null
+      ? -1
+      : policy.connection.allowed_routes.findIndex(
+          (choice) =>
+            choice.provider === policy.provider &&
+            choice.model === policy.model,
+        ),
+  );
+  const [effort, setEffort] = useState(policy.reasoning_effort ?? "");
+  const [reason, setReason] = useState("");
+  const admin = isAdmin(scope.current.role);
+  const connections = useQuery({
+    queryKey: [
+      "model-connections",
+      "team-options",
+      policy.team_id,
+      after,
+      "scoped",
+      scope.key,
+    ],
+    queryFn: ({ signal }) =>
+      read<ModelConnectionPage>(
+        `/api/model-connections?team_id=${policy.team_id}&after_id=${after}`,
+        signal,
+      ),
+    enabled: admin,
+  });
+  const choice = route >= 0 ? selected.allowed_routes[route] : undefined;
+  const save = useMutation({
+    mutationFn: () =>
+      write(`/api/teams/${policy.team_id}/model-policy`, "PUT", {
+        connection_id: selected.runtime_key === "shared" ? null : selected.id,
+        provider: choice?.provider ?? null,
+        model: choice?.model ?? null,
+        reasoning_effort: choice ? effort : null,
+        expected_revision: policy.revision,
+        reason,
+      } satisfies components["schemas"]["TeamModelUpdate"]),
+    onSuccess: async () => {
+      await Promise.all(
+        ["team-model-policy", "model-connections", "audit"].map((key) =>
+          client.invalidateQueries({ queryKey: [key] }),
+        ),
+      );
+      setReason("");
+    },
+  });
+  return (
+    <form
+      className="team-editor"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save.mutate();
+      }}
+    >
+      {admin ? (
+        <>
+          <Freshness query={connections} />
+          <label className="field">
+            Assigned connection
+            <select
+              value={selected.id}
+              onChange={(event) => {
+                const next = connections.data?.items.find(
+                  (connection) => connection.id === Number(event.target.value),
+                );
+                if (next) {
+                  setSelected(next);
+                  setRoute(-1);
+                  setEffort("");
+                }
+              }}
+            >
+              {!connections.data?.items.some(
+                (connection) => connection.id === selected.id,
+              ) ? (
+                <option value={selected.id}>{selected.name}</option>
+              ) : null}
+              {connections.data?.items.map((connection) => (
+                <option value={connection.id} key={connection.id}>
+                  {connection.name}
+                  {connection.state !== "enabled"
+                    ? " (paused or unavailable)"
+                    : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          {after > 0 || connections.data?.next_after_id ? (
+            <div className="pagination">
+              <button
+                type="button"
+                className="secondary"
+                disabled={after === 0}
+                onClick={() => setAfter(0)}
+              >
+                First connections
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!connections.data?.next_after_id}
+                onClick={() => setAfter(connections.data?.next_after_id ?? 0)}
+              >
+                Next connections
+              </button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      <div className="form-fields">
+        <label className="field grow">
+          Model
+          <select
+            value={route}
+            onChange={(event) => {
+              const index = Number(event.target.value);
+              setRoute(index);
+              setEffort(
+                selected.allowed_routes[index]?.reasoning_efforts[0] ?? "",
+              );
+            }}
+          >
+            <option value={-1}>Inherit deployment defaults</option>
+            {selected.allowed_routes.map((choice, index) => (
+              <option value={index} key={`${choice.provider}:${choice.model}`}>
+                {choice.provider === "openai-codex"
+                  ? "OpenAI Codex"
+                  : "Anthropic"}{" "}
+                · {choice.model}
+              </option>
+            ))}
+          </select>
+        </label>
+        {choice ? (
+          <label className="field">
+            Reasoning
+            <select
+              required
+              value={effort}
+              onChange={(event) => setEffort(event.target.value)}
+            >
+              {choice.reasoning_efforts.map((effort) => (
+                <option value={effort} key={effort}>
+                  {effort}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
+      {!selected.allowed_routes.length ? (
+        <p className="field-help">
+          This connection currently allows deployment defaults only. An
+          administrator can add model choices.
+        </p>
+      ) : null}
+      <label className="field">
+        Reason
+        <textarea
+          required
+          maxLength={500}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </label>
+      <p className="field-help">
+        Applies to newly admitted reviews. Queued and running reviews keep their
+        original account and model.
+      </p>
+      {save.isError ? (
+        <p className="notice error" role="alert">
+          {save.error.message}
+        </p>
+      ) : null}
+      {save.isSuccess ? <p role="status">Team model policy saved.</p> : null}
+      <button disabled={save.isPending}>
+        {save.isPending ? "Saving…" : "Save model policy"}
+      </button>
+    </form>
+  );
+}
+
+function TeamModels({ team, maintain }: { team: Team; maintain: boolean }) {
+  const scope = useScope();
+  const query = useQuery({
+    queryKey: ["team-model-policy", team.id, "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<ModelPolicy>(`/api/teams/${team.id}/model-policy`, signal),
+  });
+  const policy = query.data;
+  return (
+    <section className="section">
+      <h2>Model and account</h2>
+      <Freshness query={query} />
+      {policy ? (
+        <>
+          <dl className="detail-list">
+            <dt>Connection</dt>
+            <dd>
+              <Link
+                to={`/model-connections/${policy.connection.id}?team_id=${team.id}`}
+              >
+                {policy.connection.name}
+              </Link>{" "}
+              · {policy.connection.team_id ? "Dedicated" : "Shared"}
+            </dd>
+            <dt>Model</dt>
+            <dd>
+              {policy.effective_provider === "openai-codex"
+                ? "OpenAI Codex"
+                : "Anthropic"}{" "}
+              · {policy.effective_model}
+            </dd>
+            <dt>Reasoning</dt>
+            <dd>{policy.effective_reasoning_effort}</dd>
+            <dt>Source</dt>
+            <dd>
+              {policy.provider === null
+                ? "Inherited from deployment defaults"
+                : "Team model policy"}
+            </dd>
+          </dl>
+          {policy.connection.state !== "enabled" ? (
+            <p className="notice">
+              This connection is paused or needs attention. Open the connection
+              to check its status.
+            </p>
+          ) : null}
+          {maintain ? (
+            <details className="section-disclosure">
+              <summary>Change the team's model policy</summary>
+              <TeamModelEditor
+                key={`${policy.revision}:${policy.connection.revision}`}
+                policy={policy}
+              />
+            </details>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function TeamDetail() {
   const scope = useScope();
   const [params, setParams] = useSearchParams();
@@ -984,6 +1237,7 @@ export function TeamDetail() {
             {[
               ["repositories", "Repositories"],
               ["members", "Members"],
+              ["models", "Model and account"],
               [
                 "requests",
                 `Requests${team.pending_requests ? ` (${team.pending_requests})` : ""}`,
@@ -1007,6 +1261,8 @@ export function TeamDetail() {
           </nav>
           {tab === "members" ? (
             <Members team={team} maintain={maintain} />
+          ) : tab === "models" ? (
+            <TeamModels team={team} maintain={maintain} />
           ) : tab === "requests" ? (
             <RepositoryRequests team={team} maintain={maintain} />
           ) : tab === "audit" && isAdmin(scope.current.role) ? (

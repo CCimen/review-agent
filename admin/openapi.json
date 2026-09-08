@@ -1861,39 +1861,13 @@
         ]
       }
     },
-    "/api/providers/openai-codex/login": {
-      "post": {
-        "tags": [
-          "providers"
-        ],
-        "summary": "Start Login",
-        "operationId": "start_login_api_providers_openai_codex_login_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LoginSession"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "APIKeyCookie": []
-          }
-        ]
-      }
-    },
-    "/api/providers/openai-codex/login/{session_id}": {
+    "/api/model-connections/runtimes": {
       "get": {
         "tags": [
-          "providers"
+          "model connections"
         ],
-        "summary": "Poll Login",
-        "operationId": "poll_login_api_providers_openai_codex_login__session_id__get",
+        "summary": "Runtimes",
+        "operationId": "runtimes_api_model_connections_runtimes_get",
         "security": [
           {
             "APIKeyCookie": []
@@ -1901,13 +1875,21 @@
         ],
         "parameters": [
           {
-            "name": "session_id",
-            "in": "path",
-            "required": true,
+            "name": "team_id",
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{22,80}$",
-              "title": "Session Id"
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
             }
           }
         ],
@@ -1917,7 +1899,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LoginSession"
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Runtimes Api Model Connections Runtimes Get"
                 }
               }
             }
@@ -1935,13 +1921,13 @@
         }
       }
     },
-    "/api/providers/openai-codex/login/{session_id}/cancel": {
-      "post": {
+    "/api/model-connections": {
+      "get": {
         "tags": [
-          "providers"
+          "model connections"
         ],
-        "summary": "Cancel Login",
-        "operationId": "cancel_login_api_providers_openai_codex_login__session_id__cancel_post",
+        "summary": "List Connections",
+        "operationId": "list_connections_api_model_connections_get",
         "security": [
           {
             "APIKeyCookie": []
@@ -1949,13 +1935,45 @@
         ],
         "parameters": [
           {
-            "name": "session_id",
-            "in": "path",
-            "required": true,
+            "name": "limit",
+            "in": "query",
+            "required": false,
             "schema": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{22,80}$",
-              "title": "Session Id"
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "default": 0,
+              "title": "After Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
             }
           }
         ],
@@ -1965,7 +1983,961 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Cancellation"
+                  "$ref": "#/components/schemas/ConnectionPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Create Connection",
+        "operationId": "create_connection_api_model_connections_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConnection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}": {
+      "get": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Get Connection",
+        "operationId": "get_connection_api_model_connections__connection_id__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConnection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Update Connection",
+        "operationId": "update_connection_api_model_connections__connection_id__patch",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConnection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}/enabled": {
+      "post": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Enabled",
+        "operationId": "enabled_api_model_connections__connection_id__enabled_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionEnabled"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConnection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}/reconcile": {
+      "post": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Reconcile",
+        "operationId": "reconcile_api_model_connections__connection_id__reconcile_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionReconcile"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConnection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}/runtime": {
+      "get": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Runtime Status",
+        "operationId": "runtime_status_api_model_connections__connection_id__runtime_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionRuntime"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}/retire": {
+      "post": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Retire",
+        "operationId": "retire_api_model_connections__connection_id__retire_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConnection"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}/login": {
+      "post": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Start Login",
+        "operationId": "start_login_api_model_connections__connection_id__login_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLogin"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}/login/{operation_id}": {
+      "get": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Get Login",
+        "operationId": "get_login_api_model_connections__connection_id__login__operation_id__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLogin"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}/login/{operation_id}/poll": {
+      "post": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Poll Login",
+        "operationId": "poll_login_api_model_connections__connection_id__login__operation_id__poll_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLogin"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/model-connections/{connection_id}/login/{operation_id}/cancel": {
+      "post": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Cancel Login",
+        "operationId": "cancel_login_api_model_connections__connection_id__login__operation_id__cancel_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Connection Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelLogin"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/teams/{team_id}/model-policy": {
+      "get": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Team Policy",
+        "operationId": "team_policy_api_teams__team_id__model_policy_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamModelPolicy"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "model connections"
+        ],
+        "summary": "Save Team Policy",
+        "operationId": "save_team_policy_api_teams__team_id__model_policy_put",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamModelUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamModelPolicy"
                 }
               }
             }
@@ -3232,6 +4204,23 @@
               ],
               "title": "Team Id"
             }
+          },
+          {
+            "name": "X-Audit-Access-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Audit-Access-Id"
+            }
           }
         ],
         "responses": {
@@ -3244,6 +4233,132 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit/access": {
+      "post": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "Record a purpose and justification for 30 minutes of audit access",
+        "description": "Owner or admin required. The returned ID is bound to the actor, current permissions, and selected team_id (or all teams). Send it in X-Audit-Access-ID for every audit read or export. Each request records its filters and returned event range in the journal.",
+        "operationId": "start_access_api_audit_access_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuditAccessRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditAccess"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit/access/{access_id}/end": {
+      "post": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "End the current actor's audit access in this scope",
+        "operationId": "end_access_api_audit_access__access_id__end_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "access_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Access Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -3411,6 +4526,23 @@
                 }
               ],
               "title": "Until"
+            }
+          },
+          {
+            "name": "X-Audit-Access-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Audit-Access-Id"
             }
           }
         ],
@@ -3601,6 +4733,23 @@
                 }
               ],
               "title": "Until"
+            }
+          },
+          {
+            "name": "X-Audit-Access-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Audit-Access-Id"
             }
           }
         ],
@@ -4366,6 +5515,17 @@
         ],
         "title": "Account"
       },
+      "AccountAvailability": {
+        "type": "string",
+        "enum": [
+          "available",
+          "disconnected",
+          "multiple_accounts",
+          "identity_unavailable",
+          "isolation_required"
+        ],
+        "title": "AccountAvailability"
+      },
       "AccountPage": {
         "properties": {
           "items": {
@@ -4722,9 +5882,74 @@
         ],
         "title": "AppConnection"
       },
+      "AuditAccess": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/AuditPurpose"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "purpose",
+          "reason",
+          "team_id",
+          "expires_at"
+        ],
+        "title": "AuditAccess"
+      },
+      "AuditAccessRequest": {
+        "properties": {
+          "purpose": {
+            "$ref": "#/components/schemas/AuditPurpose"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "purpose",
+          "reason"
+        ],
+        "title": "AuditAccessRequest"
+      },
       "AuditAction": {
         "type": "string",
         "enum": [
+          "audit_access_started",
+          "audit_access_ended",
+          "audit_viewed",
+          "audit_exported",
           "team_created",
           "team_updated",
           "member_added",
@@ -4925,6 +6150,17 @@
         ],
         "title": "AuditPage"
       },
+      "AuditPurpose": {
+        "type": "string",
+        "enum": [
+          "incident_investigation",
+          "access_review",
+          "support",
+          "routine_review",
+          "other"
+        ],
+        "title": "AuditPurpose"
+      },
       "AuditReason": {
         "properties": {
           "reason": {
@@ -4999,24 +6235,6 @@
         ],
         "title": "Body_auth_cookie_login_api_auth_login_post"
       },
-      "Cancellation": {
-        "properties": {
-          "cancelled": {
-            "type": "boolean",
-            "title": "Cancelled"
-          },
-          "session_id": {
-            "type": "string",
-            "title": "Session Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "cancelled",
-          "session_id"
-        ],
-        "title": "Cancellation"
-      },
       "ChangeReason": {
         "properties": {
           "reason": {
@@ -5032,6 +6250,269 @@
           "reason"
         ],
         "title": "ChangeReason"
+      },
+      "ConnectionAccount": {
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/ModelProvider"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "verified": {
+            "type": "boolean",
+            "title": "Verified"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "revision",
+          "label",
+          "verified",
+          "observed_at"
+        ],
+        "title": "ConnectionAccount"
+      },
+      "ConnectionChange": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "expected_revision"
+        ],
+        "title": "ConnectionChange"
+      },
+      "ConnectionCreate": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "allowed_routes": {
+            "items": {
+              "$ref": "#/components/schemas/ModelChoiceInput"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Allowed Routes"
+          },
+          "runtime_key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "title": "Runtime Key"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "name",
+          "runtime_key"
+        ],
+        "title": "ConnectionCreate"
+      },
+      "ConnectionEnabled": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "expected_revision",
+          "enabled"
+        ],
+        "title": "ConnectionEnabled"
+      },
+      "ConnectionPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ModelConnection"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_after_id"
+        ],
+        "title": "ConnectionPage"
+      },
+      "ConnectionReconcile": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "runtime_restarted": {
+            "type": "boolean",
+            "title": "Runtime Restarted",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "expected_revision"
+        ],
+        "title": "ConnectionReconcile"
+      },
+      "ConnectionRuntime": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderAccountStatus"
+            },
+            "type": "array",
+            "title": "Accounts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "accounts"
+        ],
+        "title": "ConnectionRuntime"
+      },
+      "ConnectionState": {
+        "type": "string",
+        "enum": [
+          "enabled",
+          "disabled",
+          "authenticating",
+          "needs_attention",
+          "retired"
+        ],
+        "title": "ConnectionState"
+      },
+      "ConnectionUpdate": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "allowed_routes": {
+            "items": {
+              "$ref": "#/components/schemas/ModelChoiceInput"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Allowed Routes"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "name",
+          "expected_revision"
+        ],
+        "title": "ConnectionUpdate"
       },
       "CoverageState": {
         "type": "string",
@@ -6336,15 +7817,230 @@
         ],
         "title": "LiveInstallationStatus"
       },
-      "LoginSession": {
+      "LoginState": {
+        "type": "string",
+        "enum": [
+          "starting",
+          "pending",
+          "polling",
+          "cancelling",
+          "approved",
+          "denied",
+          "expired",
+          "cancelled",
+          "needs_attention"
+        ],
+        "title": "LoginState"
+      },
+      "ModelChoice": {
         "properties": {
-          "session_id": {
+          "provider": {
+            "$ref": "#/components/schemas/ModelProvider"
+          },
+          "model": {
             "type": "string",
-            "title": "Session Id"
+            "title": "Model"
+          },
+          "reasoning_efforts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasoning Efforts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "model",
+          "reasoning_efforts"
+        ],
+        "title": "ModelChoice"
+      },
+      "ModelChoiceInput": {
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/ModelProvider"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "reasoning_efforts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Reasoning Efforts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "model",
+          "reasoning_efforts"
+        ],
+        "title": "ModelChoiceInput"
+      },
+      "ModelConnection": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "runtime_key": {
+            "type": "string",
+            "title": "Runtime Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Name"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ConnectionState"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "allowed_routes": {
+            "items": {
+              "$ref": "#/components/schemas/ModelChoice"
+            },
+            "type": "array",
+            "title": "Allowed Routes"
+          },
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionAccount"
+            },
+            "type": "array",
+            "title": "Accounts"
+          },
+          "queued_jobs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued Jobs"
+          },
+          "leased_jobs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leased Jobs"
+          },
+          "active_executions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Executions"
+          },
+          "can_manage": {
+            "type": "boolean",
+            "title": "Can Manage"
+          },
+          "can_configure": {
+            "type": "boolean",
+            "title": "Can Configure"
+          },
+          "active_login_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Login Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "runtime_key",
+          "name",
+          "team_id",
+          "team_name",
+          "state",
+          "revision",
+          "allowed_routes",
+          "accounts",
+          "queued_jobs",
+          "leased_jobs",
+          "active_executions",
+          "can_manage",
+          "can_configure",
+          "active_login_id"
+        ],
+        "title": "ModelConnection"
+      },
+      "ModelLogin": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "connection_id": {
+            "type": "integer",
+            "title": "Connection Id"
           },
           "status": {
+            "$ref": "#/components/schemas/LoginState"
+          },
+          "expires_at": {
             "type": "string",
-            "title": "Status"
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "poll_interval": {
+            "type": "integer",
+            "title": "Poll Interval",
+            "default": 5
           },
           "user_code": {
             "anyOf": [
@@ -6367,33 +8063,24 @@
               }
             ],
             "title": "Verification Url"
-          },
-          "expires_in": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expires In"
-          },
-          "poll_interval": {
-            "type": "integer",
-            "title": "Poll Interval"
           }
         },
         "type": "object",
         "required": [
-          "session_id",
+          "id",
+          "connection_id",
           "status",
-          "user_code",
-          "verification_url",
-          "expires_in",
-          "poll_interval"
+          "expires_at"
         ],
-        "title": "LoginSession"
+        "title": "ModelLogin"
+      },
+      "ModelProvider": {
+        "type": "string",
+        "enum": [
+          "openai-codex",
+          "anthropic"
+        ],
+        "title": "ModelProvider"
       },
       "NewAccount": {
         "properties": {
@@ -6711,6 +8398,27 @@
           "write"
         ],
         "title": "PermissionLevel"
+      },
+      "ProviderAccountStatus": {
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/ModelProvider"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/AccountAvailability"
+          },
+          "account_count": {
+            "type": "integer",
+            "title": "Account Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "availability",
+          "account_count"
+        ],
+        "title": "ProviderAccountStatus"
       },
       "ProviderCapability": {
         "properties": {
@@ -8873,6 +10581,158 @@
           "role"
         ],
         "title": "TeamMemberUpdate"
+      },
+      "TeamModelPolicy": {
+        "properties": {
+          "team_id": {
+            "type": "integer",
+            "title": "Team Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProvider"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "effective_provider": {
+            "$ref": "#/components/schemas/ModelProvider"
+          },
+          "effective_model": {
+            "type": "string",
+            "title": "Effective Model"
+          },
+          "effective_reasoning_effort": {
+            "type": "string",
+            "title": "Effective Reasoning Effort"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/ModelConnection"
+          }
+        },
+        "type": "object",
+        "required": [
+          "team_id",
+          "revision",
+          "connection_id",
+          "provider",
+          "model",
+          "reasoning_effort",
+          "effective_provider",
+          "effective_model",
+          "effective_reasoning_effort",
+          "connection"
+        ],
+        "title": "TeamModelPolicy"
+      },
+      "TeamModelUpdate": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProvider"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "expected_revision"
+        ],
+        "title": "TeamModelUpdate"
       },
       "TeamPage": {
         "properties": {

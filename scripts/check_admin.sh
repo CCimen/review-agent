@@ -10,4 +10,5 @@ npm --prefix admin ci
 admin/node_modules/.bin/openapi-typescript admin/openapi.json -o "$admin_contract_dir/api.generated.ts"
 diff -u admin/src/api.generated.ts "$admin_contract_dir/api.generated.ts"
 npm --prefix admin run build
+npm --prefix admin run build:preview
 npm --prefix admin test

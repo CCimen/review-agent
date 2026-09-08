@@ -11,6 +11,8 @@
 !bootstrap/plugins/review_agent_tools/**
 admin/node_modules/
 admin/dist/
+admin/dist-preview/
+admin/preview/
 admin/*.tsbuildinfo
 bootstrap/plugins/review_agent_tools/_build.json
 **/__pycache__/

@@ -1,5 +1,9 @@
 # Review Agent console
 
+An [Astryx Neutral preview](preview/README.md) evaluates a possible replacement
+in light and dark modes. It is separate from the production console; the rules
+below continue to describe the current interface until that preview is accepted.
+
 The console follows the supplied Review Agent Console v3 design: a 224px sidebar,
 52px top bar, compact tables, and persistent deployment status. On small screens,
 section navigation moves below the content and the review request selector replaces

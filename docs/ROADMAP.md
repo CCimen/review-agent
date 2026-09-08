@@ -62,6 +62,9 @@ own profile and session files outside application state.
 
 ## Optional extensions
 
+- [Team access and model accounts](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md): a design
+  proposal for scoped console access, shared or dedicated Hermes connections,
+  and provider quota visibility. These capabilities are not yet implemented.
 - Repository-specific replacement profiles or remote context-package imports.
 - Notification or collaboration channels beyond GitHub.
 

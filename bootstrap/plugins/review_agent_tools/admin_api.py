@@ -26,7 +26,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
-from . import admin_application
+from . import (admin_access_api, admin_application, admin_quality_api,
+               admin_run_api, admin_provider_api, admin_settings_api, admin_deployment_api)
 from .admin_auth import AdminAuth
 from .postgres import admin_operations, admin_reporting
 from .postgres.runtime import (
@@ -266,9 +267,20 @@ def create_app(
     app.add_api_route("/operations", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/users", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/account", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/repositories", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/access", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/quality", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/settings", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/findings/{fingerprint}", index, methods=["GET"], include_in_schema=False)
     app.include_router(auth.auth_router, prefix="/api/auth")
     app.include_router(auth.router)
     app.include_router(router)
+    app.include_router(admin_quality_api.create_router(runtime, auth))
+    app.include_router(admin_run_api.create_router(runtime, auth))
+    app.include_router(admin_provider_api.create_router(auth))
+    app.include_router(admin_settings_api.create_router(runtime, auth))
+    app.include_router(admin_deployment_api.create_router(auth))
+    app.include_router(admin_access_api.create_router(runtime, auth))
     app.mount(
         "/assets",
         StaticFiles(directory=static_dir / "assets", check_dir=False),

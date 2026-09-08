@@ -1,3 +1,6 @@
+import { RunControls } from "./runControls";
+import { ReviewFindings } from "./reviewFindings";
+import type { Account } from "./api";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Link,
@@ -8,6 +11,7 @@ import {
 } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { APIError, read } from "./api";
+import { ActivityTabs } from "./activity";
 import type {
   HistoryItem,
   PullRequestGroup,
@@ -165,16 +169,29 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
   );
 }
 
-export function ReviewPage() {
+export function ReviewPage({ current }: { current: Account }) {
   const { runId } = useParams();
   const location = useLocation();
   // Reset disclosure state when another run is selected, including browser Back.
   return (
-    <ReviewReader key={runId} runId={runId ?? ""} search={location.search} />
+    <ReviewReader
+      key={runId}
+      runId={runId ?? ""}
+      search={location.search}
+      current={current}
+    />
   );
 }
 
-function ReviewReader({ runId, search }: { runId: string; search: string }) {
+function ReviewReader({
+  runId,
+  search,
+  current,
+}: {
+  runId: string;
+  search: string;
+  current: Account;
+}) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const before = params.get("requests_before");
@@ -320,6 +337,12 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                   </button>
                 </div>
               ) : null}
+              {current.role === "admin" && (
+                <details className="execution-details">
+                  <summary>Run controls</summary>
+                  <RunControls runId={item.id} />
+                </details>
+              )}
             </aside>
             <section
               className="review-reading"
@@ -360,6 +383,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                 ) : null}
               </div>
               <ReviewOutcome item={item} />
+              <ReviewFindings runId={item.id} repository={item.repository} />
               {data.markdown !== null ? (
                 <>
                   <div className="publication-links">
@@ -560,6 +584,7 @@ export function History() {
           </p>
         </div>
       </div>
+      <ActivityTabs />
       <div className="toolbar history-toolbar">
         <label className="field">
           Review state

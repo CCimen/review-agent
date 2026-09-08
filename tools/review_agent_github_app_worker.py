@@ -51,6 +51,7 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntimeRole,
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
 
 
 def _positive_integer(name: str, default: str | None = None) -> int:
@@ -141,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         worker_concurrency=1,
     )
     runtime.open()
+    apply_at_startup(runtime, "admission")
     try:
         processor = GitHubAppProcessor(
             postgres=runtime,

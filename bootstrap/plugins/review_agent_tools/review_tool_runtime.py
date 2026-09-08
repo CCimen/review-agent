@@ -172,6 +172,12 @@ def postgres_runtime() -> PostgreSQLRuntime:
             role=PostgreSQLRuntimeRole.REVIEWER,
         )
         candidate.open()
+        from .postgres.deployment_settings import apply_at_startup
+        try:
+            apply_at_startup(candidate, "reviewer")
+        except Exception:
+            candidate.close()
+            raise
         _process_runtime = candidate
         return candidate
 

@@ -68,6 +68,7 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntimeRole,
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
 from review_agent_tools.code_graph_contract import (  # noqa: E402
     GRAPH_EMBEDDINGS_PATH, GraphError, GraphIdentity, GraphPolicy,
 )
@@ -572,6 +573,7 @@ def serve(host: str, port: int) -> None:
         role=PostgreSQLRuntimeRole.ADMISSION,
     )
     runtime.open()
+    apply_at_startup(runtime, "gateway")
     tokens = GitHubAppTokenService(
         app_id=app_id,
         private_key_pem=private_key,

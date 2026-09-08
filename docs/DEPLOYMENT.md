@@ -26,7 +26,7 @@ One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
 gateway, Hermes `8642`, and PostgreSQL off the shared proxy network.
 
-The optional [admin panel](ADMIN_PANEL.md) adds a separate image and one service
+The optional [admin panel](ADMIN_PANEL.md) adds a separate image and an authenticated service
 on port `8090` in the same deployment. It provides repository statistics, review
 history, email/password login, and basic user roles. It is currently a source
 preview; use its documented version and account-creation requirements.

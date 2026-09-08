@@ -38,12 +38,15 @@ from review_agent_tools.github.gateway_client import (  # noqa: E402
 from review_agent_tools.github.publication import GitHubIssueCommentGateway  # noqa: E402
 from review_agent_tools.postgres import (  # noqa: E402
     github_app,
+    deployment_settings,
+    review_runs,
     jobs,
     registry,
     webhook_deliveries,
 )
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
+from review_agent_tools.deployment_settings import DeploymentSettings  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 from review_agent_tools.source_control import (  # noqa: E402
     GitHubReadClient,
@@ -227,7 +230,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.feedback_github = _FeedbackGitHub()
         self.contract = review_contract.ReviewContract(
             profile="default-standard",
-            hermes_image="hermes@test",
+            hermes_image="hermes@sha256:" + "a" * 64,
             model_provider="openai-codex",
             model="gpt-test",
             reasoning_effort="high",
@@ -237,6 +240,8 @@ class GitHubAppProcessorTests(unittest.TestCase):
             engine_bundle_sha256="3" * 64,
             sha256="4" * 64,
         )
+
+        self.contract = review_contract.with_model_route(self.contract, provider="openai-codex", model="gpt-test", effort="high")
 
     def processor(
         self,
@@ -709,6 +714,28 @@ class GitHubAppProcessorTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(counts, (1, 1))
         self.assertEqual(repository_name, ("CCimen/review-agent",))
+
+    def test_new_model_policy_does_not_change_an_admitted_or_redelivered_review(self) -> None:
+        self.enable_repository()
+        self.register("issue_comment", self.review_payload())
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            first = self.processor().process_next(lease_owner="worker-1")
+            assert first is not None and first.run_id is not None
+            with self.runtime.transaction() as connection:
+                frozen = review_runs.find_request_config(connection, "github:issue-comment:6001")
+                deployment_settings.save(connection, settings=DeploymentSettings(model="next-model"), expected_revision=0, actor="admin:test", reason="select a new model")
+            self.register("issue_comment", self.review_payload())
+            repeated = self.processor().process_next(lease_owner="worker-2")
+            self.assertEqual(repeated.run_id if repeated else None, first.run_id)
+            payload = self.review_payload()
+            payload["comment"] = {"id": 6002, "body": "/review", "author_association": "MEMBER"}
+            self.register("issue_comment", payload)
+            newest = self.processor().process_next(lease_owner="worker-3")
+            self.assertNotEqual(newest.run_id if newest else None, first.run_id)
+            with self.runtime.transaction() as connection:
+                self.assertEqual(review_runs.find_request_config(connection, "github:issue-comment:6001"), frozen)
+                selected = review_runs.find_request_config(connection, "github:issue-comment:6002")
+            self.assertEqual(review_contract.queued_contract(selected).model, "next-model")
 
     def test_review_admission_expires_after_its_deadline(self) -> None:
         self.enable_repository()

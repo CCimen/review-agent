@@ -139,6 +139,7 @@ class HermesChatClient:
             job_id=claimed.job.id,
             lease_generation=claimed.job.lease_generation,
         )
+        contract = review_contract.queued_contract(claimed.resolved_config)
         payload = json.dumps(
             {
                 "messages": [
@@ -156,6 +157,12 @@ class HermesChatClient:
                     },
                 ],
                 "stream": False,
+                "provider": contract.model_provider,
+                "model": contract.model,
+                "model_options": {"reasoning": {
+                    "enabled": contract.reasoning_effort != "none",
+                    "effort": contract.reasoning_effort,
+                }},
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -407,7 +414,7 @@ class ReviewWorker:
             self._stop.set()
             return
         try:
-            review_contract.require_matching_resolved_config(
+            review_contract.require_matching_execution_contract(
                 claimed.resolved_config, installed_contract
             )
         except review_contract.ReviewContractError as exc:

@@ -190,7 +190,9 @@ class WorkerBoundaryTests(unittest.TestCase):
             second_headers["Idempotency-Key"],
             second_headers["X-Hermes-Session-Id"],
         )
-        self.assertNotIn("model", first_body)
+        self.assertEqual(first_body["model"], "gpt-test")
+        self.assertEqual(first_body["provider"], "openai-codex")
+        self.assertEqual(first_body["model_options"], {"reasoning": {"enabled": True, "effort": "high"}})
         self.assertEqual(second_body["stream"], False)
         messages = cast(list[dict[str, Any]], second_body["messages"])
         self.assertEqual(messages[0]["content"], "Follow the review procedure.\n")
@@ -780,9 +782,9 @@ class WorkerBoundaryTests(unittest.TestCase):
 
     @staticmethod
     def _contract() -> review_contract.ReviewContract:
-        return review_contract.ReviewContract(
+        contract = review_contract.ReviewContract(
             profile="default-standard",
-            hermes_image="hermes@test",
+            hermes_image="hermes@sha256:" + "a" * 64,
             model_provider="openai-codex",
             model="gpt-test",
             reasoning_effort="high",
@@ -792,6 +794,8 @@ class WorkerBoundaryTests(unittest.TestCase):
             engine_bundle_sha256="3" * 64,
             sha256="4" * 64,
         )
+
+        return review_contract.with_model_route(contract, provider="openai-codex", model="gpt-test", effort="high")
 
 
 class WorkerEntrypointLoggingTests(unittest.TestCase):

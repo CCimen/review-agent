@@ -19,10 +19,12 @@ from ..feedback_commands import restore_review_feedback_command
 from ..memory_validation import ReviewMemoryError
 from ..postgres import (
     decisions as postgres_decisions,
+    deployment_settings,
     feedback as postgres_feedback,
     github_app,
     jobs,
     registry,
+    review_runs,
     webhook_deliveries,
 )
 from ..postgres.runtime import PostgreSQLRuntime
@@ -431,6 +433,23 @@ class GitHubAppProcessor:
 
         try:
             with self._postgres.transaction() as connection:
+                request_key = f"github:issue-comment:{authorized.comment_id}"
+                recorded = review_runs.find_request_config(connection, request_key)
+                if recorded is not None:
+                    # Redelivery keeps the admitted route. The admission owner
+                    # still checks the exact repository, PR, commits and subject.
+                    frozen = review_contract.queued_contract(recorded)
+                    contract = review_contract.with_model_route(
+                        contract, provider=frozen.model_provider,
+                        model=frozen.model, effort=frozen.reasoning_effort,
+                    )
+                else:
+                    saved = deployment_settings.latest(connection)
+                    if saved:
+                        contract = review_contract.with_model_route(
+                            contract, provider=saved.settings.model_provider,
+                            model=saved.settings.model, effort=saved.settings.reasoning_effort,
+                        )
                 github_app.authorize_review_admission(
                     connection,
                     provider_repository_id=authorized.provider_repository_id,
@@ -451,7 +470,7 @@ class GitHubAppProcessor:
                         resolved_config=cast(
                             JsonObject, review_contract.resolved_config(contract)
                         ),
-                        request_key=f"github:issue-comment:{authorized.comment_id}",
+                        request_key=request_key,
                         trigger_comment_id=authorized.comment_id,
                         trigger_user=authorized.sender_login,
                     ),

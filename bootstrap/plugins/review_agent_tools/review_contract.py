@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import importlib
 import json
@@ -626,3 +626,42 @@ def require_matching_resolved_config(value: object, installed: ReviewContract) -
         raise ReviewContractError(
             "queued review contract does not match the installed reviewer"
         )
+
+
+def with_model_route(
+    installed: ReviewContract, *, provider: str, model: str, effort: str
+) -> ReviewContract:
+    """Freeze a model selection while retaining all installed artifact identities."""
+    if provider not in {"openai-codex", "anthropic"}:
+        raise ReviewContractError("unsupported review model provider")
+    if not model.strip() or len(model) > 200 or not model.isprintable():
+        raise ReviewContractError("review model must be printable and at most 200 characters")
+    if effort not in REASONING_EFFORTS:
+        raise ReviewContractError("unsupported review reasoning effort")
+    selected = replace(installed, model_provider=provider, model=model.strip(), reasoning_effort=effort)
+    digest = _digest(json.dumps(selected.behavior_json(), ensure_ascii=False,
+                              separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    return replace(selected, sha256=digest)
+
+
+def queued_contract(value: object) -> ReviewContract:
+    if not isinstance(value, dict):
+        raise ReviewContractError("queued review configuration must be an object")
+    raw = cast(dict[str, object], value)
+    if set(raw) != {"profile", "review_contract"}:
+        raise ReviewContractError("queued review configuration has an invalid shape")
+    contract = _contract_from_json(raw["review_contract"])
+    if raw["profile"] != contract.profile:
+        raise ReviewContractError("queued review profile does not match its contract")
+    return contract
+
+
+def require_matching_execution_contract(value: object, installed: ReviewContract) -> None:
+    """Only the explicitly recorded model route may differ from the installed receipt."""
+    if value == resolved_config(installed):
+        return
+    queued = queued_contract(value)
+    expected = with_model_route(installed, provider=queued.model_provider,
+                               model=queued.model, effort=queued.reasoning_effort)
+    if queued != expected:
+        raise ReviewContractError("queued review contract does not match the installed reviewer")

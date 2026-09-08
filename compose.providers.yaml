@@ -1,0 +1,52 @@
+# Optional provider connection controls. Include after compose.admin.yaml.
+services:
+  hermes-review:
+    environment:
+      HERMES_DASHBOARD: "1"
+      HERMES_DASHBOARD_HOST: "127.0.0.1"
+      HERMES_DASHBOARD_PORT: "9119"
+      HERMES_DASHBOARD_SESSION_TOKEN: "${REVIEW_AGENT_HERMES_CONTROL_TOKEN:?set REVIEW_AGENT_HERMES_CONTROL_TOKEN}"
+
+  review-provider-control:
+    image: ${REVIEW_AGENT_IMAGE:-review-agent:local}
+    restart: unless-stopped
+    entrypoint: ["/opt/hermes/.venv/bin/python", "-m", "review_agent_tools.provider_gateway"]
+    user: "10000:10000"
+    # Hermes requires loopback access for its dashboard session token.
+    network_mode: "service:hermes-review"
+    depends_on:
+      hermes-review:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: /opt/review-agent-bootstrap/plugins
+      PYTHONDONTWRITEBYTECODE: "1"
+      REVIEW_AGENT_HERMES_CONTROL_TOKEN: "${REVIEW_AGENT_HERMES_CONTROL_TOKEN:?set REVIEW_AGENT_HERMES_CONTROL_TOKEN}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "/opt/hermes/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9120/healthz', timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+          pids: 32
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  review-admin:
+    depends_on:
+      review-provider-control:
+        condition: service_healthy
+    environment:
+      REVIEW_AGENT_HERMES_CONTROL_URL: http://hermes-review:9120
+      REVIEW_AGENT_HERMES_CONTROL_TOKEN: "${REVIEW_AGENT_HERMES_CONTROL_TOKEN:?set REVIEW_AGENT_HERMES_CONTROL_TOKEN}"
+    networks:
+      - review-runtime

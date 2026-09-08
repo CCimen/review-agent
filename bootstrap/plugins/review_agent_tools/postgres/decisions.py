@@ -497,14 +497,31 @@ def latest_suppression_decisions(
 
 
 def decision_history(
-    connection: psycopg.Connection[TupleRow], *, finding_id: FindingId
+    connection: psycopg.Connection[TupleRow],
+    *,
+    finding_id: FindingId,
+    limit: int | None = None,
+    before_id: FindingDecisionId | None = None,
 ) -> tuple[FindingDecision, ...]:
-    """Return the complete append-only decision chain for one finding."""
+    """Return complete history, or a newest-first bounded page when requested."""
     _require_transaction(connection)
+    if before_id is not None and limit is None:
+        raise DecisionStoreError("before_id requires a decision history limit")
+    if limit is not None and limit < 1:
+        raise DecisionStoreError("decision history limit must be positive")
+    where = "WHERE finding_id = %s"
+    parameters: list[object] = [finding_id]
+    if before_id is not None:
+        where += " AND id < %s"
+        parameters.append(before_id)
+    order_and_limit = "ORDER BY id"
+    if limit is not None:
+        order_and_limit = "ORDER BY id DESC LIMIT %s"
+        parameters.append(limit)
     with connection.cursor(row_factory=class_row(_DecisionRow)) as cursor:
         rows = cursor.execute(
             f"SELECT {_DECISION_COLUMNS} FROM review_agent.finding_decisions "
-            "WHERE finding_id = %s ORDER BY id",
-            (finding_id,),
+            f"{where} {order_and_limit}",
+            tuple(parameters),
         ).fetchall()
     return tuple(_decision(row) for row in rows)

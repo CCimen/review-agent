@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { read } from "./api";
+import { ActivityTabs } from "./activity";
 import type { ActivityCounts, ActivityDay, Overview } from "./api";
 import {
   Freshness,
@@ -322,11 +323,12 @@ export function OverviewPage() {
     <>
       <div className="page-heading">
         <div>
-          <h1>Overview</h1>
+          <h1>Statistics</h1>
           <p>Review activity and delivery for this deployment.</p>
         </div>
       </div>
 
+      <ActivityTabs/>
       {/* Current work and worker presence answer a different question from the
           reporting period, so they are stated separately and first. */}
       <Section

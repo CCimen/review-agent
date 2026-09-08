@@ -37,7 +37,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
         with psycopg.connect(DSN) as connection:
             self.assertEqual(
                 runner.apply_migrations(connection),
-                (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18),
+                (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20),
             )
             self.assertEqual(runner.apply_migrations(connection), ())
             rows = connection.execute(
@@ -90,6 +90,8 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     (16, "016_finding_root_cause_groups.sql"),
                     (17, "017_admin_accounts.sql"),
                     (18, "018_admin_operations.sql"),
+                    (19, "019_admin_run_actions.sql"),
+                    (20, "020_deployment_settings.sql"),
                 )
             ],
         )
@@ -217,7 +219,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                 )
 
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), (14, 15, 16, 17, 18))
+                self.assertEqual(runner.apply_migrations(connection), (14, 15, 16, 17, 18, 19, 20))
                 classified = connection.execute(
                     """
                     SELECT repository.provider_repository_id,
@@ -286,7 +288,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (18,))
+        self.assertEqual(count, (20,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

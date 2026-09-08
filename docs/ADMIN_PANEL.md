@@ -1,24 +1,26 @@
 ---
 sidebar_label: Admin panel
 slug: /admin-panel
-title: Review activity and user accounts
-description: Add an optional panel for repository statistics, review history, and individual operator accounts.
+title: Review Agent operator console
+description: Inspect reviews, manage repository access and finding decisions, and apply deployment policy through an authenticated console.
 status: transitional
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 ---
 
-# Review activity and user accounts
+# Review Agent operator console
 
-The optional admin panel shows repository activity and review history. Sign in
-with an email address and password. Viewers can read all repositories in the
-deployment; administrators can also add accounts, change roles, disable access,
-and reset passwords. Review commands and findings stay on GitHub.
+The optional console provides Activity, Repositories, Review quality, Health,
+and Settings. Sign in with an individual email address and password. Viewers can
+read reviews and quality evidence across the deployment. Administrators can
+manage accounts, repository access, finding decisions, feedback triage, review
+run controls, and deployment policy. GitHub remains the source of review requests
+and the destination for published reviews.
 
 This feature is available in the source candidate and has not yet been released.
 The current v0.4.0-rc.4 image does not include it. Build both images from the same
 candidate checkout, or use a future qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 18.
+an older migration image: the current admin API requires PostgreSQL schema 20.
 
 ## What the numbers mean
 
@@ -33,7 +35,8 @@ started in that period:
 | Active now | Queued, running, or publishing requests, regardless of their age. |
 | Latest failures | PRs whose newest request failed within the selected period. |
 
-History groups matching requests under each pull request before pagination.
+Activity opens the request list. Its Pull requests tab groups matching requests
+under each pull request before pagination; Statistics shows aggregate reports.
 Open a PR's latest matching request to read its published review. The overview
 shows findings and coverage alongside publication status; filtered historical
 results are labeled accordingly. The reader has a compact history of all retained
@@ -74,6 +77,16 @@ clients. The frontend uses `admin/openapi.json` and the generated
 | `GET /api/operations` | Admin | Worker presence and capacity, active leases, and webhook, review, and publication queue counts. |
 | `GET /api/operations/events` | Admin | Structured process and review events, with optional `worker_id` and `before_id` filters. |
 | `GET /api/users` | Admin | `AccountPage`: `items`, `total`, `admin_count`, `disabled_count`, and `has_more`. |
+| `GET /api/access/installations`, `GET /api/access/repositories` | Admin | Bounded GitHub App access inventory and capability state. |
+| `POST /api/access/...` | Admin | Installation approval and refresh; repository enablement and disablement. |
+| `GET /api/quality`, `GET /api/quality/feedback` | Viewer or admin | Quality cohorts and paginated retained feedback. |
+| `GET /api/history/{run_id}/findings`, `GET /api/findings/{fingerprint}` | Viewer or admin | Published finding occurrences and bounded decision history. |
+| `POST /api/findings/{fingerprint}/decisions`, `POST /api/quality/feedback/{id}/triage` | Admin | Audited human decisions and feedback triage. |
+| `GET /api/history/{run_id}/controls`, `POST /api/history/{run_id}/actions` | Admin | Available run controls, snapshot preconditions, and audit events. |
+| `GET /api/settings`, `PUT /api/settings` | Admin | Current policy, bounded revision history, startup records, and conditional saves. |
+| `GET /api/deployment` | Admin | Optional Dokploy container state for this application. |
+| `GET /api/providers`, `GET /api/providers/models` | Admin | Optional Hermes provider state and model catalog. |
+| `POST /api/providers/openai-codex/login`, `GET /api/providers/openai-codex/login/{id}`, `POST /api/providers/openai-codex/login/{id}/cancel` | Admin | Hermes-owned device login lifecycle. |
 
 Overview, repositories, PR groups, and history accept either `days` (1–90; default 30), or
 both `start` and `end` as RFC 3339 timestamps with timezone offsets. Explicit
@@ -137,6 +150,103 @@ object instead of an array, so deploy the generated frontend and API together.
 Upgrade the main worker image as well as the admin image after applying schema
 18 to begin collecting presence and usage.
 
+## Administrative controls
+
+Repository access lists installations and repositories with cursor pagination.
+Approve an installation using explicit repository activation or automatic
+activation, refresh its inventory, and enable or disable individual repositories.
+These operations use the existing GitHub App authorization and activation owners.
+Each change requires a reason and records the signed-in administrator's stable
+account ID.
+
+Open **Finding decisions** from a published review to inspect an exact finding
+occurrence. A human decision refers to that occurrence even if a later review
+contains the same fingerprint. Intentional-by-design decisions still require the
+accepted ADR snapshot and matching path. Review quality shows the reporting
+cohorts and retained feedback backlog; administrators can classify pending
+feedback using the existing triage states.
+
+A request's **Run controls** can release a delayed retry, cancel queued or leased
+work, or fail stale work after checking its heartbeat and lease. The confirmation
+captures the job generation, status, and availability timestamp. A concurrent
+change rejects the action and requires a refreshed confirmation. Terminal reviews
+and jobs already awaiting publication cannot be cancelled through this control.
+The lifecycle change and audit event commit together.
+
+## Save and apply policy
+
+Settings starts with the deployment's environment values. Saving a policy creates
+an immutable PostgreSQL revision with an actor and reason. The latest saved
+revision then owns the displayed policy values. Concurrent edits return a conflict
+rather than overwriting a newer revision. **Restore to editor** loads an older
+revision into the form; saving it creates a new revision.
+
+Provider, model, and reasoning effort apply when a new GitHub review request is
+admitted. The selected route is recorded in its exact review contract and sent
+explicitly to Hermes. Already admitted requests, including command redelivery,
+retain their recorded route. Workers continue to verify the installed profile,
+engine, configuration, image, and result budget before execution.
+
+Other policy values load when their owning services start:
+
+| Values | Service to restart |
+| --- | --- |
+| Active job limit, capacity retry delay, review attempt budget | `review-github-app-worker` |
+| Concurrency, lease, heartbeat, Hermes timeout | `review-worker` |
+| Publication size, publication attempt budget, feedback instructions | `hermes-review` |
+| Code graph enablement and embedding mode | `review-github-gateway` |
+
+Use the normal deployment procedure to drain and restart services. The console
+records the last 50 startup observations and their loaded revision. These are
+startup records; worker heartbeats and Dokploy container state provide separate
+current-state evidence. Code graph options require the graph overlay, and OpenAI
+embeddings require the gateway's existing API key. Profile contents, secrets,
+container shutdown grace, and graph cache sizing remain deployment configuration.
+
+## Dokploy container state
+
+The Health page can read container state for one configured Compose application.
+Set `REVIEW_AGENT_DOKPLOY_URL` to the Dokploy origin,
+`REVIEW_AGENT_DOKPLOY_COMPOSE_ID` to this stack's ID, and
+`REVIEW_AGENT_DOKPLOY_API_KEY` to a server-side API credential with the required
+read access. Use the narrowest account permissions your Dokploy installation
+supports. Restart `review-admin` after configuring the connection.
+
+The browser receives only container identity, state, status, and a dashboard link.
+It cannot select another application or submit arbitrary Dokploy operations.
+The current integration reads state and opens Dokploy for deployment actions.
+An MCP connection used by a development assistant is independent of the console's
+runtime credential. See the [Dokploy API](https://docs.dokploy.com/docs/api).
+
+## Provider connections
+
+Include `compose.providers.yaml` after `compose.admin.yaml` and configure a
+separate random `REVIEW_AGENT_HERMES_CONTROL_TOKEN` in deployment secrets. Build
+the main and admin images from the same candidate checkout. Retain all overlays
+when applying subsequent updates:
+
+```bash
+docker compose -f compose.yaml -f compose.admin.yaml -f compose.providers.yaml config --quiet
+```
+
+The overlay enables the pinned Hermes dashboard on `127.0.0.1:9119`. A small
+`review-provider-control` service shares the Hermes network namespace and exposes
+only bounded provider status, model options, Codex device login, polling, and
+cancellation operations on private port `9120`. It authenticates the admin API
+with the dedicated token. The Hermes dashboard is not published or attached to
+the ingress network. When recreating Hermes, recreate its provider-control
+companion in the same Compose operation.
+
+In Settings, connect OpenAI Codex, open the displayed OpenAI verification page,
+and enter the one-time code. Hermes stores and refreshes the resulting credential.
+Cancellation and expiry end polling in the console. Anthropic authentication uses
+`hermes auth add anthropic` from the Hermes container's terminal because the pinned
+Hermes version provides that external flow. Connection status does not prove that
+a model can complete a review.
+
+Without these optional connections, the console reports their unavailable state;
+review history, quality evidence, and database-backed controls remain available.
+
 ## Add the service
 
 Follow the normal [deployment and upgrade procedure](DEPLOYMENT.md), including
@@ -151,8 +261,9 @@ frontend and API together on port `8090`; Node.js is used only during the build.
    REVIEW_AGENT_ADMIN_PUBLIC_URL=https://admin.example.org
    ```
 
-   The panel uses the existing `REVIEW_AGENT_RUNTIME_DATABASE_URL`. It needs no
-   GitHub App key, model credential, or shared password in the environment.
+   The panel uses the existing `REVIEW_AGENT_RUNTIME_DATABASE_URL`. The overlay
+   also mounts the existing GitHub App private key read-only for installation
+   approval and inventory refresh. Provider credentials remain in Hermes.
    `REVIEW_AGENT_ADMIN_PUBLIC_URL` must exactly match its HTTPS origin, including
    a non-default port if used. Serve it at the hostname root, not a URL subpath.
 

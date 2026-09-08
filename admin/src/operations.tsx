@@ -1,3 +1,4 @@
+import { EngineServices, ProviderHealth } from "./deployment";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { read } from "./api";
@@ -333,7 +334,7 @@ function Events({ workerId, clear }: { workerId: string; clear: () => void }) {
 export function OperationsPage() {
   const [workerId, setWorkerId] = useState("");
   useEffect(() => {
-    document.title = "Review Agent · Operations";
+    document.title = "Review Agent · Health";
   }, []);
   const query = useQuery({
     queryKey: ["operations"],
@@ -350,10 +351,13 @@ export function OperationsPage() {
     <>
       <div className="page-heading">
         <div>
-          <h1>Operations</h1>
-          <p>Worker presence and queue diagnostics for this deployment.</p>
+          <h1>Health</h1>
+          <p>
+            Services, worker presence, request queues, and model authentication.
+          </p>
         </div>
       </div>
+      <EngineServices />
       <Freshness query={query} />
       {data && (
         <>
@@ -383,6 +387,7 @@ export function OperationsPage() {
             />
           </div>
 
+          <ProviderHealth />
           <Section
             title="Workers"
             description="Availability shows worker presence. Assigned jobs show their current work."

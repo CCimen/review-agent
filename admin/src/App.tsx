@@ -1,24 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import {
-  Link,
-  NavLink,
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-} from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { APIError, read, write } from "./api";
 import type { Account, RepositoryPage } from "./api";
 
 import { Login, MyAccount, Users } from "./accounts";
 import { OverviewPage } from "./overview";
+import { ConsoleLayout } from "./console";
+import { ActivityPage } from "./activity";
+import { SettingsPage } from "./settings";
+import { Access } from "./access";
+import { QualityPage, FindingPage } from "./quality";
 import { OperationsPage } from "./operations";
 import { History, ReviewPage } from "./history";
 import { Empty, Freshness, Period, Stat, number, time, useFilters } from "./ui";
 
-function Repositories() {
+function Repositories({ current }: { current: Account }) {
   const { params, days, update } = useFilters();
   const search = params.get("search") ?? "";
   const offset = Math.max(0, Number(params.get("offset")) || 0);
@@ -52,13 +50,21 @@ function Repositories() {
     <>
       <div className="page-heading">
         <div>
-          <h1>Repositories</h1>
+          <h1>Repositories &amp; access</h1>
           <p>Review activity across your registered repositories.</p>
         </div>
         <Link className="button secondary" to={`/history?days=${days}`}>
           View all reviews
         </Link>
       </div>
+      <nav className="activity-tabs" aria-label="Repository views">
+        <Link to="/repositories" aria-current="page">
+          Activity
+        </Link>
+        {current.role === "admin" && (
+          <Link to="/access">Access management</Link>
+        )}
+      </nav>
       <div className="toolbar">
         <form className="search-form" onSubmit={submit}>
           <label className="field grow" htmlFor="repo-search">
@@ -273,9 +279,8 @@ function Repositories() {
 
 export function App() {
   const client = useQueryClient();
-  const { pathname } = useLocation();
+  const { pathname, search: routeSearch } = useLocation();
   const main = useRef<HTMLElement>(null);
-  const nav = useRef<HTMLElement>(null);
   const me = useQuery({
     queryKey: ["me"],
     queryFn: ({ signal }) => read<Account>("/api/me", signal),
@@ -284,19 +289,6 @@ export function App() {
   const signedOut = me.error instanceof APIError && me.error.status === 401;
   useEffect(() => {
     main.current?.focus({ preventScroll: true });
-  }, [pathname, me.data?.id]);
-  // The tab strip scrolls on narrow screens; keep the current page in view so
-  // landing on a later route still shows where you are.
-  useEffect(() => {
-    const strip = nav.current;
-    const active = strip?.querySelector<HTMLElement>("a.active");
-    if (!strip || !active) return;
-    const past = active.offsetLeft + active.offsetWidth;
-    if (
-      past > strip.scrollLeft + strip.clientWidth ||
-      active.offsetLeft < strip.scrollLeft
-    )
-      strip.scrollLeft = Math.max(0, active.offsetLeft - 16);
   }, [pathname, me.data?.id]);
   useEffect(() => {
     if (signedOut)
@@ -334,70 +326,86 @@ export function App() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <header className="app-header">
-        <Link className="brand" to="/">
-          <span className="brand-mark" aria-hidden="true">
-            RA
-          </span>
-          Review Agent
-        </Link>
-        <nav aria-label="Main navigation" ref={nav}>
-          <NavLink to="/" end>
-            Overview
-          </NavLink>
-          <NavLink to="/repositories">Repositories</NavLink>
-          <NavLink to="/history">Review history</NavLink>
-          {current.role === "admin" && (
-            <NavLink to="/operations">Operations</NavLink>
+      <ConsoleLayout
+        current={current}
+        logout={() => logout.mutate()}
+        signingOut={logout.isPending}
+      >
+        <main id="main" ref={main} tabIndex={-1}>
+          {logout.isError && (
+            <p className="notice error" role="alert">
+              Could not sign out. Please try again.
+            </p>
           )}
-          {current.role === "admin" && <NavLink to="/users">Users</NavLink>}
-        </nav>
-        <div className="account-nav">
-          <Link to="/account">Your account</Link>
-          <button
-            className="text-button quiet"
-            disabled={logout.isPending}
-            onClick={() => logout.mutate()}
-          >
-            {logout.isPending ? "Signing out…" : "Sign out"}
-          </button>
-        </div>
-      </header>
-      <main id="main" ref={main} tabIndex={-1}>
-        {logout.isError && (
-          <p className="notice error" role="alert">
-            Could not sign out. Please try again.
-          </p>
-        )}
-        <Routes>
-          <Route path="/" element={<OverviewPage />} />
-          <Route path="/repositories" element={<Repositories />} />
-          <Route path="/history" element={<History />} />
-          <Route path="/history/:runId" element={<ReviewPage />} />
-          <Route
-            path="/operations"
-            element={
-              current.role === "admin" ? (
-                <OperationsPage />
-              ) : (
-                <Navigate to="/" replace />
-              )
-            }
-          />
-          <Route
-            path="/users"
-            element={
-              current.role === "admin" ? (
-                <Users current={current} />
-              ) : (
-                <Navigate to="/" replace />
-              )
-            }
-          />
-          <Route path="/account" element={<MyAccount current={current} />} />
-        </Routes>
-      </main>
-      <footer>Review Agent · Advisory pull-request reviews</footer>
+          <Routes>
+            <Route path="/" element={<ActivityPage />} />
+            <Route path="/overview" element={<OverviewPage />} />
+            <Route
+              path="/repositories"
+              element={<Repositories current={current} />}
+            />
+            <Route path="/history" element={<History />} />
+            <Route
+              path="/history/:runId"
+              element={<ReviewPage current={current} />}
+            />
+            <Route
+              path="/quality"
+              element={<QualityPage current={current} />}
+            />
+            <Route
+              path="/findings/:fingerprint"
+              element={
+                <FindingPage
+                  key={`${pathname}${routeSearch}`}
+                  current={current}
+                />
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                current.role === "admin" ? (
+                  <SettingsPage />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
+            <Route
+              path="/access"
+              element={
+                current.role === "admin" ? (
+                  <Access />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
+            <Route
+              path="/operations"
+              element={
+                current.role === "admin" ? (
+                  <OperationsPage />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
+            <Route
+              path="/users"
+              element={
+                current.role === "admin" ? (
+                  <Users current={current} />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
+            <Route path="/account" element={<MyAccount current={current} />} />
+          </Routes>
+        </main>
+      </ConsoleLayout>
     </>
   );
 }

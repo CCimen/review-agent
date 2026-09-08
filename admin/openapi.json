@@ -1004,10 +1004,1174 @@
           }
         }
       }
+    },
+    "/api/quality": {
+      "get": {
+        "summary": "Report",
+        "operationId": "report_api_quality_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "repository",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Repository"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/quality/feedback": {
+      "get": {
+        "summary": "Feedback",
+        "operationId": "feedback_api_quality_feedback_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Repository"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityFeedbackPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/findings/{fingerprint}": {
+      "get": {
+        "summary": "Finding",
+        "operationId": "finding_api_findings__fingerprint__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "fingerprint",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8,64}$",
+              "title": "Fingerprint"
+            }
+          },
+          {
+            "name": "repository",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+              "title": "Repository"
+            }
+          },
+          {
+            "name": "occurrence_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Occurrence Id"
+            }
+          },
+          {
+            "name": "decisions_before_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Decisions Before Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminFindingDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/history/{run_id}/findings": {
+      "get": {
+        "summary": "Findings For Review",
+        "operationId": "findings_for_review_api_history__run_id__findings_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewFindingPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/findings/{fingerprint}/decisions": {
+      "post": {
+        "summary": "Decide",
+        "operationId": "decide_api_findings__fingerprint__decisions_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "fingerprint",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8,64}$",
+              "title": "Fingerprint"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindingDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorDecisionResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/quality/feedback/{feedback_id}/triage": {
+      "post": {
+        "summary": "Triage",
+        "operationId": "triage_api_quality_feedback__feedback_id__triage_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "feedback_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Feedback Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualityTriageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityFeedbackTriage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/history/{run_id}/controls": {
+      "get": {
+        "tags": [
+          "run controls"
+        ],
+        "summary": "Controls",
+        "operationId": "controls_api_history__run_id__controls_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunControls"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/history/{run_id}/actions": {
+      "post": {
+        "tags": [
+          "run controls"
+        ],
+        "summary": "Apply Action",
+        "operationId": "apply_action_api_history__run_id__actions_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunActionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunControls"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Providers",
+        "operationId": "providers_api_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderPage"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/providers/models": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Models",
+        "operationId": "models_api_providers_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderModelPage"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/providers/openai-codex/login": {
+      "post": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Start Login",
+        "operationId": "start_login_api_providers_openai_codex_login_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginSession"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/providers/openai-codex/login/{session_id}": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Poll Login",
+        "operationId": "poll_login_api_providers_openai_codex_login__session_id__get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22,80}$",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginSession"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/openai-codex/login/{session_id}/cancel": {
+      "post": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Cancel Login",
+        "operationId": "cancel_login_api_providers_openai_codex_login__session_id__cancel_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{22,80}$",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cancellation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "summary": "Get Settings",
+        "operationId": "get_settings_api_settings_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "before_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentSettingsPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Save Settings",
+        "operationId": "save_settings_api_settings_put",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveSettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsRevision"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/deployment": {
+      "get": {
+        "summary": "Status",
+        "operationId": "status_api_deployment_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/access/installations": {
+      "get": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Installations",
+        "operationId": "installations_api_access_installations_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "default": 0,
+              "title": "After Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallationPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/access/repositories": {
+      "get": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Repositories",
+        "operationId": "repositories_api_access_repositories_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "default": 0,
+              "title": "After Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryAccessPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/access/installations/{installation_id}/sync": {
+      "post": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Sync Installation",
+        "operationId": "sync_installation_api_access_installations__installation_id__sync_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "installation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Installation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuditReason"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reconciliation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/access/installations/{installation_id}/approve": {
+      "post": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Approve Installation",
+        "operationId": "approve_installation_api_access_installations__installation_id__approve_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "installation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Installation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallationApproval"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Installation"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/access/repositories/{repository_id}/enable": {
+      "post": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Enable Repository",
+        "operationId": "enable_repository_api_access_repositories__repository_id__enable_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepositoryEnablement"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/review_agent_tools__admin_access_api__RepositoryAccess"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/access/repositories/{repository_id}/disable": {
+      "post": {
+        "tags": [
+          "access"
+        ],
+        "summary": "Disable Repository",
+        "operationId": "disable_repository_api_access_repositories__repository_id__disable_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuditReason"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/review_agent_tools__admin_access_api__RepositoryAccess"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AccessCapability": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "detail"
+        ],
+        "title": "AccessCapability"
+      },
       "Account": {
         "properties": {
           "id": {
@@ -1072,6 +2236,14 @@
         ],
         "title": "AccountPage"
       },
+      "AccountType": {
+        "type": "string",
+        "enum": [
+          "user",
+          "organization"
+        ],
+        "title": "AccountType"
+      },
       "AccountUpdate": {
         "properties": {
           "role": {
@@ -1113,6 +2285,24 @@
         },
         "type": "object",
         "title": "AccountUpdate"
+      },
+      "ActionAvailability": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "reason"
+        ],
+        "title": "ActionAvailability"
       },
       "ActivityCounts": {
         "properties": {
@@ -1226,6 +2416,58 @@
         ],
         "title": "ActivityDay"
       },
+      "AdminFindingDetail": {
+        "properties": {
+          "finding": {
+            "$ref": "#/components/schemas/FindingReport"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/FindingDecision"
+            },
+            "type": "array",
+            "title": "Decisions"
+          },
+          "has_more_decisions": {
+            "type": "boolean",
+            "title": "Has More Decisions"
+          },
+          "next_decision_before_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Decision Before Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "finding",
+          "decisions",
+          "has_more_decisions",
+          "next_decision_before_id"
+        ],
+        "title": "AdminFindingDetail"
+      },
+      "AuditReason": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "AuditReason"
+      },
       "Body_auth_cookie_login_api_auth_login_post": {
         "properties": {
           "grant_type": {
@@ -1284,6 +2526,24 @@
           "password"
         ],
         "title": "Body_auth_cookie_login_api_auth_login_post"
+      },
+      "Cancellation": {
+        "properties": {
+          "cancelled": {
+            "type": "boolean",
+            "title": "Cancelled"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cancelled",
+          "session_id"
+        ],
+        "title": "Cancellation"
       },
       "CoverageState": {
         "type": "string",
@@ -1363,6 +2623,239 @@
         ],
         "title": "CoverageSummary"
       },
+      "DecisionKind": {
+        "type": "string",
+        "enum": [
+          "false_positive",
+          "intentional_by_design",
+          "accepted_risk",
+          "duplicate",
+          "resolved",
+          "reopen"
+        ],
+        "title": "DecisionKind"
+      },
+      "DeploymentContainer": {
+        "properties": {
+          "container_id": {
+            "type": "string",
+            "title": "Container Id"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "container_id",
+          "service",
+          "state",
+          "status"
+        ],
+        "title": "DeploymentContainer"
+      },
+      "DeploymentSettings": {
+        "properties": {
+          "active_job_limit": {
+            "type": "integer",
+            "title": "Active Job Limit",
+            "default": 100
+          },
+          "capacity_retry_seconds": {
+            "type": "integer",
+            "title": "Capacity Retry Seconds",
+            "default": 300
+          },
+          "worker_concurrency": {
+            "type": "integer",
+            "title": "Worker Concurrency",
+            "default": 4
+          },
+          "job_max_attempts": {
+            "type": "integer",
+            "title": "Job Max Attempts",
+            "default": 3
+          },
+          "job_lease_seconds": {
+            "type": "integer",
+            "title": "Job Lease Seconds",
+            "default": 120
+          },
+          "job_heartbeat_seconds": {
+            "type": "integer",
+            "title": "Job Heartbeat Seconds",
+            "default": 30
+          },
+          "hermes_timeout_seconds": {
+            "type": "integer",
+            "title": "Hermes Timeout Seconds",
+            "default": 7200
+          },
+          "publish_max_bytes": {
+            "type": "integer",
+            "title": "Publish Max Bytes",
+            "default": 60000
+          },
+          "publication_max_attempts": {
+            "type": "integer",
+            "title": "Publication Max Attempts",
+            "default": 3
+          },
+          "feedback_enabled": {
+            "type": "boolean",
+            "title": "Feedback Enabled",
+            "default": false
+          },
+          "code_graph_enabled": {
+            "type": "boolean",
+            "title": "Code Graph Enabled",
+            "default": false
+          },
+          "code_graph_embeddings": {
+            "type": "string",
+            "enum": [
+              "none",
+              "openai"
+            ],
+            "title": "Code Graph Embeddings",
+            "default": "none"
+          },
+          "model_provider": {
+            "type": "string",
+            "enum": [
+              "openai-codex",
+              "anthropic"
+            ],
+            "title": "Model Provider",
+            "default": "openai-codex"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "default": "gpt-5.6-sol"
+          },
+          "reasoning_effort": {
+            "type": "string",
+            "enum": [
+              "none",
+              "minimal",
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max",
+              "ultra"
+            ],
+            "title": "Reasoning Effort",
+            "default": "xhigh"
+          }
+        },
+        "type": "object",
+        "title": "DeploymentSettings"
+      },
+      "DeploymentSettingsPage": {
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/DeploymentSettings"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsRevision"
+            },
+            "type": "array",
+            "title": "History"
+          },
+          "next_before_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before Id"
+          },
+          "startup_loads": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceSettingsLoad"
+            },
+            "type": "array",
+            "title": "Startup Loads"
+          }
+        },
+        "type": "object",
+        "required": [
+          "settings",
+          "revision",
+          "history",
+          "next_before_id",
+          "startup_loads"
+        ],
+        "title": "DeploymentSettingsPage"
+      },
+      "DeploymentStatus": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "application": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Application"
+          },
+          "dashboard_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dashboard Url"
+          },
+          "containers": {
+            "items": {
+              "$ref": "#/components/schemas/DeploymentContainer"
+            },
+            "type": "array",
+            "title": "Containers"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "containers",
+          "observed_at"
+        ],
+        "title": "DeploymentStatus"
+      },
       "ErrorModel": {
         "properties": {
           "detail": {
@@ -1403,6 +2896,316 @@
           "requests"
         ],
         "title": "FailureCount"
+      },
+      "FeedbackTargetOwner": {
+        "type": "string",
+        "enum": [
+          "source_tool",
+          "coverage",
+          "review_rule",
+          "profile",
+          "repository_decision",
+          "documentation"
+        ],
+        "title": "FeedbackTargetOwner"
+      },
+      "FeedbackTriageStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "actionable",
+          "duplicate",
+          "insufficient",
+          "resolved"
+        ],
+        "title": "FeedbackTriageStatus"
+      },
+      "FindingCategory": {
+        "type": "string",
+        "enum": [
+          "security",
+          "correctness",
+          "reliability",
+          "contracts",
+          "tests",
+          "maintainability",
+          "performance",
+          "migration"
+        ],
+        "title": "FindingCategory"
+      },
+      "FindingDecision": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "finding_id": {
+            "type": "integer",
+            "title": "Finding Id"
+          },
+          "occurrence_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrence Id"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DecisionKind"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "context_hash": {
+            "type": "string",
+            "title": "Context Hash"
+          },
+          "adr_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adr Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "finding_id",
+          "occurrence_id",
+          "decision",
+          "reason",
+          "actor",
+          "context_hash",
+          "adr_id",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "FindingDecision"
+      },
+      "FindingDecisionRequest": {
+        "properties": {
+          "repository": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+            "title": "Repository"
+          },
+          "occurrence_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Occurrence Id"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DecisionKind"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "adr_id": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Adr Id",
+            "default": ""
+          },
+          "expires_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3650.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires Days"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "repository",
+          "occurrence_id",
+          "decision",
+          "reason"
+        ],
+        "title": "FindingDecisionRequest"
+      },
+      "FindingReport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "repository": {
+            "type": "string",
+            "title": "Repository"
+          },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint"
+          },
+          "rule_id": {
+            "type": "string",
+            "title": "Rule Id"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "anchor": {
+            "type": "string",
+            "title": "Anchor"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          },
+          "occurrence_id": {
+            "type": "integer",
+            "title": "Occurrence Id"
+          },
+          "occurrence_count": {
+            "type": "integer",
+            "title": "Occurrence Count"
+          },
+          "line": {
+            "type": "integer",
+            "title": "Line"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "category": {
+            "$ref": "#/components/schemas/FindingCategory"
+          },
+          "publication_score": {
+            "type": "integer",
+            "title": "Publication Score"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "context_hash": {
+            "type": "string",
+            "title": "Context Hash"
+          },
+          "evidence": {
+            "type": "string",
+            "title": "Evidence"
+          },
+          "disproof_checks": {
+            "type": "string",
+            "title": "Disproof Checks"
+          },
+          "impact": {
+            "type": "string",
+            "title": "Impact"
+          },
+          "smallest_fix": {
+            "type": "string",
+            "title": "Smallest Fix"
+          },
+          "latest_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suppressed": {
+            "type": "boolean",
+            "title": "Suppressed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repository",
+          "fingerprint",
+          "rule_id",
+          "path",
+          "symbol",
+          "anchor",
+          "first_seen_at",
+          "last_seen_at",
+          "occurrence_id",
+          "occurrence_count",
+          "line",
+          "title",
+          "severity",
+          "category",
+          "publication_score",
+          "confidence",
+          "context_hash",
+          "evidence",
+          "disproof_checks",
+          "impact",
+          "smallest_fix",
+          "latest_decision",
+          "suppressed"
+        ],
+        "title": "FindingReport"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1655,6 +3458,268 @@
         ],
         "title": "HistoryPage"
       },
+      "Installation": {
+        "properties": {
+          "installation_id": {
+            "type": "integer",
+            "title": "Installation Id"
+          },
+          "account": {
+            "type": "string",
+            "title": "Account"
+          },
+          "account_type": {
+            "$ref": "#/components/schemas/AccountType"
+          },
+          "repository_selection": {
+            "$ref": "#/components/schemas/RepositorySelection"
+          },
+          "repository_activation": {
+            "$ref": "#/components/schemas/RepositoryActivationPolicy"
+          },
+          "activation_policy_actor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Policy Actor"
+          },
+          "activation_policy_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Policy Reason"
+          },
+          "activation_policy_changed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Policy Changed At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/InstallationStatus"
+          },
+          "contents_permission": {
+            "$ref": "#/components/schemas/PermissionLevel"
+          },
+          "issues_permission": {
+            "$ref": "#/components/schemas/PermissionLevel"
+          },
+          "pull_requests_permission": {
+            "$ref": "#/components/schemas/PermissionLevel"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installation_id",
+          "account",
+          "account_type",
+          "repository_selection",
+          "repository_activation",
+          "activation_policy_actor",
+          "activation_policy_reason",
+          "activation_policy_changed_at",
+          "status",
+          "contents_permission",
+          "issues_permission",
+          "pull_requests_permission",
+          "updated_at"
+        ],
+        "title": "Installation"
+      },
+      "InstallationApproval": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/RepositoryActivationPolicy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "policy"
+        ],
+        "title": "InstallationApproval"
+      },
+      "InstallationPage": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/AccessCapability"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Installation"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "capability",
+          "items",
+          "next_after_id"
+        ],
+        "title": "InstallationPage"
+      },
+      "InstallationStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "suspended",
+          "deleted"
+        ],
+        "title": "InstallationStatus"
+      },
+      "JobControlSnapshot": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReviewJobStatus"
+          },
+          "lease_generation": {
+            "type": "integer",
+            "title": "Lease Generation"
+          },
+          "available_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Available At"
+          },
+          "lease_expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lease Expires At"
+          },
+          "last_heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "lease_generation",
+          "available_at",
+          "lease_expires_at",
+          "last_heartbeat_at"
+        ],
+        "title": "JobControlSnapshot"
+      },
+      "LoginSession": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "user_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Code"
+          },
+          "verification_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Url"
+          },
+          "expires_in": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires In"
+          },
+          "poll_interval": {
+            "type": "integer",
+            "title": "Poll Interval"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "status",
+          "user_code",
+          "verification_url",
+          "expires_in",
+          "poll_interval"
+        ],
+        "title": "LoginSession"
+      },
       "NewAccount": {
         "properties": {
           "email": {
@@ -1721,6 +3786,79 @@
           "queues"
         ],
         "title": "Operations"
+      },
+      "OperatorDecisionResult": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint"
+          },
+          "occurrence_id": {
+            "type": "integer",
+            "title": "Occurrence Id"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/DecisionKind"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "context_hash": {
+            "type": "string",
+            "title": "Context Hash"
+          },
+          "adr_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adr Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "fingerprint",
+          "occurrence_id",
+          "decision",
+          "reason",
+          "actor",
+          "context_hash",
+          "adr_id",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "OperatorDecisionResult"
       },
       "Overview": {
         "properties": {
@@ -1840,6 +3978,137 @@
         ],
         "title": "PasswordChange"
       },
+      "PermissionLevel": {
+        "type": "string",
+        "enum": [
+          "none",
+          "read",
+          "write"
+        ],
+        "title": "PermissionLevel"
+      },
+      "ProviderCapability": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "detail"
+        ],
+        "title": "ProviderCapability"
+      },
+      "ProviderModel": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "title": "ProviderModel"
+      },
+      "ProviderModelPage": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/ProviderCapability"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderModel"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "capability",
+          "items"
+        ],
+        "title": "ProviderModelPage"
+      },
+      "ProviderPage": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/ProviderCapability"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderStatus"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "capability",
+          "items"
+        ],
+        "title": "ProviderPage"
+      },
+      "ProviderStatus": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "flow": {
+            "type": "string",
+            "title": "Flow"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "name",
+          "connected",
+          "flow",
+          "action",
+          "expires_at"
+        ],
+        "title": "ProviderStatus"
+      },
       "PublicationLink": {
         "properties": {
           "label": {
@@ -1936,6 +4205,551 @@
         ],
         "title": "PullRequestPage"
       },
+      "QualityCohort": {
+        "properties": {
+          "repository": {
+            "type": "string",
+            "title": "Repository"
+          },
+          "profile": {
+            "type": "string",
+            "title": "Profile"
+          },
+          "review_contract_hash": {
+            "type": "string",
+            "title": "Review Contract Hash"
+          },
+          "model_provider": {
+            "type": "string",
+            "title": "Model Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "policy_revision": {
+            "type": "string",
+            "title": "Policy Revision"
+          },
+          "completed_reviews": {
+            "type": "integer",
+            "title": "Completed Reviews"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repository",
+          "profile",
+          "review_contract_hash",
+          "model_provider",
+          "model",
+          "policy_revision",
+          "completed_reviews"
+        ],
+        "title": "QualityCohort"
+      },
+      "QualityFeedbackItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "repository": {
+            "type": "string",
+            "title": "Repository"
+          },
+          "pr_number": {
+            "type": "integer",
+            "title": "Pr Number"
+          },
+          "publication_id": {
+            "type": "integer",
+            "title": "Publication Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "actor_login": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Login"
+          },
+          "source_comment_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Comment Url"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "triage_status": {
+            "$ref": "#/components/schemas/FeedbackTriageStatus"
+          },
+          "stable_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stable Key"
+          },
+          "target_owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackTargetOwner"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Reference"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "triage_actor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triage Actor"
+          },
+          "triage_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triage Reason"
+          },
+          "triaged_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triaged At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repository",
+          "pr_number",
+          "publication_id",
+          "reason",
+          "actor_login",
+          "source_comment_url",
+          "created_at",
+          "triage_status",
+          "stable_key",
+          "target_owner",
+          "evidence_reference",
+          "path",
+          "category",
+          "triage_actor",
+          "triage_reason",
+          "triaged_at"
+        ],
+        "title": "QualityFeedbackItem"
+      },
+      "QualityFeedbackPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QualityFeedbackItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "pending": {
+            "type": "integer",
+            "title": "Pending"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "pending",
+          "offset",
+          "next_offset",
+          "has_more"
+        ],
+        "title": "QualityFeedbackPage"
+      },
+      "QualityFeedbackTriage": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "feedback_id": {
+            "type": "integer",
+            "title": "Feedback Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FeedbackTriageStatus"
+          },
+          "stable_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stable Key"
+          },
+          "target_owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackTargetOwner"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Reference"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "feedback_id",
+          "status",
+          "stable_key",
+          "target_owner",
+          "evidence_reference",
+          "path",
+          "category",
+          "actor",
+          "reason",
+          "created_at"
+        ],
+        "title": "QualityFeedbackTriage"
+      },
+      "QualityReport": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "window_started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Started At"
+          },
+          "window_ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Ended At"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
+          },
+          "completed_reviews": {
+            "type": "integer",
+            "title": "Completed Reviews"
+          },
+          "published_findings": {
+            "type": "integer",
+            "title": "Published Findings"
+          },
+          "complete_coverage_reviews": {
+            "type": "integer",
+            "title": "Complete Coverage Reviews"
+          },
+          "false_positive_signals": {
+            "$ref": "#/components/schemas/SignalCount"
+          },
+          "scope_confusion_signals": {
+            "$ref": "#/components/schemas/SignalCount"
+          },
+          "missed_issue_signals": {
+            "$ref": "#/components/schemas/SignalCount"
+          },
+          "triage_backlog": {
+            "type": "integer",
+            "title": "Triage Backlog"
+          },
+          "oldest_triage_backlog_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Triage Backlog Seconds"
+          },
+          "actionable_missed_issues_by_target_owner": {
+            "items": {
+              "$ref": "#/components/schemas/RankedCount"
+            },
+            "type": "array",
+            "title": "Actionable Missed Issues By Target Owner"
+          },
+          "active_suppressions": {
+            "type": "integer",
+            "title": "Active Suppressions"
+          },
+          "suppressions_invalidated_by_context": {
+            "type": "integer",
+            "title": "Suppressions Invalidated By Context"
+          },
+          "repeat_findings_after_suppressive_decision": {
+            "type": "integer",
+            "title": "Repeat Findings After Suppressive Decision"
+          },
+          "noisy_rule_ids": {
+            "items": {
+              "$ref": "#/components/schemas/RankedCount"
+            },
+            "type": "array",
+            "title": "Noisy Rule Ids"
+          },
+          "coverage_failure_codes": {
+            "items": {
+              "$ref": "#/components/schemas/RankedCount"
+            },
+            "type": "array",
+            "title": "Coverage Failure Codes"
+          },
+          "cohorts": {
+            "items": {
+              "$ref": "#/components/schemas/QualityCohort"
+            },
+            "type": "array",
+            "title": "Cohorts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "window_started_at",
+          "window_ended_at",
+          "window_days",
+          "repository",
+          "completed_reviews",
+          "published_findings",
+          "complete_coverage_reviews",
+          "false_positive_signals",
+          "scope_confusion_signals",
+          "missed_issue_signals",
+          "triage_backlog",
+          "oldest_triage_backlog_seconds",
+          "actionable_missed_issues_by_target_owner",
+          "active_suppressions",
+          "suppressions_invalidated_by_context",
+          "repeat_findings_after_suppressive_decision",
+          "noisy_rule_ids",
+          "coverage_failure_codes",
+          "cohorts"
+        ],
+        "title": "QualityReport"
+      },
+      "QualityTriageRequest": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/FeedbackTriageStatus"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "stable_key": {
+            "type": "string",
+            "maxLength": 160,
+            "title": "Stable Key",
+            "default": ""
+          },
+          "target_owner": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackTargetOwner"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence_reference": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Evidence Reference",
+            "default": ""
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Path",
+            "default": ""
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Category",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "reason"
+        ],
+        "title": "QualityTriageRequest"
+      },
       "QueueStatus": {
         "properties": {
           "kind": {
@@ -2010,6 +4824,91 @@
         ],
         "title": "QueueStatus"
       },
+      "RankedCount": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "count"
+        ],
+        "title": "RankedCount"
+      },
+      "Reconciliation": {
+        "properties": {
+          "installation": {
+            "$ref": "#/components/schemas/Installation"
+          },
+          "repositories_seen": {
+            "type": "integer",
+            "title": "Repositories Seen"
+          },
+          "repositories_removed": {
+            "type": "integer",
+            "title": "Repositories Removed"
+          },
+          "repositories_enabled": {
+            "type": "integer",
+            "title": "Repositories Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installation",
+          "repositories_seen",
+          "repositories_removed",
+          "repositories_enabled"
+        ],
+        "title": "Reconciliation"
+      },
+      "RepositoryAccessPage": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/AccessCapability"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/review_agent_tools__admin_access_api__RepositoryAccess"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "capability",
+          "items",
+          "next_after_id"
+        ],
+        "title": "RepositoryAccessPage"
+      },
+      "RepositoryActivationPolicy": {
+        "type": "string",
+        "enum": [
+          "explicit",
+          "automatic"
+        ],
+        "title": "RepositoryActivationPolicy"
+      },
       "RepositoryActivity": {
         "properties": {
           "repository": {
@@ -2060,6 +4959,28 @@
           "last_activity_at"
         ],
         "title": "RepositoryActivity"
+      },
+      "RepositoryEnablement": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "profile": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Profile"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "profile"
+        ],
+        "title": "RepositoryEnablement"
       },
       "RepositoryPage": {
         "properties": {
@@ -2113,6 +5034,14 @@
           "totals"
         ],
         "title": "RepositoryPage"
+      },
+      "RepositorySelection": {
+        "type": "string",
+        "enum": [
+          "selected",
+          "all"
+        ],
+        "title": "RepositorySelection"
       },
       "RepositoryTotals": {
         "properties": {
@@ -2215,6 +5144,98 @@
         ],
         "title": "ReviewDetail"
       },
+      "ReviewFindingItem": {
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "title": "Fingerprint"
+          },
+          "occurrence_id": {
+            "type": "integer",
+            "title": "Occurrence Id"
+          },
+          "local_reference": {
+            "type": "string",
+            "title": "Local Reference"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "line": {
+            "type": "integer",
+            "title": "Line"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fingerprint",
+          "occurrence_id",
+          "local_reference",
+          "title",
+          "severity",
+          "category",
+          "path",
+          "line"
+        ],
+        "title": "ReviewFindingItem"
+      },
+      "ReviewFindingPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewFindingItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ReviewFindingPage"
+      },
+      "ReviewJobStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "leased",
+          "awaiting_publication",
+          "superseded",
+          "succeeded",
+          "failed",
+          "dead_letter"
+        ],
+        "title": "ReviewJobStatus"
+      },
+      "ReviewStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "completed",
+          "failed",
+          "superseded"
+        ],
+        "title": "ReviewStatus"
+      },
       "ReviewUsage": {
         "properties": {
           "started_attempts": {
@@ -2276,6 +5297,358 @@
           "admin"
         ],
         "title": "Role"
+      },
+      "RunAction": {
+        "type": "string",
+        "enum": [
+          "release_retry",
+          "cancel",
+          "mark_stalled"
+        ],
+        "title": "RunAction"
+      },
+      "RunActionAudit": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "action": {
+            "$ref": "#/components/schemas/RunAction"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "previous_run_status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "previous_job_status": {
+            "$ref": "#/components/schemas/ReviewJobStatus"
+          },
+          "expected_lease_generation": {
+            "type": "integer",
+            "title": "Expected Lease Generation"
+          },
+          "expected_available_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expected Available At"
+          },
+          "stale_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale After Minutes"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "actor",
+          "reason",
+          "previous_run_status",
+          "previous_job_status",
+          "expected_lease_generation",
+          "expected_available_at",
+          "stale_after_minutes",
+          "recorded_at"
+        ],
+        "title": "RunActionAudit"
+      },
+      "RunActionAvailability": {
+        "properties": {
+          "release_retry": {
+            "$ref": "#/components/schemas/ActionAvailability"
+          },
+          "cancel": {
+            "$ref": "#/components/schemas/ActionAvailability"
+          },
+          "mark_stalled": {
+            "$ref": "#/components/schemas/ActionAvailability"
+          }
+        },
+        "type": "object",
+        "required": [
+          "release_retry",
+          "cancel",
+          "mark_stalled"
+        ],
+        "title": "RunActionAvailability"
+      },
+      "RunActionRequest": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/RunAction"
+          },
+          "expected_job_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Job Id"
+          },
+          "expected_lease_generation": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Lease Generation"
+          },
+          "expected_status": {
+            "$ref": "#/components/schemas/ReviewJobStatus"
+          },
+          "expected_available_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expected Available At"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "stale_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1440.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale After Minutes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "expected_job_id",
+          "expected_lease_generation",
+          "expected_status",
+          "expected_available_at",
+          "reason"
+        ],
+        "title": "RunActionRequest"
+      },
+      "RunControlSnapshot": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReviewStatus"
+          },
+          "phase": {
+            "type": "string",
+            "title": "Phase"
+          },
+          "last_heartbeat_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Heartbeat At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "phase",
+          "last_heartbeat_at"
+        ],
+        "title": "RunControlSnapshot"
+      },
+      "RunControls": {
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/RunControlSnapshot"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobControlSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "actions": {
+            "$ref": "#/components/schemas/RunActionAvailability"
+          },
+          "audit": {
+            "items": {
+              "$ref": "#/components/schemas/RunActionAudit"
+            },
+            "type": "array",
+            "title": "Audit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run",
+          "job",
+          "actions",
+          "audit"
+        ],
+        "title": "RunControls"
+      },
+      "SaveSettings": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/DeploymentSettings"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "settings",
+          "reason"
+        ],
+        "title": "SaveSettings"
+      },
+      "ServiceSettingsLoad": {
+        "properties": {
+          "service": {
+            "type": "string",
+            "enum": [
+              "worker",
+              "admission",
+              "reviewer",
+              "gateway"
+            ],
+            "title": "Service"
+          },
+          "hostname": {
+            "type": "string",
+            "title": "Hostname"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "loaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Loaded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service",
+          "hostname",
+          "revision",
+          "loaded_at"
+        ],
+        "title": "ServiceSettingsLoad"
+      },
+      "SettingsRevision": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/DeploymentSettings"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "settings",
+          "actor",
+          "reason",
+          "created_at"
+        ],
+        "title": "SettingsRevision"
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "Critical",
+          "High",
+          "Medium",
+          "Low"
+        ],
+        "title": "Severity"
+      },
+      "SignalCount": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "denominator": {
+            "type": "integer",
+            "title": "Denominator"
+          },
+          "denominator_name": {
+            "type": "string",
+            "title": "Denominator Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "denominator",
+          "denominator_name"
+        ],
+        "title": "SignalCount"
+      },
+      "TriggerMode": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "automatic"
+        ],
+        "title": "TriggerMode"
       },
       "ValidationError": {
         "properties": {
@@ -2475,6 +5848,80 @@
           "active_leases"
         ],
         "title": "WorkerInstance"
+      },
+      "review_agent_tools__admin_access_api__RepositoryAccess": {
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "title": "Repository Id"
+          },
+          "repository": {
+            "type": "string",
+            "title": "Repository"
+          },
+          "access": {
+            "$ref": "#/components/schemas/review_agent_tools__postgres__github_app__RepositoryAccess"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "automatic_activation_blocked": {
+            "type": "boolean",
+            "title": "Automatic Activation Blocked"
+          },
+          "trigger_mode": {
+            "$ref": "#/components/schemas/TriggerMode"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
+          },
+          "updated_by": {
+            "type": "string",
+            "title": "Updated By"
+          },
+          "update_reason": {
+            "type": "string",
+            "title": "Update Reason"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repository_id",
+          "repository",
+          "access",
+          "enabled",
+          "automatic_activation_blocked",
+          "trigger_mode",
+          "profile",
+          "updated_by",
+          "update_reason",
+          "updated_at"
+        ],
+        "title": "RepositoryAccess"
+      },
+      "review_agent_tools__postgres__github_app__RepositoryAccess": {
+        "type": "string",
+        "enum": [
+          "available",
+          "removed",
+          "installation_suspended",
+          "installation_deleted"
+        ],
+        "title": "RepositoryAccess"
       }
     },
     "securitySchemes": {

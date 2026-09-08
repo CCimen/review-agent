@@ -8,6 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { APIError } from "./api";
+import "./fonts.css";
 import "./styles.css";
 
 const client = new QueryClient({

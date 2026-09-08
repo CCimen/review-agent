@@ -273,7 +273,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
         persisted = review_run_application.load_live_run_state(
             postgres_runtime(), subject
         )
-        review_contract.require_matching_resolved_config(
+        review_contract.require_matching_execution_contract(
             cast(
                 JsonObject,
                 json.loads(persisted.resolved_config.canonical_json),

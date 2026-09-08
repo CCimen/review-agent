@@ -621,21 +621,35 @@ def finding_detail(
     repository_id: RepositoryId,
     fingerprint: str,
     now: datetime,
+    occurrence_id: FindingOccurrenceId | None = None,
+    decision_limit: int | None = None,
+    decision_before_id: FindingDecisionId | None = None,
 ) -> FindingDetail:
     """Return latest evidence and the complete decision chain for one identity."""
     _require_transaction(connection)
+    select_sql = _FINDING_SELECT
+    parameters: tuple[object, ...] = (repository_id, fingerprint)
+    if occurrence_id is not None:
+        select_sql = select_sql.replace(
+            "WHERE occurrence.finding_id = identity.id",
+            "WHERE occurrence.finding_id = identity.id AND occurrence.id = %s",
+        )
+        parameters = (occurrence_id, *parameters)
     with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
         row = cursor.execute(
-            f"{_FINDING_SELECT} WHERE identity.repository_id = %s "
+            f"{select_sql} WHERE identity.repository_id = %s "
             "AND identity.fingerprint = %s",
-            (repository_id, fingerprint),
+            parameters,
         ).fetchone()
     if row is None:
         raise FindingNotFound("finding is not registered in the repository")
     return FindingDetail(
         finding=_finding(row, now=now),
         decisions=postgres_decisions.decision_history(
-            connection, finding_id=row.id
+            connection,
+            finding_id=row.id,
+            limit=decision_limit,
+            before_id=decision_before_id,
         ),
     )
 

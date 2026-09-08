@@ -443,6 +443,9 @@ def show_finding(
     *,
     repository: str,
     fingerprint: str,
+    occurrence_id: int | None = None,
+    decision_limit: int | None = None,
+    decision_before_id: int | None = None,
     now: datetime | None = None,
 ) -> postgres_reporting.FindingDetail:
     normalized_repository = resolve_repository(repository)
@@ -462,6 +465,23 @@ def show_finding(
             repository_id=scope.id,
             fingerprint=resolved,
             now=moment,
+            occurrence_id=(
+                FindingOccurrenceId(_positive(occurrence_id, field="occurrence_id"))
+                if occurrence_id is not None
+                else None
+            ),
+            decision_limit=(
+                _positive(decision_limit, field="decision_limit")
+                if decision_limit is not None
+                else None
+            ),
+            decision_before_id=(
+                FindingDecisionId(
+                    _positive(decision_before_id, field="decision_before_id")
+                )
+                if decision_before_id is not None
+                else None
+            ),
         )
 
 

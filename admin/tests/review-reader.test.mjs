@@ -117,7 +117,7 @@ const renderReader = async (client) => {
           null,
           createElement(Route, {
             path: "/history/:runId",
-            element: createElement(ReviewPage),
+            element: createElement(ReviewPage, { current: { role: "viewer" } }),
           }),
         ),
       ),

@@ -39,7 +39,7 @@ export class APIError extends Error {
 
 export async function write<T = void>(
   path: string,
-  method: "POST" | "PATCH",
+  method: "POST" | "PATCH" | "PUT",
   body?: unknown,
 ): Promise<T> {
   const response = await fetch(path, {

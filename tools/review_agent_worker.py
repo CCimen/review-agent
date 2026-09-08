@@ -36,6 +36,7 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntimeRole,
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
 from review_agent_tools.worker import (  # noqa: E402
     HermesChatClient,
     HermesChatSettings,
@@ -119,6 +120,12 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, request_stop)
 
     configured = ReviewAgentSettings.from_environment()
+    with_settings = PostgreSQLRuntime(configured.postgres_database_url, role=PostgreSQLRuntimeRole.OPERATOR)
+    with_settings.open()
+    try:
+        apply_at_startup(with_settings, "worker")
+    finally:
+        with_settings.close()
     policy = _policy()
     chat_settings = _chat_settings()
     try:

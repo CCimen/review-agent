@@ -41,8 +41,8 @@ RUN printf '%s\n' \
         | sha256sum -c - \
     && git -C /opt/hermes apply --check /opt/review-agent-bootstrap/hermes/auxiliary-no-fallback.patch \
     && git -C /opt/hermes apply /opt/review-agent-bootstrap/hermes/auxiliary-no-fallback.patch \
-    && git -C /opt/hermes apply --check /opt/review-agent-bootstrap/hermes/account-usage.patch \
-    && git -C /opt/hermes apply /opt/review-agent-bootstrap/hermes/account-usage.patch
+    && git -C /opt/hermes apply --unidiff-zero --check /opt/review-agent-bootstrap/hermes/account-usage.patch \
+    && git -C /opt/hermes apply --unidiff-zero /opt/review-agent-bootstrap/hermes/account-usage.patch
 # Offline operator helpers imported by review-agent-memory. The webhook agent
 # cannot reach them because file, terminal, and code execution are disabled.
 COPY --chown=root:root tools/review_agent_*.py /usr/local/bin/

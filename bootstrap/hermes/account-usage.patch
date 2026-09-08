@@ -1,17 +1,8 @@
 --- a/agent/account_usage.py
 +++ b/agent/account_usage.py
-@@ -1,6 +1,7 @@
- from __future__ import annotations
- 
- import logging
+@@ -3,0 +4 @@
 +import json
- import math
- from dataclasses import dataclass
- from datetime import datetime, timezone
-@@ -28,6 +29,18 @@
-     used_percent: Optional[float] = None
-     reset_at: Optional[datetime] = None
-     detail: Optional[str] = None
+@@ -30,0 +32,12 @@
 +    duration_seconds: Optional[int] = None
 +    kind: Optional[str] = None
 +
@@ -24,26 +15,14 @@
 +    allowed: Optional[bool] = None
 +    limit_reached: Optional[bool] = None
 +    windows: tuple[AccountUsageWindow, ...] = ()
- 
- 
- @dataclass(frozen=True)
-@@ -40,6 +53,12 @@
-     windows: tuple[AccountUsageWindow, ...] = ()
-     details: tuple[str, ...] = ()
-     unavailable_reason: Optional[str] = None
+@@ -42,0 +56,6 @@
 +    buckets: tuple[AccountUsageBucket, ...] = ()
 +    reset_credits_available: Optional[int] = None
 +    limit_reached_type: Optional[str] = None
 +    spend_control_reached: Optional[bool] = None
 +    account_id: Optional[str] = None
 +    user_id: Optional[str] = None
- 
-     @property
-     def available(self) -> bool:
-@@ -507,11 +526,85 @@
-     return entry.runtime_api_key, str(entry.runtime_base_url or base_url or "").strip(), None
- 
- 
+@@ -509,0 +529,69 @@
 +def _codex_usage_text(value: Any) -> Optional[str]:
 +    if value is None:
 +        return None
@@ -113,24 +92,16 @@
 +    )
 +
 +
- def _fetch_codex_account_usage(
-     base_url: Optional[str] = None,
-     api_key: Optional[str] = None,
+@@ -512,0 +601,2 @@
 +    account_id: Optional[str] = None,
 +    user_id: Optional[str] = None,
- ) -> Optional[AccountUsageSnapshot]:
+@@ -514 +604,4 @@
 -    token, resolved_base_url, account_id = _resolve_codex_usage_credentials(base_url, api_key)
 +    token, resolved_base_url, resolved_account_id = _resolve_codex_usage_credentials(
 +        base_url, api_key
 +    )
 +    account_id = account_id or resolved_account_id
-     headers = {
-         "Authorization": f"Bearer {token}",
-         "Accept": "application/json",
-@@ -519,28 +612,55 @@
-     }
-     if account_id:
-         headers["ChatGPT-Account-Id"] = account_id
+@@ -522,16 +615,39 @@
 -    with httpx.Client(timeout=15.0) as client:
 -        response = client.get(_resolve_codex_usage_url(resolved_base_url), headers=headers)
 -        response.raise_for_status()
@@ -186,29 +157,19 @@
 +                bucket_id,
 +                _codex_usage_text(raw.get("limit_name")),
 +                _codex_usage_text(raw.get("normal_model_slug")),
-             )
-         )
-     details: list[str] = []
-     reset_credits = payload.get("rate_limit_reset_credits") or {}
-     banked = reset_credits.get("available_count")
+@@ -543 +659,5 @@
 -    if isinstance(banked, (int, float)) and int(banked) > 0:
 +    if banked is not None and (
 +        type(banked) is not int or not 0 <= banked <= 9223372036854775807
 +    ):
 +        raise ValueError("Invalid reset credit count")
 +    if banked is not None and banked > 0:
-         count = int(banked)
-         plural = "s" if count != 1 else ""
-         details.append(
-@@ -557,9 +677,19 @@
-         provider="openai-codex",
-         source="usage_api",
-         fetched_at=_utc_now(),
+@@ -560,2 +680,2 @@
 -        plan=_title_case_slug(payload.get("plan_type")),
 -        windows=tuple(windows),
 +        plan=_title_case_slug(_codex_usage_text(payload.get("plan_type"))),
 +        windows=buckets[0].windows,
-         details=tuple(details),
+@@ -562,0 +683,10 @@
 +        buckets=tuple(buckets),
 +        reset_credits_available=banked,
 +        limit_reached_type=_codex_usage_text(
@@ -219,25 +180,11 @@
 +        ),
 +        account_id=actual_account,
 +        user_id=actual_user,
-     )
- 
- 
-@@ -886,13 +1016,17 @@
-     *,
-     base_url: Optional[str] = None,
-     api_key: Optional[str] = None,
+@@ -888,0 +1019,2 @@
 +    account_id: Optional[str] = None,
 +    user_id: Optional[str] = None,
- ) -> Optional[AccountUsageSnapshot]:
-     normalized = str(provider or "").strip().lower()
-     if normalized in {"", "auto", "custom"}:
-         return None
-     try:
-         if normalized == "openai-codex":
+@@ -895 +1027,3 @@
 -            return _fetch_codex_account_usage(base_url=base_url, api_key=api_key)
 +            return _fetch_codex_account_usage(
 +                base_url=base_url, api_key=api_key, account_id=account_id, user_id=user_id
 +            )
-         if normalized == "anthropic":
-             return _fetch_anthropic_account_usage()
-         if normalized == "openrouter":

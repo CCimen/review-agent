@@ -94,6 +94,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 model="gpt-test",
                 reasoning_effort="high",
                 identity_sha256="a" * 64,
+                quota=None,
             )
             connection.execute(
                 "UPDATE review_agent.review_jobs SET last_heartbeat_at = started_at, lease_expires_at = statement_timestamp() WHERE id = %s",
@@ -130,6 +131,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                     model="gpt-test",
                     reasoning_effort="high",
                     identity_sha256="b" * 64,
+                    quota=None,
                 )
 
     def pull_request(self, *, provider_id: int, number: int) -> registry.PullRequest:

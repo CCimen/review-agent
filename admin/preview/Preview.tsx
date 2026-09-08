@@ -36,7 +36,7 @@ import {
   Sun,
   Users,
 } from "lucide-react";
-import { neutralTheme } from "./theme/neutralTheme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 
 type Review = {
   id: number;

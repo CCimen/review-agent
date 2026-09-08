@@ -1,8 +1,18 @@
-import { useScope } from "./scope";
-import { useRef, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Dialog } from "@astryxdesign/core/Dialog";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { Section } from "@astryxdesign/core/Section";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextArea } from "@astryxdesign/core/TextArea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { components } from "./api.generated";
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useState } from "react";
 import { APIError, read, write } from "./api";
+import type { components } from "./api.generated";
+import { useScope } from "./scope";
+import { Form } from "./ui";
 
 type RunControlsResponse = components["schemas"]["RunControls"];
 type RunAction = "release_retry" | "cancel" | "mark_stalled";
@@ -25,7 +35,7 @@ const summaries: Record<RunAction, string> = {
 export function RunControls({ runId }: { runId: number }) {
   const scope = useScope();
   const queryClient = useQueryClient();
-  const dialog = useRef<HTMLDialogElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
   const [action, setAction] = useState<RunAction | null>(null);
   const [reason, setReason] = useState("");
   const [snapshot, setSnapshot] = useState<RunControlsResponse["job"]>(null);
@@ -67,7 +77,7 @@ export function RunControls({ runId }: { runId: number }) {
       setReason("");
       setSnapshot(null);
       setAction(null);
-      dialog.current?.close();
+      setIsOpen(false);
       void queryClient.invalidateQueries({
         queryKey: ["review", String(runId)],
       });
@@ -93,208 +103,235 @@ export function RunControls({ runId }: { runId: number }) {
   const controls = query.data;
   return (
     <>
-      <button
+      <Button
+        label={"Review actions"}
+        variant="secondary"
         type="button"
-        className="secondary"
+
         aria-haspopup="dialog"
         onClick={() => {
           mutation.reset();
           setAction(null);
           setReason("");
-          dialog.current?.showModal();
+          setIsOpen(true);
           void query.refetch();
         }}
-      >
-        Review actions
-      </button>
-      <dialog
-        ref={dialog}
-        className="review-actions-dialog"
-        aria-labelledby="run-action-heading"
-        onCancel={(event) => {
-          if (mutation.isPending) event.preventDefault();
+      />
+      <Dialog
+        isOpen={isOpen}
+        width={560}
+        onOpenChange={(open) => {
+          if (!mutation.isPending) setIsOpen(open);
         }}
+        aria-labelledby="run-action-heading"
       >
-        {!action ? (
-          <>
-            <div className="panel-heading">
-              <h2 id="run-action-heading">Review actions</h2>
-              <button
-                type="button"
-                className="secondary"
-                autoFocus
-                onClick={() => dialog.current?.close()}
-              >
-                Close
-              </button>
-            </div>
-            <p className="muted">Request #{runId}</p>
-            {query.isFetching && (
-              <p role="status">Checking available actions…</p>
-            )}
-            {query.isError && (
-              <div className="notice error" role="alert">
-                <p>Could not check available actions.</p>
-                <button type="button" onClick={() => void query.refetch()}>
-                  Try again
-                </button>
-              </div>
-            )}
-            {mutation.isError && (
-              <p className="notice error" role="alert">
-                {mutation.error.message}
-              </p>
-            )}
-            {controls && !query.isError && (
+        <Section padding={6}>
+          <VStack gap={4}>
+            {!action ? (
               <>
-                <div className="review-action-list">
-                  {controls.actions.release_retry.available && (
-                    <div>
-                      <button
-                        type="button"
-                        disabled={query.isFetching}
-                        onClick={() => confirm("release_retry")}
-                      >
-                        Retry now
-                      </button>
-                      <p>
-                        Start the delayed retry without waiting for its
-                        scheduled time.
-                      </p>
-                    </div>
-                  )}
-                  {controls.actions.cancel.available && (
-                    <div>
-                      <button
-                        type="button"
-                        className="secondary destructive"
-                        disabled={query.isFetching}
-                        onClick={() => confirm("cancel")}
-                      >
-                        Cancel review
-                      </button>
-                      <p>Stop further processing of this request.</p>
-                    </div>
-                  )}
-                </div>
-                {controls.actions.mark_stalled.available && (
-                  <details className="review-advanced-actions">
-                    <summary>Advanced actions</summary>
-                    <p>
-                      Mark the review as failed if its heartbeat is stale and no
-                      worker holds a live lease.
-                    </p>
-                    <button
+                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                  <Heading level={2} id="run-action-heading">
+                    Review actions
+                  </Heading>
+                  <Button
+                    label={"Close"}
+                    variant="secondary"
+                    type="button"
+
+                    onClick={() => setIsOpen(false)}
+                  />
+                </HStack>
+                <Text as="p" color="secondary">
+                  Request #{runId}
+                </Text>
+                {query.isFetching && (
+                  <Text as="p" role="status">
+                    Checking available actions…
+                  </Text>
+                )}
+                {query.isError && (
+                  <VStack gap={3} role="alert">
+                    <Text as="p">Could not check available actions.</Text>
+                    <Button
+                      label={"Try again"}
+                      variant="primary"
                       type="button"
-                      className="secondary destructive"
-                      disabled={query.isFetching}
-                      onClick={() => confirm("mark_stalled")}
-                    >
-                      Mark as stalled
-                    </button>
-                  </details>
+                      onClick={() => void query.refetch()}
+                    />
+                  </VStack>
                 )}
-                {!Object.values(controls.actions).some(
-                  (availability) => availability.available,
-                ) && (
-                  <p>
-                    No actions are available for this request in its current
-                    state.
-                  </p>
+                {mutation.isError && (
+                  <Text as="p" role="alert">
+                    {mutation.error.message}
+                  </Text>
                 )}
-                {controls.audit.length > 0 && (
-                  <details className="review-advanced-actions">
-                    <summary>
-                      Administrative history ({controls.audit.length})
-                    </summary>
-                    <ol className="event-list">
-                      {controls.audit.map((event) => (
-                        <li key={event.id}>
-                          <strong>{labels[event.action]}</strong> by{" "}
-                          {event.actor}: {event.reason}
-                        </li>
-                      ))}
-                    </ol>
-                  </details>
+                {controls && !query.isError && (
+                  <>
+                    <HStack gap={3} wrap="wrap" vAlign="center">
+                      {controls.actions.release_retry.available && (
+                        <VStack gap={3}>
+                          <Button
+                            label={"Retry now"}
+                            variant="primary"
+                            type="button"
+                            isDisabled={query.isFetching}
+                            onClick={() => confirm("release_retry")}
+                          />
+                          <Text as="p">
+                            Start the delayed retry without waiting for its
+                            scheduled time.
+                          </Text>
+                        </VStack>
+                      )}
+                      {controls.actions.cancel.available && (
+                        <VStack gap={3}>
+                          <Button
+                            label={"Cancel review"}
+                            variant="destructive"
+                            type="button"
+
+                            isDisabled={query.isFetching}
+                            onClick={() => confirm("cancel")}
+                          />
+                          <Text as="p">
+                            Stop further processing of this request.
+                          </Text>
+                        </VStack>
+                      )}
+                    </HStack>
+                    {controls.actions.mark_stalled.available && (
+                      <Collapsible
+                        defaultIsOpen={false}
+                        trigger={
+                          <HStack gap={3} wrap="wrap" vAlign="center">
+                            Advanced actions
+                          </HStack>
+                        }
+                      >
+                        <VStack gap={4}>
+                          <Text as="p">
+                            Mark the review as failed if its heartbeat is stale
+                            and no worker holds a live lease.
+                          </Text>
+                          <Button
+                            label={"Mark as stalled"}
+                            variant="destructive"
+                            type="button"
+
+                            isDisabled={query.isFetching}
+                            onClick={() => confirm("mark_stalled")}
+                          />
+                        </VStack>
+                      </Collapsible>
+                    )}
+                    {!Object.values(controls.actions).some(
+                      (availability) => availability.available,
+                    ) && (
+                      <Text as="p">
+                        No actions are available for this request in its current
+                        state.
+                      </Text>
+                    )}
+                    {controls.audit.length > 0 && (
+                      <Collapsible
+                        defaultIsOpen={false}
+                        trigger={
+                          <HStack gap={3} wrap="wrap" vAlign="center">
+                            Administrative history ({controls.audit.length})
+                          </HStack>
+                        }
+                      >
+                        <VStack gap={4}>
+                          <VStack as="ol" gap={3}>
+                            {controls.audit.map((event) => (
+                              <li key={event.id}>
+                                <strong>{labels[event.action]}</strong> by{" "}
+                                {event.actor}: {event.reason}
+                              </li>
+                            ))}
+                          </VStack>
+                        </VStack>
+                      </Collapsible>
+                    )}
+                  </>
                 )}
               </>
-            )}
-          </>
-        ) : (
-          <form
-            method="dialog"
-            onSubmit={(event) => {
-              event.preventDefault();
-              mutation.mutate();
-            }}
-          >
-            <h2 id="run-action-heading">{labels[action]}</h2>
-            <p>{summaries[action]}</p>
-            {action === "mark_stalled" && (
-              <label className="field">
-                Stale after
-                <span>
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    max={1440}
-                    value={staleAfterMinutes}
-                    disabled={mutation.isPending}
-                    onChange={(event) =>
-                      setStaleAfterMinutes(event.currentTarget.valueAsNumber)
-                    }
-                  />{" "}
-                  minutes
-                </span>
-              </label>
-            )}
-            <label className="field">
-              Reason
-              <textarea
-                required
-                autoFocus
-                maxLength={500}
-                rows={3}
-                value={reason}
-                disabled={mutation.isPending}
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </label>
-            {mutation.isError && (
-              <p className="notice error" role="alert">
-                {mutation.error.message}
-              </p>
-            )}
-            <div className="button-row">
-              <button
-                className={
-                  action === "release_retry"
-                    ? undefined
-                    : "secondary destructive"
-                }
-                disabled={mutation.isPending}
-                type="submit"
-              >
-                {mutation.isPending
-                  ? "Saving…"
-                  : `Confirm ${labels[action].toLowerCase()}`}
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={mutation.isPending}
-                onClick={() => {
-                  setAction(null);
-                  mutation.reset();
+            ) : (
+              <Form
+                method="dialog"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  mutation.mutate();
                 }}
               >
-                Go back
-              </button>
-            </div>
-          </form>
-        )}
-      </dialog>
+                <Heading level={2} id="run-action-heading">
+                  {labels[action]}
+                </Heading>
+                <Text as="p">{summaries[action]}</Text>
+                {action === "mark_stalled" && (
+                  <NumberInput
+                    label="Stale after (minutes)"
+                    isRequired
+                    min={1}
+                    max={1440}
+                    isIntegerOnly
+                    value={staleAfterMinutes}
+                    isDisabled={mutation.isPending}
+                    onChange={setStaleAfterMinutes}
+                    {...({
+                      required: true,
+                    } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                  />
+                )}
+
+                <TextArea
+                  label={"Reason"}
+                  isRequired={true}
+                  hasAutoFocus={true}
+                  maxLength={500}
+                  rows={3}
+                  value={reason}
+                  isDisabled={mutation.isPending}
+                  onChange={(value) => setReason(value.slice(0, 500))}
+                  {...({
+                    required: true,
+                  } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
+                />
+
+                {mutation.isError && (
+                  <Text as="p" role="alert">
+                    {mutation.error.message}
+                  </Text>
+                )}
+                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                  <Button
+                    label={
+                      mutation.isPending
+                        ? "Saving…"
+                        : `Confirm ${labels[action].toLowerCase()}`
+                    }
+                    variant="primary"
+
+                    isDisabled={mutation.isPending}
+                    type="submit"
+                  />
+                  <Button
+                    label={"Go back"}
+                    variant="secondary"
+                    type="button"
+
+                    isDisabled={mutation.isPending}
+                    onClick={() => {
+                      setAction(null);
+                      mutation.reset();
+                    }}
+                  />
+                </HStack>
+              </Form>
+            )}
+          </VStack>
+        </Section>
+      </Dialog>
     </>
   );
 }

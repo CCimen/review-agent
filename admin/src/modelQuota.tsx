@@ -1,6 +1,17 @@
+import { Button } from "@astryxdesign/core/Button";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { components } from "./api.generated";
 import { read } from "./api";
+import type { components } from "./api.generated";
 import { useScope } from "./scope";
 import { number, time } from "./ui";
 
@@ -72,54 +83,62 @@ export function ConnectionQuota({ connection }: { connection: Connection }) {
   const data = error ? undefined : query.data;
   const snapshot = data?.snapshot;
   return (
-    <section className="section">
-      <div className="section-heading">
-        <div>
-          <h2>Account quota</h2>
-          <p>
+    <VStack gap={4} as="section">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={2}>Account quota</Heading>
+          <Text as="p">
             {connection.team_id === null
               ? "This shared account includes usage by other teams and outside Review Agent."
               : "Provider totals for this account include any use outside Review Agent."}{" "}
             Team review activity is available in the Overview.
-          </p>
-        </div>
+          </Text>
+        </VStack>
         {enabled ? (
-          <button
-            className="secondary"
-            disabled={refresh.isPending || data?.refreshing}
+          <Button
+            label={String(
+              refresh.isPending || data?.refreshing
+                ? "Refreshing quota…"
+                : "Refresh quota",
+            )}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={refresh.isPending || data?.refreshing}
             onClick={() => refresh.mutate()}
-          >
-            {refresh.isPending || data?.refreshing
-              ? "Refreshing quota…"
-              : "Refresh quota"}
-          </button>
+          />
         ) : null}
-      </div>
+      </HStack>
       {!enabled ? (
-        <p>
+        <Text as="p">
           OpenAI Codex quota is unavailable until a connection maintainer
           verifies the account.
-        </p>
+        </Text>
       ) : error ? (
-        <div className="notice error" role="alert">
-          <p>{error.message}</p>
-          <button
+        <VStack gap={3} role="alert">
+          <Text as="p">{error.message}</Text>
+          <Button
+            label={"Retry quota"}
+            variant="primary"
+            type="submit"
             onClick={() => {
               refresh.reset();
               void query.refetch();
             }}
-          >
-            Retry quota
-          </button>
-        </div>
+          />
+        </VStack>
       ) : query.isPending ? (
-        <p role="status">Loading account quota…</p>
+        <Text as="p" role="status">
+          Loading account quota…
+        </Text>
       ) : null}
       {data?.refreshing ? (
-        <p role="status">Checking the provider for current quota.</p>
+        <Text as="p" role="status">
+          Checking the provider for current quota.
+        </Text>
       ) : null}
       {data?.unavailable_reason === "provider_unavailable" ? (
-        <p className="notice">
+        <Text as="p">
           The provider could not be reached.{" "}
           {snapshot
             ? "The last successful observation is shown below."
@@ -127,80 +146,91 @@ export function ConnectionQuota({ connection }: { connection: Connection }) {
           {data.next_refresh_at !== null
             ? ` Next retry: ${quotaTime(data.next_refresh_at)}.`
             : ""}
-        </p>
+        </Text>
       ) : null}
       {data?.unavailable_reason === "account_unavailable" ? (
-        <p className="notice">
+        <Text as="p">
           The provider account is unavailable. A connection maintainer can check
           its credentials.
-        </p>
+        </Text>
       ) : null}
       {snapshot ? (
         <>
-          <p className="field-help">
+          <Text as="p" color="secondary">
             OpenAI Codex{snapshot.plan ? ` · ${snapshot.plan}` : ""} · Last
             successful check {quotaTime(snapshot.fetched_at)}
             {data?.stale
               ? " · Stale observation; remaining quota may have changed"
               : ""}
-          </p>
+          </Text>
           {snapshot.spend_control_reached ? (
-            <p className="notice">
+            <Text as="p">
               The provider reports that an account spending limit has been
               reached.
-            </p>
+            </Text>
           ) : null}
           {snapshot.limit_reached_type ? (
-            <p>
+            <Text as="p">
               Provider limit: {snapshot.limit_reached_type.replaceAll("_", " ")}
-            </p>
+            </Text>
           ) : null}
           {snapshot.buckets.length ? (
-            <div
-              className="panel table-scroll"
+            <VStack
+              gap={4}
+
               role="region"
               tabIndex={0}
               aria-label="Provider quota windows"
             >
-              <table>
-                <thead>
-                  <tr>
-                    <th>Quota bucket</th>
-                    <th>Window</th>
-                    <th>Remaining</th>
-                    <th>Resets</th>
-                    <th>Provider status</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell>Quota bucket</TableHeaderCell>
+                    <TableHeaderCell>Window</TableHeaderCell>
+                    <TableHeaderCell>Remaining</TableHeaderCell>
+                    <TableHeaderCell>Resets</TableHeaderCell>
+                    <TableHeaderCell>Provider status</TableHeaderCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {snapshot.buckets.flatMap((bucket) => {
                     const windows = bucket.windows.length
                       ? bucket.windows
                       : [null];
                     return windows.map((window) => (
-                      <tr key={`${bucket.id}:${window?.kind ?? "unknown"}`}>
-                        <th scope="row">
+                      <TableRow
+                        key={`${bucket.id}:${window?.kind ?? "unknown"}`}
+                      >
+                        <TableHeaderCell scope="row">
                           {bucket.name ??
                             (bucket.id === "codex" ? "Codex" : bucket.id)}
                           {bucket.normal_model_slug ? (
-                            <span className="subtext">
+                            <Text
+                              color="secondary"
+                              display="block"
+                              type="supporting"
+                            >
                               Provider model label: {bucket.normal_model_slug}
-                            </span>
+                            </Text>
                           ) : null}
-                        </th>
-                        <td>
+                        </TableHeaderCell>
+                        <TableCell>
                           {window
                             ? windowDuration(window.duration_seconds)
                             : "Unknown"}
                           {window ? (
-                            <span className="subtext">
+                            <Text
+                              color="secondary"
+                              display="block"
+                              type="supporting"
+                            >
                               {window.kind === "primary"
                                 ? "Primary"
                                 : "Secondary"}
-                            </span>
+                            </Text>
                           ) : null}
-                        </td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
                           {window?.used_percent !== null &&
                           window?.used_percent !== undefined ? (
                             <>
@@ -208,16 +238,22 @@ export function ConnectionQuota({ connection }: { connection: Connection }) {
                                 Math.max(0, 100 - window.used_percent),
                               )}
                               %
-                              <span className="subtext">
+                              <Text
+                                color="secondary"
+                                display="block"
+                                type="supporting"
+                              >
                                 {number.format(window.used_percent)}% used
-                              </span>
+                              </Text>
                             </>
                           ) : (
                             "Unknown"
                           )}
-                        </td>
-                        <td>{quotaTime(window?.resets_at ?? null)}</td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
+                          {quotaTime(window?.resets_at ?? null)}
+                        </TableCell>
+                        <TableCell>
                           {bucket.allowed === true
                             ? "Usage allowed"
                             : bucket.allowed === false
@@ -225,34 +261,34 @@ export function ConnectionQuota({ connection }: { connection: Connection }) {
                               : bucket.limit_reached
                                 ? "Limit reached"
                                 : "Unknown"}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ));
                   })}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </VStack>
           ) : (
-            <p>No quota windows were reported by the provider.</p>
+            <Text as="p">No quota windows were reported by the provider.</Text>
           )}
-          <p>
+          <Text as="p">
             Available usage resets:{" "}
             {snapshot.reset_credits_available === null
               ? "Unknown"
               : number.format(snapshot.reset_credits_available)}
             .
-          </p>
-          <p className="field-help">
+          </Text>
+          <Text as="p" color="secondary">
             Window lengths, bucket names, and model labels come from the
             provider. A passed reset time needs a new observation to confirm
             recovery. Manual refreshes are limited to once every 30 seconds.
-          </p>
+          </Text>
         </>
       ) : null}
-      <p className="field-help">
+      <Text as="p" color="secondary">
         Anthropic API keys do not expose subscription quota through this
         connection. Quota is unknown.
-      </p>
-    </section>
+      </Text>
+    </VStack>
   );
 }

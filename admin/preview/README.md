@@ -1,7 +1,7 @@
 # Astryx console preview
 
-This screen evaluates Astryx's Neutral theme in light and dark modes before a
-console migration. It uses illustrative pull requests and has no API connection.
+This screen preserves the accepted Astryx Neutral design in light and dark
+modes. It uses illustrative pull requests and has no API connection.
 Search, team and status filtering, theme switching, and navigation collapse are
 interactive. Activity is the only preview destination.
 Clearing filters keeps the selected team workspace.
@@ -17,7 +17,7 @@ npm --prefix admin run serve:preview
 Open <http://127.0.0.1:8092>. For development, use `npm --prefix admin run dev:preview`.
 The separate Vite configuration has no backend proxy. The production build does
 not include this entry, and the admin image excludes preview sources and outputs.
-The existing console continues to use `src/console.tsx` and `src/styles.css`.
+The production console uses the same upstream Neutral theme.
 
 The direction follows the supplied Notara and Dokploy references: quiet neutral
 surfaces, a compact sidebar, visible team context, and a table that keeps review
@@ -31,31 +31,18 @@ when its available space is narrower. Empty results
 use Astryx's announced empty state outside that region so the recovery action
 does not inherit the table's minimum width.
 
-`theme/` was copied with Astryx 0.5.4's `theme add neutral` command. The preview
-uses that editable source through the Theme provider's runtime injection. The
-only source adjustment removes an unused React import for strict TypeScript.
-The upstream MIT license is retained in `theme/LICENSE`. Before production
-adoption, compile the accepted theme with `astryx theme build` and validate the
-console's forms, review reader, permissions, and browser support.
+Both entry points import `@astryxdesign/theme-neutral/built` and its
+shared `src/theme.css` import entry (reset, Core, then Neutral). The pinned upstream package owns all theme tokens, component
+overrides, icons, and licensing; no copied palette or theme is maintained.
 
-The live theme imports are `neutralTheme.ts`, `icons.tsx`, and
-`neutralPaletteRefs.generated.ts`. The remaining palette files and receipt are
-authoring and regeneration inputs copied by the CLI. The installed
-`@astryxdesign/theme-neutral` package remains the pinned upstream reference for
-comparing this editable copy during upgrades.
-
-All preview packages are development dependencies. The admin image builder still
-installs them because it uses `npm ci`, which includes development tools. They
-therefore add build-time downloads and disk use, and appear in the full lockfile
-inventory as development packages. They are excluded from the direct production
-dependency check and do not add code to the production UI entry points. Remove
-the preview directory, its package scripts and dependencies, and its
-`check_admin.sh` build step if this direction is declined.
+Astryx Core, Neutral, StyleX's runtime, Lucide, and Figtree are production
+dependencies. The CLI remains a development dependency. The preview has no
+production route and is excluded from the admin image context. The full
+lockfile remains the build inventory.
 
 Astryx relies on modern CSS anchor positioning for selectors and other popovers.
 See the installed CLI's `npm --prefix admin run astryx -- docs browser-support`
-for its current browser tiers. Older-browser positioning needs a deliberate
-product decision before migration.
+for its current browser tiers. Use the documented modern-browser baseline for the console.
 
 `scripts/check_admin.sh` validates both builds with strict TypeScript and runs
 the existing console tests. Visual and interaction checks at desktop and narrow

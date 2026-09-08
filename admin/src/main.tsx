@@ -1,3 +1,8 @@
+import {
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -5,15 +10,9 @@ import {
   RouterProvider,
   ScrollRestoration,
 } from "react-router-dom";
-import {
-  QueryCache,
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
 import { App } from "./App";
 import { APIError } from "./api";
-import "./fonts.css";
-import "./styles.css";
+import "./theme.css";
 
 const client = new QueryClient({
   queryCache: new QueryCache({

@@ -1,11 +1,31 @@
-import { useEffect, useRef, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+import { DateTimeInput } from "@astryxdesign/core/DateTimeInput";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Selector } from "@astryxdesign/core/Selector";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { APIError, read, write } from "./api";
 import type { AuditEvent, AuditPage } from "./api";
+import { APIError, read, write } from "./api";
 import type { components } from "./api.generated";
-import { useScope, ScopedLink as Link } from "./scope";
-import { Empty, Freshness, time } from "./ui";
+import { ScopedLink as Link, useScope } from "./scope";
+import { Empty, Form, Freshness, dateTimeValue, time } from "./ui";
 
 type AuditAccess = components["schemas"]["AuditAccess"];
 type AuditAccessRequest = components["schemas"]["AuditAccessRequest"];
@@ -60,14 +80,14 @@ const actions: readonly AuditEvent["action"][] = [
   "connection_removed",
 ];
 
-function localTime(value: string | null) {
+function localTime(value: string | null): ISODateTimeString | "" {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? ""
-    : new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-        .toISOString()
-        .slice(0, 16);
+    : dateTimeValue(
+        new Date(date.getTime() - date.getTimezoneOffset() * 60_000),
+      );
 }
 
 function AuditExport({
@@ -124,56 +144,59 @@ function AuditExport({
     },
   });
   return (
-    <div className="audit-export">
-      <div className="toolbar">
-        <label className="field">
-          Export format
-          <select
-            value={format}
-            disabled={exportPage.isPending}
-            onChange={(event) => {
-              setFormat(event.target.value);
-              setCount(null);
-              setNextBefore(null);
-              exportPage.reset();
-            }}
-          >
-            <option value="json">JSON</option>
-            <option value="csv">CSV</option>
-            <option value="jsonl">JSON Lines</option>
-            <option value="otlp">OpenTelemetry (OTLP JSON)</option>
-          </select>
-        </label>
-        <button
-          className="secondary"
-          disabled={exportPage.isPending}
+    <VStack gap={3}>
+      <HStack gap={3} wrap="wrap" vAlign="center">
+        <Selector
+          label={"Export format"}
+          options={[
+            { value: "json", label: "JSON" },
+            { value: "csv", label: "CSV" },
+            { value: "jsonl", label: "JSON Lines" },
+            { value: "otlp", label: "OpenTelemetry (OTLP JSON)" },
+          ]}
+          value={format}
+          onChange={(value) => {
+            setFormat(value);
+            setCount(null);
+            setNextBefore(null);
+            exportPage.reset();
+          }}
+          isDisabled={exportPage.isPending}
+        />
+        <Button
+          label={String(
+            exportPage.isPending
+              ? "Preparing export…"
+              : "Export matching events",
+          )}
+          variant="secondary"
+          type="submit"
+
+          isDisabled={exportPage.isPending}
           onClick={() => exportPage.mutate(null)}
-        >
-          {exportPage.isPending
-            ? "Preparing export…"
-            : "Export matching events"}
-        </button>
+        />
         {nextBefore ? (
-          <button
-            className="secondary"
-            disabled={exportPage.isPending}
+          <Button
+            label={"Export next 1,000"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={exportPage.isPending}
             onClick={() => exportPage.mutate(nextBefore)}
-          >
-            Export next 1,000
-          </button>
+          />
         ) : null}
-      </div>
-      <p className="field-hint" role="status">
+      </HStack>
+      <Text as="p" color="secondary" role="status">
         {count === null
           ? "Each file contains up to 1,000 matching events, newest first."
           : `${count.toLocaleString()} events downloaded.${nextBefore ? " More events are available in the next file." : " No older matching events remain."}`}
-      </p>
+      </Text>
       {exportPage.isError ? (
-        <p className="notice error" role="alert">
+        <Text as="p" role="alert">
           {exportPage.error.message}
-        </p>
+        </Text>
       ) : null}
-    </div>
+    </VStack>
   );
 }
 
@@ -184,19 +207,23 @@ export function AuditLog({ teamId }: { teamId?: number }) {
   }, [teamId]);
   return (
     <>
-      <div className="page-heading">
-        <div>
-          {teamId ? <h2>Team audit log</h2> : <h1>Audit log</h1>}
-          <p>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          {teamId ? (
+            <Heading level={2}>Team audit log</Heading>
+          ) : (
+            <Heading level={1}>Audit log</Heading>
+          )}
+          <Text as="p">
             {teamId
               ? "Administration events for this team."
               : "Platform administration · All teams."}{" "}
             {scope.current.role === "owner"
               ? "Account, team, and platform changes visible to owners."
               : "Team, repository, and member changes. Privileged account and sensitive platform changes are visible to owners."}
-          </p>
-        </div>
-      </div>
+          </Text>
+        </VStack>
+      </HStack>
       <AuditAccessGate
         key={`${scope.key}:${teamId ?? "all"}`}
         teamId={teamId}
@@ -254,101 +281,254 @@ function AuditAccessGate({ teamId }: { teamId?: number }) {
   if (grant)
     return (
       <>
-        <div className="audit-session">
-          <div>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <VStack gap={3}>
             <strong>{purposes[grant.purpose]}</strong>
-            <p>{grant.reason}</p>
-            <span className="field-hint">
+            <Text as="p">{grant.reason}</Text>
+            <Text color="secondary">
               Access ends {time(grant.expires_at)}. Views and exports are
               recorded.
-            </span>
-          </div>
-          <button
-            className="secondary"
-            disabled={end.isPending}
+            </Text>
+          </VStack>
+          <Button
+            label={String(
+              end.isPending ? "Ending access…" : "End audit access",
+            )}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={end.isPending}
             onClick={() => end.mutate(grant)}
-          >
-            {end.isPending ? "Ending access…" : "End audit access"}
-          </button>
-        </div>
+          />
+        </HStack>
         {end.isError ? (
-          <p className="notice error" role="alert">
+          <Text as="p" role="alert">
             {end.error.message}
-          </p>
+          </Text>
         ) : null}
         <AuditEvents teamId={teamId} grant={grant} onExpired={expire} />
       </>
     );
   return (
-    <section
-      className="panel audit-access"
+    <VStack
+      gap={4}
+      as="section"
+
       aria-labelledby="audit-access-title"
     >
-      <h2 id="audit-access-title">Explain why you need access</h2>
-      <p>
+      <Heading level={2} id="audit-access-title">
+        Explain why you need access
+      </Heading>
+      <Text as="p">
         Your purpose and justification will be recorded with each view or
         export. Access lasts 30 minutes for {teamId ? "this team" : "all teams"}
         .
-      </p>
+      </Text>
       {notice ? (
-        <p className="notice" role="status">
+        <Text as="p" role="status">
           {notice}
-        </p>
+        </Text>
       ) : null}
-      <form
+      <Form
         onSubmit={(event) => {
           event.preventDefault();
           if (purpose) start.mutate({ purpose, reason: reason.trim() });
         }}
       >
-        <fieldset className="account-fields" disabled={start.isPending}>
-          <label className="field">
-            Purpose
-            <select
-              required
+        <fieldset disabled={start.isPending}>
+          <VStack gap={4}>
+            <Selector
+              label={"Purpose"}
+              options={[
+                { value: "", label: "Select a purpose", disabled: true },
+                Object.entries(purposes).map(([value, label]) => ({
+                  value: value,
+                  label: label,
+                })),
+              ]
+                .flat()
+                .filter((option) => option != null)}
+              isRequired={true}
               value={purpose}
-              onChange={(event) =>
-                setPurpose(event.target.value as AuditAccess["purpose"] | "")
+              onChange={(value) =>
+                setPurpose(value as AuditAccess["purpose"] | "")
               }
-            >
-              <option value="" disabled>
-                Select a purpose
-              </option>
-              {Object.entries(purposes).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Justification
-            <textarea
-              required
-              minLength={10}
+              isDisabled={start.isPending}
+            />
+
+            <TextArea
+              label={"Justification"}
+              isRequired={true}
               maxLength={500}
               rows={4}
               value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              aria-describedby="audit-reason-hint"
+              onChange={(value) => setReason(value.slice(0, 500))}
               placeholder="Describe the incident, request, or review you are investigating."
+              {...({
+                required: true,
+                minLength: 10,
+              } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
             />
-          </label>
-          <p className="field-hint" id="audit-reason-hint">
-            10–500 characters. Include enough detail to explain this access to
-            another administrator.
-          </p>
-          <button disabled={!purpose || reason.trim().length < 10}>
-            {start.isPending ? "Recording justification…" : "Access audit log"}
-          </button>
+
+            <Text as="p" color="secondary" id="audit-reason-hint">
+              10–500 characters. Include enough detail to explain this access to
+              another administrator.
+            </Text>
+            <Button
+              label={String(
+                start.isPending
+                  ? "Recording justification…"
+                  : "Access audit log",
+              )}
+              variant="primary"
+              type="submit"
+              isDisabled={!purpose || reason.trim().length < 10}
+            />
+          </VStack>
         </fieldset>
         {start.isError ? (
-          <p className="notice error" role="alert">
+          <Text as="p" role="alert">
             {start.error.message}
-          </p>
+          </Text>
         ) : null}
-      </form>
-    </section>
+      </Form>
+    </VStack>
+  );
+}
+
+function AuditFilters({
+  location,
+  change,
+}: {
+  location: URLSearchParams;
+  change: (value: URLSearchParams) => void;
+}) {
+  const [draft, setDraft] = useState({
+    search: location.get("search") ?? "",
+    action: location.get("action") ?? "",
+    outcome: location.get("outcome") ?? "",
+    actor_id: location.get("actor_id") ?? "",
+    since: localTime(location.get("since")),
+    until: localTime(location.get("until")),
+  });
+  function update(
+    field: Exclude<keyof typeof draft, "since" | "until">,
+    value: string,
+  ) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+  return (
+    <Form
+      onSubmit={(event) => {
+        event.preventDefault();
+        const next = new URLSearchParams(location);
+        next.delete("before_id");
+        for (const field of filterFields) {
+          const value = draft[field].trim();
+          if (value)
+            next.set(
+              field,
+              field === "since" || field === "until"
+                ? new Date(value).toISOString()
+                : value,
+            );
+          else next.delete(field);
+        }
+        change(next);
+      }}
+    >
+      <HStack gap={3} wrap="wrap" vAlign="end">
+        <TextInput
+          label="Search audit events"
+          value={draft.search}
+          onChange={(value) => update("search", value)}
+          placeholder="Words in an actor, subject, reason, or change"
+          {...({
+            maxLength: 200,
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
+        />
+        <Button label="Apply filters" type="submit" />
+        {filterFields.some((field) => location.has(field)) ? (
+          <Button
+            label="Clear filters"
+            variant="ghost"
+            onClick={() => {
+              const next = new URLSearchParams(location);
+              for (const field of [...filterFields, "before_id"])
+                next.delete(field);
+              change(next);
+            }}
+          />
+        ) : null}
+      </HStack>
+      <Collapsible
+        trigger="Filter by action, actor, outcome, or time"
+        defaultIsOpen={filterFields
+          .slice(1)
+          .some((field) => location.has(field))}
+      >
+        <VStack gap={4}>
+          <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+            <Selector
+              label="Action"
+              value={draft.action}
+              onChange={(value) => update("action", value)}
+              options={[
+                { value: "", label: "All actions" },
+                ...actions.map((value) => ({
+                  value,
+                  label: value.replaceAll("_", " "),
+                })),
+              ]}
+            />
+            <Selector
+              label="Outcome"
+              value={draft.outcome}
+              onChange={(value) => update("outcome", value)}
+              options={[
+                { value: "", label: "All outcomes" },
+                { value: "started", label: "Started" },
+                { value: "succeeded", label: "Succeeded" },
+                { value: "failed", label: "Failed" },
+              ]}
+            />
+            <TextInput
+              label="Actor account ID"
+              value={draft.actor_id}
+              onChange={(value) => update("actor_id", value)}
+              placeholder="All actors"
+              {...({
+                maxLength: 36,
+                pattern:
+                  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+              } satisfies InputHTMLAttributes<HTMLInputElement>)}
+            />
+            <DateTimeInput
+              label="From · local time"
+              value={draft.since || undefined}
+              onChange={(value) =>
+                setDraft((current) => ({ ...current, since: value ?? "" }))
+              }
+              hasClear
+              hourFormat="24h"
+            />
+            <DateTimeInput
+              label="Until · local time"
+              value={draft.until || undefined}
+              onChange={(value) =>
+                setDraft((current) => ({ ...current, until: value ?? "" }))
+              }
+              hasClear
+              hourFormat="24h"
+            />
+          </Grid>
+          <Text color="secondary">
+            Search matches all supplied words. The start is included; the end is
+            excluded.
+          </Text>
+        </VStack>
+      </Collapsible>
+    </Form>
   );
 }
 
@@ -407,120 +587,7 @@ function AuditEvents({
   }, [query.error, onExpired]);
   return (
     <>
-      <form
-        className="audit-filters"
-        key={filterKey}
-        onSubmit={(event) => {
-          event.preventDefault();
-          const values = new FormData(event.currentTarget);
-          const next = new URLSearchParams(location);
-          next.delete("before_id");
-          for (const field of filterFields) {
-            const value = String(values.get(field) ?? "").trim();
-            if (value)
-              next.set(
-                field,
-                field === "since" || field === "until"
-                  ? new Date(value).toISOString()
-                  : value,
-              );
-            else next.delete(field);
-          }
-          setLocation(next);
-        }}
-      >
-        <div className="toolbar">
-          <label className="field grow">
-            Search audit events
-            <input
-              name="search"
-              type="search"
-              maxLength={200}
-              defaultValue={location.get("search") ?? ""}
-              placeholder="Words in an actor, subject, reason, or change"
-            />
-          </label>
-          <button className="secondary">Apply filters</button>
-          {filterFields.some((field) => location.has(field)) ? (
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                const next = new URLSearchParams(location);
-                for (const field of [...filterFields, "before_id"])
-                  next.delete(field);
-                setLocation(next);
-              }}
-            >
-              Clear filters
-            </button>
-          ) : null}
-        </div>
-        <details
-          className="audit-filter-details"
-          open={
-            filterFields.slice(1).some((field) => location.has(field)) ||
-            undefined
-          }
-        >
-          <summary>Filter by action, actor, outcome, or time</summary>
-          <div className="form-fields">
-            <label className="field">
-              Action
-              <select name="action" defaultValue={location.get("action") ?? ""}>
-                <option value="">All actions</option>
-                {actions.map((action) => (
-                  <option key={action} value={action}>
-                    {action.replaceAll("_", " ")}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              Outcome
-              <select
-                name="outcome"
-                defaultValue={location.get("outcome") ?? ""}
-              >
-                <option value="">All outcomes</option>
-                <option value="started">Started</option>
-                <option value="succeeded">Succeeded</option>
-                <option value="failed">Failed</option>
-              </select>
-            </label>
-            <label className="field">
-              Actor account ID
-              <input
-                name="actor_id"
-                defaultValue={location.get("actor_id") ?? ""}
-                placeholder="All actors"
-                maxLength={36}
-                pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-              />
-            </label>
-            <label className="field">
-              From · local time
-              <input
-                name="since"
-                type="datetime-local"
-                defaultValue={localTime(location.get("since"))}
-              />
-            </label>
-            <label className="field">
-              Until · local time
-              <input
-                name="until"
-                type="datetime-local"
-                defaultValue={localTime(location.get("until"))}
-              />
-            </label>
-          </div>
-          <p className="field-hint">
-            Search matches all supplied words. The start is included; the end is
-            excluded.
-          </p>
-        </details>
-      </form>
+      <AuditFilters key={filterKey} location={location} change={setLocation} />
       <AuditExport
         key={filterKey}
         filters={filterKey}
@@ -529,43 +596,50 @@ function AuditEvents({
       />
       <Freshness query={query} />
       {query.data?.items.length ? (
-        <div
-          className="panel table-scroll"
+        <VStack
+          gap={4}
+
           tabIndex={0}
           role="region"
           aria-label="Audit events"
         >
-          <table className="audit-table">
-            <thead>
-              <tr>
-                <th>When / action</th>
-                <th>Actor</th>
-                <th>Subject / reason</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHeaderCell>When / action</TableHeaderCell>
+                <TableHeaderCell>Actor</TableHeaderCell>
+                <TableHeaderCell>Subject / reason</TableHeaderCell>
+                <TableHeaderCell>Details</TableHeaderCell>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {query.data.items.map((event) => (
-                <tr key={event.id}>
-                  <th scope="row">
-                    <span>{event.action.replaceAll("_", " ")}</span>
-                    <span className="subtext">{time(event.recorded_at)}</span>
+                <TableRow key={event.id}>
+                  <TableHeaderCell scope="row">
+                    <Text>{event.action.replaceAll("_", " ")}</Text>
+                    <Text color="secondary" display="block" type="supporting">
+                      {time(event.recorded_at)}
+                    </Text>
                     {event.outcome !== "succeeded" ? (
-                      <span className="status">
+                      <Text>
                         {event.outcome === "started"
                           ? "Started · outcome not yet recorded"
                           : "Failed"}
-                      </span>
+                      </Text>
                     ) : null}
-                  </th>
-                  <td>
+                  </TableHeaderCell>
+                  <TableCell>
                     {event.actor_email ?? "System"}
-                    <span className="subtext">{event.actor_role}</span>
-                    <span className="subtext mono">{event.actor_id}</span>
-                  </td>
-                  <td>
-                    <span className="mono">{event.subject}</span>
-                    <p>{event.reason}</p>
+                    <Text color="secondary" display="block" type="supporting">
+                      {event.actor_role}
+                    </Text>
+                    <Text color="secondary" display="block" type="supporting">
+                      {event.actor_id}
+                    </Text>
+                  </TableCell>
+                  <TableCell>
+                    <Text>{event.subject}</Text>
+                    <Text as="p">{event.reason}</Text>
                     {event.team_id && !teamId ? (
                       <Link
                         to={`/teams/${event.team_id}?team_id=${event.team_id}&tab=audit`}
@@ -573,15 +647,15 @@ function AuditEvents({
                         Team #{event.team_id}
                       </Link>
                     ) : null}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     <AuditJSON event={event} />
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </VStack>
       ) : query.data ? (
         <Empty title="No audit events in this view">
           Changes appear here after they are recorded. Try clearing the filters
@@ -589,22 +663,24 @@ function AuditEvents({
         </Empty>
       ) : null}
       {before || query.data?.next_before_id ? (
-        <div className="pagination">
-          <button
-            className="secondary"
-            disabled={!before}
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label={"Latest events"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={!before}
             onClick={() => setPage(null)}
-          >
-            Latest events
-          </button>
-          <button
-            className="secondary"
-            disabled={!query.data?.next_before_id}
+          />
+          <Button
+            label={"Older events"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={!query.data?.next_before_id}
             onClick={() => setPage(query.data?.next_before_id ?? null)}
-          >
-            Older events
-          </button>
-        </div>
+          />
+        </HStack>
       ) : null}
     </>
   );
@@ -614,33 +690,46 @@ export function AuditJSON({ event }: { event: AuditEvent }) {
   const json = JSON.stringify(event, null, 2);
   const [copyStatus, setCopyStatus] = useState("");
   return (
-    <details className="audit-json">
-      <summary>View JSON · #{event.id}</summary>
-      <div className="toolbar">
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => {
-            if (!navigator.clipboard) {
-              setCopyStatus("Select the JSON below to copy it.");
-              return;
-            }
-            void navigator.clipboard.writeText(json).then(
-              () => setCopyStatus("JSON copied."),
-              () =>
-                setCopyStatus("Copy failed. Select the JSON below to copy it."),
-            );
-          }}
-        >
-          Copy JSON
-        </button>
-        <span className="field-hint" role="status">
-          {copyStatus}
-        </span>
-      </div>
-      <pre tabIndex={0} aria-label={`JSON for audit event ${event.id}`}>
-        <code>{json}</code>
-      </pre>
-    </details>
+    <Collapsible
+      defaultIsOpen={false}
+      trigger={
+        <HStack gap={3} wrap="wrap" vAlign="center">
+          View JSON · #{event.id}
+        </HStack>
+      }
+    >
+      <VStack gap={4}>
+        <HStack gap={3} wrap="wrap" vAlign="center">
+          <Button
+            label={"Copy JSON"}
+            variant="primary"
+            type="button"
+
+            onClick={() => {
+              if (!navigator.clipboard) {
+                setCopyStatus("Select the JSON below to copy it.");
+                return;
+              }
+              void navigator.clipboard.writeText(json).then(
+                () => setCopyStatus("JSON copied."),
+                () =>
+                  setCopyStatus(
+                    "Copy failed. Select the JSON below to copy it.",
+                  ),
+              );
+            }}
+          />
+          <Text color="secondary" role="status">
+            {copyStatus}
+          </Text>
+        </HStack>
+        <CodeBlock
+          code={json}
+          language="json"
+          width="100%"
+          aria-label={`JSON for audit event ${event.id}`}
+        />
+      </VStack>
+    </Collapsible>
   );
 }

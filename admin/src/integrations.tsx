@@ -1,12 +1,33 @@
-import { useEffect, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { Code } from "@astryxdesign/core/CodeBlock";
+import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+import { DateTimeInput } from "@astryxdesign/core/DateTimeInput";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
+import { Selector } from "@astryxdesign/core/Selector";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { read, write } from "./api";
-import type { TeamPage } from "./api";
-import type { components } from "./api.generated";
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useEffect, useState } from "react";
 import { SettingsTabs } from "./accounts";
+import type { TeamPage } from "./api";
+import { read, write } from "./api";
+import type { components } from "./api.generated";
 import { useScope } from "./scope";
 import { ReasonAction } from "./teams";
-import { Copy, Empty, Freshness, time } from "./ui";
+import { Copy, Empty, Form, Freshness, dateTimeValue, time } from "./ui";
 
 type Integration = components["schemas"]["Integration"];
 type IntegrationPage = components["schemas"]["IntegrationPage"];
@@ -27,8 +48,8 @@ function IntegrationEditor({
   const [selected, setSelected] = useState<IntegrationTeam[]>([]);
   const [search, setSearch] = useState("");
   const [draftSearch, setDraftSearch] = useState("");
-  const [expires, setExpires] = useState(() =>
-    new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 16),
+  const [expires, setExpires] = useState<ISODateTimeString | "">(() =>
+    dateTimeValue(new Date(Date.now() + 90 * 86_400_000)),
   );
   const [reason, setReason] = useState("");
   const teams = useQuery({
@@ -59,173 +80,180 @@ function IntegrationEditor({
     },
   });
   return (
-    <form
-      className="team-editor"
+    <Form
       onSubmit={(event) => {
         event.preventDefault();
         save.mutate();
       }}
     >
-      <h2>New integration</h2>
-      <div className="form-fields">
-        <label className="field">
-          Application name
-          <input
-            autoFocus
-            required
-            maxLength={80}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label className="field">
-          Reporting scope
-          <select
-            value={deploymentWide ? "deployment" : "teams"}
-            onChange={(event) =>
-              setDeploymentWide(event.target.value === "deployment")
-            }
-          >
-            <option value="teams">Selected teams</option>
-            <option value="deployment">Entire deployment</option>
-          </select>
-        </label>
-      </div>
+      <Heading level={2}>New integration</Heading>
+      <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+        <TextInput
+          label={"Application name"}
+          hasAutoFocus={true}
+          isRequired={true}
+          value={name}
+          onChange={(value) => setName(value)}
+          {...({
+            required: true,
+            maxLength: 80,
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
+        />
+
+        <Selector
+          label={"Reporting scope"}
+          options={[
+            { value: "teams", label: "Selected teams" },
+            { value: "deployment", label: "Entire deployment" },
+          ]}
+          value={deploymentWide ? "deployment" : "teams"}
+          onChange={(value) => setDeploymentWide(value === "deployment")}
+        />
+      </Grid>
       {deploymentWide ? (
-        <p className="notice">
+        <Text as="p">
           This application can report on all repositories, including unassigned
           repositories and teams added later.
-        </p>
+        </Text>
       ) : (
         <fieldset>
-          <legend>Approved teams</legend>
-          <div className="inline-actions">
-            <label className="field grow">
-              Find a team
-              <input
-                type="search"
-                maxLength={80}
+          <VStack gap={4}>
+            <legend>Approved teams</legend>
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              <TextInput
+                label={"Find a team"}
                 value={draftSearch}
-                onChange={(event) => setDraftSearch(event.target.value)}
+                onChange={(value) => setDraftSearch(value)}
+                {...({
+                  maxLength: 80,
+                } satisfies InputHTMLAttributes<HTMLInputElement>)}
               />
-            </label>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => setSearch(draftSearch.trim())}
-            >
-              Search
-            </button>
-          </div>
-          <Freshness query={teams} quiet />
-          {selected.length > 0 && (
-            <div className="inline-actions" aria-label="Selected teams">
-              {selected.map((team) => (
-                <button
-                  type="button"
-                  className="secondary"
-                  key={team.id}
-                  onClick={() =>
-                    setSelected((items) =>
-                      items.filter((item) => item.id !== team.id),
-                    )
-                  }
-                >
-                  Remove {team.name}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="checkbox-list">
-            {teams.data?.items.map((team) => (
-              <label key={team.id}>
-                <input
-                  type="checkbox"
-                  checked={selected.some((item) => item.id === team.id)}
-                  disabled={
-                    selected.length >= 100 &&
-                    !selected.some((item) => item.id === team.id)
-                  }
-                  onChange={(event) =>
-                    setSelected((items) =>
-                      event.target.checked
-                        ? [...items, { id: team.id, name: team.name }]
-                        : items.filter((item) => item.id !== team.id),
-                    )
-                  }
-                />
-                {team.name}
-              </label>
-            ))}
-          </div>
-          {teams.data?.items.length === 0 && <p>No teams match this search.</p>}
-          {teams.data?.next_after_id !== null &&
-            teams.data?.next_after_id !== undefined && (
-              <p>
-                Showing the first 20 matches. Narrow the search to find another
-                team.
-              </p>
+
+              <Button
+                label={"Search"}
+                variant="secondary"
+                type="button"
+
+                onClick={() => setSearch(draftSearch.trim())}
+              />
+            </HStack>
+            <Freshness query={teams} quiet />
+            {selected.length > 0 && (
+              <HStack
+                gap={3}
+                wrap="wrap"
+                vAlign="center"
+                aria-label="Selected teams"
+              >
+                {selected.map((team) => (
+                  <Button
+                    label={"Remove " + team.name}
+                    variant="secondary"
+                    type="button"
+
+                    key={team.id}
+                    onClick={() =>
+                      setSelected((items) =>
+                        items.filter((item) => item.id !== team.id),
+                      )
+                    }
+                  />
+                ))}
+              </HStack>
             )}
+            <VStack gap={4}>
+              {teams.data?.items.map((team) => (
+                <VStack gap={2} key={team.id}>
+                  <CheckboxInput
+                    label={team.name}
+                    value={selected.some((item) => item.id === team.id)}
+                    isDisabled={
+                      selected.length >= 100 &&
+                      !selected.some((item) => item.id === team.id)
+                    }
+                    onChange={(value) =>
+                      setSelected((items) =>
+                        value
+                          ? [...items, { id: team.id, name: team.name }]
+                          : items.filter((item) => item.id !== team.id),
+                      )
+                    }
+                  />
+                </VStack>
+              ))}
+            </VStack>
+            {teams.data?.items.length === 0 && (
+              <Text as="p">No teams match this search.</Text>
+            )}
+            {teams.data?.next_after_id !== null &&
+              teams.data?.next_after_id !== undefined && (
+                <Text as="p">
+                  Showing the first 20 matches. Narrow the search to find
+                  another team.
+                </Text>
+              )}
+          </VStack>
         </fieldset>
       )}
-      <label className="check-field">
-        <input
-          type="checkbox"
-          checked={content}
-          onChange={(event) => setContent(event.target.checked)}
-        />
-        Allow published review content
-      </label>
-      <p className="field-hint">
+
+      <CheckboxInput
+        label={"Allow published review content"}
+        value={content}
+        onChange={(value) => setContent(value)}
+      />
+
+      <Text as="p" color="secondary">
         All integrations can read outcome metadata and aggregate reports. This
         additional permission exposes published review text within the approved
         scope.
-      </p>
-      <label className="field">
-        Expires at (UTC)
-        <input
-          type="datetime-local"
-          required
-          value={expires}
-          onChange={(event) => setExpires(event.target.value)}
-        />
-      </label>
-      <label className="field">
-        Reason
-        <textarea
-          required
-          maxLength={500}
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-        />
-      </label>
+      </Text>
+      <DateTimeInput
+        label="Expires at (UTC)"
+        isRequired
+        value={expires || undefined}
+        onChange={(value) => setExpires(value ?? "")}
+        hourFormat="24h"
+      />
+
+      <TextArea
+        label={"Reason"}
+        isRequired={true}
+        maxLength={500}
+        value={reason}
+        onChange={(value) => setReason(value.slice(0, 500))}
+        {...({
+          required: true,
+        } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
+      />
+
       {save.isError && (
-        <p className="notice error" role="alert">
+        <Text as="p" role="alert">
           {save.error.message}
-        </p>
+        </Text>
       )}
-      <div className="inline-actions">
-        <button
-          disabled={
+      <HStack gap={3} wrap="wrap" vAlign="center">
+        <Button
+          label={String(save.isPending ? "Creating…" : "Create integration")}
+          variant="primary"
+          type="submit"
+          isDisabled={
             save.isPending ||
             !name.trim() ||
             !reason.trim() ||
             !expires ||
             (!deploymentWide && selected.length === 0)
           }
-        >
-          {save.isPending ? "Creating…" : "Create integration"}
-        </button>
-        <button
+        />
+        <Button
+          label={"Cancel"}
+          variant="secondary"
           type="button"
-          className="secondary"
-          disabled={save.isPending}
+
+          isDisabled={save.isPending}
           onClick={cancel}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+        />
+      </HStack>
+    </Form>
   );
 }
 
@@ -237,30 +265,30 @@ function IntegrationRow({
   refresh: () => void;
 }) {
   return (
-    <tr>
-      <th scope="row">
+    <TableRow>
+      <TableHeaderCell scope="row">
         {integration.name}
-        <span className="muted"> · #{integration.id}</span>
-      </th>
-      <td>
+        <Text color="secondary"> · #{integration.id}</Text>
+      </TableHeaderCell>
+      <TableCell>
         {integration.deployment_wide
           ? "Entire deployment"
           : integration.teams.map((team) => team.name).join(", ")}
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         {integration.read_review_content
           ? "Reports and published content"
           : "Reports only"}
-      </td>
-      <td>{time(integration.expires_at)}</td>
-      <td>
+      </TableCell>
+      <TableCell>{time(integration.expires_at)}</TableCell>
+      <TableCell>
         {integration.state === "active"
           ? "Active"
           : integration.state === "expired"
             ? "Expired"
             : "Revoked"}
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         {integration.state === "active" && (
           <ReasonAction
             label="Revoke"
@@ -270,8 +298,8 @@ function IntegrationRow({
             done={refresh}
           />
         )}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -298,41 +326,51 @@ export function IntegrationsPage() {
   }, []);
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Integrations</h1>
-          <p>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Integrations</Heading>
+          <Text as="p">
             Platform administrators grant applications access to approved
             reports.
-          </p>
-        </div>
+          </Text>
+        </VStack>
         {!creating && !issued && (
-          <button onClick={() => setCreating(true)}>New integration</button>
+          <Button
+            label={"New integration"}
+            variant="primary"
+            type="submit"
+            onClick={() => setCreating(true)}
+          />
         )}
-      </div>
+      </HStack>
       <SettingsTabs />
       {issued && (
-        <section
-          className="panel"
+        <VStack
+          gap={4}
+          as="section"
+
           aria-labelledby="integration-credential-title"
         >
-          <h2 id="integration-credential-title">
+          <Heading level={2} id="integration-credential-title">
             Save the credential for {issued.integration.name}
-          </h2>
-          <p>
+          </Heading>
+          <Text as="p">
             This is the only time it is shown. Store it in your application's
             secret manager and send it in the Authorization header as a Bearer
             credential.
-          </p>
+          </Text>
           <Copy value={issued.token} label="integration credential">
-            <code>{issued.token}</code>
+            <Code>{issued.token}</Code>
           </Copy>
-          <p>
-            <button className="secondary" onClick={() => setIssued(null)}>
-              I have saved it
-            </button>
-          </p>
-        </section>
+          <Text as="p">
+            <Button
+              label={"I have saved it"}
+              variant="secondary"
+              type="submit"
+              onClick={() => setIssued(null)}
+            />
+          </Text>
+        </VStack>
       )}
       {creating && (
         <IntegrationEditor
@@ -348,25 +386,30 @@ export function IntegrationsPage() {
       <Freshness query={query} />
       {query.data &&
         (query.data.items.length ? (
-          <div
-            className="panel table-scroll"
+          <VStack
+            gap={4}
+
             tabIndex={0}
             role="region"
             aria-label="Application integrations"
           >
-            <table>
-              <caption>Credential expiry and granted access</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Application</th>
-                  <th scope="col">Scope</th>
-                  <th scope="col">Access</th>
-                  <th scope="col">Expires</th>
-                  <th scope="col">State</th>
-                  <th scope="col">Action</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <caption>
+                <Text type="supporting" display="block" justify="start">
+                  Credential expiry and granted access
+                </Text>
+              </caption>
+              <TableHeader>
+                <TableRow>
+                  <TableHeaderCell scope="col">Application</TableHeaderCell>
+                  <TableHeaderCell scope="col">Scope</TableHeaderCell>
+                  <TableHeaderCell scope="col">Access</TableHeaderCell>
+                  <TableHeaderCell scope="col">Expires</TableHeaderCell>
+                  <TableHeaderCell scope="col">State</TableHeaderCell>
+                  <TableHeaderCell scope="col">Action</TableHeaderCell>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {query.data.items.map((integration) => (
                   <IntegrationRow
                     key={integration.id}
@@ -374,41 +417,47 @@ export function IntegrationsPage() {
                     refresh={refresh}
                   />
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </VStack>
         ) : (
           <Empty title="No integrations">
             Create a credential when an application needs to read team reports.
           </Empty>
         ))}
-      <div className="pagination">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
         {afterId > 0 && (
-          <button className="secondary" onClick={() => setAfterId(0)}>
-            First page
-          </button>
+          <Button
+            label={"First page"}
+            variant="secondary"
+            type="submit"
+            onClick={() => setAfterId(0)}
+          />
         )}
         {nextAfterId != null && (
-          <button className="secondary" onClick={() => setAfterId(nextAfterId)}>
-            Next page
-          </button>
+          <Button
+            label={"Next page"}
+            variant="secondary"
+            type="submit"
+            onClick={() => setAfterId(nextAfterId)}
+          />
         )}
-      </div>
-      <p className="stat-note">
+      </HStack>
+      <Text as="p" color="secondary">
         Permissions are fixed when a credential is created. To change access or
         rotate a credential, create its replacement and then revoke the old
         integration.
-      </p>
-      <p>
-        <a
+      </Text>
+      <Text as="p">
+        <AstryxLink
           href="/api/docs#integration%20reports"
           target="_blank"
           rel="noreferrer"
         >
           Open the API reference
-        </a>{" "}
+        </AstryxLink>{" "}
         for request parameters, authentication and response schemas.
-      </p>
+      </Text>
     </>
   );
 }

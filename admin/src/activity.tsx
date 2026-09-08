@@ -1,14 +1,33 @@
+import { Button } from "@astryxdesign/core/Button";
+import { Code } from "@astryxdesign/core/CodeBlock";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import {
-  ScopedLink as Link,
-  ScopedNavLink as NavLink,
-  useScope,
-} from "./scope";
-import { useEffect, useState } from "react";
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@astryxdesign/core/SegmentedControl";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import {
+  Table,
+  pixel,
+  proportional,
+  type TableColumn,
+} from "@astryxdesign/core/Table";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { useQuery } from "@tanstack/react-query";
-import { read } from "./api";
+import type { InputHTMLAttributes } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import type { HistoryItem, HistoryPage, Overview } from "./api";
+import { read } from "./api";
+import { ScopedLink as Link, ScopedAnchor, useScope } from "./scope";
 import {
   Empty,
+  Form,
   Freshness,
   Period,
   Stat,
@@ -48,41 +67,51 @@ const phaseLabels: Record<string, string> = {
 };
 
 export function ActivityTabs() {
+  const { pathname } = useLocation();
+  const value = pathname.startsWith("/history")
+    ? "/history"
+    : pathname === "/overview"
+      ? "/overview"
+      : "/";
   return (
-    <nav className="page-tabs" aria-label="Activity views">
-      <NavLink to="/" end>
-        Requests
-      </NavLink>
-      <NavLink to="/history">Pull requests</NavLink>
-      <NavLink to="/overview">Statistics</NavLink>
-    </nav>
+    <TabList
+      aria-label="Activity views"
+      value={value}
+      // ScopedAnchor navigates; the current route owns the selected tab.
+      onChange={() => {}}
+      hasDivider
+    >
+      <Tab value="/" href="/" as={ScopedAnchor} label="Requests" />
+      <Tab
+        value="/history"
+        href="/history"
+        as={ScopedAnchor}
+        label="Pull requests"
+      />
+      <Tab
+        value="/overview"
+        href="/overview"
+        as={ScopedAnchor}
+        label="Statistics"
+      />
+    </TabList>
   );
 }
 
 export function Phase({ item }: { item: HistoryItem }) {
   const index = phases.indexOf(item.phase);
   return (
-    <span className="phase-cell">
+    <VStack gap={1}>
       {item.state === "running" || item.state === "publishing" ? (
-        <span className="phase-track" aria-hidden="true">
-          {phases.map((phase, i) => (
-            <span
-              key={phase}
-              className={
-                i < index
-                  ? "done"
-                  : i === index
-                    ? item.state === "failed"
-                      ? "failed"
-                      : "current"
-                    : ""
-              }
-            />
-          ))}
-        </span>
+        <ProgressBar
+          value={index + 1}
+          max={phases.length}
+          label="Review progress"
+          isLabelHidden
+        />
       ) : null}
-      <span>{phaseLabels[item.phase] ?? item.phase.replaceAll("_", " ")}</span>
-    </span>
+      <Text>{phaseLabels[item.phase] ?? item.phase.replaceAll("_", " ")}</Text>
+    </VStack>
   );
 }
 
@@ -119,17 +148,112 @@ export function ActivityPage() {
       read<Overview>(scope.path(`/api/overview?days=${days}`), signal),
   });
   const data = overview.data;
+  const columns: TableColumn<HistoryItem>[] = [
+    {
+      key: "repository",
+      header: "Pull request",
+      width: proportional(2, { minWidth: 250 }),
+      renderCell: (item) => (
+        <VStack gap={1}>
+          <Link to={`/history/${item.id}?${params}`}>
+            {item.repository} <Text>#{item.pr_number}</Text>
+          </Link>
+          <Text type="supporting">
+            Request #{item.id} · {time(item.started_at)}
+          </Text>
+          {item.failure_code ? (
+            <Text type="supporting">{failureSentence(item.failure_code)}</Text>
+          ) : null}
+          {item.recovered ? (
+            <Text type="supporting">Recovered: a later review published</Text>
+          ) : null}
+        </VStack>
+      ),
+    },
+    {
+      key: "state",
+      header: "State",
+      width: pixel(126),
+      renderCell: (item) => (
+        <HStack gap={2}>
+          <StatusDot
+            label={states[item.state]}
+            aria-hidden="true"
+            variant={
+              item.state === "published"
+                ? "success"
+                : item.state === "failed"
+                  ? "error"
+                  : item.state === "running" || item.state === "publishing"
+                    ? "accent"
+                    : "neutral"
+            }
+          />
+          <Text>{states[item.state]}</Text>
+        </HStack>
+      ),
+    },
+    {
+      key: "phase",
+      header: "Progress",
+      width: proportional(1, { minWidth: 170 }),
+      renderCell: (item) => <Phase item={item} />,
+    },
+    {
+      key: "head_sha",
+      header: "Commit",
+      width: pixel(100),
+      renderCell: (item) => (
+        <abbr title={item.head_sha}>
+          <Code>{item.head_sha.slice(0, 8)}</Code>
+        </abbr>
+      ),
+    },
+    {
+      key: "findings_count",
+      header: "Findings",
+      align: "end",
+      width: pixel(90),
+      renderCell: (item) =>
+        item.posted_at !== null ? (item.findings_count ?? "—") : "—",
+    },
+    {
+      key: "attempt_count",
+      header: "Attempts used",
+      align: "end",
+      width: pixel(124),
+      renderCell: (item) =>
+        item.max_attempts === null
+          ? "—"
+          : `${item.attempt_count} of ${item.max_attempts}`,
+    },
+    {
+      key: "last_heartbeat_at",
+      header: "Last activity",
+      width: pixel(150),
+      renderCell: (item) => (
+        <time
+          dateTime={item.last_heartbeat_at}
+          title={time(item.last_heartbeat_at)}
+        >
+          {since(item.last_heartbeat_at)}
+        </time>
+      ),
+    },
+  ];
   return (
-    <>
-      <div className="page-heading">
-        <div>
-          <h1>Activity</h1>
-          <p>Follow review requests and open their results.</p>
-        </div>
+    <VStack gap={6}>
+      <HStack justify="between" align="end" wrap="wrap" gap={4}>
+        <VStack gap={2}>
+          <Heading level={1}>Activity</Heading>
+          <Text color="secondary">
+            Follow review requests and open their results.
+          </Text>
+        </VStack>
         <Period days={days} change={(value) => update({ days: value })} />
-      </div>
+      </HStack>
       <ActivityTabs />
-      <div className="activity-metrics">
+      <Grid columns={{ minWidth: 180, max: 4 }} gap={6}>
         <Stat
           label="Active requests"
           value={data?.active_requests ?? null}
@@ -149,212 +273,125 @@ export function ActivityPage() {
         {data?.live_review_workers != null ? (
           <Stat
             label="Review workers online"
-            value={data?.live_review_workers ?? null}
-            hint={
-              data
-                ? `${data.review_capacity} slots reported by online workers`
-                : undefined
-            }
+            value={data.live_review_workers}
+            hint={`${data.review_capacity} slots reported by online workers`}
           />
         ) : null}
-      </div>
+      </Grid>
       <Freshness query={overview} quiet />
-      <div className="toolbar activity-toolbar">
-        <div
-          className="segmented"
-          role="group"
-          aria-label="Filter request state"
-        >
-          {(
-            [
-              ["all", "All requests"],
-              ["active", "Active"],
-              ["published", "Published"],
-              ["failed", "Failed"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              aria-pressed={status === value}
-              onClick={() => update({ status: value })}
-            >
-              {label}
-            </button>
+      <VStack gap={4}>
+        <HStack gap={4} justify="between" align="end" wrap="wrap">
+          <SegmentedControl
+            label="Filter request state"
+
+            value={status}
+            onChange={(value) => update({ status: value })}
+          >
+            {(
+              [
+                ["all", "All requests"],
+                ["active", "Active"],
+                ["published", "Published"],
+                ["failed", "Failed"],
+              ] as const
+            ).map(([value, label]) => (
+              <SegmentedControlItem key={value} value={value} label={label} />
+            ))}
+          </SegmentedControl>
+          <Form
+            onSubmit={(event) => {
+              event.preventDefault();
+              update({ repository: repository.trim(), pr_number: pr });
+            }}
+          >
+            <HStack gap={3} align="end" wrap="wrap">
+              <TextInput
+                label={"Repository"}
+                id="activity-repo"
+                placeholder="owner/repository (optional)"
+                value={repository}
+                onChange={(value) => setRepository(value)}
+                {...({
+                  maxLength: 200,
+                } satisfies InputHTMLAttributes<HTMLInputElement>)}
+              />
+
+              <NumberInput
+                isIntegerOnly
+                label={"PR number"}
+                id="activity-pr"
+                min={1}
+                hasClear
+                placeholder="Any"
+                value={pr ? Number(pr) : null}
+                onChange={(value) => setPr(value === null ? "" : String(value))}
+              />
+
+              <Button label="Filter" type="submit" />
+              {params.has("repository") ||
+              params.has("pr_number") ||
+              params.has("before_id") ? (
+                <Button
+                  label="Clear filters"
+                  variant="ghost"
+                  onClick={() =>
+                    update({ repository: "", pr_number: "", before_id: "" })
+                  }
+                />
+              ) : null}
+            </HStack>
+          </Form>
+        </HStack>
+        <Freshness query={query} />
+        {query.data &&
+          (query.data.items.length ? (
+            <VStack gap={3}>
+              <HStack gap={3} justify="between" wrap="wrap" align="center">
+                <Heading level={2}>Review requests</Heading>
+                <Text type="supporting">
+                  {number.format(query.data.total)} matching ·{" "}
+                  {query.data.items.length} shown
+                </Text>
+              </HStack>
+              <Table
+                aria-label="Review requests"
+                data={query.data.items}
+                columns={columns}
+                idKey="id"
+                density="balanced"
+                dividers="rows"
+                hasHover
+                verticalAlign="top"
+              />
+              <Text type="supporting">
+                Open a request to read its review and execution record. An em
+                dash means a value is not recorded.
+              </Text>
+            </VStack>
+          ) : (
+            <Empty title="No matching requests">
+              Change the filters or request a review on GitHub.
+            </Empty>
           ))}
-        </div>
-        <form
-          className="search-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            update({ repository: repository.trim(), pr_number: pr });
-          }}
-        >
-          <label className="field" htmlFor="activity-repo">
-            Repository
-            <input
-              id="activity-repo"
-              type="search"
-              placeholder="owner/repository (optional)"
-              maxLength={200}
-              value={repository}
-              onChange={(event) => setRepository(event.target.value)}
+        {query.data &&
+        (params.has("before_id") || query.data.next_cursor !== null) ? (
+          <HStack gap={3} justify="between" wrap="wrap" align="center">
+            <Button
+              label="Newest"
+              isDisabled={!params.has("before_id")}
+              onClick={() => update({ before_id: "" })}
             />
-          </label>
-          <label className="field" htmlFor="activity-pr">
-            PR number
-            <input
-              id="activity-pr"
-              type="number"
-              min="1"
-              placeholder="Any"
-              value={pr}
-              onChange={(event) => setPr(event.target.value)}
+            <Text type="supporting">Up to 50 requests per page</Text>
+            <Button
+              label="Older requests"
+              isDisabled={query.data.next_cursor === null}
+              onClick={() =>
+                update({ before_id: String(query.data?.next_cursor) })
+              }
             />
-          </label>
-          <button className="secondary" type="submit">
-            Filter
-          </button>
-        </form>
-        {params.has("repository") ||
-        params.has("pr_number") ||
-        params.has("before_id") ? (
-          <button
-            className="text-button"
-            onClick={() =>
-              update({ repository: "", pr_number: "", before_id: "" })
-            }
-          >
-            Clear filters
-          </button>
+          </HStack>
         ) : null}
-      </div>
-      <Freshness query={query} />
-      {query.data &&
-        (query.data.items.length ? (
-          <section className="panel">
-            <div className="panel-heading">
-              <h2>Review requests</h2>
-              <span>
-                {number.format(query.data.total)} matching ·{" "}
-                {query.data.items.length} shown
-              </span>
-            </div>
-            <div
-              className="table-scroll"
-              role="region"
-              tabIndex={0}
-              aria-label="Review requests"
-            >
-              <table className="activity-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Pull request</th>
-                    <th scope="col">State</th>
-                    <th scope="col">Progress</th>
-                    <th scope="col">Commit</th>
-                    <th scope="col" className="numeric">
-                      Findings
-                    </th>
-                    <th scope="col" className="numeric">
-                      Attempts used
-                    </th>
-                    <th scope="col">Last activity</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {query.data.items.map((item) => (
-                    <tr key={item.id}>
-                      <th scope="row">
-                        <Link
-                          className="run-name"
-                          to={`/history/${item.id}?${params}`}
-                        >
-                          <span>{item.repository}</span>{" "}
-                          <span className="pr-number">#{item.pr_number}</span>
-                        </Link>
-                        <span className="subtext">
-                          Request #{item.id} · {time(item.started_at)}
-                        </span>
-                        {item.failure_code ? (
-                          <span className="subtext attention">
-                            {failureSentence(item.failure_code)}
-                          </span>
-                        ) : null}
-                        {item.recovered ? (
-                          <span className="subtext">
-                            Recovered: a later review published
-                          </span>
-                        ) : null}
-                      </th>
-                      <td>
-                        <span className={`status ${item.state}`}>
-                          {states[item.state]}
-                        </span>
-                      </td>
-                      <td>
-                        <Phase item={item} />
-                      </td>
-                      <td>
-                        <code title={item.head_sha}>
-                          {item.head_sha.slice(0, 8)}
-                        </code>
-                      </td>
-                      <td className="numeric">
-                        {item.posted_at !== null
-                          ? (item.findings_count ?? "—")
-                          : "—"}
-                      </td>
-                      <td className="numeric">
-                        {item.max_attempts === null
-                          ? "—"
-                          : `${item.attempt_count} of ${item.max_attempts}`}
-                      </td>
-                      <td>
-                        <time
-                          className="review-time"
-                          dateTime={item.last_heartbeat_at}
-                          title={time(item.last_heartbeat_at)}
-                        >
-                          {since(item.last_heartbeat_at)}
-                        </time>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="panel-note">
-              Open a request to read its review and execution record. An em dash
-              means a value is not recorded.
-            </p>
-          </section>
-        ) : (
-          <Empty title="No matching requests">
-            Change the filters or request a review on GitHub.
-          </Empty>
-        ))}
-      {query.data &&
-      (params.has("before_id") || query.data.next_cursor !== null) ? (
-        <div className="pagination">
-          <button
-            className="secondary"
-            disabled={!params.has("before_id")}
-            onClick={() => update({ before_id: "" })}
-          >
-            Newest
-          </button>
-          <span>Up to 50 requests per page</span>
-          <button
-            className="secondary"
-            disabled={query.data.next_cursor === null}
-            onClick={() =>
-              update({ before_id: String(query.data?.next_cursor) })
-            }
-          >
-            Older requests
-          </button>
-        </div>
-      ) : null}
-    </>
+      </VStack>
+    </VStack>
   );
 }

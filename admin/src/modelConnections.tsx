@@ -1,13 +1,35 @@
+import { Button } from "@astryxdesign/core/Button";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { Code } from "@astryxdesign/core/CodeBlock";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { Selector } from "@astryxdesign/core/Selector";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { components } from "./api.generated";
-import { read, write } from "./api";
 import type { TeamPage } from "./api";
-import { ScopedLink as Link, useScope } from "./scope";
-import { Copy, Empty, Freshness, time } from "./ui";
-import { ReasonAction } from "./teams";
+import { read, write } from "./api";
+import type { components } from "./api.generated";
 import { ConnectionQuota } from "./modelQuota";
+import { ScopedLink as Link, useScope } from "./scope";
+import { ReasonAction } from "./teams";
+import { Copy, Empty, Form, Freshness, time } from "./ui";
 
 type Connection = components["schemas"]["ModelConnection"];
 type ConnectionPage = components["schemas"]["ConnectionPage"];
@@ -126,187 +148,195 @@ function ConnectionEditor({
     );
   }
   return (
-    <form
-      className="team-editor"
+    <Form
       onSubmit={(event) => {
         event.preventDefault();
         save.mutate();
       }}
     >
-      <label className="field">
-        Connection name
-        <input
-          required
-          maxLength={80}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-      </label>
-      <label className="field">
-        Maximum concurrent reviews
-        <input
-          type="number"
-          required
-          min={1}
-          max={2147483647}
-          step={1}
-          value={maxConcurrency}
-          onChange={(event) => setMaxConcurrency(event.target.valueAsNumber)}
-        />
-      </label>
-      <p className="field-help">
+      <TextInput
+        label={"Connection name"}
+        isRequired={true}
+        value={name}
+        onChange={(value) => setName(value)}
+        {...({
+          required: true,
+          maxLength: 80,
+        } satisfies InputHTMLAttributes<HTMLInputElement>)}
+      />
+
+      <NumberInput
+        isIntegerOnly
+        label={"Maximum concurrent reviews"}
+        isRequired={true}
+        min={1}
+        max={2147483647}
+        step={1}
+        value={maxConcurrency}
+        onChange={(value) => setMaxConcurrency(value)}
+        {...({
+          required: true,
+        } satisfies InputHTMLAttributes<HTMLInputElement>)}
+      />
+
+      <Text as="p" color="secondary">
         Shared by all workers using this connection. Lowering the limit lets
         reviews already claimed finish.
-      </p>
+      </Text>
       {!connection ? (
         <>
           <Freshness query={runtimes} />
-          <label className="field">
-            Provisioned runtime
-            <select
-              required
-              value={runtimeKey}
-              onChange={(event) => setRuntimeKey(event.target.value)}
-            >
-              <option value="">Choose a runtime</option>
-              {runtimes.data
+          <Selector
+            label={"Provisioned runtime"}
+            options={[
+              { value: "", label: "Choose a runtime" },
+              runtimes.data
                 ?.filter((key) => key !== "shared")
-                .map((key) => (
-                  <option key={key} value={key}>
-                    {key}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <p className="field-help">
+                .map((key) => ({ value: key, label: key })),
+            ]
+              .flat()
+              .filter((option) => option != null)}
+            isRequired={true}
+            value={runtimeKey}
+            onChange={(value) => setRuntimeKey(value)}
+          />
+          <Text as="p" color="secondary">
             A platform operator provisions each runtime and its private
             credential storage first.
-          </p>
+          </Text>
           {runtimes.data && !runtimes.data.some((key) => key !== "shared") ? (
-            <p>
+            <Text as="p">
               No additional runtime is configured.{" "}
-              <a
+              <AstryxLink
                 href="https://ccimen.github.io/review-agent/admin-panel#managed-model-connections"
                 target="_blank"
                 rel="noreferrer"
               >
                 Open setup instructions
-              </a>
+              </AstryxLink>
               .
-            </p>
+            </Text>
           ) : null}
-          <label className="field">
-            Find an owning team
-            <input
-              type="search"
-              maxLength={80}
-              placeholder="Type at least two characters"
-              value={teamSearch}
-              onChange={(event) => setTeamSearch(event.target.value)}
-            />
-          </label>
+
+          <TextInput
+            label={"Find an owning team"}
+            placeholder="Type at least two characters"
+            value={teamSearch}
+            onChange={(value) => setTeamSearch(value)}
+            {...({
+              maxLength: 80,
+            } satisfies InputHTMLAttributes<HTMLInputElement>)}
+          />
+
           {teamSearch.trim().length >= 2 ? <Freshness query={teams} /> : null}
-          <label className="field">
-            Connection owner
-            <select
-              value={teamId}
-              onChange={(event) => setTeamId(event.target.value)}
-            >
-              <option value="">Platform · Shared connection</option>
-              {teamId &&
-              !teams.data?.items.some((team) => String(team.id) === teamId) ? (
-                <option value={teamId}>
-                  {String(scope.team?.id) === teamId
-                    ? scope.team?.name
-                    : `Team ${teamId}`}
-                </option>
-              ) : null}
-              {teams.data?.items.map((team) => (
-                <option value={team.id} key={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Selector
+            label={"Connection owner"}
+            options={[
+              { value: "", label: "Platform · Shared connection" },
+              teamId &&
+              !teams.data?.items.some((team) => String(team.id) === teamId)
+                ? {
+                    value: teamId,
+                    label: String(
+                      String(scope.team?.id) === teamId
+                        ? scope.team?.name
+                        : `Team ${teamId}`,
+                    ),
+                  }
+                : null,
+              teams.data?.items.map((team) => ({
+                value: String(team.id),
+                label: team.name,
+              })),
+            ]
+              .flat()
+              .filter((option) => option != null)}
+            value={teamId}
+            onChange={(value) => setTeamId(value)}
+          />
           {teams.data?.next_after_id ? (
-            <p className="field-help">
+            <Text as="p" color="secondary">
               Refine the team name to find more results.
-            </p>
+            </Text>
           ) : null}
         </>
       ) : null}
-      <h3>Allowed team choices</h3>
-      <p>
+      <Heading level={3}>Allowed team choices</Heading>
+      <Text as="p">
         Teams may inherit deployment defaults or choose one of these models and
         reasoning levels.
-      </p>
-      <div className="model-choices">
+      </Text>
+      <VStack gap={4}>
         {choices.map((choice, index) => (
-          <fieldset className="model-choice" key={index}>
-            <legend>Model {index + 1}</legend>
-            <div className="form-fields">
-              <label className="field">
-                Provider
-                <select
+          <fieldset key={index}>
+            <VStack gap={4}>
+              <legend>Model {index + 1}</legend>
+              <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+                <Selector
+                  label={"Provider"}
+                  options={[
+                    { value: "openai-codex", label: "OpenAI Codex" },
+                    { value: "anthropic", label: "Anthropic" },
+                  ]}
                   value={choice.provider}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     updateChoice(index, {
-                      provider: event.target.value as ModelChoice["provider"],
+                      provider: value as ModelChoice["provider"],
                     })
                   }
-                >
-                  <option value="openai-codex">OpenAI Codex</option>
-                  <option value="anthropic">Anthropic</option>
-                </select>
-              </label>
-              <label className="field grow">
-                Model ID
-                <input
-                  required
-                  maxLength={200}
-                  value={choice.model}
-                  onChange={(event) =>
-                    updateChoice(index, { model: event.target.value })
-                  }
                 />
-              </label>
-            </div>
-            <div className="model-efforts">
-              {effortChoices.map((effort) => (
-                <label key={effort}>
-                  <input
-                    type="checkbox"
-                    checked={choice.reasoning_efforts.includes(effort)}
-                    onChange={(event) =>
-                      updateChoice(index, {
-                        reasoning_efforts: event.target.checked
-                          ? [...choice.reasoning_efforts, effort]
-                          : choice.reasoning_efforts.filter(
-                              (value) => value !== effort,
-                            ),
-                      })
-                    }
-                  />
-                  {effort}
-                </label>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="text-button danger"
-              onClick={() =>
-                setChoices((items) => items.filter((_item, at) => at !== index))
-              }
-            >
-              Remove model
-            </button>
+
+                <TextInput
+                  label={"Model ID"}
+                  isRequired={true}
+                  value={choice.model}
+                  onChange={(value) => updateChoice(index, { model: value })}
+                  {...({
+                    required: true,
+                    maxLength: 200,
+                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                />
+              </Grid>
+              <VStack gap={4}>
+                {effortChoices.map((effort) => (
+                  <VStack gap={2} key={effort}>
+                    <CheckboxInput
+                      label={effort}
+                      value={choice.reasoning_efforts.includes(effort)}
+                      onChange={(value) =>
+                        updateChoice(index, {
+                          reasoning_efforts: value
+                            ? [...choice.reasoning_efforts, effort]
+                            : choice.reasoning_efforts.filter(
+                                (value) => value !== effort,
+                              ),
+                        })
+                      }
+                    />
+                  </VStack>
+                ))}
+              </VStack>
+              <Button
+                label={"Remove model"}
+                variant="primary"
+                type="button"
+
+                onClick={() =>
+                  setChoices((items) =>
+                    items.filter((_item, at) => at !== index),
+                  )
+                }
+              />
+            </VStack>
           </fieldset>
         ))}
-      </div>
-      <button
+      </VStack>
+      <Button
+        label={"Add a model choice"}
+        variant="secondary"
         type="button"
-        className="secondary"
-        disabled={choices.length >= 50}
+
+        isDisabled={choices.length >= 50}
         onClick={() =>
           setChoices((items) => [
             ...items,
@@ -317,37 +347,46 @@ function ConnectionEditor({
             },
           ])
         }
-      >
-        Add a model choice
-      </button>
-      <label className="field">
-        Reason
-        <textarea
-          required
-          maxLength={500}
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-        />
-      </label>
+      />
+
+      <TextArea
+        label={"Reason"}
+        isRequired={true}
+        maxLength={500}
+        value={reason}
+        onChange={(value) => setReason(value.slice(0, 500))}
+        {...({
+          required: true,
+        } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
+      />
+
       {save.isError ? (
-        <p className="notice error" role="alert">
+        <Text as="p" role="alert">
           {save.error.message}
-        </p>
+        </Text>
       ) : null}
-      {save.isSuccess ? <p role="status">Connection saved.</p> : null}
-      <button
-        disabled={
+      {save.isSuccess ? (
+        <Text as="p" role="status">
+          Connection saved.
+        </Text>
+      ) : null}
+      <Button
+        label={String(
+          save.isPending
+            ? "Saving…"
+            : connection
+              ? "Save connection"
+              : "Add connection",
+        )}
+        variant="primary"
+        type="submit"
+        isDisabled={
           save.isPending ||
+          (!connection && !runtimeKey) ||
           choices.some((choice) => choice.reasoning_efforts.length === 0)
         }
-      >
-        {save.isPending
-          ? "Saving…"
-          : connection
-            ? "Save connection"
-            : "Add connection"}
-      </button>
-    </form>
+      />
+    </Form>
   );
 }
 
@@ -371,73 +410,76 @@ export function ModelConnectionsPage() {
   }, []);
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Model connections</h1>
-          <p>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Model connections</Heading>
+          <Text as="p">
             {scope.team
               ? `Provider accounts available to ${scope.team.name}.`
               : "Shared and team-owned provider accounts."}
-          </p>
-        </div>
+          </Text>
+        </VStack>
         {scope.current.role === "owner" ? (
-          <button onClick={() => setAdding(!adding)} aria-expanded={adding}>
-            {adding ? "Close form" : "Add connection"}
-          </button>
+          <Button
+            label={String(adding ? "Close form" : "Add connection")}
+            variant="primary"
+            type="submit"
+            onClick={() => setAdding(!adding)}
+            aria-expanded={adding}
+          />
         ) : null}
-      </div>
+      </HStack>
       {adding ? (
-        <section className="panel panel-body">
-          <h2>Add a managed connection</h2>
+        <VStack gap={4} as="section">
+          <Heading level={2}>Add a managed connection</Heading>
           <ConnectionEditor done={() => setAdding(false)} />
-        </section>
+        </VStack>
       ) : null}
       <Freshness query={query} />
       {query.data?.items.length ? (
-        <div
-          className="panel table-scroll"
+        <VStack
+          gap={4}
+
           role="region"
           tabIndex={0}
           aria-label="Model connections"
         >
-          <table>
-            <thead>
-              <tr>
-                <th>Connection</th>
-                <th>Owner</th>
-                <th>Status</th>
-                <th>Recorded accounts</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHeaderCell>Connection</TableHeaderCell>
+                <TableHeaderCell>Owner</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell>Recorded accounts</TableHeaderCell>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {query.data.items.map((connection) => (
-                <tr key={connection.id}>
-                  <th scope="row">
+                <TableRow key={connection.id}>
+                  <TableHeaderCell scope="row">
                     <Link to={`/model-connections/${connection.id}`}>
                       {connection.name}
                     </Link>
-                  </th>
-                  <td>{connection.team_name ?? "Platform · Shared"}</td>
-                  <td>
-                    <span
-                      className={`status ${connection.state === "enabled" ? "published" : connection.state === "needs_attention" ? "failed" : "queued"}`}
-                    >
-                      {stateNames[connection.state]}
-                    </span>
-                  </td>
-                  <td>
+                  </TableHeaderCell>
+                  <TableCell>
+                    {connection.team_name ?? "Platform · Shared"}
+                  </TableCell>
+                  <TableCell>
+                    <Text>{stateNames[connection.state]}</Text>
+                  </TableCell>
+                  <TableCell>
                     {connection.accounts.some((account) => account.verified)
                       ? connection.accounts
                           .filter((account) => account.verified)
                           .map((account) => providerNames[account.provider])
                           .join(", ")
                       : "No identity recorded"}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </VStack>
       ) : query.data ? (
         <Empty title="No model connections in this view">
           An administrator can assign a shared or dedicated connection to your
@@ -445,30 +487,32 @@ export function ModelConnectionsPage() {
         </Empty>
       ) : null}
       {after !== "0" || query.data?.next_after_id ? (
-        <div className="pagination">
-          <button
-            className="secondary"
-            disabled={after === "0"}
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label={"First page"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={after === "0"}
             onClick={() => {
               const next = new URLSearchParams(params);
               next.delete("after_id");
               setParams(next);
             }}
-          >
-            First page
-          </button>
-          <button
-            className="secondary"
-            disabled={!query.data?.next_after_id}
+          />
+          <Button
+            label={"Next connections"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={!query.data?.next_after_id}
             onClick={() => {
               const next = new URLSearchParams(params);
               next.set("after_id", String(query.data?.next_after_id));
               setParams(next);
             }}
-          >
-            Next connections
-          </button>
-        </div>
+          />
+        </HStack>
       ) : null}
     </>
   );
@@ -558,96 +602,101 @@ function ConnectionLogin({
     advanceLogin,
   ]);
   return (
-    <section className="section">
-      <h2>OpenAI Codex login</h2>
-      <p>
+    <VStack gap={4} as="section">
+      <Heading level={2}>OpenAI Codex login</Heading>
+      <Text as="p">
         Pause the connection and finish or cancel its queued reviews before
         changing the account.
-      </p>
+      </Text>
       {operationId ? <Freshness query={session} quiet /> : null}
       {current?.status === "pending" ? (
-        <div className="provider-login" role="status">
+        <VStack gap={3} role="status">
           {challenge?.user_code ? (
             <>
-              <p>Open the verification page and enter this code:</p>
+              <Text as="p">
+                Open the verification page and enter this code:
+              </Text>
               <Copy value={challenge.user_code} label="device code">
-                <code>{challenge.user_code}</code>
+                <Code>{challenge.user_code}</Code>
               </Copy>
-              <p>
-                <a
-                  className="button secondary"
+              <Text as="p">
+                <AstryxLink
                   href={challenge.verification_url ?? undefined}
                   target="_blank"
                   rel="noreferrer"
                 >
                   Open auth.openai.com
-                  <span className="sr-only"> (opens in a new tab)</span>
-                </a>
-              </p>
+                  <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+                </AstryxLink>
+              </Text>
             </>
           ) : (
-            <p>
+            <Text as="p">
               Continue in the provider verification tab, or cancel this login to
               request a new code.
-            </p>
+            </Text>
           )}
-          <p className="subtext">
+          <Text as="p" color="secondary" display="block" type="supporting">
             Expires {time(current.expires_at)}. Checks every {interval} seconds
             while this page is open.
-          </p>
-          <button
+          </Text>
+          <Button
+            label={"Cancel login"}
+            variant="secondary"
             type="button"
-            className="secondary"
-            disabled={advancing}
+
+            isDisabled={advancing}
             onClick={() => advance.mutate("cancel")}
-          >
-            Cancel login
-          </button>
-        </div>
+          />
+        </VStack>
       ) : current ? (
-        <p role="status">
+        <Text as="p" role="status">
           {current.status === "approved"
             ? "Account recorded. Enable the connection when its model policy is ready."
             : current.status === "needs_attention"
               ? "The login result is uncertain. A platform owner must reconcile this connection."
               : `Login ${current.status.replaceAll("_", " ")}.`}
-        </p>
+        </Text>
       ) : null}
       {start.isError || advance.isError ? (
-        <p className="notice error" role="alert">
+        <Text as="p" role="alert">
           {(start.error ?? advance.error)?.message}
-        </p>
+        </Text>
       ) : null}
       {connection.state === "disabled" && configured ? (
-        <form
-          className="reason-form"
+        <Form
           onSubmit={(event) => {
             event.preventDefault();
             start.mutate();
           }}
         >
-          <label className="field">
-            Reason for connecting
-            <textarea
-              required
-              maxLength={500}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </label>
-          <button
-            disabled={
+          <TextArea
+            label={"Reason for connecting"}
+            isRequired={true}
+            maxLength={500}
+            value={reason}
+            onChange={(value) => setReason(value.slice(0, 500))}
+            {...({
+              required: true,
+            } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
+          />
+
+          <Button
+            label={String(
+              start.isPending ? "Starting login…" : "Connect OpenAI Codex",
+            )}
+            variant="primary"
+            type="submit"
+            isDisabled={
               start.isPending ||
               !!connection.queued_jobs ||
               !!connection.leased_jobs ||
               !!connection.active_executions
             }
-          >
-            {start.isPending ? "Starting login…" : "Connect OpenAI Codex"}
-          </button>
-        </form>
+          />
+        </Form>
       ) : null}
-    </section>
+    </VStack>
   );
 }
 
@@ -672,73 +721,71 @@ function ConnectionContent({ connection }: { connection: Connection }) {
   };
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>{connection.name}</h1>
-          <p>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>{connection.name}</Heading>
+          <Text as="p">
             {connection.team_name
               ? `Dedicated to ${connection.team_name}`
               : "Platform-owned shared connection"}
-          </p>
-        </div>
-        <Link className="button secondary" to="/model-connections">
-          All connections
-        </Link>
-      </div>
-      <p>
-        <span
-          className={`status ${connection.state === "enabled" ? "published" : connection.state === "needs_attention" ? "failed" : "queued"}`}
-        >
-          {stateNames[connection.state]}
-        </span>
-      </p>
+          </Text>
+        </VStack>
+        <Link to="/model-connections">All connections</Link>
+      </HStack>
+      <Text as="p">
+        <Text>{stateNames[connection.state]}</Text>
+      </Text>
       {connection.queued_jobs !== null ? (
-        <p>
+        <Text as="p">
           {connection.queued_jobs} queued · {connection.leased_jobs} claimed ·{" "}
           {connection.active_executions} unfinished executions
-        </p>
+        </Text>
       ) : (
-        <p>Shared accounts are managed by a platform owner.</p>
+        <Text as="p">Shared accounts are managed by a platform owner.</Text>
       )}
-      <p>Connection limit: {connection.max_concurrency} concurrent reviews.</p>
+      <Text as="p">
+        Connection limit: {connection.max_concurrency} concurrent reviews.
+      </Text>
       {!!connection.active_executions && (
-        <p className="notice">
+        <Text as="p">
           Unfinished executions reserve capacity until Hermes records
           completion. If this count remains after reviews stop, ask a platform
           owner to pause the connection and use “Recover after a runtime
           restart” below.
-        </p>
+        </Text>
       )}
       {connection.state === "disabled" ? (
-        <p>New dispatch is paused. Reviews already running can finish.</p>
+        <Text as="p">
+          New dispatch is paused. Reviews already running can finish.
+        </Text>
       ) : null}
       {connection.queued_jobs ||
       connection.leased_jobs ||
       connection.active_executions ? (
-        <p>
+        <Text as="p">
           Account changes require these reviews to finish or be cancelled.{" "}
           <Link to="/history">View reviews</Link>.
-        </p>
+        </Text>
       ) : null}
       {connection.can_manage ? (
         <>
           <Freshness query={runtime} quiet />
           {runtime.data?.configured === false ? (
-            <div className="notice">
-              <p>
+            <VStack gap={3}>
+              <Text as="p">
                 Provider control is not configured for this runtime. Existing
                 review execution can continue.
-              </p>
-              <a
+              </Text>
+              <AstryxLink
                 href="https://ccimen.github.io/review-agent/admin-panel#managed-model-connections"
                 target="_blank"
                 rel="noreferrer"
               >
                 Open setup instructions
-              </a>
-            </div>
+              </AstryxLink>
+            </VStack>
           ) : null}
-          <div className="inline-actions">
+          <HStack gap={3} wrap="wrap" vAlign="center">
             {connection.state === "enabled" ||
             connection.state === "disabled" ? (
               <ReasonAction
@@ -768,27 +815,30 @@ function ConnectionContent({ connection }: { connection: Connection }) {
                 done={done}
               />
             ) : null}
-          </div>
+          </HStack>
         </>
       ) : null}
-      <section className="section">
-        <h2>Provider accounts</h2>
-        <div
-          className="panel table-scroll"
+      <VStack gap={4} as="section">
+        <Heading level={2}>Provider accounts</Heading>
+        <VStack
+          gap={4}
+
           role="region"
           tabIndex={0}
           aria-label="Provider account observations"
         >
-          <table>
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Account record</th>
-                <th>Observed</th>
-                {connection.can_manage ? <th>Runtime observation</th> : null}
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHeaderCell>Provider</TableHeaderCell>
+                <TableHeaderCell>Account record</TableHeaderCell>
+                <TableHeaderCell>Observed</TableHeaderCell>
+                {connection.can_manage ? (
+                  <TableHeaderCell>Runtime observation</TableHeaderCell>
+                ) : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {connection.accounts.map((account) => {
                 const observed = runtime.data?.accounts.find(
                   (item) => item.provider === account.provider,
@@ -803,33 +853,41 @@ function ConnectionContent({ connection }: { connection: Connection }) {
                   isolation_required: "Private credential storage required",
                 };
                 return (
-                  <tr key={account.provider}>
-                    <th scope="row">
+                  <TableRow key={account.provider}>
+                    <TableHeaderCell scope="row">
                       {providerNames[account.provider]}
                       {account.label ? (
-                        <span className="subtext">{account.label}</span>
+                        <Text
+                          color="secondary"
+                          display="block"
+                          type="supporting"
+                        >
+                          {account.label}
+                        </Text>
                       ) : null}
-                    </th>
-                    <td>
+                    </TableHeaderCell>
+                    <TableCell>
                       {account.verified
                         ? `Recorded · Revision ${account.revision}`
                         : "No identity recorded"}
-                    </td>
-                    <td>{time(account.observed_at)}</td>
+                    </TableCell>
+                    <TableCell>{time(account.observed_at)}</TableCell>
                     {connection.can_manage ? (
-                      <td>{status ? descriptions[status] : "Unavailable"}</td>
+                      <TableCell>
+                        {status ? descriptions[status] : "Unavailable"}
+                      </TableCell>
                     ) : null}
-                  </tr>
+                  </TableRow>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
-        <p className="field-help">
+            </TableBody>
+          </Table>
+        </VStack>
+        <Text as="p" color="secondary">
           These observations describe local credentials. They do not confirm
           provider availability or remaining quota.
-        </p>
-      </section>
+        </Text>
+      </VStack>
       <ConnectionQuota connection={connection} />
       {connection.can_manage && connection.state !== "retired" ? (
         <ConnectionLogin
@@ -838,64 +896,99 @@ function ConnectionContent({ connection }: { connection: Connection }) {
         />
       ) : null}
       {connection.can_manage ? (
-        <details className="section-disclosure">
-          <summary>Anthropic and operator-managed credentials</summary>
-          <p>
-            Pause this connection, clear queued and running reviews, then have
-            the platform operator connect or remove the authorized provider
-            credential in this runtime's private Hermes home. Choose Record
-            current accounts before enabling it.
-          </p>
-          <p>
-            Anthropic API keys are supported. Provider secrets are never entered
-            in this console.
-          </p>
-        </details>
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              Anthropic and operator-managed credentials
+            </HStack>
+          }
+        >
+          <VStack gap={4}>
+            <Text as="p">
+              Pause this connection, clear queued and running reviews, then have
+              the platform operator connect or remove the authorized provider
+              credential in this runtime's private Hermes home. Choose Record
+              current accounts before enabling it.
+            </Text>
+            <Text as="p">
+              Anthropic API keys are supported. Provider secrets are never
+              entered in this console.
+            </Text>
+          </VStack>
+        </Collapsible>
       ) : null}
       {scope.current.role === "owner" &&
       (connection.state === "needs_attention" ||
         connection.state === "authenticating" ||
         !!connection.active_executions) ? (
-        <details className="section-disclosure">
-          <summary>Recover after a runtime restart</summary>
-          <p>
-            Stop and restart this connection's complete runtime, including its
-            provider control and login service. Confirm the old processes have
-            stopped, then cancel remaining queued or claimed reviews. Recovery
-            closes interrupted operations and records the current accounts.
-          </p>
-          <ReasonAction
-            key={`recover:${connection.revision}`}
-            label="Confirm restart and reconcile"
-            path={scope.path(`${base}/reconcile`)}
-            body={{ ...body, runtime_restarted: true }}
-            description="I confirm all old runtime, login, and provider-control processes for this connection have stopped. The connection stays paused after recovery."
-            done={done}
-          />
-        </details>
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              Recover after a runtime restart
+            </HStack>
+          }
+        >
+          <VStack gap={4}>
+            <Text as="p">
+              Stop and restart this connection's complete runtime, including its
+              provider control and login service. Confirm the old processes have
+              stopped, then cancel remaining queued or claimed reviews. Recovery
+              closes interrupted operations and records the current accounts.
+            </Text>
+            <ReasonAction
+              key={`recover:${connection.revision}`}
+              label="Confirm restart and reconcile"
+              path={scope.path(`${base}/reconcile`)}
+              body={{ ...body, runtime_restarted: true }}
+              description="I confirm all old runtime, login, and provider-control processes for this connection have stopped. The connection stays paused after recovery."
+              done={done}
+            />
+          </VStack>
+        </Collapsible>
       ) : null}
       {connection.can_configure &&
       ["enabled", "disabled"].includes(connection.state) ? (
-        <details className="section-disclosure">
-          <summary>Edit name, capacity, and allowed models</summary>
-          <ConnectionEditor key={connection.revision} connection={connection} />
-        </details>
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              Edit name, capacity, and allowed models
+            </HStack>
+          }
+        >
+          <VStack gap={4}>
+            <ConnectionEditor
+              key={connection.revision}
+              connection={connection}
+            />
+          </VStack>
+        </Collapsible>
       ) : null}
       {connection.can_configure &&
       connection.runtime_key !== "shared" &&
       connection.state === "disabled" ? (
-        <details className="section-disclosure">
-          <summary>Retire this connection</summary>
-          <ReasonAction
-            key={`retire:${connection.revision}`}
-            label="Retire connection"
-            path={scope.path(`${base}/retire`)}
-            body={body}
-            description="Assign its teams elsewhere and clear queued or running reviews first. Review and audit history remain available."
-            danger
-            done={done}
-          />
-        </details>
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              Retire this connection
+            </HStack>
+          }
+        >
+          <VStack gap={4}>
+            <ReasonAction
+              key={`retire:${connection.revision}`}
+              label="Retire connection"
+              path={scope.path(`${base}/retire`)}
+              body={body}
+              description="Assign its teams elsewhere and clear queued or running reviews first. Review and audit history remain available."
+              danger
+              done={done}
+            />
+          </VStack>
+        </Collapsible>
       ) : null}
     </>
   );

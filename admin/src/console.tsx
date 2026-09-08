@@ -1,55 +1,135 @@
+import { AppShell } from "@astryxdesign/core/AppShell";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import {
-  ScopedLink as Link,
-  ScopedNavLink as NavLink,
-  useScope,
+  HStack,
+  Layout,
+  LayoutContent,
+  VStack,
+} from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
+import {
+  SideNav,
+  SideNavHeading,
+  SideNavItem,
+  SideNavSection,
+  useSideNavCollapse,
+} from "@astryxdesign/core/SideNav";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Activity,
+  BookOpen,
+  Bot,
+  Cable,
+  FileClock,
+  FolderGit2,
+  GitPullRequest,
+  HeartPulse,
+  Moon,
+  Search,
+  Settings,
+  Sun,
+  Users,
+} from "lucide-react";
+import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import type { Account, BuildInfo, Overview, RepositoryPage } from "./api";
+import { read } from "./api";
+import {
   ScopeSelector,
+  ScopedAnchor,
+  contextualTo,
   isAdmin,
   roleLabels,
-  contextualTo,
+  useScope,
 } from "./scope";
-import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { read } from "./api";
-import type { Account, BuildInfo, Overview, RepositoryPage } from "./api";
 import { number, time } from "./ui";
 
 const sections = [
-  { path: "/", label: "Activity", key: "A" },
-  { path: "/repositories", label: "Repositories", key: "R" },
-  { path: "/quality", label: "Review quality", key: "Q" },
-  { path: "/operations", label: "Health", key: "H", admin: true },
-  { path: "/teams", label: "Teams", key: "T" },
-  { path: "/model-connections", label: "Model connections", key: "M" },
-  { path: "/audit", label: "Audit log", key: "L", admin: true },
-  { path: "/settings", label: "Settings", key: "S", owner: true },
-  { path: "/users", label: "Users", key: "U", admin: true },
+  { path: "/", label: "Activity", icon: Activity, group: "Workspace" },
+  {
+    path: "/repositories",
+    label: "Repositories",
+    icon: FolderGit2,
+    group: "Workspace",
+  },
+  {
+    path: "/quality",
+    label: "Review quality",
+    icon: BookOpen,
+    group: "Workspace",
+  },
+  { path: "/teams", label: "Teams", icon: Users, group: "Workspace" },
+  {
+    path: "/model-connections",
+    label: "Model connections",
+    icon: Bot,
+    group: "Administration",
+  },
+  {
+    path: "/operations",
+    label: "Health",
+    icon: HeartPulse,
+    group: "Administration",
+    admin: true,
+  },
+  {
+    path: "/audit",
+    label: "Audit log",
+    icon: FileClock,
+    group: "Administration",
+    admin: true,
+  },
+  {
+    path: "/settings",
+    label: "Settings",
+    icon: Settings,
+    group: "Administration",
+    owner: true,
+  },
+  {
+    path: "/users",
+    label: "Users",
+    icon: Users,
+    group: "Administration",
+    admin: true,
+  },
+  {
+    path: "/integrations",
+    label: "Integrations",
+    icon: Cable,
+    group: "Administration",
+    admin: true,
+  },
 ];
 
-function initialTheme(): "light" | "dark" {
-  try {
-    const saved = localStorage.getItem("review-agent.theme");
-    if (saved === "light" || saved === "dark") return saved;
-  } catch {
-    /* Storage can be disabled by the browser. */
-  }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+function ExpandedRailContent({ children }: { children: ReactNode }) {
+  return useSideNavCollapse().isCollapsed ? null : children;
 }
 
 export function ConsoleLayout({
   current,
+  theme,
+  toggleTheme,
   children,
   logout,
   signingOut,
 }: {
   current: Account;
+  theme: "light" | "dark";
+  toggleTheme: () => void;
   children: ReactNode;
   logout: () => void;
   signingOut: boolean;
 }) {
+  const isNarrow = useMediaQuery("(max-width: 768px)");
   const scope = useScope();
   const build = useQuery({
     queryKey: ["build-info"],
@@ -59,12 +139,9 @@ export function ConsoleLayout({
   });
   const { pathname, search: routeSearch } = useLocation();
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState(false);
-  const [theme, setTheme] = useState(initialTheme);
   const [search, setSearch] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const palette = useRef<HTMLDialogElement>(null);
   const navigation = sections.filter(
     (section) =>
       (!section.admin || isAdmin(current.role)) &&
@@ -87,14 +164,6 @@ export function ConsoleLayout({
     enabled: paletteOpen && searchTerm.length >= 2,
   });
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try {
-      localStorage.setItem("review-agent.theme", theme);
-    } catch {
-      /* Keep the current tab usable without storage. */
-    }
-  }, [theme]);
-  useEffect(() => {
     const timer = window.setTimeout(() => setSearchTerm(search.trim()), 200);
     return () => window.clearTimeout(timer);
   }, [search]);
@@ -102,10 +171,8 @@ export function ConsoleLayout({
     setSearch("");
     setSearchTerm("");
     setPaletteOpen(true);
-    palette.current?.showModal();
   }
   function closePalette() {
-    palette.current?.close();
     setPaletteOpen(false);
   }
   function go(path: string) {
@@ -116,13 +183,9 @@ export function ConsoleLayout({
     function shortcut(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        if (palette.current?.open) palette.current.close();
-        else {
-          setSearch("");
-          setSearchTerm("");
-          setPaletteOpen(true);
-          palette.current?.showModal();
-        }
+        setPaletteOpen((open) => !open);
+        setSearch("");
+        setSearchTerm("");
       }
     }
     window.addEventListener("keydown", shortcut);
@@ -137,286 +200,292 @@ export function ConsoleLayout({
         ? "/repositories"
         : pathname.startsWith("/findings/")
           ? "/quality"
-          : pathname === "/users" || pathname === "/integrations"
-            ? "/settings"
-            : pathname;
+          : (sections.find(
+              (section) =>
+                section.path !== "/" &&
+                (pathname === section.path ||
+                  pathname.startsWith(`${section.path}/`)),
+            )?.path ?? "/");
   const title = pathname.startsWith("/history/")
     ? "Review request"
     : pathname === "/history"
       ? "Pull requests"
       : pathname === "/overview"
         ? "Statistics"
-        : pathname.startsWith("/findings")
+        : pathname.startsWith("/findings/")
           ? "Finding"
           : pathname === "/access"
             ? "Repository access"
-            : pathname === "/users"
-              ? "Users"
-              : pathname === "/integrations"
-                ? "Integrations"
-                : pathname === "/account"
-                  ? "Your account"
-                  : (sections.find((section) => section.path === pathname)
-                      ?.label ?? "Activity");
+            : pathname === "/account"
+              ? "Your account"
+              : (sections.find((section) => section.path === activeSection)
+                  ?.label ?? "Activity");
   const commands = [
     ...navigation,
     { path: "/history", label: "Pull requests", key: "P" },
     { path: "/overview", label: "Statistics", key: "T" },
     { path: "/account", label: "Your account", key: "U" },
-    ...(isAdmin(current.role)
-      ? [{ path: "/users", label: "Manage users", key: "U" }]
-      : []),
   ].filter((section) =>
     section.label.toLowerCase().includes(search.toLowerCase()),
   );
+  const iconProps = { size: "1em", "aria-hidden": true } as const;
+  const workspaceLabel = scope.teamId
+    ? (scope.team?.name ?? "Team workspace")
+    : current.role === "member"
+      ? "All my teams"
+      : "All teams";
   return (
-    <div className={`console${collapsed ? " rail-collapsed" : ""}`}>
-      <aside className="console-rail">
-        <Link className="brand" to="/" aria-label="Review Agent activity">
-          <span className="brand-mark" aria-hidden="true">
-            Ra
-          </span>
-          <span className="rail-label">
-            Review Agent<span className="brand-subtitle">Operator console</span>
-          </span>
-        </Link>
-        <div className="rail-deployment rail-label">
-          <span className="muted">Deployment</span>
-          <strong>{window.location.hostname}</strong>
-          <span className="muted">Advisory pull-request reviews</span>
-        </div>
-        <div className="rail-label">
-          <ScopeSelector />
-        </div>
-        <nav className="console-nav" aria-label="Console sections">
-          {navigation.map((section) => (
-            <NavLink
-              key={section.path}
-              to={section.path}
-              end={section.path === "/"}
-              className={activeSection === section.path ? "active" : undefined}
-              title={section.label}
-            >
-              <span className="nav-key" aria-hidden="true">
-                {section.key}
-              </span>
-              <span className="rail-label">{section.label}</span>
-              {section.path === "/" && overview.data ? (
-                <span className="nav-count rail-label">
-                  {number.format(overview.data.active_requests)}
-                </span>
-              ) : null}
-            </NavLink>
-          ))}
-        </nav>
-        {overview.data?.review_capacity != null ? (
-          <div className="rail-capacity rail-label">
-            <span>Online review capacity</span>
-            <strong>
-              {overview.data
-                ? number.format(overview.data.review_capacity ?? 0)
-                : "—"}{" "}
-              slots
-            </strong>
-            <small>
-              {overview.data
-                ? `${number.format(overview.data.live_review_workers ?? 0)} review workers online`
-                : "Waiting for worker reports"}
-            </small>
-          </div>
-        ) : null}
-        <div className="rail-account">
-          <Link className="rail-label" to="/account">
-            {current.email}
-            <small>Your account · {roleLabels[current.role]}</small>
-          </Link>
-          <button
-            className="secondary icon-button"
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-            aria-label={`Use ${theme === "light" ? "dark" : "light"} theme`}
-            title={`Use ${theme === "light" ? "dark" : "light"} theme`}
+    <>
+      <AppShell
+        variant="elevated"
+        height="auto"
+        sideNav={
+          <SideNav
+            aria-label="Console sections"
+            collapsible
+            header={
+              <SideNavHeading
+                heading="Review Agent"
+                subheading="Operator console"
+                headingHref="/"
+                as={ScopedAnchor}
+                icon={<GitPullRequest {...iconProps} />}
+              />
+            }
+            topContent={
+              <ExpandedRailContent>
+                <Section variant="transparent" padding={2}>
+                  <ScopeSelector />
+                </Section>
+              </ExpandedRailContent>
+            }
+            footer={
+              <ExpandedRailContent>
+                <Section variant="transparent" padding={2}>
+                  <VStack gap={3}>
+                    <VStack gap={1}>
+                      <Text type="supporting">Deployment</Text>
+                      <Text weight="medium">
+                        {typeof window === "undefined"
+                          ? "Review Agent"
+                          : window.location.hostname}
+                      </Text>
+                    </VStack>
+                    {overview.data?.review_capacity != null && (
+                      <VStack gap={1}>
+                        <Text type="supporting">Online review capacity</Text>
+                        <Text>
+                          {number.format(overview.data.review_capacity)} slots ·{" "}
+                          {number.format(
+                            overview.data.live_review_workers ?? 0,
+                          )}{" "}
+                          workers
+                        </Text>
+                      </VStack>
+                    )}
+                    <VStack gap={1}>
+                      <AstryxLink as={ScopedAnchor} href="/account">
+                        {current.email}
+                      </AstryxLink>
+                      <Text type="supporting">
+                        Your account · {roleLabels[current.role]}
+                      </Text>
+                    </VStack>
+                  </VStack>
+                </Section>
+              </ExpandedRailContent>
+            }
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="8" />
-              <path d="M12 4v16" />
-              <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" />
-            </svg>
-          </button>
-        </div>
-      </aside>
-      <div className="console-body">
-        <header className="console-topbar">
-          <button
-            className="secondary icon-button rail-toggle"
-            onClick={() => setCollapsed(!collapsed)}
-            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-            aria-expanded={!collapsed}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              aria-hidden="true"
-            >
-              <rect x="3" y="4" width="18" height="16" rx="2" />
-              <path d="M9 4v16" />
-            </svg>
-          </button>
-          <div className="console-crumb">
-            <Link to="/">Console</Link>
-            <span aria-hidden="true">/</span>
-            <span>{title}</span>
-          </div>
-          <button className="secondary command-trigger" onClick={openPalette}>
-            <span>Search or run a command</span>
-            <kbd>⌘ K</kbd>
-          </button>
-          <button
-            className="text-button quiet signout"
-            disabled={signingOut}
-            onClick={logout}
-          >
-            {signingOut ? "Signing out…" : "Sign out"}
-          </button>
-        </header>
-        <div className="mobile-scope">
-          <ScopeSelector />
-        </div>
+            {(["Workspace", "Administration"] as const).map((group) => (
+              <SideNavSection key={group} title={group}>
+                {navigation
+                  .filter((section) => section.group === group)
+                  .map((section) => (
+                    <SideNavItem
+                      key={section.path}
+                      label={section.label}
+                      href={section.path}
+                      as={ScopedAnchor}
+                      isSelected={activeSection === section.path}
+                      icon={<section.icon {...iconProps} />}
+                      endContent={
+                        section.path === "/" && overview.data ? (
+                          <Badge
+                            label={number.format(overview.data.active_requests)}
+                          />
+                        ) : undefined
+                      }
+                    />
+                  ))}
+              </SideNavSection>
+            ))}
+          </SideNav>
+        }
+      >
+        <Section
+          padding={6}
+          paddingInline={isNarrow ? 4 : 6}
+          paddingBlock={3}
+          maxWidth={1440}
+        >
+          <HStack gap={3} wrap="wrap" align="center" justify="between">
+            <Text color="secondary">
+              {workspaceLabel} / {title}
+            </Text>
+            <HStack gap={2} wrap="wrap" align="center">
+              <Button
+                label="Search"
+                icon={<Search {...iconProps} />}
+                variant="ghost"
+                onClick={openPalette}
+                tooltip="Search pages and repositories (⌘K / Ctrl+K)"
+              />
+              <Button
+                label={theme === "light" ? "Dark theme" : "Light theme"}
+                icon={
+                  theme === "light" ? (
+                    <Moon {...iconProps} />
+                  ) : (
+                    <Sun {...iconProps} />
+                  )
+                }
+                variant="ghost"
+                onClick={toggleTheme}
+              />
+              <Button
+                label={signingOut ? "Signing out…" : "Sign out"}
+                variant="ghost"
+                isDisabled={signingOut}
+                onClick={logout}
+              />
+            </HStack>
+          </HStack>
+        </Section>
         {children}
-        <footer className="console-statusbar">
-          <span className="build-version">
-            {build.data ? (
-              <>
-                {build.data.version === "development" ? "Development build" : build.data.version}
-                {build.data.revision && (
-                  <abbr title={`Source revision ${build.data.revision}`}>
-                    {" · "}
-                    {build.data.revision.slice(0, 7)}
-                  </abbr>
-                )}
-              </>
-            ) : build.isError ? (
-              <button className="text-button" onClick={() => void build.refetch()} disabled={build.isFetching}>
-                Version unavailable · Retry
-              </button>
-            ) : "Loading version…"}
-          </span>
-          <a href="/api/docs" target="_blank" rel="noreferrer">
-            API reference
-          </a>
-          <span>
-            Active requests{" "}
-            <strong>
+        <Section
+          padding={6}
+          paddingInline={isNarrow ? 4 : 6}
+          paddingBlock={3}
+          maxWidth={1440}
+        >
+          <HStack as="footer" gap={4} wrap="wrap" align="center">
+            <Text type="supporting">
+              {build.data ? (
+                <>
+                  {build.data.version === "development"
+                    ? "Development build"
+                    : build.data.version}
+                  {build.data.revision && (
+                    <abbr title={`Source revision ${build.data.revision}`}>
+                      {" "}
+                      · {build.data.revision.slice(0, 7)}
+                    </abbr>
+                  )}
+                </>
+              ) : build.isError ? (
+                <Button
+                  label="Version unavailable · Retry"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void build.refetch()}
+                  isDisabled={build.isFetching}
+                />
+              ) : (
+                "Loading version…"
+              )}
+            </Text>
+            <AstryxLink href="/api/docs" target="_blank" rel="noreferrer">
+              API reference
+            </AstryxLink>
+            <Text type="supporting">
+              Active requests{" "}
               {overview.data
                 ? number.format(overview.data.active_requests)
                 : "—"}
-            </strong>
-          </span>
-          {overview.data?.live_review_workers != null ? (
-            <span>
-              Review workers online{" "}
-              <strong>
-                {overview.data
-                  ? number.format(overview.data.live_review_workers ?? 0)
-                  : "—"}
-              </strong>
-            </span>
-          ) : null}
-          <span>
-            Repositories{" "}
-            <strong>
+            </Text>
+            <Text type="supporting">
+              Repositories{" "}
               {overview.data
                 ? number.format(overview.data.repository_count)
                 : "—"}
-            </strong>
-          </span>
-          <span className="statusbar-refresh">
-            {overview.isError
-              ? "Connection interrupted"
-              : overview.data
-                ? `Updated ${time(new Date(overview.dataUpdatedAt).toISOString())}`
-                : "Connecting…"}
-          </span>
-        </footer>
-      </div>
-      <dialog
-        ref={palette}
-        className="command-palette"
-        onClose={() => setPaletteOpen(false)}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) closePalette();
-        }}
-      >
-        <div className="command-input">
-          <label className="sr-only" htmlFor="command-search">
-            Search pages, repositories, or request ID
-          </label>
-          <input
-            id="command-search"
-            autoFocus
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Jump to a page, repository, or request ID"
-          />
-          <button className="text-button" onClick={closePalette}>
-            Close
-          </button>
-        </div>
-        <div className="command-results">
-          {commands.map((section) => (
-            <button key={section.path} onClick={() => go(section.path)}>
-              <span>{section.label}</span>
-              <small>Page</small>
-            </button>
-          ))}
-          {/^[1-9]\d{0,14}$/.test(search.trim()) ? (
-            <button onClick={() => go(`/history/${search.trim()}`)}>
-              Open request #{search.trim()}
-              <small>Request</small>
-            </button>
-          ) : null}
-          {searchTerm.length >= 2 &&
-            repositories.data?.items.map((repo) => (
-              <button
-                key={repo.repository}
-                onClick={() =>
-                  go(
-                    `/history?repository=${encodeURIComponent(repo.repository)}`,
-                  )
-                }
-              >
-                <span>{repo.repository}</span>
-                <small>Repository</small>
-              </button>
-            ))}
-          {searchTerm.length >= 2 && repositories.isFetching ? (
-            <p role="status">Searching repositories…</p>
-          ) : null}
-          {searchTerm.length >= 2 && repositories.isError ? (
-            <p role="alert">Repository search is unavailable.</p>
-          ) : null}
-          <button
-            onClick={() => {
-              setTheme(theme === "light" ? "dark" : "light");
-              closePalette();
-            }}
-          >
-            <span>Use {theme === "light" ? "dark" : "light"} theme</span>
-            <small>Appearance</small>
-          </button>
-        </div>
-      </dialog>
-    </div>
+            </Text>
+            <Text type="supporting">
+              {overview.isError
+                ? "Connection interrupted"
+                : overview.data
+                  ? `Updated ${time(new Date(overview.dataUpdatedAt).toISOString())}`
+                  : "Connecting…"}
+            </Text>
+          </HStack>
+        </Section>
+      </AppShell>
+      <Dialog isOpen={paletteOpen} onOpenChange={setPaletteOpen} width={640}>
+        <Layout
+          height="auto"
+          header={
+            <DialogHeader
+              title="Search the console"
+              onOpenChange={setPaletteOpen}
+            />
+          }
+          content={
+            <LayoutContent>
+              <VStack gap={3}>
+                <TextInput
+                  label="Search pages, repositories, or request ID"
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Page, repository, or request ID"
+                  startIcon="search"
+                  hasClear
+                  hasAutoFocus
+                  width="100%"
+                />
+                <List density="compact" aria-label="Search results">
+                  {commands.map((section) => (
+                    <ListItem
+                      key={section.path}
+                      label={section.label}
+                      onClick={() => go(section.path)}
+                    />
+                  ))}
+                  {/^[1-9]\d{0,14}$/.test(search.trim()) && (
+                    <ListItem
+                      label={`Open request #${search.trim()}`}
+                      onClick={() => go(`/history/${search.trim()}`)}
+                    />
+                  )}
+                  {searchTerm.length >= 2 &&
+                    repositories.data?.items.map((repo) => (
+                      <ListItem
+                        key={repo.repository}
+                        label={repo.repository}
+                        onClick={() =>
+                          go(
+                            `/history?repository=${encodeURIComponent(repo.repository)}`,
+                          )
+                        }
+                      />
+                    ))}
+                  <ListItem
+                    label={`Use ${theme === "light" ? "dark" : "light"} theme`}
+                    onClick={() => {
+                      toggleTheme();
+                      closePalette();
+                    }}
+                  />
+                </List>
+                {searchTerm.length >= 2 && repositories.isFetching && (
+                  <Text role="status">Searching repositories…</Text>
+                )}
+                {searchTerm.length >= 2 && repositories.isError && (
+                  <Text role="alert">Repository search is unavailable.</Text>
+                )}
+              </VStack>
+            </LayoutContent>
+          }
+        />
+      </Dialog>
+    </>
   );
 }

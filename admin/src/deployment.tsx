@@ -1,3 +1,16 @@
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { read } from "./api";
@@ -16,93 +29,96 @@ function useDeployment() {
 export function DeploymentLink() {
   const deployment = useDeployment();
   return deployment.data?.dashboard_url ? (
-    <a
-      className="button secondary"
+    <AstryxLink
       href={deployment.data.dashboard_url}
       target="_blank"
       rel="noreferrer"
     >
-      Open Dokploy<span className="sr-only"> (opens in a new tab)</span>
-    </a>
+      Open Dokploy<VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+    </AstryxLink>
   ) : null;
 }
 export function EngineServices() {
   const deployment = useDeployment();
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <h2>Container status</h2>
-        <span className="muted">Dokploy</span>
-      </div>
-      <div className="panel-body">
+    <VStack gap={4} as="section">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <Heading level={2}>Container status</Heading>
+        <Text color="secondary">Dokploy</Text>
+      </HStack>
+      <VStack gap={4}>
         <Freshness query={deployment} interval={30} />
         {deployment.data?.configured === false ? (
-          <div className="integration-empty">
+          <VStack gap={4}>
             <strong>Dokploy is not connected</strong>
-            <p>
+            <Text as="p">
               Connect Dokploy to see whether this deployment’s containers are
               running.
-            </p>
-            <details className="setup-help">
-              <summary>How to connect Dokploy</summary>
-              <p>
-                Set the Dokploy URL, Compose application ID, and read-access API
-                key in the admin service’s deployment configuration, then
-                restart that service.
-              </p>
-              <a
-                href="https://ccimen.github.io/review-agent/admin-panel#dokploy-container-state"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open setup instructions
-                <span className="sr-only"> (opens in a new tab)</span>
-              </a>
-            </details>
-          </div>
+            </Text>
+            <Collapsible
+              defaultIsOpen={false}
+              trigger={
+                <HStack gap={3} wrap="wrap" vAlign="center">
+                  How to connect Dokploy
+                </HStack>
+              }
+            >
+              <VStack gap={4}>
+                <Text as="p">
+                  Set the Dokploy URL, Compose application ID, and read-access
+                  API key in the admin service’s deployment configuration, then
+                  restart that service.
+                </Text>
+                <AstryxLink
+                  href="https://ccimen.github.io/review-agent/admin-panel#dokploy-container-state"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open setup instructions
+                  <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+                </AstryxLink>
+              </VStack>
+            </Collapsible>
+          </VStack>
         ) : null}
         {deployment.data?.configured && (
           <>
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Service instance</th>
-                    <th>State</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <VStack gap={0}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell>Service instance</TableHeaderCell>
+                    <TableHeaderCell>State</TableHeaderCell>
+                    <TableHeaderCell>Status</TableHeaderCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {deployment.data.containers.map((container) => (
-                    <tr key={container.container_id || container.service}>
-                      <td>{container.service}</td>
-                      <td>
-                        <span
-                          className={`status ${container.state === "running" ? "published" : container.state === "exited" ? "" : "queued"}`}
-                        >
-                          {container.state}
-                        </span>
-                      </td>
-                      <td>{container.status}</td>
-                    </tr>
+                    <TableRow key={container.container_id || container.service}>
+                      <TableCell>{container.service}</TableCell>
+                      <TableCell>
+                        <Text>{container.state}</Text>
+                      </TableCell>
+                      <TableCell>{container.status}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </VStack>
             {!deployment.data.containers.length && (
-              <p className="muted">
+              <Text as="p" color="secondary">
                 Dokploy returned no containers for this application.
-              </p>
+              </Text>
             )}
-            <p className="muted">
+            <Text as="p" color="secondary">
               {deployment.data.application} · Observed{" "}
               {time(deployment.data.observed_at)}
-            </p>
+            </Text>
             <DeploymentLink />
           </>
         )}
-      </div>
-    </section>
+      </VStack>
+    </VStack>
   );
 }
 export function ProviderHealth() {
@@ -112,35 +128,37 @@ export function ProviderHealth() {
     refetchInterval: 30000,
   });
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <h2>Provider authentication</h2>
+    <VStack gap={4} as="section">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <Heading level={2}>Provider authentication</Heading>
         <Link to="/settings">Manage connections</Link>
-      </div>
-      <div className="panel-body">
+      </HStack>
+      <VStack gap={4}>
         <Freshness query={providers} interval={30} />
         {providers.data?.items.map((provider) => (
-          <div className="settings-revision" key={provider.provider}>
+          <HStack gap={3} wrap="wrap" vAlign="center" key={provider.provider}>
             <strong>{provider.name}</strong>
-            <span>
+            <Text>
               {provider.connected ? "Authenticated" : "Not authenticated"}
-            </span>
-          </div>
+            </Text>
+          </HStack>
         ))}
         {providers.data?.capability.configured === false && (
-          <div className="integration-empty">
+          <VStack gap={4}>
             <strong>Provider status is unavailable</strong>
-            <p>The connection to the review engine has not been configured.</p>
-          </div>
+            <Text as="p">
+              The connection to the review engine has not been configured.
+            </Text>
+          </VStack>
         )}
         {providers.data?.capability.configured && (
-          <p className="field-hint">
+          <Text as="p" color="secondary">
             Authentication is reported by the review engine. It does not confirm
             that a model request will succeed.
-          </p>
+          </Text>
         )}
-      </div>
-    </section>
+      </VStack>
+    </VStack>
   );
 }
 
@@ -163,68 +181,82 @@ export function HermesHealth() {
   });
   const runtime = query.data?.runtime;
   return (
-    <section className="panel">
-      <div className="panel-heading">
-        <h2>Review engine</h2>
+    <VStack gap={4} as="section">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <Heading level={2}>Review engine</Heading>
         {runtime && (
-          <span
-            className={`status ${runtime.status === "ok" ? "published" : "queued"}`}
-          >
-            {runtime.status === "ok" ? "Ready" : "Needs attention"}
-          </span>
+          <Text>{runtime.status === "ok" ? "Ready" : "Needs attention"}</Text>
         )}
-      </div>
-      <div className="panel-body">
+      </HStack>
+      <VStack gap={4}>
         <Freshness query={query} interval={30} />
         {query.data?.capability.configured === false && (
-          <div className="integration-empty">
+          <VStack gap={4}>
             <strong>Engine diagnostics are not connected</strong>
-            <p>
+            <Text as="p">
               Connect the provider companion to read Hermes readiness and its
               running version.
-            </p>
+            </Text>
             <Link to="/settings">Open connection setup</Link>
-          </div>
+          </VStack>
         )}
         {runtime && (
           <>
-            <dl className="detail-list">
-              <dt>Hermes version</dt>
-              <dd>{runtime.version}</dd>
-              <dt>Active agents</dt>
-              <dd>
-                {runtime.active_agents}
-                {runtime.busy ? " · Busy" : " · Idle"}
-              </dd>
-              <dt>Shutdown state</dt>
-              <dd>
-                {runtime.drainable ? "Can drain work" : "Cannot drain work"}
-              </dd>
-              <dt>Default model</dt>
-              <dd>{runtime.model ?? "Not reported"}</dd>
-              <dt>Review API</dt>
-              <dd>{runtime.chat_available ? "Supported" : "Not supported"}</dd>
-            </dl>
-            <ul className="runtime-checks">
+            <VStack as="dl" gap={2}>
+              <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
+                <dt>
+                  <Text color="secondary">Hermes version</Text>
+                </dt>
+                <dd>{runtime.version}</dd>
+              </HStack>
+              <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
+                <dt>
+                  <Text color="secondary">Active agents</Text>
+                </dt>
+                <dd>
+                  {runtime.active_agents}
+                  {runtime.busy ? " · Busy" : " · Idle"}
+                </dd>
+              </HStack>
+              <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
+                <dt>
+                  <Text color="secondary">Shutdown state</Text>
+                </dt>
+                <dd>
+                  {runtime.drainable ? "Can drain work" : "Cannot drain work"}
+                </dd>
+              </HStack>
+              <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
+                <dt>
+                  <Text color="secondary">Default model</Text>
+                </dt>
+                <dd>{runtime.model ?? "Not reported"}</dd>
+              </HStack>
+              <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
+                <dt>
+                  <Text color="secondary">Review API</Text>
+                </dt>
+                <dd>
+                  {runtime.chat_available ? "Supported" : "Not supported"}
+                </dd>
+              </HStack>
+            </VStack>
+            <VStack as="ul" gap={3}>
               {runtime.checks.map((check) => (
                 <li key={check.name}>
-                  <span>{checkLabels[check.name]}</span>
-                  <span
-                    className={check.status === "ok" ? "muted" : "attention"}
-                  >
-                    {check.status === "ok" ? "OK" : check.status}
-                  </span>
+                  <Text>{checkLabels[check.name]}</Text>
+                  <Text>{check.status === "ok" ? "OK" : check.status}</Text>
                 </li>
               ))}
-            </ul>
-            <p className="field-hint">
+            </VStack>
+            <Text as="p" color="secondary">
               Hermes reports these local checks. They do not send a model
               request. Review Agent can select a different model for each new
               review.
-            </p>
+            </Text>
           </>
         )}
-      </div>
-    </section>
+      </VStack>
+    </VStack>
   );
 }

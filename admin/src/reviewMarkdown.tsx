@@ -1,8 +1,25 @@
-import { memo } from "react";
+import { Code, CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Divider } from "@astryxdesign/core/Divider";
+import { VStack } from "@astryxdesign/core/Layout";
+import { Link } from "@astryxdesign/core/Link";
+import { List, ListItem } from "@astryxdesign/core/List";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
+import type { ReactNode } from "react";
+import { Children, isValidElement, memo } from "react";
 import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 
 // Published Markdown includes native details/summary elements. Parse those,
 // then sanitize the resulting tree before React sees any untrusted HTML.
@@ -20,7 +37,7 @@ export const ReviewMarkdown = memo(function ReviewMarkdown({
   headSha: string;
 }) {
   return (
-    <div className="review-markdown">
+    <VStack gap={4}>
       <Markdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
@@ -39,33 +56,88 @@ export const ReviewMarkdown = memo(function ReviewMarkdown({
           }
         }}
         components={{
-          h1: ({ children }) => <h2>{children}</h2>,
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target={href?.startsWith("#") ? undefined : "_blank"}
-              rel="noreferrer"
-            >
+          h1: ({ children }) => <Heading level={2}>{children}</Heading>,
+          h2: ({ children }) => <Heading level={2}>{children}</Heading>,
+          h3: ({ children }) => <Heading level={3}>{children}</Heading>,
+          h4: ({ children }) => <Heading level={4}>{children}</Heading>,
+          h5: ({ children }) => <Heading level={5}>{children}</Heading>,
+          h6: ({ children }) => <Heading level={6}>{children}</Heading>,
+          p: ({ children }) => <Text as="p">{children}</Text>,
+          ul: ({ children }) => <List listStyle="disc">{children}</List>,
+          ol: ({ children, start }) => (
+            <List listStyle="decimal" start={start}>
               {children}
-              {href && !href.startsWith("#") ? (
-                <span className="sr-only"> (opens in a new tab)</span>
-              ) : null}
-            </a>
+            </List>
           ),
+          li: ({ children }) => <ListItem label={children} />,
+          blockquote: ({ children }) => (
+            <VStack as="blockquote" gap={2} paddingInline={4}>
+              {children}
+            </VStack>
+          ),
+          hr: () => <Divider />,
+          code: ({ children }) => <Code>{children}</Code>,
+          pre: ({ children }) => {
+            const child = Children.toArray(children)[0];
+            const props = isValidElement<{
+              children?: ReactNode;
+              className?: string;
+            }>(child)
+              ? child.props
+              : undefined;
+            return (
+              <CodeBlock
+                code={String(props?.children ?? "")}
+                language={props?.className?.replace(/^language-/, "")}
+                width="100%"
+              />
+            );
+          },
+          details: ({ children, open }) => {
+            const parts = Children.toArray(children);
+            const summary = parts.find(
+              (part) => isValidElement(part) && part.type === "summary",
+            );
+            const trigger = isValidElement<{ children?: ReactNode }>(summary)
+              ? summary.props.children
+              : "Details";
+            return (
+              <Collapsible trigger={trigger} defaultIsOpen={Boolean(open)}>
+                <VStack gap={3}>
+                  {parts.filter((part) => part !== summary)}
+                </VStack>
+              </Collapsible>
+            );
+          },
+          a: ({ href, children }) =>
+            href ? (
+              <Link
+                href={href}
+                target={href?.startsWith("#") ? undefined : "_blank"}
+                rel="noreferrer"
+              >
+                {children}
+                {!href.startsWith("#") && (
+                  <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+                )}
+              </Link>
+            ) : (
+              <Text>{children}</Text>
+            ),
           table: ({ children }) => (
-            <div
-              className="review-table"
-              tabIndex={0}
-              role="region"
-              aria-label="Review table"
-            >
-              <table>{children}</table>
-            </div>
+            <Table aria-label="Review table" textOverflow="wrap">
+              {children}
+            </Table>
           ),
+          thead: ({ children }) => <TableHeader>{children}</TableHeader>,
+          tbody: ({ children }) => <TableBody>{children}</TableBody>,
+          tr: ({ children }) => <TableRow>{children}</TableRow>,
+          th: ({ children }) => <TableHeaderCell>{children}</TableHeaderCell>,
+          td: ({ children }) => <TableCell>{children}</TableCell>,
         }}
       >
         {markdown}
       </Markdown>
-    </div>
+    </VStack>
   );
 });

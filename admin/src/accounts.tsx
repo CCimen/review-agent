@@ -1,6 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack } from "@astryxdesign/core/Layout";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useLocation } from "react-router-dom";
+import { Form } from "./ui";
+// Login layout adapted from Astryx's Basic Login template.
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Center } from "@astryxdesign/core/Center";
+import { VStack } from "@astryxdesign/core/Layout";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { login, read, write } from "./api";
+import { GitPullRequest } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type {
   Account,
   AccountPage,
@@ -8,24 +26,41 @@ import type {
   NewAccount,
   PasswordChange,
 } from "./api";
+import { login, read, write } from "./api";
+import { isAdmin, roleLabels, ScopedAnchor, useScope } from "./scope";
 import { Stat } from "./ui";
-import {
-  ScopedNavLink as NavLink,
-  useScope,
-  isAdmin,
-  roleLabels,
-} from "./scope";
 
 export function SettingsTabs() {
   const { current } = useScope();
+  const { pathname } = useLocation();
   return (
-    <nav className="page-tabs" aria-label="Settings views">
+    <TabList
+      aria-label="Settings views"
+      value={pathname}
+      onChange={() => {}}
+      hasDivider
+    >
       {current.role === "owner" ? (
-        <NavLink to="/settings">General</NavLink>
+        <Tab
+          value="/settings"
+          href="/settings"
+          as={ScopedAnchor}
+          label="General"
+        />
       ) : null}
-      <NavLink to="/users">Users &amp; roles</NavLink>
-      <NavLink to="/integrations">Integrations</NavLink>
-    </nav>
+      <Tab
+        value="/users"
+        href="/users"
+        as={ScopedAnchor}
+        label="Users & roles"
+      />
+      <Tab
+        value="/integrations"
+        href="/integrations"
+        as={ScopedAnchor}
+        label="Integrations"
+      />
+    </TabList>
   );
 }
 
@@ -47,60 +82,83 @@ export function Login() {
     document.title = "Review Agent · Sign in";
   }, []);
   return (
-    <main className="login-page">
-      <div className="login-card">
-        <a className="brand" href="/">
-          <span className="brand-mark" aria-hidden="true">
-            RA
-          </span>
-          Review Agent
-        </a>
-        <h1>Sign in</h1>
-        <p className="muted">
-          Review activity and administration for your team.
-        </p>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            mutation.mutate();
-          }}
-        >
-          <label className="field">
-            Email address
-            <input
-              type="email"
-              autoComplete="username"
-              autoFocus
-              required
-              maxLength={320}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </label>
-          <label className="field">
-            Password
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              maxLength={128}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
-          {mutation.isError && (
-            <p className="notice error" role="alert">
-              {mutation.error.message}
-            </p>
-          )}
-          <button type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
-      </div>
-      <p className="footnote">
-        Ask your Review Agent administrator for an account or a password reset.
-      </p>
+    <main>
+      <Center minHeight="100dvh" padding={6}>
+        <VStack gap={6} width="100%" maxWidth={400} hAlign="stretch">
+          <VStack gap={2} hAlign="center">
+            <GitPullRequest size={28} aria-hidden="true" />
+            <Text weight="bold" size="lg">
+              Review Agent
+            </Text>
+          </VStack>
+          <Card padding={8} width="100%">
+            <VStack gap={5}>
+              <VStack gap={2}>
+                <Heading level={1}>Sign in</Heading>
+                <Text color="secondary">
+                  Review activity and administration for your team.
+                </Text>
+              </VStack>
+              <Form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  mutation.mutate();
+                }}
+              >
+                <VStack gap={4}>
+                  <TextInput
+                    label={"Email address"}
+                    id="login-email"
+                    type="email"
+                    hasAutoFocus={true}
+                    isRequired={true}
+                    value={email}
+                    onChange={(value) => setEmail(value)}
+                    {...({
+                      autoComplete: "username",
+                      required: true,
+                      maxLength: 320,
+                    } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                  />
+
+                  <TextInput
+                    label={"Password"}
+                    id="login-password"
+                    type="password"
+                    isRequired={true}
+                    value={password}
+                    onChange={(value) => setPassword(value)}
+                    {...({
+                      autoComplete: "current-password",
+                      required: true,
+                      maxLength: 128,
+                    } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                  />
+
+                  {mutation.isError && (
+                    <Banner
+                      status="error"
+                      title="Could not sign in"
+                      description={mutation.error.message}
+                    />
+                  )}
+                  <Button
+                    label={mutation.isPending ? "Signing in…" : "Sign in"}
+                    type="submit"
+                    variant="primary"
+                    isLoading={mutation.isPending}
+                    width="100%"
+                  />
+                </VStack>
+              </Form>
+            </VStack>
+          </Card>
+          <Text type="supporting">
+            Ask your Review Agent administrator for an account or a password
+            reset.
+          </Text>
+        </VStack>
+      </Center>
     </main>
   );
 }
@@ -156,138 +214,165 @@ export function Users({ current }: { current: Account }) {
   }, [createdEmail, create.isPending]);
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Users &amp; roles</h1>
-          <p>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Users &amp; roles</Heading>
+          <Text as="p">
             Platform administration · Manage accounts and platform roles. Team
             roles are assigned in Teams.
-          </p>
-        </div>
-        <button
+          </Text>
+        </VStack>
+        <Button
+          label={String(adding ? "Cancel adding user" : "Add user")}
+          variant="primary"
+          type="submit"
           ref={addButton}
           aria-expanded={adding}
           aria-controls="add-user"
-          disabled={create.isPending}
+          isDisabled={create.isPending}
           onClick={() => {
             setAdding((value) => !value);
             setPassword("");
             setCreatedEmail("");
             create.reset();
           }}
-        >
-          {adding ? "Cancel adding user" : "Add user"}
-        </button>
-      </div>
+        />
+      </HStack>
       <SettingsTabs />
-      <details className="metric-note">
-        <summary>What the roles allow</summary>
-        <p>
-          <strong>Members</strong> receive access through their teams as viewers
-          or maintainers. <strong>Global viewers</strong> can read review data
-          across the deployment. <strong>Admins</strong> manage teams,
-          repositories, and member accounts. <strong>Owners</strong> also manage
-          privileged accounts, provider credentials, and platform settings.
-        </p>
-      </details>
+      <Collapsible
+        defaultIsOpen={false}
+        trigger={
+          <HStack gap={3} wrap="wrap" vAlign="center">
+            What the roles allow
+          </HStack>
+        }
+      >
+        <VStack gap={4}>
+          <Text as="p">
+            <strong>Members</strong> receive access through their teams as
+            viewers or maintainers. <strong>Global viewers</strong> can read
+            review data across the deployment. <strong>Admins</strong> manage
+            teams, repositories, and member accounts. <strong>Owners</strong>{" "}
+            also manage privileged accounts, provider credentials, and platform
+            settings.
+          </Text>
+        </VStack>
+      </Collapsible>
       {createdEmail && (
-        <p className="save-result" role="status">
+        <Text as="p" role="status">
           Account created for {createdEmail}.
-        </p>
+        </Text>
       )}
       {adding && (
-        <form
+        <Form
           id="add-user"
-          className="account-form panel"
           onSubmit={(event) => {
             event.preventDefault();
             create.mutate();
           }}
         >
-          <h2>Add a user</h2>
-          <div className="form-fields">
-            <label className="field">
-              Email address
-              <input
-                type="email"
-                autoComplete="off"
-                autoFocus
-                disabled={create.isPending}
-                required
-                maxLength={320}
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              Initial password
-              <input
+          <Heading level={2}>Add a user</Heading>
+          <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+            <TextInput
+              label={"Email address"}
+              type="email"
+              hasAutoFocus={true}
+              isDisabled={create.isPending}
+              isRequired={true}
+              value={email}
+              onChange={(value) => setEmail(value)}
+              {...({
+                autoComplete: "off",
+                required: true,
+                maxLength: 320,
+              } satisfies InputHTMLAttributes<HTMLInputElement>)}
+            />
+
+            <VStack gap={2}>
+              <TextInput
+                label={"Initial password"}
                 type="password"
-                autoComplete="new-password"
-                disabled={create.isPending}
-                required
-                minLength={15}
-                maxLength={128}
+                isDisabled={create.isPending}
+                isRequired={true}
                 value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(value) => setPassword(value)}
+                {...({
+                  autoComplete: "new-password",
+                  required: true,
+                  minLength: 15,
+                  maxLength: 128,
+                } satisfies InputHTMLAttributes<HTMLInputElement>)}
               />
-              <span className="field-help">
+              <Text color="secondary">
                 15–128 characters. Share it privately with the user.
-              </span>
-            </label>
-            <label className="field">
-              Role
-              <select
-                value={role}
-                disabled={create.isPending}
-                onChange={(event) =>
-                  setRole(event.target.value as Account["role"])
-                }
-              >
-                {Object.entries(roleLabels)
+              </Text>
+            </VStack>
+            <Selector
+              label={"Role"}
+              options={[
+                Object.entries(roleLabels)
                   .filter(
                     ([value]) =>
                       current.role === "owner" ||
                       value === "member" ||
                       value === "viewer",
                   )
-                  .map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          </div>
-          <label className="field">
-            Reason
-            <textarea
-              required
-              maxLength={500}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
+                  .map(([value, label]) => ({
+                    value: value,
+                    label: label,
+                  })),
+              ]
+                .flat()
+                .filter((option) => option != null)}
+              value={role}
+              onChange={(value) => setRole(value as Account["role"])}
+              isDisabled={create.isPending}
             />
-          </label>
+          </Grid>
+
+          <TextArea
+            label={"Reason"}
+            isRequired={true}
+            maxLength={500}
+            value={reason}
+            onChange={(value) => setReason(value.slice(0, 500))}
+            {...({
+              required: true,
+            } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
+          />
+
           {create.isError && (
-            <p className="notice error" role="alert">
+            <Text as="p" role="alert">
               {create.error.message}
-            </p>
+            </Text>
           )}
-          <button disabled={create.isPending}>
-            {create.isPending ? "Adding user…" : "Add user"}
-          </button>
-        </form>
+          <Button
+            label={String(create.isPending ? "Adding user…" : "Add user")}
+            variant="primary"
+            type="submit"
+            isDisabled={create.isPending}
+          />
+        </Form>
       )}
-      {query.isPending && <p role="status">Loading users…</p>}
+      {query.isPending && (
+        <Text as="p" role="status">
+          Loading users…
+        </Text>
+      )}
       {query.isError && (
-        <div className="notice error" role="alert">
-          <p>Could not load users.</p>
-          <button onClick={() => void query.refetch()}>Retry</button>
-        </div>
+        <VStack gap={3} role="alert">
+          <Text as="p">Could not load users.</Text>
+          <Button
+            label={"Retry"}
+            variant="primary"
+            type="submit"
+            onClick={() => void query.refetch()}
+          />
+        </VStack>
       )}
       {query.data && (
         <>
-          <div className="stat-grid">
+          <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
             <Stat label="Accounts" value={query.data.total} />
             <Stat label="Admins" value={query.data.admin_count} />
             <Stat
@@ -295,73 +380,74 @@ export function Users({ current }: { current: Account }) {
               value={query.data.total - query.data.admin_count}
             />
             <Stat label="Disabled" value={query.data.disabled_count} />
-          </div>
-          <p className="stat-note">
+          </Grid>
+          <Text as="p" color="secondary">
             Totals cover all accounts. Filters below apply to this page.
-          </p>
-          <div className="toolbar">
-            <label className="field grow" htmlFor="user-filter">
-              Find a user
-              <input
-                id="user-filter"
-                type="search"
-                placeholder="Filter by email address"
-                maxLength={320}
-                value={filter}
-                onChange={(event) => setFilter(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              Show
-              <select
-                value={view}
-                onChange={(event) => setView(event.target.value)}
-              >
-                <option value="all">All accounts</option>
-                <option value="owner">Owners</option>
-                <option value="admin">Admins</option>
-                <option value="member">Members</option>
-                <option value="viewer">Global viewers</option>
-                <option value="disabled">Disabled</option>
-              </select>
-            </label>
-          </div>
-          <p className="result-count" role="status">
+          </Text>
+          <HStack gap={3} wrap="wrap" vAlign="center">
+            <TextInput
+              label={"Find a user"}
+              id="user-filter"
+              placeholder="Filter by email address"
+              value={filter}
+              onChange={(value) => setFilter(value)}
+              {...({
+                maxLength: 320,
+              } satisfies InputHTMLAttributes<HTMLInputElement>)}
+            />
+
+            <Selector
+              label={"Show"}
+              options={[
+                { value: "all", label: "All accounts" },
+                { value: "owner", label: "Owners" },
+                { value: "admin", label: "Admins" },
+                { value: "member", label: "Members" },
+                { value: "viewer", label: "Global viewers" },
+                { value: "disabled", label: "Disabled" },
+              ]}
+              value={view}
+              onChange={(value) => setView(value)}
+            />
+          </HStack>
+          <Text as="p" role="status">
             Showing {visible.length} of {page.length} account
             {page.length === 1 ? "" : "s"} on this page.
-          </p>
+          </Text>
           {visible.length ? (
-            <div className="user-list panel">
+            <VStack gap={4}>
               {visible.map((account) => (
                 <UserRow key={account.id} account={account} current={current} />
               ))}
-            </div>
+            </VStack>
           ) : (
-            <div className="empty">
-              <h2>No matching accounts</h2>
-              <p>Clear the filter or change the role shown.</p>
-            </div>
+            <VStack gap={3}>
+              <Heading level={2}>No matching accounts</Heading>
+              <Text as="p">Clear the filter or change the role shown.</Text>
+            </VStack>
           )}
         </>
       )}
       {(offset > 0 || query.data?.has_more) && (
-        <div className="pagination">
-          <button
-            className="secondary"
-            disabled={offset === 0}
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label={"Previous"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={offset === 0}
             onClick={() => setOffset((value) => Math.max(0, value - 50))}
-          >
-            Previous
-          </button>
-          <span>Page {Math.floor(offset / 50) + 1}</span>
-          <button
-            className="secondary"
-            disabled={!query.data?.has_more || offset >= 10000}
+          />
+          <Text>Page {Math.floor(offset / 50) + 1}</Text>
+          <Button
+            label={"Next"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={!query.data?.has_more || offset >= 10000}
             onClick={() => setOffset((value) => value + 50)}
-          >
-            Next
-          </button>
-        </div>
+          />
+        </HStack>
       )}
     </>
   );
@@ -415,10 +501,9 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
     },
   });
   return (
-    <details
-      className="user-row"
-      onToggle={(event) => {
-        if (event.currentTarget.open && !mutation.isPending) {
+    <Collapsible
+      onOpenChange={(isOpen) => {
+        if (isOpen && !mutation.isPending) {
           setRole(account.role);
           setActive(account.active);
           setPassword("");
@@ -426,168 +511,178 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
           mutation.reset();
         }
       }}
+      defaultIsOpen={false}
+      trigger={
+        <HStack gap={3} wrap="wrap" vAlign="center">
+          <Text>
+            <strong>{account.email}</strong>
+            {account.id === current.id && (
+              <Text color="secondary" display="block" type="supporting">
+                Your account
+              </Text>
+            )}
+          </Text>
+          <Text>{roleLabels[account.role]}</Text>
+          <Text>{account.active ? "Active" : "Disabled"}</Text>
+          <Text>{protectedAccount ? "View" : "Edit"}</Text>
+        </HStack>
+      }
     >
-      <summary className={account.active ? undefined : "inactive"}>
-        <span className="user-identity">
-          <strong>{account.email}</strong>
-          {account.id === current.id && (
-            <span className="subtext">Your account</span>
-          )}
-        </span>
-        <span>{roleLabels[account.role]}</span>
-        <span
-          className={`status ${account.active ? "published" : "superseded"}`}
+      <VStack gap={4}>
+        <Form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (
+              changed &&
+              reason.trim() &&
+              !protectedAccount &&
+              !mutation.isPending
+            )
+              setArmed(true);
+          }}
         >
-          {account.active ? "Active" : "Disabled"}
-        </span>
-        <span className="expand-label">
-          {protectedAccount ? "View" : "Edit"}
-        </span>
-      </summary>
-      <form
-        className="user-edit"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (
-            changed &&
-            reason.trim() &&
-            !protectedAccount &&
-            !mutation.isPending
-          )
-            setArmed(true);
-        }}
-      >
-        {protectedAccount ? (
-          <p className="notice">
-            Only a platform owner can change this account.
-          </p>
-        ) : null}
-        <fieldset
-          className="account-fields"
-          disabled={protectedAccount || mutation.isPending}
-        >
-          <div className="form-fields">
-            <label className="field">
-              Role
-              <select
-                value={role}
-                disabled={mutation.isPending}
-                onChange={(event) =>
-                  setRole(event.target.value as Account["role"])
-                }
-              >
-                {Object.entries(roleLabels)
-                  .filter(
-                    ([value]) =>
-                      current.role === "owner" ||
-                      value === "member" ||
-                      value === "viewer" ||
-                      value === account.role,
-                  )
-                  .map(([value, label]) => (
-                    <option value={value} key={value}>
-                      {label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label className="field">
-              Access
-              <select
-                value={String(active)}
-                disabled={mutation.isPending}
-                onChange={(event) => setActive(event.target.value === "true")}
-              >
-                <option value="true">Active</option>
-                <option value="false">Disabled</option>
-              </select>
-            </label>
-            <label className="field">
-              Reset password
-              <input
-                type="password"
-                autoComplete="new-password"
-                disabled={mutation.isPending}
-                minLength={15}
-                maxLength={128}
-                placeholder="Leave blank to keep it"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
+          {protectedAccount ? (
+            <Text as="p">Only a platform owner can change this account.</Text>
+          ) : null}
+          <fieldset disabled={protectedAccount || mutation.isPending}>
+            <VStack gap={4}>
+              <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+                <Selector
+                  label={"Role"}
+                  options={[
+                    Object.entries(roleLabels)
+                      .filter(
+                        ([value]) =>
+                          current.role === "owner" ||
+                          value === "member" ||
+                          value === "viewer" ||
+                          value === account.role,
+                      )
+                      .map(([value, label]) => ({
+                        value: value,
+                        label: label,
+                      })),
+                  ]
+                    .flat()
+                    .filter((option) => option != null)}
+                  value={role}
+                  onChange={(value) => setRole(value as Account["role"])}
+                  isDisabled={
+                    mutation.isPending || protectedAccount || mutation.isPending
+                  }
+                />
+                <Selector
+                  label={"Access"}
+                  options={[
+                    { value: "true", label: "Active" },
+                    { value: "false", label: "Disabled" },
+                  ]}
+                  value={String(active)}
+                  onChange={(value) => setActive(value === "true")}
+                  isDisabled={
+                    mutation.isPending || protectedAccount || mutation.isPending
+                  }
+                />
+
+                <TextInput
+                  label={"Reset password"}
+                  type="password"
+                  isDisabled={mutation.isPending}
+                  placeholder="Leave blank to keep it"
+                  value={password}
+                  onChange={(value) => setPassword(value)}
+                  {...({
+                    autoComplete: "new-password",
+                    minLength: 15,
+                    maxLength: 128,
+                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                />
+              </Grid>
+
+              <TextArea
+                label={"Reason"}
+                isRequired={true}
+                maxLength={500}
+                value={reason}
+                onChange={(value) => setReason(value.slice(0, 500))}
+                {...({
+                  required: true,
+                } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
               />
-            </label>
-          </div>
-          <label className="field">
-            Reason
-            <textarea
-              required
-              maxLength={500}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </label>
-          <p className="field-help">
-            Saving signs this account out on all devices. At least one active
-            platform owner must remain, so the last one cannot be demoted or
-            disabled.
-          </p>
-          {mutation.isError && (
-            <p className="notice error" role="alert">
-              {mutation.error.message}
-            </p>
-          )}
-          {mutation.isSuccess && (
-            <p role="status" className="save-result">
-              Account updated.
-            </p>
-          )}
-          {armed ? (
-            <div className="confirm" role="group" aria-label="Confirm changes">
-              <p className="confirm-title">
-                Apply these changes to <strong>{account.email}</strong>?
-              </p>
-              <ul>
-                {changes.map((change) => (
-                  <li key={change}>{change}</li>
-                ))}
-                <li>Sign this account out on all devices</li>
-              </ul>
-              {(losesAdmin || locksSelfOut) && (
-                <p className="notice error">
-                  {locksSelfOut
-                    ? "This is your own account. You will be signed out and will not be able to sign back in."
-                    : "This is your own account. You will lose administrator access, including this page."}
-                </p>
+
+              <Text as="p" color="secondary">
+                Saving signs this account out on all devices. At least one
+                active platform owner must remain, so the last one cannot be
+                demoted or disabled.
+              </Text>
+              {mutation.isError && (
+                <Text as="p" role="alert">
+                  {mutation.error.message}
+                </Text>
               )}
-              <div className="confirm-actions">
-                <button
-                  ref={confirmButton}
-                  disabled={mutation.isPending}
-                  onClick={() => mutation.mutate()}
+              {mutation.isSuccess && (
+                <Text as="p" role="status">
+                  Account updated.
+                </Text>
+              )}
+              {armed ? (
+                <VStack
+                  gap={3}
+
+                  role="group"
+                  aria-label="Confirm changes"
                 >
-                  {mutation.isPending ? "Saving…" : "Save changes"}
-                </button>
-                <button
+                  <Text as="p">
+                    Apply these changes to <strong>{account.email}</strong>?
+                  </Text>
+                  <VStack as="ul" gap={3}>
+                    {changes.map((change) => (
+                      <li key={change}>{change}</li>
+                    ))}
+                    <li>Sign this account out on all devices</li>
+                  </VStack>
+                  {(losesAdmin || locksSelfOut) && (
+                    <Text as="p">
+                      {locksSelfOut
+                        ? "This is your own account. You will be signed out and will not be able to sign back in."
+                        : "This is your own account. You will lose administrator access, including this page."}
+                    </Text>
+                  )}
+                  <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                    <Button
+                      label={String(
+                        mutation.isPending ? "Saving…" : "Save changes",
+                      )}
+                      variant="primary"
+                      type="submit"
+                      ref={confirmButton}
+                      isDisabled={mutation.isPending}
+                      onClick={() => mutation.mutate()}
+                    />
+                    <Button
+                      label={"Keep editing"}
+                      variant="secondary"
+                      type="button"
+
+                      isDisabled={mutation.isPending}
+                      onClick={() => setArmed(false)}
+                    />
+                  </HStack>
+                </VStack>
+              ) : (
+                <Button
+                  label={"Review changes"}
+                  variant="primary"
                   type="button"
-                  className="secondary"
-                  disabled={mutation.isPending}
-                  onClick={() => setArmed(false)}
-                >
-                  Keep editing
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              disabled={mutation.isPending || !changed || !reason.trim()}
-              onClick={() => setArmed(true)}
-            >
-              Review changes
-            </button>
-          )}
-        </fieldset>
-      </form>
-    </details>
+                  isDisabled={mutation.isPending || !changed || !reason.trim()}
+                  onClick={() => setArmed(true)}
+                />
+              )}
+            </VStack>
+          </fieldset>
+        </Form>
+      </VStack>
+    </Collapsible>
   );
 }
 
@@ -617,70 +712,83 @@ export function MyAccount({ current }: { current: Account }) {
   }, []);
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Your account</h1>
-          <p>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Your account</Heading>
+          <Text as="p">
             {current.email} · {roleLabels[current.role]}
-          </p>
-        </div>
-      </div>
-      <form
-        className="password-form panel"
+          </Text>
+        </VStack>
+      </HStack>
+      <Form
         onSubmit={(event) => {
           event.preventDefault();
           mutation.mutate();
         }}
       >
-        <h2>Change password</h2>
-        <p className="muted">
+        <Heading level={2}>Change password</Heading>
+        <Text as="p" color="secondary">
           You will be signed out on all devices after changing it.
-        </p>
-        <label className="field">
-          Current password
-          <input
+        </Text>
+
+        <TextInput
+          label={"Current password"}
+          type="password"
+          isRequired={true}
+          value={oldPassword}
+          onChange={(value) => setOldPassword(value)}
+          {...({
+            autoComplete: "current-password",
+            required: true,
+            maxLength: 128,
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
+        />
+
+        <VStack gap={2}>
+          <TextInput
+            label={"New password"}
             type="password"
-            autoComplete="current-password"
-            required
-            maxLength={128}
-            value={oldPassword}
-            onChange={(event) => setOldPassword(event.target.value)}
-          />
-        </label>
-        <label className="field">
-          New password
-          <input
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={15}
-            maxLength={128}
+            isRequired={true}
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(value) => setPassword(value)}
+            {...({
+              autoComplete: "new-password",
+              required: true,
+              minLength: 15,
+              maxLength: 128,
+            } satisfies InputHTMLAttributes<HTMLInputElement>)}
           />
-          <span className="field-help">15–128 characters.</span>
-        </label>
-        <label className="field">
-          Confirm new password
-          <input
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={15}
-            maxLength={128}
-            value={confirm}
-            onChange={(event) => setConfirm(event.target.value)}
-          />
-        </label>
+          <Text color="secondary">15–128 characters.</Text>
+        </VStack>
+
+        <TextInput
+          label={"Confirm new password"}
+          type="password"
+          isRequired={true}
+          value={confirm}
+          onChange={(value) => setConfirm(value)}
+          {...({
+            autoComplete: "new-password",
+            required: true,
+            minLength: 15,
+            maxLength: 128,
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
+        />
+
         {mutation.isError && (
-          <p className="notice error" role="alert">
+          <Text as="p" role="alert">
             {mutation.error.message}
-          </p>
+          </Text>
         )}
-        <button disabled={mutation.isPending}>
-          {mutation.isPending ? "Changing password…" : "Change password"}
-        </button>
-      </form>
+        <Button
+          label={String(
+            mutation.isPending ? "Changing password…" : "Change password",
+          )}
+          variant="primary"
+          type="submit"
+          isDisabled={mutation.isPending}
+        />
+      </Form>
     </>
   );
 }

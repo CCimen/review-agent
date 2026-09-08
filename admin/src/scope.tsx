@@ -1,24 +1,25 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
-import type { ReactNode } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { Center } from "@astryxdesign/core/Center";
+import { ComplexSelector } from "@astryxdesign/core/ComplexSelector";
+import { VStack } from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import type { UseQueryResult } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ComponentProps, InputHTMLAttributes, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import type { LinkProps, To } from "react-router-dom";
 import {
   Link,
-  NavLink,
+  createPath,
   parsePath,
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import type { LinkProps, NavLinkProps, To } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { UseQueryResult } from "@tanstack/react-query";
-import { APIError, read } from "./api";
 import type { Account, Team, TeamPage } from "./api";
+import { APIError, read } from "./api";
 import { Empty, Freshness } from "./ui";
 
 export const roleLabels: Record<Account["role"], string> = {
@@ -59,13 +60,25 @@ export function contextualTo(to: To, search: string): To {
   }
   return { ...target, search: params.size ? `?${params}` : "" };
 }
-export function ScopedLink({ to, ...props }: LinkProps) {
-  const { search } = useLocation();
-  return <Link {...props} to={contextualTo(to, search)} />;
+export function ScopedLink({
+  to,
+  ...props
+}: Omit<LinkProps, "color" | "type">) {
+  const { children, ...linkProps } = props;
+  return (
+    <AstryxLink
+      as={ScopedAnchor}
+      href={typeof to === "string" ? to : createPath(to)}
+      {...linkProps}
+    >
+      {children}
+    </AstryxLink>
+  );
 }
-export function ScopedNavLink({ to, ...props }: NavLinkProps) {
+/** Adapt Astryx's anchor contract to the router while retaining viewing context. */
+export function ScopedAnchor({ href = "/", ...props }: ComponentProps<"a">) {
   const { search } = useLocation();
-  return <NavLink {...props} to={contextualTo(to, search)} />;
+  return <Link to={contextualTo(href, search)} {...props} />;
 }
 
 export function ScopeProvider({
@@ -89,7 +102,8 @@ export function ScopeProvider({
     current.role === "member" && teams.data?.total === 1
       ? teams.data.items[0]
       : undefined;
-  const teamId = routeTeamId ?? requestedTeamId ?? (onlyTeam ? String(onlyTeam.id) : null);
+  const teamId =
+    routeTeamId ?? requestedTeamId ?? (onlyTeam ? String(onlyTeam.id) : null);
   const valid = teamId === null || /^[1-9]\d{0,18}$/.test(teamId);
   const selected = useQuery({
     queryKey: ["team", teamId, identity],
@@ -119,7 +133,9 @@ export function ScopeProvider({
       .then(() => client.removeQueries({ predicate }));
   }, [denied, client]);
   useEffect(() => {
-    const destination = routeTeamId ?? (requestedTeamId === null && onlyTeam ? String(onlyTeam.id) : null);
+    const destination =
+      routeTeamId ??
+      (requestedTeamId === null && onlyTeam ? String(onlyTeam.id) : null);
     if (destination === null || destination === requestedTeamId) return;
     const params = new URLSearchParams(search);
     params.set("team_id", destination);
@@ -153,33 +169,39 @@ export function ScopeProvider({
       }}
     >
       {denied && !globalPage ? (
-        <main className="scope-unavailable">
-          <Empty title="Team access is unavailable">
-            This team is no longer available to your account.{" "}
-            <Link to="/teams">Choose an available team</Link>.
-          </Empty>
+        <main>
+          <Center minHeight="100dvh" padding={6}>
+            <Empty title="Team access is unavailable">
+              This team is no longer available to your account.{" "}
+              <Link to="/teams">Choose an available team</Link>.
+            </Empty>
+          </Center>
         </main>
       ) : teamId && !selected.data && !globalPage ? (
         <main>
-          <Freshness query={selected} />
+          <Center minHeight="100dvh" padding={6}>
+            <Freshness query={selected} />
+          </Center>
         </main>
       ) : current.role === "member" && !globalPage && !teams.data ? (
         <main>
-          <Freshness query={teams} />
+          <Center minHeight="100dvh" padding={6}>
+            <Freshness query={teams} />
+          </Center>
         </main>
       ) : current.role === "member" &&
         !globalPage &&
         teams.data?.total === 0 ? (
         <main>
-          <Empty title="Your account is ready">
-            Ask a platform administrator or team maintainer to add you to a
-            team. <Link to="/account">Your account</Link>
-          </Empty>
+          <Center minHeight="100dvh" padding={6}>
+            <Empty title="Your account is ready">
+              Ask a platform administrator or team maintainer to add you to a
+              team. <Link to="/account">Your account</Link>
+            </Empty>
+          </Center>
         </main>
       ) : (
-        <div key={key} className="scope-content">
-          {children}
-        </div>
+        <div key={key}>{children}</div>
       )}
     </ScopeContext>
   );
@@ -190,14 +212,10 @@ export function ScopeSelector() {
   const { teamId, team, teams, current } = scope;
   const { search } = useLocation();
   const navigate = useNavigate();
-  const popoverId = useId();
-  const popover = useRef<HTMLDivElement>(null);
-  const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [term, setTerm] = useState("");
   const [after, setAfter] = useState(0);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
   useEffect(() => {
     const timer = window.setTimeout(() => setTerm(draft.trim()), 200);
     return () => window.clearTimeout(timer);
@@ -225,160 +243,98 @@ export function ScopeSelector() {
       if (value) params.set(name, value);
     }
     if (id) params.set("team_id", id);
-    popover.current?.hidePopover();
     navigate({ pathname: "/", search: params.toString() });
   };
   if (current.role === "member" && (!teams || teams.total <= 1)) {
     const onlyTeam = teams?.items[0];
     return onlyTeam ? (
-      <div className="scope-selector">
-        <div className="scope-current">
-          <span className="team-monogram" aria-hidden="true">
-            {onlyTeam.name.slice(0, 1).toUpperCase()}
-          </span>
-          <span className="scope-name">
-            {onlyTeam.name}
-            <small>Team workspace</small>
-          </span>
-        </div>
-      </div>
+      <VStack gap={1}>
+        <Text type="supporting">Team workspace</Text>
+        <Text weight="medium">{onlyTeam.name}</Text>
+      </VStack>
     ) : null;
   }
   return (
-    <div className="scope-selector">
-      <button
-        className="scope-trigger secondary"
-        popoverTarget={popoverId}
-        aria-expanded={open}
-        aria-label={`Switch team. Current view: ${label}`}
-        onClick={(event) => {
-          const bounds = event.currentTarget.getBoundingClientRect();
-          setPosition({
-            top: Math.min(
-              bounds.bottom + 6,
-              Math.max(8, window.innerHeight - 440),
-            ),
-            left: Math.max(8, Math.min(bounds.left, window.innerWidth - 352)),
-          });
-        }}
-      >
-        <span className="team-monogram" aria-hidden="true">
-          {teamId ? (team?.name.slice(0, 1).toUpperCase() ?? "?") : "Ra"}
-        </span>
-        <span className="scope-name">
-          {label}
-          <small>
-            {teamId
-              ? "Team workspace"
-              : current.role === "member"
-                ? "Your review activity"
-                : "Platform view"}
-          </small>
-        </span>
-        <svg
-          width="14"
-          height="18"
-          viewBox="0 0 16 20"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          aria-hidden="true"
-        >
-          <path d="m4 7 4-4 4 4M4 13l4 4 4-4" />
-        </svg>
-      </button>
-      <div
-        id={popoverId}
-        ref={popover}
-        popover="auto"
-        className="team-picker"
-        style={position}
-        onToggle={(event) => {
-          const isOpen = event.newState === "open";
-          setOpen(isOpen);
-          if (isOpen) {
-            setDraft("");
-            setTerm("");
-            setAfter(0);
-            input.current?.focus();
-          }
-        }}
-      >
-        <label className="field team-picker-search">
-          <span className="sr-only">Find a team</span>
-          <input
-            ref={input}
-            type="search"
+    <ComplexSelector
+      label="Switch team"
+      value={teamId ?? ""}
+      triggerLabel={label}
+      width="100%"
+      onChange={select}
+      onOpenChange={(isOpen) => {
+        setOpen(isOpen);
+        if (isOpen) {
+          setDraft("");
+          setTerm("");
+          setAfter(0);
+        }
+      }}
+    >
+      {(value, change, close) => (
+        <VStack gap={3} width="min(320px, calc(100dvw - var(--spacing-8)))">
+          <TextInput
+            label={"Find a team"}
+            id="team-picker-search"
             placeholder="Search teams…"
-            maxLength={80}
             value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
+            hasAutoFocus={true}
+            onChange={(value) => {
+              setDraft(value);
               setAfter(0);
             }}
+            {...({
+              maxLength: 80,
+            } satisfies InputHTMLAttributes<HTMLInputElement>)}
           />
-        </label>
-        <button
-          className={`team-choice${teamId === null ? " selected" : ""}`}
-          aria-pressed={teamId === null}
-          onClick={() => select("")}
-        >
-          <span className="team-monogram" aria-hidden="true">
-            Ra
-          </span>
-          <span>
-            {current.role === "member" ? "All my teams" : "All teams"}
-            <small>
-              {current.role === "member"
-                ? "Combined team activity"
-                : "Platform view"}
-            </small>
-          </span>
-        </button>
-        <div className="team-choices" aria-label="Available teams">
+
           {(term || after) && matches.isFetching ? (
-            <p role="status">Finding teams…</p>
+            <Text role="status">Finding teams…</Text>
           ) : null}
           {(term || after) && matches.isError ? (
             <Freshness query={matches} />
           ) : null}
-          {page?.items.map((item) => (
-            <button
-              key={item.id}
-              className={`team-choice${String(item.id) === teamId ? " selected" : ""}`}
-              aria-pressed={String(item.id) === teamId}
-              onClick={() => select(String(item.id))}
-            >
-              <span className="team-monogram" aria-hidden="true">
-                {item.name.slice(0, 1).toUpperCase()}
-              </span>
-              <span>
-                {item.name}
-                <small>
-                  {item.repository_count} repositories
-                  {item.role ? ` · ${item.role}` : ""}
-                </small>
-              </span>
-            </button>
-          ))}
-          {page?.items.length === 0 ? <p>No teams match this search.</p> : null}
-          {page?.next_after_id ? (
-            <button
-              className="text-button"
-              onClick={() => setAfter(page.next_after_id ?? 0)}
-            >
-              More teams
-            </button>
+          <List aria-label="Available teams" density="compact">
+            <ListItem
+              label={current.role === "member" ? "All my teams" : "All teams"}
+              description={
+                current.role === "member"
+                  ? "Combined team activity"
+                  : "Platform view"
+              }
+              isSelected={value === ""}
+              onClick={() => {
+                change("");
+                close();
+              }}
+            />
+            {page?.items.map((item) => (
+              <ListItem
+                key={item.id}
+                label={item.name}
+                description={`${item.repository_count} repositories${item.role ? ` · ${item.role}` : ""}`}
+                isSelected={String(item.id) === value}
+                onClick={() => {
+                  change(String(item.id));
+                  close();
+                }}
+              />
+            ))}
+          </List>
+          {page?.items.length === 0 ? (
+            <Text>No teams match this search.</Text>
           ) : null}
-        </div>
-        <Link
-          className="team-picker-manage"
-          to="/teams"
-          onClick={() => popover.current?.hidePopover()}
-        >
-          {isAdmin(current.role) ? "Manage teams" : "Browse teams"}
-        </Link>
-      </div>
-    </div>
+          {page?.next_after_id ? (
+            <Button
+              label="More teams"
+              variant="ghost"
+              onClick={() => setAfter(page.next_after_id ?? 0)}
+            />
+          ) : null}
+          <AstryxLink as={ScopedAnchor} href="/teams" onClick={close}>
+            {isAdmin(current.role) ? "Manage teams" : "Browse teams"}
+          </AstryxLink>
+        </VStack>
+      )}
+    </ComplexSelector>
   );
 }

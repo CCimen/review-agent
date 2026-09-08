@@ -1,7 +1,10 @@
-import { ScopedLink as Link, useScope } from "./scope";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Text } from "@astryxdesign/core/Text";
 import { useQuery } from "@tanstack/react-query";
 import { read } from "./api";
 import type { components } from "./api.generated";
+import { ScopedLink as Link, useScope } from "./scope";
 import { Freshness } from "./ui";
 
 type Findings = components["schemas"]["ReviewFindingPage"];
@@ -20,30 +23,36 @@ export function ReviewFindings({
   });
   if (query.data?.total === 0) return null;
   return (
-    <details className="finding-index">
-      <summary>
-        Finding decisions{query.data ? ` · ${query.data.total}` : ""}
-      </summary>
-      <Freshness query={query} />
-      <ul>
-        {query.data?.items.map((finding) => (
-          <li key={finding.occurrence_id}>
-            <Link
-              to={`/findings/${encodeURIComponent(finding.fingerprint)}?${new URLSearchParams({ repository, occurrence_id: String(finding.occurrence_id) })}`}
-            >
-              <span className="mono">
-                {finding.local_reference} · {finding.severity}
-              </span>{" "}
-              {finding.title}
-            </Link>
-          </li>
-        ))}
-      </ul>
-      {query.data && query.data.total > query.data.items.length && (
-        <p className="muted">
-          Showing the first {query.data.items.length} published findings.
-        </p>
-      )}
-    </details>
+    <Collapsible
+      defaultIsOpen={false}
+      trigger={
+        <HStack gap={3} wrap="wrap" vAlign="center">
+          Finding decisions{query.data ? ` · ${query.data.total}` : ""}
+        </HStack>
+      }
+    >
+      <VStack gap={4}>
+        <Freshness query={query} />
+        <VStack as="ul" gap={3}>
+          {query.data?.items.map((finding) => (
+            <li key={finding.occurrence_id}>
+              <Link
+                to={`/findings/${encodeURIComponent(finding.fingerprint)}?${new URLSearchParams({ repository, occurrence_id: String(finding.occurrence_id) })}`}
+              >
+                <Text>
+                  {finding.local_reference} · {finding.severity}
+                </Text>{" "}
+                {finding.title}
+              </Link>
+            </li>
+          ))}
+        </VStack>
+        {query.data && query.data.total > query.data.items.length && (
+          <Text as="p" color="secondary">
+            Showing the first {query.data.items.length} published findings.
+          </Text>
+        )}
+      </VStack>
+    </Collapsible>
   );
 }

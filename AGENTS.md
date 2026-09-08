@@ -45,6 +45,31 @@ acceptance criteria, validation, and recovery or rollback where applicable.
   claim reliability, security, performance, or production readiness without a
   concrete mechanism or evidence.
 
+## Astryx console UI
+
+- Preserve the approved Astryx Neutral design in light and dark modes. Use the
+  preview in `admin/preview/` as the visual reference and `admin/DESIGN.md` for
+  product behavior. Prioritize coherent proportions, spacing, and typography;
+  keep the default theme unless the user requests a change.
+- Use the connected `xds` MCP: `search` to find suitable components and patterns,
+  then `get` for their props, examples, and `usage.bestPractices` before using
+  them. Read the relevant guidance when choosing between components, not just
+  their import paths. Check APIs against the installed package version.
+- Check the built-in page templates before composing a new screen. Reuse relevant
+  login, settings, table, and shell patterns, adapting only the real product
+  content and behavior. Import the upstream Neutral built theme and CSS from
+  `@astryxdesign/theme-neutral`; do not maintain a copied theme or palette.
+- If MCP is unavailable, use the existing CLI alias:
+  `npm --prefix admin run astryx -- component <Name>` and the relevant `docs`
+  or `template` command. Do not rerun initialization over project instructions.
+- Use Astryx components and their public props for layout, typography, colors,
+  tables, forms, and states throughout the console. Remove legacy visual CSS
+  as its consumers move to native components; do not keep global element rules
+  or recreate library controls with custom styles. Do not invent props,
+  duplicate built-in navigation or theme state, or add a styling compiler just
+  to use an example. Preserve routing, team scope, permissions, form state, and
+  error recovery when replacing visible components.
+
 ## Repository invariants
 
 - GitHub App installation tokens are the production GitHub credential path. Do

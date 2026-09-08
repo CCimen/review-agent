@@ -1,8 +1,43 @@
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Selector } from "@astryxdesign/core/Selector";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import type { UseQueryResult } from "@tanstack/react-query";
+import type { ComponentProps, ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { APIError } from "./api";
+
+export function dateTimeValue(date: Date): ISODateTimeString {
+  return date.toISOString().slice(0, 16) as ISODateTimeString;
+}
+
+/** Astryx's numeric editor exposes invalid drafts through aria-invalid.
+ * Keep those drafts from submitting the previously committed value. */
+export function Form({ children, onSubmit, ...props }: ComponentProps<"form">) {
+  return (
+    <form
+      {...props}
+      onSubmit={(event) => {
+        const invalid = event.currentTarget.querySelector<HTMLElement>(
+          '[aria-invalid="true"]',
+        );
+        if (invalid) {
+          event.preventDefault();
+          invalid.focus();
+          return;
+        }
+        onSubmit?.(event);
+      }}
+    >
+      <VStack gap={4}>{children}</VStack>
+    </form>
+  );
+}
 
 export function useFilters() {
   const [params, setParams] = useSearchParams();
@@ -103,32 +138,29 @@ export function Copy({
     const timer = setTimeout(() => setDone(false), 1600);
     return () => clearTimeout(timer);
   }, [done]);
-  if (!navigator.clipboard) return <>{children}</>;
+  if (typeof navigator === "undefined" || !navigator.clipboard)
+    return <>{children}</>;
   return (
-    <button
+    <Button
       type="button"
-      className="copy"
+      variant="ghost"
+      size="sm"
+      label={done ? `${label} copied to clipboard` : `Copy ${label}`}
       onClick={() => {
         void navigator.clipboard.writeText(value).then(() => setDone(true));
       }}
     >
       {children}
-      <span
-        className={done ? "copy-hint done" : "copy-hint"}
-        aria-hidden="true"
-      >
+      <Text color="secondary" aria-hidden="true">
         {done ? "Copied" : "Copy"}
-      </span>
-      <span className="sr-only">
-        {done ? `${label} copied to clipboard` : `Copy ${label}`}
-      </span>
-    </button>
+      </Text>
+    </Button>
   );
 }
 
 /** A figure the deployment does not record is unknown, never zero. */
 export function Unknown({ children = "Not recorded" }: { children?: string }) {
-  return <span className="unknown">{children}</span>;
+  return <Text color="secondary">{children}</Text>;
 }
 
 export function Stat({
@@ -148,21 +180,26 @@ export function Stat({
       ? number.format(value)
       : (value ?? "Not recorded");
   return (
-    <div className="stat">
-      <span className="stat-label">{label}</span>
-      <span
-        className={[
-          "stat-value",
-          missing ? "unknown" : "",
-          attention && value ? "attention" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
+    <VStack gap={2}>
+      <HStack gap={2} vAlign="center">
+        {attention && value ? (
+          <StatusDot
+            variant="error"
+            label="Needs attention"
+            aria-hidden="true"
+          />
+        ) : null}
+        <Text color="secondary">{label}</Text>
+      </HStack>
+      <Text
+        size="2xl"
+        weight="semibold"
+        color={missing ? "secondary" : "primary"}
       >
         {text}
-      </span>
-      {hint ? <span className="stat-hint">{hint}</span> : null}
-    </div>
+      </Text>
+      {hint ? <Text type="supporting">{hint}</Text> : null}
+    </VStack>
   );
 }
 
@@ -178,16 +215,16 @@ export function Section({
   actions?: ReactNode;
 }) {
   return (
-    <section className="section">
-      <div className="section-heading">
-        <div>
-          <h2>{title}</h2>
-          {description ? <p className="muted">{description}</p> : null}
-        </div>
+    <VStack as="section" gap={4}>
+      <HStack gap={4} hAlign="between" vAlign="start" wrap="wrap">
+        <VStack gap={1}>
+          <Heading level={2}>{title}</Heading>
+          {description ? <Text color="secondary">{description}</Text> : null}
+        </VStack>
         {actions}
-      </div>
+      </HStack>
       {children}
-    </section>
+    </VStack>
   );
 }
 
@@ -199,14 +236,16 @@ export function Period({
   change: (value: string) => void;
 }) {
   return (
-    <label className="field">
-      Reporting period
-      <select value={days} onChange={(event) => change(event.target.value)}>
-        <option value="7">Last 7 days</option>
-        <option value="30">Last 30 days</option>
-        <option value="90">Last 90 days</option>
-      </select>
-    </label>
+    <Selector
+      label="Reporting period"
+      value={String(days)}
+      onChange={change}
+      options={[
+        { value: "7", label: "Last 7 days" },
+        { value: "30", label: "Last 30 days" },
+        { value: "90", label: "Last 90 days" },
+      ]}
+    />
   );
 }
 
@@ -221,29 +260,35 @@ export function Freshness<T>({
 }) {
   if (quiet && !query.isError && !query.isPending) return null;
   return (
-    <div className="freshness">
+    <VStack gap={2}>
       {query.isError ? (
-        <div className="notice error" role="alert">
-          <p>
-            {query.error.message || "Could not connect to Review Agent."}{" "}
-            {query.data ? "The last available data is still shown below." : ""}
-          </p>
-          {query.error instanceof APIError && query.error.status === 401 ? (
-            <button onClick={() => window.location.reload()}>
-              Reload to sign in
-            </button>
-          ) : (
-            <button onClick={() => void query.refetch()}>Retry</button>
-          )}
-        </div>
+        <Banner
+          status="error"
+          title={query.error.message || "Could not connect to Review Agent."}
+          description={
+            query.data
+              ? "The last available data is still shown below."
+              : undefined
+          }
+          endContent={
+            query.error instanceof APIError && query.error.status === 401 ? (
+              <Button
+                label="Reload to sign in"
+                onClick={() => window.location.reload()}
+              />
+            ) : (
+              <Button label="Retry" onClick={() => void query.refetch()} />
+            )
+          }
+        />
       ) : (
-        <span role={query.isPending ? "status" : undefined}>
+        <Text type="supporting" role={query.isPending ? "status" : undefined}>
           {query.isPending
             ? "Loading…"
             : `Updated ${time(new Date(query.dataUpdatedAt).toISOString())}${interval ? ` · refreshes every ${interval} seconds` : ""}`}
-        </span>
+        </Text>
       )}
-    </div>
+    </VStack>
   );
 }
 
@@ -256,11 +301,17 @@ export function Empty({
   level?: 2 | 3;
   children: ReactNode;
 }) {
-  const Heading = level === 3 ? "h3" : "h2";
   return (
-    <div className="empty">
-      <Heading>{title}</Heading>
-      <p>{children}</p>
-    </div>
+    <VStack gap={3} role="status">
+      <EmptyState
+        title={title}
+        headingLevel={level}
+        isCompact
+        description={typeof children === "string" ? children : undefined}
+      />
+      {typeof children !== "string" ? (
+        <Text color="secondary">{children}</Text>
+      ) : null}
+    </VStack>
   );
 }

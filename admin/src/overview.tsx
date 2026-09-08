@@ -1,9 +1,15 @@
-import { ScopedLink as Link, useScope } from "./scope";
-import { useEffect, useState } from "react";
+import { Code } from "@astryxdesign/core/CodeBlock";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { useQuery } from "@tanstack/react-query";
-import { read } from "./api";
+import { useEffect, useState } from "react";
 import { ActivityTabs } from "./activity";
 import type { ActivityCounts, ActivityDay, Overview } from "./api";
+import { read } from "./api";
+import { ScopedLink as Link, useScope } from "./scope";
 import {
   Freshness,
   Period,
@@ -69,84 +75,64 @@ function Trend({
   );
   const total = days.reduce((sum, entry) => sum + entry.published_reviews, 0);
   const active = days.filter((entry) => entry.published_reviews > 0).length;
-  const shown = hovered
-    ? days.find((entry) => entry.date === hovered)
-    : undefined;
-  // Printed on the bars, a value needs no hover and no axis arithmetic. Below
-  // roughly a fortnight the columns are too narrow to carry a number.
-  const labelled = days.length <= 12;
+  const shown = days.find((entry) => entry.date === hovered);
   return (
-    <div className="chart-panel panel">
-      <div className="chart-head">
-        <span className="chart-title">Published reviews per day</span>
-        <span className="chart-peak">
-          {`${number.format(active)} of ${number.format(days.length)} days`}
-        </span>
-      </div>
-      <div className="chart-figure">
-        {/* The scale exists so a bar height means a number. Once every column
-            carries its own value the axis is just repeating the peak. */}
-        {!labelled && (
-          <div className="chart-scale" aria-hidden="true">
-            <span>{number.format(peak.published_reviews)}</span>
-            <span>0</span>
-          </div>
-        )}
-        <ol
-          className="chart"
+    <VStack gap={3}>
+      <HStack gap={3} wrap="wrap" hAlign="between">
+        <Heading level={3}>Published reviews per day</Heading>
+        <Text type="supporting">{`${number.format(active)} of ${number.format(days.length)} days`}</Text>
+      </HStack>
+      <VStack gap={1}>
+        <Text type="supporting" aria-hidden="true">
+          {number.format(peak.published_reviews)}
+        </Text>
+        <svg
+          viewBox="0 0 600 160"
+          width="100%"
+          height={160}
+          preserveAspectRatio="none"
           aria-hidden="true"
           onMouseLeave={() => setHovered(null)}
         >
-          {days.map((entry) => (
-            <li key={entry.date} onMouseEnter={() => setHovered(entry.date)}>
-              {labelled && (
-                <span className="chart-value">
-                  {number.format(entry.published_reviews)}
-                </span>
-              )}
-              <span className="chart-track">
-                <span
-                  className={
-                    entry.published_reviews ? "chart-bar" : "chart-bar zero"
-                  }
-                  style={{
-                    height: peak.published_reviews
-                      ? `${(entry.published_reviews / peak.published_reviews) * 100}%`
-                      : "0%",
-                  }}
-                />
-              </span>
-            </li>
-          ))}
-        </ol>
-        {/* Values were previously reachable only by mouse-hovering a title
-            attribute. This readout is always rendered. */}
-        <div className="chart-axis" aria-hidden="true">
-          <span>{day(first.date)}</span>
-          <span>{day(last.date)}</span>
-        </div>
-        <p className="chart-readout" aria-hidden="true">
-          {shown ? (
-            <>
-              <strong>{number.format(shown.published_reviews)}</strong>{" "}
-              published on {day(shown.date)}
-            </>
-          ) : (
-            <span className="muted">
-              {`${number.format(total)} published · busiest ${day(peak.date)} with ${number.format(peak.published_reviews)}`}
-            </span>
-          )}
-        </p>
-      </div>
-      {days.length < window && (
-        <p className="field-help">
-          {`Records begin ${day(first.date)}, so this covers ${days.length} of the last ${window} days.`}
-        </p>
-      )}
-      <p className="sr-only">
-        {`${number.format(total)} reviews published across ${days.length} days, from ${day(first.date)} to ${day(last.date)}, on ${number.format(active)} of those days. The busiest day was ${day(peak.date)} with ${number.format(peak.published_reviews)}. Days are grouped at UTC midnight.`}
-      </p>
-    </div>
+          {days.map((entry, index) => {
+            const height = peak.published_reviews
+              ? (entry.published_reviews / peak.published_reviews) * 160
+              : 0;
+            return (
+              <rect
+                key={entry.date}
+                x={(index * 600) / days.length}
+                y={160 - height}
+                width={Math.max(1, 600 / days.length - 2)}
+                height={height}
+                fill="var(--color-data-categorical-blue)"
+                onMouseEnter={() => setHovered(entry.date)}
+              />
+            );
+          })}
+          <line
+            x1={0}
+            y1={160}
+            x2={600}
+            y2={160}
+            stroke="var(--color-border)"
+          />
+        </svg>
+        <HStack hAlign="between" aria-hidden="true">
+          <Text type="supporting">{day(first.date)}</Text>
+          <Text type="supporting">{day(last.date)}</Text>
+        </HStack>
+      </VStack>
+      <Text>
+        {shown
+          ? `${number.format(shown.published_reviews)} published on ${day(shown.date)}`
+          : `${number.format(total)} published · busiest ${day(peak.date)} with ${number.format(peak.published_reviews)}`}
+      </Text>
+      {days.length < window ? (
+        <Text type="supporting">{`Records begin ${day(first.date)}, so this covers ${days.length} of the last ${window} days.`}</Text>
+      ) : null}
+      <VisuallyHidden>{`${number.format(total)} reviews published across ${days.length} days, from ${day(first.date)} to ${day(last.date)}, on ${number.format(active)} of those days. The busiest day was ${day(peak.date)} with ${number.format(peak.published_reviews)}. Days are grouped at UTC midnight.`}</VisuallyHidden>
+    </VStack>
   );
 }
 
@@ -160,27 +146,30 @@ function SparseTrend({
   const active = days.filter((entry) => entry.published_reviews > 0);
   const total = days.reduce((sum, entry) => sum + entry.published_reviews, 0);
   return (
-    <div className="chart-panel panel">
-      <div className="chart-head">
-        <span className="chart-title">Published reviews per day</span>
-        <span className="chart-peak">
+    <VStack gap={4}>
+      <HStack gap={3} wrap="wrap" vAlign="center">
+        <Heading level={3}>Published reviews per day</Heading>
+        <Text type="supporting">
           {`${number.format(active.length)} of ${number.format(days.length)} days`}
-        </span>
-      </div>
-      <ol className="day-list">
+        </Text>
+      </HStack>
+      <List hasDividers>
         {active.map((entry) => (
-          <li key={entry.date}>
-            <span className="day-date">{day(entry.date)}</span>
-            <span className="day-count">
-              {number.format(entry.published_reviews)}
-            </span>
-          </li>
+          <ListItem
+            key={entry.date}
+            label={day(entry.date)}
+            endContent={
+              <Text hasTabularNumbers>
+                {number.format(entry.published_reviews)}
+              </Text>
+            }
+          />
         ))}
-      </ol>
-      <p className="field-help">
+      </List>
+      <Text as="p" color="secondary">
         {`${number.format(total)} published across ${days.length} days in this period. The remaining days had none.`}
-      </p>
-    </div>
+      </Text>
+    </VStack>
   );
 }
 
@@ -191,8 +180,8 @@ function Latency({ counts }: { counts: ActivityCounts }) {
   const enough = counts.published_reviews >= 20;
   const p95 = enough ? duration(counts.p95_publication_seconds) : null;
   return (
-    <div className="latency panel">
-      <span className="chart-title">Request to publication</span>
+    <VStack gap={4}>
+      <Heading level={3}>Request to publication</Heading>
       <dl>
         <div>
           <dt>Median</dt>
@@ -211,11 +200,11 @@ function Latency({ counts }: { counts: ActivityCounts }) {
           </dd>
         </div>
       </dl>
-      <p className="field-help">
+      <Text as="p" color="secondary">
         {`Across ${number.format(counts.published_reviews)} published review${counts.published_reviews === 1 ? "" : "s"}, measured from the request to a result reaching GitHub, including queueing, retries and delivery.`}
         {enough ? "" : " A 95th percentile needs at least 20 to mean anything."}
-      </p>
-    </div>
+      </Text>
+    </VStack>
   );
 }
 
@@ -224,58 +213,44 @@ function Failures({
 }: {
   reasons: { failure_code: string; requests: number }[];
 }) {
-  const peak = Math.max(...reasons.map((reason) => reason.requests));
-  const comparable = reasons.length > 1;
   return (
-    <ol className={comparable ? "bar-list panel" : "bar-list panel plain"}>
+    <List hasDividers>
       {reasons.map((reason) => (
-        <li key={reason.failure_code}>
-          <span className="bar-label">
-            {failureSentence(reason.failure_code)}
-            <code className="subtext">{reason.failure_code}</code>
-          </span>
-          {comparable ? (
-            <span className="bar-track" aria-hidden="true">
-              <span
-                className="bar-fill"
-                style={{ width: `${(reason.requests / peak) * 100}%` }}
-              />
-            </span>
-          ) : (
-            <span />
-          )}
-          <span className="bar-value">
-            {number.format(reason.requests)}
-            <span className="sr-only">
-              {` request${reason.requests === 1 ? "" : "s"}`}
-            </span>
-          </span>
-        </li>
+        <ListItem
+          key={reason.failure_code}
+          label={failureSentence(reason.failure_code)}
+          description={<Code>{reason.failure_code}</Code>}
+          endContent={
+            <Text hasTabularNumbers>
+              {number.format(reason.requests)} requests
+            </Text>
+          }
+        />
       ))}
-    </ol>
+    </List>
   );
 }
 
 function Tokens({ counts }: { counts: ActivityCounts }) {
   const caveat = (
-    <p className="stat-note">
+    <Text as="p" color="secondary">
       Counts come from the pinned model response for each attempt and include
       retries. They do not show monetary cost or remaining subscription quota.
-    </p>
+    </Text>
   );
   // Nothing recorded needs a sentence, not a grid of four identical blanks.
   if (counts.total_tokens === null)
     return (
-      <p className="stat-note">
+      <Text as="p" color="secondary">
         No model usage was recorded in this period. Interrupted or invalid
         responses stay unknown rather than counting as zero, earlier reviews are
         not backfilled, and these counts would describe neither cost nor
         remaining quota.
-      </p>
+      </Text>
     );
   return (
     <>
-      <div className="stat-grid">
+      <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
         <Stat label="Prompt tokens" value={counts.prompt_tokens} />
         <Stat label="Completion tokens" value={counts.completion_tokens} />
         <Stat label="Total tokens" value={counts.total_tokens} />
@@ -283,7 +258,7 @@ function Tokens({ counts }: { counts: ActivityCounts }) {
           label="Attempts reporting usage"
           value={counts.reported_attempts}
         />
-      </div>
+      </Grid>
       {caveat}
     </>
   );
@@ -291,12 +266,12 @@ function Tokens({ counts }: { counts: ActivityCounts }) {
 
 function Activity({ counts }: { counts: ActivityCounts }) {
   return (
-    <div className="stat-grid">
+    <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
       <Stat label="Requests started" value={counts.requests} />
       <Stat label="Published reviews" value={counts.published_reviews} />
       <Stat label="PRs reviewed" value={counts.reviewed_prs} />
       <Stat label="Failed requests" value={counts.failed_requests} attention />
-    </div>
+    </Grid>
   );
 }
 
@@ -322,12 +297,12 @@ export function OverviewPage() {
     : [];
   return (
     <>
-      <div className="page-heading">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
         <div>
-          <h1>Statistics</h1>
-          <p>Review activity and delivery for this deployment.</p>
+          <Heading level={1}>Statistics</Heading>
+          <Text as="p">Review activity and delivery for this deployment.</Text>
         </div>
-      </div>
+      </HStack>
 
       <ActivityTabs />
       {/* Current work and worker presence answer a different question from the
@@ -336,7 +311,7 @@ export function OverviewPage() {
         title="Right now"
         description="Current work and worker presence, independent of the reporting period below."
       >
-        <div className="stat-grid live">
+        <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
           <Stat
             label="Active requests"
             value={data ? data.active_requests : null}
@@ -358,19 +333,19 @@ export function OverviewPage() {
             label="Repositories"
             value={data ? data.repository_count : null}
           />
-        </div>
+        </Grid>
         {data && data.live_review_workers === 0 && data.active_requests > 0 && (
-          <p className="notice error">
+          <Text as="p">
             {`${number.format(data.active_requests)} request${data.active_requests === 1 ? " is" : "s are"} in progress but no review worker has sent a heartbeat in the last 90 seconds.`}{" "}
             Check <Link to="/operations">Operations</Link> for worker presence
             and queue depth.
-          </p>
+          </Text>
         )}
       </Section>
 
-      <div className="toolbar">
+      <HStack gap={3} wrap="wrap" vAlign="center">
         <Period days={days} change={(value) => update({ days: value })} />
-      </div>
+      </HStack>
       <Freshness query={query} />
 
       {data && (
@@ -380,23 +355,23 @@ export function OverviewPage() {
             description={`${time(data.window_start)} to ${time(data.window_end)}. Requests are counted from when they started; publications from when the result reached GitHub.`}
           >
             <Activity counts={data.window} />
-            <div className="split">
+            <Grid gap={6} columns={{ minWidth: 300, max: 2, repeat: "fit" }}>
               {series.filter((entry) => entry.published_reviews > 0).length >
               4 ? (
                 <Trend days={series} window={days} />
               ) : series.length ? (
                 <SparseTrend days={series} />
               ) : (
-                <div className="chart-panel panel empty-chart">
-                  <span className="chart-title">Published reviews per day</span>
-                  <p className="muted">
+                <VStack gap={4}>
+                  <Heading level={3}>Published reviews per day</Heading>
+                  <Text as="p" color="secondary">
                     No days in this period fall after the earliest retained
                     record.
-                  </p>
-                </div>
+                  </Text>
+                </VStack>
               )}
               <Latency counts={data.window} />
-            </div>
+            </Grid>
           </Section>
 
           <Section
@@ -406,13 +381,13 @@ export function OverviewPage() {
             {data.recent_failure_reasons.length ? (
               <Failures reasons={data.recent_failure_reasons} />
             ) : (
-              <p className="stat-note">
+              <Text as="p" color="secondary">
                 No request failed in this period.{" "}
                 <Link to={`/history?days=${days}&status=failed`}>
                   Review the failure history
                 </Link>{" "}
                 to look further back.
-              </p>
+              </Text>
             )}
           </Section>
 
@@ -436,14 +411,14 @@ export function OverviewPage() {
             }
           >
             <Activity counts={data.lifetime} />
-            <p className="stat-note">
+            <Text as="p" color="secondary">
               {number.format(data.reported_attempts)} of{" "}
               {number.format(data.started_attempts)} lifetime job attempts
               reported token usage. Missing usage remains unknown; some leases
               can finish before calling the model. Recording coverage does not
               verify provider billing.
-            </p>
-            <p className="stat-note">
+            </Text>
+            <Text as="p" color="secondary">
               Median publication{" "}
               {duration(data.lifetime.median_publication_seconds) ?? "—"}
               {" · "}
@@ -454,7 +429,7 @@ export function OverviewPage() {
               {data.lifetime.total_tokens === null
                 ? "not recorded"
                 : number.format(data.lifetime.total_tokens)}
-            </p>
+            </Text>
           </Section>
         </>
       )}

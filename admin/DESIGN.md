@@ -1,19 +1,37 @@
 # Review Agent console
 
-An [Astryx Neutral preview](preview/README.md) evaluates a possible replacement
-in light and dark modes. It is separate from the production console; the rules
-below continue to describe the current interface until that preview is accepted.
+The console uses the accepted Astryx Neutral design in light and dark modes.
+The [interactive preview](preview/README.md) is the visual reference. The upstream
+`@astryxdesign/theme-neutral` package owns colors, typography, spacing, and
+component appearance. Figtree is served locally; code uses the theme's system monospace
+stack. The separate API reference retains its bundled IBM Plex assets.
 
-The console follows the supplied Review Agent Console v3 design: a 224px sidebar,
-52px top bar, compact tables, and persistent deployment status. On small screens,
-section navigation moves below the content and the review request selector replaces
-the history rail. The main sections are Activity, Repositories, Review quality,
-Health, and Settings.
+`src/console.tsx` uses Astryx AppShell and SideNav for the collapsible rail and
+mobile drawer. Page content starts beside the rail and stops growing at 1440 CSS
+pixels. The page scrolls normally so route scroll restoration and review anchors
+retain their existing behavior. Search, team context, account access, and build
+status stay available from the shell.
 
-Use the IBM Plex Sans and Mono assets in `src/assets`, with their bundled OFL
-license. `src/styles.css` owns the shared colors, spacing, type scale, light and
-dark themes, controls, and responsive behavior. Keep forms, dialogs, disclosures,
-tables, and focus behavior native where possible.
+Use `xds` MCP to inspect components, templates, and best practices before adding
+new UI. The Basic Login and Settings Form templates supply the login and settings
+layouts. The Side Nav template uses the same shell structure. The incident console
+and table templates provide useful scanning patterns for operational lists.
+Adapt those patterns to actual data and actions. The `login-sso` template is the
+starting point for the separately planned OIDC work.
+
+Use Astryx controls, tables, typography, feedback, and public layout props across
+the console. `src/theme.css` is the shared import entry: reset first, then Core,
+Neutral, and locally served fonts. Keep that order so the reset cannot override
+component styles. Do not add a separate visual stylesheet or copied theme.
+
+Keep form submission and browser validation native. Astryx text inputs forward
+standard DOM attributes through a spread checked against React's input types,
+which preserves required fields, autocomplete, datalists, and length limits.
+Text areas use Astryx's length limit with UTF-16 clamping to match the API contract.
+Numeric controls use integer validation where required; the shared Form blocks
+submission of invalid drafts so a previously valid value cannot be submitted.
+Published Markdown is sanitized before Astryx renders its typography, code blocks,
+tables, and disclosures. Rejected URLs render as noninteractive text.
 
 Published review text is the primary content on the reader page. Request history
 belongs in the secondary rail; review actions open from the selected request status.
@@ -29,14 +47,13 @@ kept out of shared caches and browser storage. Build the generated API contract 
 changing a public boundary.
 
 Keep bounded page content aligned with the start of the console body on wide
-screens. Operational settings use at most three columns, with advanced controls
-progressively disclosed. Label GitHub's repository scope separately from Review
+screens. Operational settings pair section descriptions with one column of controls,
+stacking on narrow screens. Advanced controls remain progressively disclosed. Label GitHub's repository scope separately from Review
 Agent activation. Live checks, stored state, and startup observations each show
 their source and timing; background refresh must not replace an editor's draft.
 
-Team context stays visible near the top of the rail, with a compact counterpart on
-small screens. A member with one team enters that workspace automatically and sees
-its name without a selector. Members of multiple teams use a searchable native
+Team context stays visible near the top of the rail, and appears in the mobile navigation drawer. A member with one team enters that workspace automatically and sees
+its name without a selector. Members of multiple teams use a searchable Astryx
 popover; owners and admins can view all teams or select one. The picker shows team
 names, repository counts, and a link to team management. Team and reporting-period
 context follow console navigation. Platform administration pages identify their

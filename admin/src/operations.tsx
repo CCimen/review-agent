@@ -1,16 +1,34 @@
-import { useScope } from "./scope";
-import { EngineServices, HermesHealth, ProviderHealth } from "./deployment";
-import { GitHubConnection } from "./access";
-import { useEffect, useState } from "react";
+import type { BadgeProps } from "@astryxdesign/core/Badge";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
+import { Code } from "@astryxdesign/core/CodeBlock";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { read } from "./api";
+import { GitHubConnection } from "./access";
 import type {
   Operations,
   QueueStatus,
   WorkerEventPage,
   WorkerInstance,
 } from "./api";
+import { read } from "./api";
+import { EngineServices, HermesHealth, ProviderHealth } from "./deployment";
+import { useScope } from "./scope";
 import {
   Copy,
   Empty,
@@ -28,13 +46,11 @@ const workerStates: Record<WorkerInstance["state"], string> = {
   stopped: "Stopped",
   unresponsive: "Unresponsive",
 };
-/** Reuses the review-state badge palette: running is informational, draining
- *  and unresponsive want attention, stopped is inert. */
-const workerTone: Record<WorkerInstance["state"], string> = {
-  running: "running",
-  draining: "queued",
-  stopped: "",
-  unresponsive: "failed",
+const workerTone: Record<WorkerInstance["state"], BadgeProps["variant"]> = {
+  running: "info",
+  draining: "warning",
+  stopped: "neutral",
+  unresponsive: "error",
 };
 /** What an operator scans for is the role; the instance id is what they copy. */
 const workerRoles: Record<string, string> = {
@@ -72,112 +88,94 @@ function Workers({
       </Empty>
     );
   return (
-    <div className="panel">
-      <div
-        className="table-scroll"
+    <VStack gap={4}>
+      <VStack
+        gap={0}
+
         tabIndex={0}
         role="region"
         aria-label="Workers"
       >
-        <table className="ops-table">
-          <thead>
-            <tr>
-              <th scope="col">Worker</th>
-              <th scope="col">Availability</th>
-              <th scope="col" className="numeric">
-                Capacity
-              </th>
-              <th scope="col" className="numeric">
-                Assigned jobs
-              </th>
-              <th scope="col">Last heartbeat</th>
-              <th scope="col">Events</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHeaderCell scope="col">Worker</TableHeaderCell>
+              <TableHeaderCell scope="col">Availability</TableHeaderCell>
+              <TableHeaderCell scope="col">Capacity</TableHeaderCell>
+              <TableHeaderCell scope="col">Assigned jobs</TableHeaderCell>
+              <TableHeaderCell scope="col">Last heartbeat</TableHeaderCell>
+              <TableHeaderCell scope="col">Events</TableHeaderCell>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {workers.map((worker) => (
-              <tr key={worker.id}>
-                <th scope="row">
-                  <span className="worker-role">
-                    {workerRoles[worker.kind] ?? worker.kind}
-                  </span>
-                  <span className="subtext">
+              <TableRow key={worker.id}>
+                <TableHeaderCell scope="row">
+                  <Text>{workerRoles[worker.kind] ?? worker.kind}</Text>
+                  <Text color="secondary" display="block" type="supporting">
                     <Copy value={worker.id} label="worker ID">
-                      <code>{worker.id}</code>
+                      <Code>{worker.id}</Code>
                     </Copy>
-                  </span>
-                  <span className="subtext">
+                  </Text>
+                  <Text color="secondary" display="block" type="supporting">
                     lease owner {worker.lease_owner} · started{" "}
                     {time(worker.started_at)}
-                  </span>
-                </th>
-                <td>
-                  <span className="mobile-label" aria-hidden="true">
-                    Availability
-                  </span>
-                  <span className={`status ${workerTone[worker.state]}`}>
-                    {workerStates[worker.state]}
-                  </span>
-                </td>
-                <td className="numeric">
-                  <span className="mobile-label" aria-hidden="true">
-                    Capacity
-                  </span>
-                  {number.format(worker.capacity)}
-                </td>
-                <td className="numeric">
-                  <span className="mobile-label" aria-hidden="true">
-                    Assigned jobs
-                  </span>
+                  </Text>
+                </TableHeaderCell>
+                <TableCell>
+                  <Badge
+                    label={workerStates[worker.state]}
+                    variant={workerTone[worker.state]}
+                  />
+                </TableCell>
+                <TableCell>{number.format(worker.capacity)}</TableCell>
+                <TableCell>
                   {worker.active_leases === null ? (
-                    <span
-                      className="unknown"
-                      title="Several retained processes share this lease owner"
-                    >
-                      Unknown
-                    </span>
+                    <abbr title="Several retained processes share this lease owner">
+                      <Text color="secondary">Unknown</Text>
+                    </abbr>
                   ) : (
                     number.format(worker.active_leases)
                   )}
                   {worker.state === "running" && worker.active_leases === 0 && (
-                    <span className="subtext">Idle</span>
+                    <Text color="secondary" display="block" type="supporting">
+                      Idle
+                    </Text>
                   )}
-                </td>
-                <td>
-                  <span className="mobile-label" aria-hidden="true">
-                    Last heartbeat
-                  </span>
+                </TableCell>
+                <TableCell>
                   {since(worker.last_seen_at)}
-                  <span className="subtext">{time(worker.last_seen_at)}</span>
-                </td>
-                <td>
-                  <a
-                    className="worker-events-link"
+                  <Text color="secondary" display="block" type="supporting">
+                    {time(worker.last_seen_at)}
+                  </Text>
+                </TableCell>
+                <TableCell>
+                  <AstryxLink
                     href="#worker-events"
                     onClick={() => onInspect(worker.id)}
                   >
                     View events
-                    <span className="sr-only">{` for ${worker.id}`}</span>
-                  </a>
-                </td>
-              </tr>
+                    <VisuallyHidden>{` for ${worker.id}`}</VisuallyHidden>
+                  </AstryxLink>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </VStack>
       {truncated && (
-        <p className="panel-note">
+        <Text as="p" color="secondary">
           Only the first 100 instances are listed. Older stopped processes are
           removed after seven days without a heartbeat.
-        </p>
+        </Text>
       )}
-      <p className="panel-note">
+      <Text as="p" color="secondary">
         Online means the worker is sending heartbeats. An online worker with
         zero assigned jobs is idle. Capacity is its maximum concurrent job
         count. A worker is marked unresponsive after {staleAfter} seconds
         without a heartbeat; this does not confirm that its container stopped.
-      </p>
-    </div>
+      </Text>
+    </VStack>
   );
 }
 
@@ -192,12 +190,13 @@ function Queue({
   const backlog = queue.due > 0;
   // An empty queue means "drained" only if something is running to drain it.
   // With no live worker the honest reading is that we cannot tell.
-  const tone =
-    consumers === null || consumers === 0
-      ? "unknown"
+  const tone = stuck
+    ? "error"
+    : consumers === null || consumers === 0
+      ? "neutral"
       : backlog
-        ? "queued"
-        : "published";
+        ? "warning"
+        : "success";
   const label =
     consumers === null
       ? "Worker list incomplete"
@@ -211,50 +210,58 @@ function Queue({
             ? "Scheduled"
             : "Clear";
   return (
-    <div className={stuck ? "queue panel attention-panel" : "queue panel"}>
-      <div className="queue-head">
-        <h3>{queueLabels[queue.kind] ?? queue.kind}</h3>
-        <span className={`status ${tone}`}>{label}</span>
-      </div>
-      <dl>
-        <div>
-          <dt>Waiting</dt>
+    <VStack gap={3}>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <Heading level={3}>{queueLabels[queue.kind] ?? queue.kind}</Heading>
+        <Badge label={label} variant={tone} />
+      </HStack>
+      <VStack as="dl" gap={2}>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Waiting</Text>
+          </dt>
           <dd>{number.format(queue.waiting)}</dd>
-        </div>
-        <div>
-          <dt>Ready to start</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Ready to start</Text>
+          </dt>
           <dd>{number.format(queue.due)}</dd>
-        </div>
-        <div>
-          <dt>Delayed</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Delayed</Text>
+          </dt>
           <dd>{number.format(queue.delayed)}</dd>
-        </div>
-        <div>
-          <dt>Claimed by workers</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Claimed by workers</Text>
+          </dt>
           <dd>{number.format(queue.leased)}</dd>
-        </div>
-        <div>
-          <dt>Expired claims</dt>
-          <dd className={queue.expired_leases ? "attention" : undefined}>
-            {number.format(queue.expired_leases)}
-          </dd>
-        </div>
-        <div>
-          <dt>Failed</dt>
-          <dd className={queue.failed ? "attention" : undefined}>
-            {number.format(queue.failed)}
-          </dd>
-        </div>
-      </dl>
-      <p className="field-help">
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Expired claims</Text>
+          </dt>
+          <dd>{number.format(queue.expired_leases)}</dd>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Failed</Text>
+          </dt>
+          <dd>{number.format(queue.failed)}</dd>
+        </HStack>
+      </VStack>
+      <Text as="p" color="secondary">
         {queue.oldest_waiting_at
           ? `Oldest waiting since ${time(queue.oldest_waiting_at)}.`
           : "Nothing waiting."}
         {queue.next_available_at
           ? ` Next becomes available ${time(queue.next_available_at)}.`
           : ""}
-      </p>
-    </div>
+      </Text>
+    </VStack>
   );
 }
 
@@ -274,36 +281,39 @@ function Events({ workerId, clear }: { workerId: string; clear: () => void }) {
   return (
     <>
       {workerId && (
-        <p className="result-count">
-          Showing events for <code>{workerId}</code>.{" "}
-          <button className="text-button inline" onClick={clear}>
-            Show all workers
-          </button>
-        </p>
+        <Text as="p">
+          Showing events for <Code>{workerId}</Code>.{" "}
+          <Button
+            label={"Show all workers"}
+            variant="primary"
+            type="submit"
+            onClick={clear}
+          />
+        </Text>
       )}
       <Freshness query={query} quiet />
       {query.data &&
         (query.data.items.length ? (
-          <div className="panel event-list">
+          <VStack gap={4}>
             {query.data.items.map((event) => (
-              <div className="event" key={event.id}>
+              <VStack gap={3} key={event.id}>
                 <time dateTime={event.occurred_at}>
                   {time(event.occurred_at)}
                 </time>
-                <code className="event-name">{event.event}</code>
-                <span className="event-worker">
-                  <code>{event.worker_id}</code>
-                </span>
-                <span className="event-refs">
+                <Code>{event.event}</Code>
+                <Text>
+                  <Code>{event.worker_id}</Code>
+                </Text>
+                <Text>
                   {event.review_run_id !== null && `run ${event.review_run_id}`}
                   {event.review_run_id !== null &&
                     event.job_id !== null &&
                     " · "}
                   {event.job_id !== null && `job ${event.job_id}`}
-                </span>
-              </div>
+                </Text>
+              </VStack>
             ))}
-          </div>
+          </VStack>
         ) : (
           <Empty title="No events recorded" level={3}>
             {workerId
@@ -312,23 +322,25 @@ function Events({ workerId, clear }: { workerId: string; clear: () => void }) {
           </Empty>
         ))}
       {query.data && (cursor !== null || query.data.next_cursor !== null) && (
-        <div className="pagination">
-          <button
-            className="secondary"
-            disabled={cursor === null}
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label={"Newest events"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={cursor === null}
             onClick={() => setCursor(null)}
-          >
-            Newest events
-          </button>
-          <span>Newest first · up to 50 per page</span>
-          <button
-            className="secondary"
-            disabled={query.data.next_cursor === null}
+          />
+          <Text>Newest first · up to 50 per page</Text>
+          <Button
+            label={"Older events"}
+            variant="secondary"
+            type="submit"
+
+            isDisabled={query.data.next_cursor === null}
             onClick={() => setCursor(query.data?.next_cursor ?? null)}
-          >
-            Older events
-          </button>
-        </div>
+          />
+        </HStack>
       )}
     </>
   );
@@ -364,16 +376,18 @@ export function OperationsPage() {
       : [];
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Health</h1>
-          <p>Check whether reviews can start and where work is waiting.</p>
-        </div>
-      </div>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Health</Heading>
+          <Text as="p">
+            Check whether reviews can start and where work is waiting.
+          </Text>
+        </VStack>
+      </HStack>
       <Freshness query={query} />
       {data && (
         <>
-          <div className="stat-grid live">
+          <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
             <Stat
               label="Workers online"
               value={running}
@@ -405,11 +419,11 @@ export function OperationsPage() {
                   : "Includes stopped and unresponsive workers"
               }
             />
-          </div>
+          </Grid>
           {waitingWithoutWorkers.length > 0 && (
-            <div className="notice warning health-alert" role="status">
+            <VStack gap={3} role="status">
               <strong>Work is waiting without an online worker report</strong>
-              <p>
+              <Text as="p">
                 {waitingWithoutWorkers
                   .map(
                     (queue) =>
@@ -417,9 +431,9 @@ export function OperationsPage() {
                   )
                   .join("; ")}
                 . Check the worker services in your deployment platform.
-              </p>
+              </Text>
               <Link to="/?status=active">View active requests</Link>
-            </div>
+            </VStack>
           )}
           <Section
             title="Workers"
@@ -437,7 +451,7 @@ export function OperationsPage() {
             title="Queues"
             description="Follow work from incoming GitHub events to review and publication."
           >
-            <div className="queue-grid">
+            <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
               {[...data.queues].sort(byPipeline).map((queue) => {
                 const consumers = data.workers.filter(
                   (worker) =>
@@ -455,26 +469,35 @@ export function OperationsPage() {
                   />
                 );
               })}
-            </div>
-            <details className="metric-note">
-              <summary>How queue states work</summary>
-              <p>
-                Ready jobs have passed their scheduled start time and any
-                recorded quota wait. Team and connection capacity, repository
-                scheduling, and authorization can still delay them. Claimed jobs
-                belong to a worker; an expired claim needs recovery.
-              </p>
-              <p>
-                {running === 0 && !data.workers_truncated
-                  ? "No worker is reporting, so an empty queue does not mean work is being drained."
-                  : "A quota wait ending makes a review eligible for another provider check; it does not confirm quota has recovered."}
-              </p>
-            </details>
+            </Grid>
+            <Collapsible
+              defaultIsOpen={false}
+              trigger={
+                <HStack gap={3} wrap="wrap" vAlign="center">
+                  How queue states work
+                </HStack>
+              }
+            >
+              <VStack gap={4}>
+                <Text as="p">
+                  Ready jobs have passed their scheduled start time and any
+                  recorded quota wait. Team and connection capacity, repository
+                  scheduling, and authorization can still delay them. Claimed
+                  jobs belong to a worker; an expired claim needs recovery.
+                </Text>
+                <Text as="p">
+                  {running === 0 && !data.workers_truncated
+                    ? "No worker is reporting, so an empty queue does not mean work is being drained."
+                    : "A quota wait ending makes a review eligible for another provider check; it does not confirm quota has recovered."}
+                </Text>
+              </VStack>
+            </Collapsible>
           </Section>
 
-          <div
+          <VStack
+            gap={3}
             id="worker-events"
-            className="worker-events"
+
             tabIndex={-1}
             role="region"
             aria-label="Worker events"
@@ -485,19 +508,19 @@ export function OperationsPage() {
             >
               <Events workerId={workerId} clear={() => setWorkerId("")} />
             </Section>
-          </div>
+          </VStack>
         </>
       )}
       <Section
         title="Service connections"
         description="Container status and provider authentication are separate from worker reports."
       >
-        <div className="integration-grid">
+        <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
           {current.role === "owner" ? <EngineServices /> : null}
           {current.role === "owner" ? <HermesHealth /> : null}
           <GitHubConnection />
           {current.role === "owner" ? <ProviderHealth /> : null}
-        </div>
+        </Grid>
       </Section>
     </>
   );

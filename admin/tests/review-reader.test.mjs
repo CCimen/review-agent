@@ -65,6 +65,13 @@ before(async () => {
 after(async () => {
   await server?.close();
 });
+const elements = (html, tag) =>
+  html.match(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}>`, "g")) ?? [];
+const textContent = (html) => html.replace(/<[^>]+>/g, "");
+const button = (html, label) =>
+  elements(html, "button").find((item) => textContent(item).includes(label)) ??
+  "";
+
 const render = (markdown) =>
   renderToStaticMarkup(
     createElement(ReviewMarkdown, {
@@ -100,10 +107,36 @@ const renderConsolePage = (component, cache) => {
 
 test("integration management distinguishes report grants, content grants and revoked credentials", () => {
   const html = renderConsolePage(createElement(IntegrationsPage), [
-    [scopedKey(["integrations", 0], "owner"), { items: [
-      { id: 1, name: "Metrics <script>consumer</script>", deployment_wide: false, read_review_content: false, created_at: "2026-09-08T12:00:00Z", expires_at: "2026-10-08T12:00:00Z", revoked_at: null, teams: [{ id: 1, name: "Payments" }], state: "active" },
-      { id: 2, name: "Retired consumer", deployment_wide: true, read_review_content: true, created_at: "2026-09-08T12:00:00Z", expires_at: "2026-10-08T12:00:00Z", revoked_at: "2026-09-08T13:00:00Z", teams: [], state: "revoked" },
-    ], next_after_id: null }],
+    [
+      scopedKey(["integrations", 0], "owner"),
+      {
+        items: [
+          {
+            id: 1,
+            name: "Metrics <script>consumer</script>",
+            deployment_wide: false,
+            read_review_content: false,
+            created_at: "2026-09-08T12:00:00Z",
+            expires_at: "2026-10-08T12:00:00Z",
+            revoked_at: null,
+            teams: [{ id: 1, name: "Payments" }],
+            state: "active",
+          },
+          {
+            id: 2,
+            name: "Retired consumer",
+            deployment_wide: true,
+            read_review_content: true,
+            created_at: "2026-09-08T12:00:00Z",
+            expires_at: "2026-10-08T12:00:00Z",
+            revoked_at: "2026-09-08T13:00:00Z",
+            teams: [],
+            state: "revoked",
+          },
+        ],
+        next_after_id: null,
+      },
+    ],
   ]);
   assert.match(html, /Users &amp; roles/);
   assert.match(html, /Metrics &lt;script&gt;consumer&lt;\/script&gt;/);
@@ -112,24 +145,76 @@ test("integration management distinguishes report grants, content grants and rev
   assert.match(html, /Reports and published content/);
   assert.match(html, /Entire deployment/);
   assert.match(html, /Revoked/);
-  assert.equal((html.match(/>Revoke<\/button>/g) ?? []).length, 1);
+  assert.equal(
+    elements(html, "button").filter((item) => textContent(item) === "Revoke")
+      .length,
+    1,
+  );
   assert.match(html, /Permissions are fixed/);
   assert.match(html, /Open the API reference/);
 });
 
 test("account quota preserves actual windows, small percentages, and shared scope", () => {
-  const connection = { id: 1, revision: 2, team_id: null, state: "enabled", accounts: [{ provider: "openai-codex", revision: 1, verified: true }] };
-  const html = renderConsolePage(createElement(ConnectionQuota, { connection }), [
-    [scopedKey(["model-quota", 1, 2, 1], "owner"), {
-      provider: "openai-codex", refreshing: false, stale: true, next_refresh_at: null, unavailable_reason: "provider_unavailable",
-      snapshot: { fetched_at: 1788897600, plan: "Pro", reset_credits_available: 0, limit_reached_type: null, spend_control_reached: null,
-        buckets: [{ id: "codex", name: null, normal_model_slug: null, allowed: true, limit_reached: false,
-          windows: [{ kind: "primary", used_percent: 0.5, duration_seconds: 7200, resets_at: 1900000000 },
-            { kind: "secondary", used_percent: null, duration_seconds: 259200, resets_at: null }] },
-          { id: "other", name: "Other <script>bucket</script>", normal_model_slug: "other-model", allowed: null, limit_reached: null, windows: [] }],
-      },
-    }],
-  ]);
+  const connection = {
+    id: 1,
+    revision: 2,
+    team_id: null,
+    state: "enabled",
+    accounts: [{ provider: "openai-codex", revision: 1, verified: true }],
+  };
+  const html = renderConsolePage(
+    createElement(ConnectionQuota, { connection }),
+    [
+      [
+        scopedKey(["model-quota", 1, 2, 1], "owner"),
+        {
+          provider: "openai-codex",
+          refreshing: false,
+          stale: true,
+          next_refresh_at: null,
+          unavailable_reason: "provider_unavailable",
+          snapshot: {
+            fetched_at: 1788897600,
+            plan: "Pro",
+            reset_credits_available: 0,
+            limit_reached_type: null,
+            spend_control_reached: null,
+            buckets: [
+              {
+                id: "codex",
+                name: null,
+                normal_model_slug: null,
+                allowed: true,
+                limit_reached: false,
+                windows: [
+                  {
+                    kind: "primary",
+                    used_percent: 0.5,
+                    duration_seconds: 7200,
+                    resets_at: 1900000000,
+                  },
+                  {
+                    kind: "secondary",
+                    used_percent: null,
+                    duration_seconds: 259200,
+                    resets_at: null,
+                  },
+                ],
+              },
+              {
+                id: "other",
+                name: "Other <script>bucket</script>",
+                normal_model_slug: "other-model",
+                allowed: null,
+                limit_reached: null,
+                windows: [],
+              },
+            ],
+          },
+        },
+      ],
+    ],
+  );
   assert.match(html, /includes usage by other teams/);
   assert.match(html, /99.5%/);
   assert.match(html, /0.5% used/);
@@ -143,13 +228,29 @@ test("account quota preserves actual windows, small percentages, and shared scop
 });
 
 test("quota without provider data remains unknown", () => {
-  const connection = { id: 2, revision: 1, team_id: 7, state: "enabled", accounts: [{ provider: "openai-codex", revision: 1, verified: true }] };
-  const html = renderConsolePage(createElement(ConnectionQuota, { connection }), [
-    [scopedKey(["model-quota", 2, 1, 1], "owner"), {
-      provider: "openai-codex", refreshing: false, stale: true, next_refresh_at: null,
-      unavailable_reason: "provider_unavailable", snapshot: null,
-    }],
-  ]);
+  const connection = {
+    id: 2,
+    revision: 1,
+    team_id: 7,
+    state: "enabled",
+    accounts: [{ provider: "openai-codex", revision: 1, verified: true }],
+  };
+  const html = renderConsolePage(
+    createElement(ConnectionQuota, { connection }),
+    [
+      [
+        scopedKey(["model-quota", 2, 1, 1], "owner"),
+        {
+          provider: "openai-codex",
+          refreshing: false,
+          stale: true,
+          next_refresh_at: null,
+          unavailable_reason: "provider_unavailable",
+          snapshot: null,
+        },
+      ],
+    ],
+  );
   assert.match(html, /Quota is currently unknown/);
   assert.doesNotMatch(html, /0%|Available usage resets: 0/);
 });
@@ -157,19 +258,30 @@ test("quota without provider data remains unknown", () => {
 test("audit requires a purpose and justification before rendering records", () => {
   const html = renderConsolePage(createElement(AuditLog), []);
   assert.match(html, /Explain why you need access/);
-  assert.match(html, /Incident investigation/);
+  assert.match(html, /Purpose/);
+  assert.match(html, /role="combobox"/);
+  assert.match(html, /Select a purpose/);
+  assert.match(button(html, "Access audit log"), /disabled=""/);
   assert.match(html, /minLength="10"/);
-  assert.match(html, /maxLength="500"/);
+  assert.match(html, /0\/500/);
   assert.doesNotMatch(html, /Export matching events|Audit events<\/table>/);
 });
 
 test("audit event JSON preserves nested values and escapes untrusted content", () => {
-  const event = { id: 42, action: "audit_viewed", reason: "Investigate <script>unsafe</script>", details: { purpose: "access_review", returned_count: 5 } };
+  const event = {
+    id: 42,
+    action: "audit_viewed",
+    reason: "Investigate <script>unsafe</script>",
+    details: { purpose: "access_review", returned_count: 5 },
+  };
   const html = renderToStaticMarkup(createElement(AuditJSON, { event }));
   assert.match(html, /View JSON · #42/);
   assert.match(html, /Copy JSON/);
-  assert.match(html, /&quot;returned_count&quot;: 5/);
-  assert.match(html, /&quot;purpose&quot;: &quot;access_review&quot;/);
+  assert.match(textContent(html), /&quot;returned_count&quot;: 5/);
+  assert.match(
+    textContent(html),
+    /&quot;purpose&quot;: &quot;access_review&quot;/,
+  );
   assert.match(html, /&lt;script&gt;unsafe&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>/);
 });
@@ -257,8 +369,8 @@ test("settings expose saved operational defaults and distinguish older startup o
     ],
   ]);
   assert.match(
-    html,
-    /<details[^>]*><summary>Advanced operational settings<\/summary>/,
+    button(html, "Advanced operational settings"),
+    /aria-expanded="false"/,
   );
   assert.match(html, /value="47"/);
   assert.match(html, /<datalist[^>]*><option value="gpt-demo"/);
@@ -324,10 +436,10 @@ test("published findings retain Markdown, tables, code and native fix-brief disc
   const html = render(
     "## Review\n\n### F1: High · Handle cancellation\n\n[Source](src/job.py)\n\n| Priority | Finding |\n| --- | --- |\n| High | Cancellation |\n\n<details>\n<summary>Fix brief</summary>\n\n```python\nfinally: cleanup()\n```\n\n</details>",
   );
-  assert.match(html, /<h3>F1: High · Handle cancellation<\/h3>/);
-  assert.match(html, /<table>/);
-  assert.match(html, /<details>\s*<summary>Fix brief<\/summary>/);
-  assert.match(html, /<code class="language-python">finally: cleanup\(\)/);
+  assert.match(html, /<h3[^>]*>F1: High · Handle cancellation<\/h3>/);
+  assert.match(html, /<table[^>]*aria-label="Review table"/);
+  assert.match(button(html, "Fix brief"), /aria-expanded="false"/);
+  assert.match(textContent(html), /finally: cleanup\(\)/);
   assert.match(
     html,
     /href="https:\/\/github.com\/example\/repository\/blob\/a{40}\/src\/job.py"/,
@@ -421,9 +533,23 @@ const renderReader = async (client, role = "viewer", revision = 0) => {
 };
 
 test("queued review explains account quota waiting and the next check", async () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
-  const queued = { ...request, state: "queued", posted_at: null, completed_at: null, quota_wait_until: "2026-09-08T15:40:00Z", attempt_count: 0 };
-  client.setQueryData(scopedKey(["review", "24", null]), { ...review, item: queued, markdown: null, requests: [queued] });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const queued = {
+    ...request,
+    state: "queued",
+    posted_at: null,
+    completed_at: null,
+    quota_wait_until: "2026-09-08T15:40:00Z",
+    attempt_count: 0,
+  };
+  client.setQueryData(scopedKey(["review", "24", null]), {
+    ...review,
+    item: queued,
+    markdown: null,
+    requests: [queued],
+  });
   const html = await renderReader(client);
   assert.match(html, /Waiting for account quota/);
   assert.match(html, /next quota check is due/);
@@ -445,14 +571,11 @@ test("review destination leads with publication and coverage, preserves filters 
   assert.match(html, /Limited coverage/);
   assert.match(html, /46 min 24 s/);
   assert.match(html, /aria-current="page"/);
-  assert.match(
-    html,
-    /<details class="execution-details"><summary>Execution details<\/summary>/,
-  );
+  assert.match(button(html, "Execution details"), /aria-expanded="false"/);
   assert.ok(
     html.indexOf("F1: Handle cancellation") < html.indexOf("Execution details"),
   );
-  assert.doesNotMatch(html, /aria-expanded=|class="pr-requests"/);
+  assert.doesNotMatch(html, /class="pr-requests"/);
   client.clear();
 });
 
@@ -531,8 +654,8 @@ test("queued reviews expose contextual admin actions without premature coverage 
     html,
     /Complete diffs were available|may leave changes unreviewed|Review not published yet/,
   );
-  assert.match(html, /aria-haspopup="dialog"[^>]*>Review actions/);
-  assert.match(html, /<summary>Advanced actions<\/summary>/);
+  assert.match(html, /aria-haspopup="dialog"[^>]*>[\s\S]*?Review actions/);
+  assert.match(button(html, "Advanced actions"), /aria-expanded="false"/);
   assert.match(html, /Cancel review/);
   assert.doesNotMatch(html, />Retry now<|>Run controls</);
   assert.ok(html.indexOf("Review actions") < html.indexOf("Execution details"));
@@ -578,7 +701,7 @@ test("user management has Settings navigation and retains account totals and cre
   assert.match(html, /href="\/settings"/);
   assert.match(
     html,
-    /aria-current="page"[^>]*href="\/users"[^>]*>Users &amp; roles/,
+    /<a(?=[^>]*aria-current="(?:page|true)")(?=[^>]*href="\/users")[^>]*>[\s\S]*?Users &amp; roles[\s\S]*?<\/a>/,
   );
   assert.match(html, /Add user/);
   assert.match(html, /Accounts/);
@@ -663,6 +786,118 @@ test("members with one team need no selector; multiple teams and platform admins
     const platform = renderSelector(role, teams.slice(0, 1));
     assert.match(platform, /Switch team/);
     assert.match(platform, /All teams/);
-    assert.match(platform, /Manage teams/);
+    assert.match(platform, /aria-haspopup="dialog"/);
   }
+});
+
+test("activity keeps request metadata and does not report unpublished findings", async () => {
+  const { ActivityPage } = await server.ssrLoadModule("/src/activity.tsx");
+  const html = renderConsolePage(createElement(ActivityPage), [
+    [
+      scopedKey(["activity", "days=30&status=all&limit=50"], "owner"),
+      {
+        items: [
+          { ...request, findings_count: 7 },
+          {
+            ...request,
+            id: 25,
+            state: "failed",
+            phase: "failed",
+            posted_at: null,
+            findings_count: 99,
+            max_attempts: null,
+            failure_code: "provider_error",
+            recovered: true,
+          },
+        ],
+        total: 2,
+        next_cursor: 24,
+      },
+    ],
+  ]);
+  assert.match(html, /aria-label="Review requests"/);
+  for (const label of [
+    "Pull request",
+    "State",
+    "Progress",
+    "Commit",
+    "Findings",
+    "Attempts used",
+    "Last activity",
+  ])
+    assert.match(html, new RegExp(`>${label}<`));
+  assert.match(html, /href="\/history\/24"/);
+  assert.match(html, />Published<\/span>/);
+  assert.match(html, />Failed<\/span>/);
+  assert.match(html, />7<\/td>/);
+  assert.doesNotMatch(html, />99<\/td>/);
+  assert.match(html, /The model provider returned an error/);
+  assert.match(html, /Recovered: a later review published/);
+  assert.match(html, /Older requests/);
+});
+
+test("login retains native validation and password manager attributes", async () => {
+  const { Login } = await server.ssrLoadModule("/src/accounts.tsx");
+  const html = renderConsolePage(createElement(Login), []);
+  for (const [type, autocomplete, maxLength] of [
+    ["email", "username", 320],
+    ["password", "current-password", 128],
+  ]) {
+    const input = (html.match(/<input\b[^>]*>/g) ?? []).find((tag) =>
+      tag.includes(`type="${type}"`),
+    );
+    assert.ok(input);
+    assert.match(input, new RegExp(`autoComplete="${autocomplete}"`));
+    assert.match(input, /required=""/);
+    assert.match(input, new RegExp(`maxLength="${maxLength}"`));
+  }
+  assert.match(html, /<button[^>]*type="submit"/);
+});
+
+test("console shell preserves role-based navigation without browser globals", async () => {
+  const { ConsoleLayout } = await server.ssrLoadModule("/src/console.tsx");
+  for (const role of ["owner", "admin", "viewer"]) {
+    const html = renderConsolePage(
+      createElement(
+        ConsoleLayout,
+        {
+          current: account(role),
+          theme: "light",
+          toggleTheme() {},
+          logout() {},
+          signingOut: false,
+        },
+        createElement("h1", null, "Page content"),
+      ),
+      [],
+    );
+    assert.match(html, /Page content/);
+    assert.match(html, /href="\/repositories"/);
+    assert.equal(html.includes('href="/settings"'), role === "owner");
+    assert.equal(html.includes('href="/audit"'), role !== "viewer");
+    assert.equal(html.includes('href="/users"'), role !== "viewer");
+  }
+});
+
+test("forms block invalid numeric drafts and submit valid values", async () => {
+  const { Form } = await server.ssrLoadModule("/src/ui.tsx");
+  let submitted = 0;
+  let prevented = 0;
+  let focused = 0;
+  const form = Form({ onSubmit: () => submitted++ });
+  const event = (invalid) => ({
+    preventDefault: () => prevented++,
+    currentTarget: {
+      querySelector: (selector) => {
+        assert.equal(selector, '[aria-invalid="true"]');
+        return invalid ? { focus: () => focused++ } : null;
+      },
+    },
+  });
+  form.props.onSubmit(event(true));
+  assert.equal(submitted, 0);
+  assert.equal(prevented, 1);
+  assert.equal(focused, 1);
+  form.props.onSubmit(event(false));
+  assert.equal(submitted, 1);
 });

@@ -1,6 +1,14 @@
-import { ScopedLink as Link, useScope } from "./scope";
-import { RunControls } from "./runControls";
-import { ReviewFindings } from "./reviewFindings";
+import { Button } from "@astryxdesign/core/Button";
+import { Code } from "@astryxdesign/core/CodeBlock";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   useLocation,
@@ -8,8 +16,6 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { APIError, read } from "./api";
 import { ActivityTabs } from "./activity";
 import type {
   HistoryItem,
@@ -17,14 +23,19 @@ import type {
   PullRequestPage,
   ReviewDetail,
 } from "./api";
+import { APIError, read } from "./api";
+import { ReviewFindings } from "./reviewFindings";
+import { RunControls } from "./runControls";
+import { ScopedLink as Link, useScope } from "./scope";
 import {
   Copy,
-  Empty,
-  Freshness,
-  Period,
   duration,
+  Empty,
   failureSentence,
+  Form,
+  Freshness,
   number,
+  Period,
   time,
   useFilters,
 } from "./ui";
@@ -47,9 +58,9 @@ const stateLabels: Record<HistoryItem["state"], string> = {
 
 function Result({ item }: { item: HistoryItem }) {
   return (
-    <span className="review-result">
-      <span className={`status ${item.state}`}>{stateLabels[item.state]}</span>
-      <span className="subtext">
+    <Text>
+      <Text>{stateLabels[item.state]}</Text>
+      <Text color="secondary" display="block" type="supporting">
         {item.posted_at !== null
           ? `${item.findings_count === null ? "Unknown" : number.format(item.findings_count)} finding${item.findings_count === 1 ? "" : "s"}`
           : item.recovered
@@ -68,16 +79,16 @@ function Result({ item }: { item: HistoryItem }) {
                       ? "Delivering the result to GitHub"
                       : "No published result yet"}
         {item.coverage.state !== "complete" && item.posted_at !== null ? (
-          <span className="coverage-label">
+          <Text>
             {" "}
             ·{" "}
             {item.coverage.state === "unknown"
               ? "Coverage unknown"
               : "Limited coverage"}
-          </span>
+          </Text>
         ) : null}
-      </span>
-    </span>
+      </Text>
+    </Text>
   );
 }
 
@@ -91,13 +102,13 @@ function PullRequestRow({
   const item = group.latest;
   const href = `/history/${item.id}${filters ? `?${filters}` : ""}`;
   return (
-    <section className="pr-group">
-      <div className="review-row-head">
-        <span className="request-identity">
-          <Link className="run-name" to={href}>
+    <VStack gap={4} as="section">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <Text>
+          <Link to={href}>
             {item.repository} PR #{item.pr_number}
           </Link>
-          <span className="subtext">
+          <Text color="secondary" display="block" type="supporting">
             {number.format(group.matching_requests)} matching request
             {group.matching_requests === 1 ? "" : "s"}
             {group.total_requests !== group.matching_requests
@@ -106,21 +117,19 @@ function PullRequestRow({
             {item.is_latest
               ? " · Latest request"
               : " · Latest matching request"}
-          </span>
-        </span>
+          </Text>
+        </Text>
         <Result item={item} />
-        <time className="review-time" dateTime={item.started_at}>
-          {time(item.started_at)}
-        </time>
-        <Link className="review-open" to={href}>
+        <time dateTime={item.started_at}>{time(item.started_at)}</time>
+        <Link to={href}>
           {item.posted_at !== null ? "View review" : "View request"}
-          <span className="sr-only">
+          <VisuallyHidden>
             {" "}
             for {item.repository} PR #{item.pr_number}
-          </span>
+          </VisuallyHidden>
         </Link>
-      </div>
-    </section>
+      </HStack>
+    </VStack>
   );
 }
 
@@ -128,7 +137,7 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
   return (
     <>
       {item.failure_code && (
-        <div className="notice error">
+        <VStack gap={3}>
           <strong>
             {item.recovered
               ? "Earlier failure; a later request published a review."
@@ -136,43 +145,43 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
                 ? "The latest review request failed."
                 : "This earlier request failed."}
           </strong>
-          <p>
+          <Text as="p">
             {failureSentence(item.failure_code)}.{" "}
             <Copy value={item.failure_code} label="failure code">
-              <code>{item.failure_code}</code>
+              <Code>{item.failure_code}</Code>
             </Copy>
             {item.job_failure_code ? (
               <>
                 {" "}
                 · Worker cause:{" "}
                 <Copy value={item.job_failure_code} label="worker failure code">
-                  <code>{item.job_failure_code}</code>
+                  <Code>{item.job_failure_code}</Code>
                 </Copy>
               </>
             ) : null}
-          </p>
-          <p>
+          </Text>
+          <Text as="p">
             Check the review result on GitHub and the operator logs for request
-            #{item.id}. After resolving the cause, request <code>/review</code>{" "}
+            #{item.id}. After resolving the cause, request <Code>/review</Code>{" "}
             on the PR again.
-          </p>
-        </div>
+          </Text>
+        </VStack>
       )}
       {item.coverage.state !== "complete" &&
         (item.posted_at !== null ||
           (item.state !== "queued" && item.coverage.registration_complete)) && (
-          <p className="notice">
+          <Text as="p">
             {item.coverage.state === "unknown"
               ? "Coverage has not been established."
               : `Complete diffs were available for ${item.coverage.changed_paths_with_complete_diff} of ${item.coverage.changed_files_reported ?? "an unknown number of"} changed files.`}{" "}
             A published result may leave changes unreviewed.
-          </p>
+          </Text>
         )}
       {(item.publication_superseded || item.state === "superseded") && (
-        <p className="notice">
+        <Text as="p">
           This review has been superseded. Select a later request to inspect
           more recent recorded results.
-        </p>
+        </Text>
       )}
     </>
   );
@@ -224,9 +233,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
   const missing = query.error instanceof APIError && query.error.status === 404;
   return (
     <>
-      <Link className="back-link" to={`/history${backSearch}`}>
-        Back to review history
-      </Link>
+      <Link to={`/history${backSearch}`}>Back to review history</Link>
       {missing ? (
         <Empty title="Review request not found">
           It may have been removed by retention. Return to history to find an
@@ -237,57 +244,75 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
       )}
       {!missing && item && data ? (
         <>
-          <div className="page-heading review-heading">
-            <div>
-              <h1>
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <VStack gap={3}>
+              <Heading level={1}>
                 {item.repository} PR #{item.pr_number}
-              </h1>
-              <p>
+              </Heading>
+              <Text as="p">
                 Request #{item.id} · {time(item.started_at)}
                 {item.is_latest ? " · Latest request" : " · Earlier request"}
-              </p>
-            </div>
-            <a
-              className="button secondary"
+              </Text>
+            </VStack>
+            <AstryxLink
               href={pullRequestURL(item)}
               target="_blank"
               rel="noreferrer"
             >
               Open pull request
-              <span className="sr-only"> on GitHub (opens in a new tab)</span>
-            </a>
-          </div>
-          <div className="review-workspace">
-            <aside
-              className="request-history"
+              <VisuallyHidden> on GitHub (opens in a new tab)</VisuallyHidden>
+            </AstryxLink>
+          </HStack>
+          <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
+            <VStack
+              as="aside"
+              gap={3}
+
               aria-labelledby="request-history-title"
             >
-              <h2 id="request-history-title">Review history</h2>
-              <p className="muted">All retained requests for this PR.</p>
-              <label className="field mobile-run-picker">
-                Selected request
-                <select
-                  value={item.id}
-                  onChange={(event) =>
-                    navigate(selectedURL(Number(event.target.value)))
-                  }
-                >
-                  {!data.requests.some((request) => request.id === item.id) ? (
-                    <option value={item.id}>
-                      #{item.id} · {time(item.started_at)} ·{" "}
-                      {stateLabels[item.state]}
-                    </option>
-                  ) : null}
-                  {data.requests.map((request) => (
-                    <option key={request.id} value={request.id}>
-                      #{request.id} · {time(request.started_at)} ·{" "}
-                      {stateLabels[request.state]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <ol
-                className="request-timeline"
+              <Heading level={2} id="request-history-title">
+                Review history
+              </Heading>
+              <Text as="p" color="secondary">
+                All retained requests for this PR.
+              </Text>
+              <Selector
+                label={"Selected request"}
+                options={[
+                  !data.requests.some((request) => request.id === item.id)
+                    ? {
+                        value: String(item.id),
+                        label:
+                          "#" +
+                          String(item.id) +
+                          "·" +
+                          time(item.started_at) +
+                          "·" +
+                          " " +
+                          stateLabels[item.state],
+                      }
+                    : null,
+                  data.requests.map((request) => ({
+                    value: String(request.id),
+                    label:
+                      "#" +
+                      String(request.id) +
+                      "·" +
+                      time(request.started_at) +
+                      "·" +
+                      " " +
+                      stateLabels[request.state],
+                  })),
+                ]
+                  .flat()
+                  .filter((option) => option != null)}
+                value={String(item.id)}
+                onChange={(value) => navigate(selectedURL(Number(value)))}
+              />
+              <VStack
+                as="ol"
+                gap={3}
+
                 aria-label="Requests, newest first"
               >
                 {data.requests.map((request) => (
@@ -296,63 +321,67 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                       to={selectedURL(request.id)}
                       aria-current={request.id === item.id ? "page" : undefined}
                     >
-                      <span className="timeline-identity">
+                      <Text>
                         <strong>#{request.id}</strong>
                         <time dateTime={request.started_at}>
                           {time(request.started_at)}
                         </time>
-                      </span>
+                      </Text>
                       <Result item={request} />
-                      <span className="subtext">
-                        <code>{request.head_sha.slice(0, 10)}</code>
+                      <Text color="secondary" display="block" type="supporting">
+                        <Code>{request.head_sha.slice(0, 10)}</Code>
                         {request.previous_head_sha === null
                           ? " · First request"
                           : request.previous_head_sha === request.head_sha
                             ? " · Same head"
                             : " · New head"}
-                      </span>
+                      </Text>
                     </Link>
                   </li>
                 ))}
-              </ol>
+              </VStack>
               {data.requests.length === 0 ? (
-                <p className="notice">No older retained requests.</p>
+                <Text as="p">No older retained requests.</Text>
               ) : null}
               {cursor || data.next_cursor !== null ? (
-                <div className="pagination request-pagination">
-                  <button
-                    className="secondary"
-                    disabled={!cursor || query.isFetching}
+                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                  <Button
+                    label={"Newest"}
+                    variant="secondary"
+                    type="submit"
+
+                    isDisabled={!cursor || query.isFetching}
                     onClick={() => page(null)}
-                  >
-                    Newest
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={data.next_cursor === null || query.isFetching}
+                  />
+                  <Button
+                    label={"Older"}
+                    variant="secondary"
+                    type="submit"
+
+                    isDisabled={data.next_cursor === null || query.isFetching}
                     onClick={() => page(data.next_cursor)}
-                  >
-                    Older
-                  </button>
-                </div>
+                  />
+                </HStack>
               ) : null}
-            </aside>
-            <section
-              className="review-reading"
+            </VStack>
+            <VStack
+              gap={4}
+              as="section"
+
               aria-label={`Review request ${item.id}`}
             >
-              <div className="review-summary">
-                <div className="review-status-row">
+              <VStack gap={4}>
+                <VStack gap={3}>
                   <Result item={item} />
                   {data.can_maintain && <RunControls runId={item.id} />}
-                </div>
-                <p className="review-commit">
+                </VStack>
+                <Text as="p">
                   Request head{" "}
                   <Copy value={item.head_sha} label="reviewed head SHA">
-                    <code>{item.head_sha.slice(0, 12)}</code>
+                    <Code>{item.head_sha.slice(0, 12)}</Code>
                   </Copy>
                   {item.completed_at ? (
-                    <span>
+                    <Text>
                       {" "}
                       ·{" "}
                       {duration(
@@ -363,50 +392,54 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                             1000,
                         ),
                       )}
-                    </span>
+                    </Text>
                   ) : null}
-                </p>
+                </Text>
                 {item.previous_head_sha &&
                 item.previous_head_sha !== item.head_sha ? (
-                  <a
+                  <AstryxLink
                     href={`https://github.com/${item.repository}/compare/${item.previous_head_sha}...${item.head_sha}`}
                     target="_blank"
                     rel="noreferrer"
                   >
                     Compare commits with previous request
-                    <span className="sr-only"> (opens in a new tab)</span>
-                  </a>
+                    <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+                  </AstryxLink>
                 ) : null}
-              </div>
+              </VStack>
               <ReviewOutcome item={item} />
               <ReviewFindings runId={item.id} repository={item.repository} />
               {data.markdown !== null ? (
                 <>
-                  <div className="publication-links">
+                  <VStack gap={3}>
                     {data.publication_links.map((link) => (
-                      <a
+                      <AstryxLink
                         key={link.url}
                         href={link.url}
                         target="_blank"
                         rel="noreferrer"
                       >
                         {link.label}
-                        <span className="sr-only"> (opens in a new tab)</span>
-                      </a>
+                        <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+                      </AstryxLink>
                     ))}
-                  </div>
-                  <p className="recorded-note">
+                  </VStack>
+                  <Text as="p">
                     Recorded publication from {time(item.posted_at)}. Later
                     edits and discussion on GitHub are not reflected here.
-                  </p>
+                  </Text>
                   {data.content_truncated || data.links_truncated ? (
-                    <p className="notice">
+                    <Text as="p">
                       This large review exceeds the reader limit. Open the
                       published review on GitHub for the complete result.
-                    </p>
+                    </Text>
                   ) : null}
                   <Suspense
-                    fallback={<p role="status">Loading review text…</p>}
+                    fallback={
+                      <Text as="p" role="status">
+                        Loading review text…
+                      </Text>
+                    }
                   >
                     <ReviewMarkdown
                       markdown={data.markdown}
@@ -419,12 +452,12 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                 (item.state === "queued" ||
                   item.state === "running" ||
                   item.state === "publishing") ? (
-                <p className="review-waiting">
+                <Text as="p">
                   {item.quota_wait_until
                     ? `The next quota check is due ${time(item.quota_wait_until)}. Work resumes after the provider confirms quota is available. `
                     : ""}
                   This page updates automatically as the review progresses.
-                </p>
+                </Text>
               ) : (
                 <Empty
                   title={
@@ -448,12 +481,20 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                           : "The request is queued or still being reviewed. This page updates while you wait."}
                 </Empty>
               )}
-              <details className="execution-details">
-                <summary>Execution details</summary>
-                <RunDetails item={item} />
-              </details>
-            </section>
-          </div>
+              <Collapsible
+                defaultIsOpen={false}
+                trigger={
+                  <HStack gap={3} wrap="wrap" vAlign="center">
+                    Execution details
+                  </HStack>
+                }
+              >
+                <VStack gap={4}>
+                  <RunDetails item={item} />
+                </VStack>
+              </Collapsible>
+            </VStack>
+          </Grid>
         </>
       ) : null}
     </>
@@ -470,46 +511,60 @@ function RunDetails({ item }: { item: HistoryItem }) {
       )
     : null;
   return (
-    <div className="run-details">
-      <dl>
-        <div>
-          <dt>Review request</dt>
+    <VStack gap={3}>
+      <VStack as="dl" gap={2}>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Review request</Text>
+          </dt>
           <dd>
             <Copy value={String(item.id)} label="request ID">
               #{item.id}
             </Copy>
           </dd>
-        </div>
-        <div>
-          <dt>Phase</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Phase</Text>
+          </dt>
           <dd>{item.phase.replaceAll("_", " ")}</dd>
-        </div>
-        <div>
-          <dt>Head commit</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Head commit</Text>
+          </dt>
           <dd>
             <Copy value={item.head_sha} label="head commit SHA">
-              <code>{item.head_sha.slice(0, 12)}</code>
+              <Code>{item.head_sha.slice(0, 12)}</Code>
             </Copy>
           </dd>
-        </div>
-        <div>
-          <dt>Base commit</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Base commit</Text>
+          </dt>
           <dd>
             <Copy value={item.base_sha} label="base commit SHA">
-              <code>{item.base_sha.slice(0, 12)}</code>
+              <Code>{item.base_sha.slice(0, 12)}</Code>
             </Copy>
           </dd>
-        </div>
-        <div>
-          <dt>Started</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Started</Text>
+          </dt>
           <dd>{time(item.started_at)}</dd>
-        </div>
-        <div>
-          <dt>Last heartbeat</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Last heartbeat</Text>
+          </dt>
           <dd>{time(item.last_heartbeat_at)}</dd>
-        </div>
-        <div>
-          <dt>Finished</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Finished</Text>
+          </dt>
           <dd>
             {time(item.completed_at)}
             {elapsed === null
@@ -518,34 +573,40 @@ function RunDetails({ item }: { item: HistoryItem }) {
                 ? " · under a second"
                 : ` · ${duration(elapsed)}`}
           </dd>
-        </div>
-        <div>
-          <dt>Worker attempts</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Worker attempts</Text>
+          </dt>
           <dd>
             {item.max_attempts === null
               ? "No durable job recorded"
               : `${item.attempt_count} of ${item.max_attempts}`}
           </dd>
-        </div>
-        <div>
-          <dt>Changed-file coverage</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Changed-file coverage</Text>
+          </dt>
           <dd>
             {item.coverage.changed_paths_with_complete_diff} complete diffs of{" "}
             {item.coverage.changed_files_reported ?? "an unknown number of"}{" "}
             {item.coverage.changed_files_reported === 1 ? "file" : "files"}
           </dd>
-        </div>
-        <div>
-          <dt>Inventory</dt>
+        </HStack>
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <dt>
+            <Text color="secondary">Inventory</Text>
+          </dt>
           <dd>
             {item.coverage.registration_complete ? "Complete" : "Incomplete"} ·{" "}
             {item.coverage.changed_files_registered}{" "}
             {item.coverage.changed_files_registered === 1 ? "file" : "files"}{" "}
             registered
           </dd>
-        </div>
-      </dl>
-    </div>
+        </HStack>
+      </VStack>
+    </VStack>
   );
 }
 
@@ -581,86 +642,85 @@ export function History() {
   return (
     <>
       {repository && (
-        <Link className="back-link" to={`/repositories?days=${days}`}>
-          All repositories
-        </Link>
+        <Link to={`/repositories?days=${days}`}>All repositories</Link>
       )}
-      <div className="page-heading">
-        <div>
-          <h1>{repository || "Review history"}</h1>
-          <p>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>{repository || "Review history"}</Heading>
+          <Text as="p">
             Pull requests and their review history, from admission to
             publication.
-          </p>
-        </div>
-      </div>
+          </Text>
+        </VStack>
+      </HStack>
       <ActivityTabs />
-      <div className="toolbar history-toolbar">
-        <label className="field">
-          Review state
-          <select
-            value={status}
-            onChange={(event) => update({ status: event.target.value })}
-          >
-            <option value="all">All requests</option>
-            <option value="active">Active now</option>
-            <option value="published">Published</option>
-            <option value="failed">Failed</option>
-            <option value="latest_failed">Latest failures</option>
-            <option value="superseded">Superseded</option>
-          </select>
-        </label>
+      <HStack gap={3} wrap="wrap" vAlign="center">
+        <Selector
+          label={"Review state"}
+          options={[
+            { value: "all", label: "All requests" },
+            { value: "active", label: "Active now" },
+            { value: "published", label: "Published" },
+            { value: "failed", label: "Failed" },
+            { value: "latest_failed", label: "Latest failures" },
+            { value: "superseded", label: "Superseded" },
+          ]}
+          value={status}
+          onChange={(value) => update({ status: value })}
+        />
         <Period days={days} change={(value) => update({ days: value })} />
-        <form
-          className="search-form"
+        <Form
           onSubmit={(event) => {
             event.preventDefault();
             update({ pr_number: prDraft });
           }}
         >
-          <label className="field" htmlFor="pr-filter">
-            PR number
-            <input
-              id="pr-filter"
-              type="number"
-              min="1"
-              placeholder="All PRs"
-              value={prDraft}
-              onChange={(event) => setPrDraft(event.target.value)}
-            />
-          </label>
-          <button type="submit">Filter</button>
-        </form>
-        <button
-          className="text-button"
+          <NumberInput
+            isIntegerOnly
+            label={"PR number"}
+            id="pr-filter"
+            min={1}
+            hasClear
+            placeholder="All PRs"
+            value={prDraft ? Number(prDraft) : null}
+            onChange={(value) =>
+              setPrDraft(value === null ? "" : String(value))
+            }
+          />
+
+          <Button label={"Filter"} variant="primary" type="submit" />
+        </Form>
+        <Button
+          label={"Reset filters"}
+          variant="primary"
+          type="submit"
+
           onClick={() => update({ status: "all", pr_number: "", days: "30" })}
-        >
-          Reset filters
-        </button>
-      </div>
+        />
+      </HStack>
       {status === "active" && (
-        <p className="notice">
+        <Text as="p">
           Showing all current work, including requests started before the
           reporting period.
-        </p>
+        </Text>
       )}
       <Freshness query={query} />
       {query.data && (
-        <p className="result-count">
+        <Text as="p">
           Showing {number.format(query.data.items.length)} of{" "}
           {number.format(query.data.total)} pull request
           {query.data.total === 1 ? "" : "s"}
           {repository ? ` for ${repository}` : ""}.
-        </p>
+        </Text>
       )}
       {query.data &&
         (query.data.items.length ? (
-          <div className="review-list panel">
-            <div className="list-labels" aria-hidden="true">
-              <span>Pull request</span>
-              <span>Latest matching result</span>
-              <span>Started</span>
-            </div>
+          <VStack gap={4}>
+            <VStack gap={3} aria-hidden="true">
+              <Text>Pull request</Text>
+              <Text>Latest matching result</Text>
+              <Text>Started</Text>
+            </VStack>
             {query.data.items.map((group) => (
               <PullRequestRow
                 key={`${group.pull_request_id}:${queryParams}`}
@@ -668,7 +728,7 @@ export function History() {
                 filters={params.toString()}
               />
             ))}
-          </div>
+          </VStack>
         ) : (
           <Empty
             title={
@@ -684,31 +744,33 @@ export function History() {
         ))}
       {query.data &&
         (params.has("before_id") || query.data.next_cursor !== null) && (
-          <div className="pagination">
-            <button
-              className="secondary"
-              disabled={!params.has("before_id")}
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <Button
+              label={"Newest pull requests"}
+              variant="secondary"
+              type="submit"
+
+              isDisabled={!params.has("before_id")}
               onClick={() => update({ before_id: "" })}
-            >
-              Newest pull requests
-            </button>
-            <span>Newest first · up to 50 per page</span>
-            <button
-              className="secondary"
-              disabled={query.data.next_cursor === null}
+            />
+            <Text>Newest first · up to 50 per page</Text>
+            <Button
+              label={"Older pull requests"}
+              variant="secondary"
+              type="submit"
+
+              isDisabled={query.data.next_cursor === null}
               onClick={() =>
                 update({ before_id: String(query.data?.next_cursor) })
               }
-            >
-              Older pull requests
-            </button>
-          </div>
+            />
+          </HStack>
         )}
-      <p className="footnote">
+      <Text as="p">
         A request can include several worker attempts. Review states and
         findings describe the recorded commit. Open a review to read its
         published result. Request another review on GitHub.
-      </p>
+      </Text>
     </>
   );
 }

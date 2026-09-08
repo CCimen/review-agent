@@ -1,17 +1,54 @@
-import { useEffect, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
+import { Selector } from "@astryxdesign/core/Selector";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { components } from "./api.generated";
-import { read, write } from "./api";
-import { ScopedNavLink as NavLink, isAdmin } from "./scope";
+import type { InputHTMLAttributes } from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import type { Account } from "./api";
-import { Freshness, time } from "./ui";
+import { read, write } from "./api";
+import type { components } from "./api.generated";
+import { ScopedAnchor, isAdmin } from "./scope";
+import { Form, Freshness, time } from "./ui";
 
 export function RepositoryTabs({ role }: { role: Account["role"] }) {
+  const { pathname } = useLocation();
   return (
-    <nav className="page-tabs" aria-label="Repository views">
-      <NavLink to="/repositories">Activity</NavLink>
-      {isAdmin(role) && <NavLink to="/access">Access management</NavLink>}
-    </nav>
+    <TabList
+      aria-label="Repository views"
+      value={pathname}
+      onChange={() => {}}
+      hasDivider
+    >
+      <Tab
+        value="/repositories"
+        href="/repositories"
+        as={ScopedAnchor}
+        label="Activity"
+      />
+      {isAdmin(role) && (
+        <Tab
+          value="/access"
+          href="/access"
+          as={ScopedAnchor}
+          label="Access management"
+        />
+      )}
+    </TabList>
   );
 }
 
@@ -43,78 +80,76 @@ export function GitHubConnection() {
   });
   const data = query.data;
   return (
-    <section className="panel github-connection">
-      <div className="panel-heading">
-        <h2>GitHub App</h2>
-        {data && (
-          <span
-            className={`status ${data.status === "connected" ? "published" : data.status === "needs_update" ? "failed" : "queued"}`}
-          >
-            {connectionLabels[data.status]}
-          </span>
-        )}
-      </div>
-      <div className="panel-body">
+    <VStack gap={4} as="section">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <Heading level={2}>GitHub App</Heading>
+        {data && <Text>{connectionLabels[data.status]}</Text>}
+      </HStack>
+      <VStack gap={4}>
         <Freshness query={query} interval={60} />
         {data?.app && (
-          <p>
+          <Text as="p">
             <strong>{data.app}</strong> · {data.owner}
-          </p>
+          </Text>
         )}
         {data?.status === "connected" && (
-          <p className="field-hint">
+          <Text as="p" color="secondary">
             GitHub API authentication and required App permissions verified.
             Installation access and webhook delivery are checked separately.
-          </p>
+          </Text>
         )}
         {data?.status === "not_configured" && (
-          <p>
+          <Text as="p">
             Configure the App ID and private key in the admin service’s
             deployment configuration to connect GitHub.
-          </p>
+          </Text>
         )}
         {!!data?.issues?.length && (
-          <ul className="connection-issues">
+          <VStack as="ul" gap={3}>
             {data.issues.map((issue) => (
               <li key={issue}>{issue}</li>
             ))}
-          </ul>
+          </VStack>
         )}
-        <div className="inline-actions">
-          <button
-            className="secondary"
+        <HStack gap={3} wrap="wrap" vAlign="center">
+          <Button
+            label={"Check connection now"}
+            variant="secondary"
+
             type="button"
-            disabled={query.isFetching}
+            isDisabled={query.isFetching}
             onClick={() => void query.refetch()}
-          >
-            Check connection now
-          </button>
+          />
           {data?.edit_url && (
-            <a href={data.edit_url} target="_blank" rel="noreferrer">
+            <AstryxLink href={data.edit_url} target="_blank" rel="noreferrer">
               Edit GitHub App
-              <span className="sr-only"> (opens in a new tab)</span>
-            </a>
+              <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+            </AstryxLink>
           )}
           {data?.install_url && (
-            <a href={data.install_url} target="_blank" rel="noreferrer">
+            <AstryxLink
+              href={data.install_url}
+              target="_blank"
+              rel="noreferrer"
+            >
               Install or manage access
-              <span className="sr-only"> (opens in a new tab)</span>
-            </a>
+              <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+            </AstryxLink>
           )}
           {data?.app_url && (
-            <a href={data.app_url} target="_blank" rel="noreferrer">
-              App page<span className="sr-only"> (opens in a new tab)</span>
-            </a>
+            <AstryxLink href={data.app_url} target="_blank" rel="noreferrer">
+              App page<VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+            </AstryxLink>
           )}
-        </div>
+        </HStack>
         {data?.edit_url && (
-          <p className="field-hint">
+          <Text as="p" color="secondary">
             Editing the App requires access to its owning GitHub account.
             Permission changes may also need approval in each installation.
-          </p>
+          </Text>
         )}
-      </div>
-    </section>
+      </VStack>
+    </VStack>
   );
 }
 
@@ -170,184 +205,207 @@ function InstallationPanel({
   const error = approve.error ?? sync.error;
 
   return (
-    <article className="panel installation-panel">
-      <div className="panel-heading">
-        <div>
-          <h2>{installation.account}</h2>
-          <span>Installation {installation.installation_id}</span>
-        </div>
-        <span className={`status ${installation.status}`}>
-          {installation.status}
-        </span>
-      </div>
-      <div className="panel-body">
-        <dl className="detail-list installation-details">
-          <div>
-            <dt>GitHub grants access to</dt>
+    <VStack gap={4} as="article">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={2}>{installation.account}</Heading>
+          <Text>Installation {installation.installation_id}</Text>
+        </VStack>
+        <Text>{installation.status}</Text>
+      </HStack>
+      <VStack gap={4}>
+        <VStack as="dl" gap={2}>
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <dt>
+              <Text color="secondary">GitHub grants access to</Text>
+            </dt>
             <dd>
               {installation.repository_selection === "all"
                 ? "All repositories"
                 : "Selected repositories"}
             </dd>
-          </div>
-          <div>
-            <dt>Review Agent accepts</dt>
+          </HStack>
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <dt>
+              <Text color="secondary">Review Agent accepts</Text>
+            </dt>
             <dd>
               {installation.repository_activation === "automatic"
                 ? "All accessible repositories, except manually disabled ones"
                 : "Only explicitly enabled repositories"}
             </dd>
-          </div>
-          <div>
-            <dt>Permissions</dt>
+          </HStack>
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <dt>
+              <Text color="secondary">Permissions</Text>
+            </dt>
             <dd>
               contents {installation.contents_permission}, issues{" "}
               {installation.issues_permission}, pull requests{" "}
               {installation.pull_requests_permission}
             </dd>
-          </div>
-          <div>
-            <dt>Stored state updated</dt>
+          </HStack>
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <dt>
+              <Text color="secondary">Stored state updated</Text>
+            </dt>
             <dd>{dateTime.format(new Date(installation.updated_at))}</dd>
-          </div>
-        </dl>
-        <div className="installation-check">
-          <button
+          </HStack>
+        </VStack>
+        <VStack gap={3}>
+          <Button
+            label={String(
+              check.isFetching
+                ? "Checking GitHub…"
+                : "Check live GitHub status",
+            )}
+            variant="secondary"
             type="button"
-            className="secondary"
-            disabled={!configured || check.isFetching}
+
+            isDisabled={!configured || check.isFetching}
             onClick={() => {
               if (checkEnabled) void check.refetch();
               else setCheckEnabled(true);
             }}
-          >
-            {check.isFetching ? "Checking GitHub…" : "Check live GitHub status"}
-          </button>
+          />
           {checkEnabled && <Freshness query={check} quiet />}
           {check.data && (
             <>
-              <p>
+              <Text as="p">
                 GitHub reports <strong>{check.data.status}</strong> ·{" "}
                 {check.data.repository_selection === "all"
                   ? "All repositories"
                   : "Selected repositories"}
                 . Checked {time(check.data.checked_at)}.
-              </p>
+              </Text>
               {!!check.data.issues.length && (
-                <div className="notice warning">
+                <VStack gap={3}>
                   <strong>Installation permissions need an update</strong>
-                  <ul>
+                  <VStack as="ul" gap={3}>
                     {check.data.issues.map((issue) => (
                       <li key={issue}>{issue}</li>
                     ))}
-                  </ul>
-                </div>
+                  </VStack>
+                </VStack>
               )}
               {check.data.settings_url && (
-                <a
+                <AstryxLink
                   href={check.data.settings_url}
                   target="_blank"
                   rel="noreferrer"
                 >
                   Edit installation on GitHub
-                  <span className="sr-only"> (opens in a new tab)</span>
-                </a>
+                  <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+                </AstryxLink>
               )}
               {(check.data.status !== installation.status ||
                 check.data.repository_selection !==
                   installation.repository_selection) && (
-                <p className="field-hint">
+                <Text as="p" color="secondary">
                   Stored access differs from GitHub. Save the activation policy
                   below to refresh the installation state.
-                </p>
+                </Text>
               )}
             </>
           )}
-        </div>
-        <details className="setup-help">
-          <summary>Change Review Agent access</summary>
-          <p className="muted">
-            Allow all accessible repositories to activate on their first review
-            request, or require an administrator to enable each one. Switching
-            to explicit enablement disables repositories activated
-            automatically; manually enabled repositories remain enabled.
-          </p>
-          <form
-            className="form-fields"
-            onSubmit={(event) => {
-              event.preventDefault();
-              approve.mutate();
-            }}
-          >
-            <label className="field">
-              Repositories accepted by Review Agent
-              <select
+        </VStack>
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              Change Review Agent access
+            </HStack>
+          }
+        >
+          <VStack gap={4}>
+            <Text as="p" color="secondary">
+              Allow all accessible repositories to activate on their first
+              review request, or require an administrator to enable each one.
+              Switching to explicit enablement disables repositories activated
+              automatically; manually enabled repositories remain enabled.
+            </Text>
+            <Form
+              onSubmit={(event) => {
+                event.preventDefault();
+                approve.mutate();
+              }}
+            >
+              <Selector
+                label={"Repositories accepted by Review Agent"}
+                options={[
+                  {
+                    value: "explicit",
+                    label: "Only explicitly enabled repositories",
+                  },
+                  { value: "automatic", label: "All accessible repositories" },
+                ]}
                 value={policy}
-                disabled={pending || !configured}
-                onChange={(event) =>
-                  setPolicy(
-                    event.target.value === "automatic"
-                      ? "automatic"
-                      : "explicit",
-                  )
+                onChange={(value) =>
+                  setPolicy(value === "automatic" ? "automatic" : "explicit")
                 }
-              >
-                <option value="explicit">
-                  Only explicitly enabled repositories
-                </option>
-                <option value="automatic">All accessible repositories</option>
-              </select>
-            </label>
-            <label className="field grow">
-              Reason for change
-              <input
-                required
-                maxLength={500}
-                disabled={pending || !configured}
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
+                isDisabled={pending || !configured}
               />
-            </label>
-            {error && (
-              <p className="notice error" role="alert">
-                {error.message}
-              </p>
-            )}
-            <div className="button-row">
-              <button disabled={pending || !configured} type="submit">
-                {approve.isPending ? "Saving…" : "Save activation policy"}
-              </button>
-              <button
-                disabled={
-                  pending ||
-                  !reason.trim() ||
-                  !configured ||
-                  installation.repository_selection !== "selected"
-                }
-                type="button"
-                onClick={() => sync.mutate()}
-              >
-                {sync.isPending ? "Syncing…" : "Sync repositories"}
-              </button>
-            </div>
-            {installation.repository_selection === "all" && (
-              <p className="field-hint">
-                All-repository installations discover repositories on the first
-                review request. Use Add repository below to enable a specific
-                repository now.
-              </p>
-            )}
-            {(approve.isSuccess || sync.isSuccess) && (
-              <p role="status">
-                {approve.isSuccess
-                  ? "Activation policy saved."
-                  : "Repository inventory refreshed."}
-              </p>
-            )}
-          </form>
-        </details>
-      </div>
-    </article>
+
+              <TextInput
+                label={"Reason for change"}
+                isRequired={true}
+                isDisabled={pending || !configured}
+                value={reason}
+                onChange={(value) => setReason(value)}
+                {...({
+                  required: true,
+                  maxLength: 500,
+                } satisfies InputHTMLAttributes<HTMLInputElement>)}
+              />
+
+              {error && (
+                <Text as="p" role="alert">
+                  {error.message}
+                </Text>
+              )}
+              <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                <Button
+                  label={String(
+                    approve.isPending ? "Saving…" : "Save activation policy",
+                  )}
+                  variant="primary"
+                  isDisabled={pending || !configured}
+                  type="submit"
+                />
+                <Button
+                  label={String(
+                    sync.isPending ? "Syncing…" : "Sync repositories",
+                  )}
+                  variant="primary"
+                  isDisabled={
+                    pending ||
+                    !reason.trim() ||
+                    !configured ||
+                    installation.repository_selection !== "selected"
+                  }
+                  type="button"
+                  onClick={() => sync.mutate()}
+                />
+              </HStack>
+              {installation.repository_selection === "all" && (
+                <Text as="p" color="secondary">
+                  All-repository installations discover repositories on the
+                  first review request. Use Add repository below to enable a
+                  specific repository now.
+                </Text>
+              )}
+              {(approve.isSuccess || sync.isSuccess) && (
+                <Text as="p" role="status">
+                  {approve.isSuccess
+                    ? "Activation policy saved."
+                    : "Repository inventory refreshed."}
+                </Text>
+              )}
+            </Form>
+          </VStack>
+        </Collapsible>
+      </VStack>
+    </VStack>
   );
 }
 
@@ -376,88 +434,103 @@ function AddRepository({
     },
   });
   return (
-    <details className="panel add-repository">
-      <summary>Add repository</summary>
-      <div className="panel-body">
-        <p>
-          Enable reviews for one repository the GitHub App can access. Works
-          with both all-repository and selected-repository installations.
-        </p>
-        <p className="field-hint">
-          For a selected-repository installation, add the repository in GitHub
-          first. Disabling a repository here retains its review history.
-        </p>
-        {!configured && (
-          <p className="notice warning">
-            Connect the GitHub App credentials before adding repositories.
-          </p>
-        )}
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            add.mutate();
-          }}
-        >
-          <fieldset
-            disabled={!configured || add.isPending}
-            className="settings-fields"
-          >
-            <label className="field">
-              Repository
-              <input
-                required
-                maxLength={260}
-                placeholder="owner/repository"
-                value={repository}
-                onChange={(event) => setRepository(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              Review profile
-              <input
-                required
-                maxLength={100}
-                value={profile}
-                onChange={(event) => setProfile(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              Reason for enabling
-              <input
-                required
-                maxLength={500}
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </label>
-          </fieldset>
-          {add.error && (
-            <p className="notice error" role="alert">
-              {add.error.message} Check that the GitHub installation includes
-              this repository and has the required permissions.
-            </p>
+    <Collapsible
+      defaultIsOpen={false}
+      trigger={
+        <HStack gap={3} wrap="wrap" vAlign="center">
+          Add repository
+        </HStack>
+      }
+    >
+      <VStack gap={4}>
+        <VStack gap={4}>
+          <Text as="p">
+            Enable reviews for one repository the GitHub App can access. Works
+            with both all-repository and selected-repository installations.
+          </Text>
+          <Text as="p" color="secondary">
+            For a selected-repository installation, add the repository in GitHub
+            first. Disabling a repository here retains its review history.
+          </Text>
+          {!configured && (
+            <Text as="p">
+              Connect the GitHub App credentials before adding repositories.
+            </Text>
           )}
-          {add.isSuccess && (
-            <p className="notice" role="status">
-              Reviews enabled for {add.data.repository}.
-            </p>
-          )}
-          <button
-            disabled={
-              !configured ||
-              add.isPending ||
-              !repository.trim() ||
-              !profile.trim() ||
-              !reason.trim()
-            }
+          <Form
+            onSubmit={(event) => {
+              event.preventDefault();
+              add.mutate();
+            }}
           >
-            {add.isPending
-              ? "Verifying repository…"
-              : "Verify and enable reviews"}
-          </button>
-        </form>
-      </div>
-    </details>
+            <fieldset disabled={!configured || add.isPending}>
+              <VStack gap={4}>
+                <TextInput
+                  label={"Repository"}
+                  isRequired={true}
+                  placeholder="owner/repository"
+                  value={repository}
+                  onChange={(value) => setRepository(value)}
+                  {...({
+                    required: true,
+                    maxLength: 260,
+                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                />
+
+                <TextInput
+                  label={"Review profile"}
+                  isRequired={true}
+                  value={profile}
+                  onChange={(value) => setProfile(value)}
+                  {...({
+                    required: true,
+                    maxLength: 100,
+                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                />
+
+                <TextInput
+                  label={"Reason for enabling"}
+                  isRequired={true}
+                  value={reason}
+                  onChange={(value) => setReason(value)}
+                  {...({
+                    required: true,
+                    maxLength: 500,
+                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                />
+              </VStack>
+            </fieldset>
+            {add.error && (
+              <Text as="p" role="alert">
+                {add.error.message} Check that the GitHub installation includes
+                this repository and has the required permissions.
+              </Text>
+            )}
+            {add.isSuccess && (
+              <Text as="p" role="status">
+                Reviews enabled for {add.data.repository}.
+              </Text>
+            )}
+            <Button
+              label={String(
+                add.isPending
+                  ? "Verifying repository…"
+                  : "Verify and enable reviews",
+              )}
+              variant="primary"
+              type="submit"
+              isDisabled={
+                !configured ||
+                add.isPending ||
+                !repository.trim() ||
+                !profile.trim() ||
+                !reason.trim()
+              }
+            />
+          </Form>
+        </VStack>
+      </VStack>
+    </Collapsible>
   );
 }
 
@@ -485,77 +558,96 @@ function RepositoryRow({
   });
 
   return (
-    <tr>
-      <th scope="row">
+    <TableRow>
+      <TableHeaderCell scope="row">
         <strong>{repository.repository}</strong>
-        <span className="subtext">ID {repository.repository_id}</span>
-      </th>
-      <td>{repository.access.replaceAll("_", " ")}</td>
-      <td>
+        <Text color="secondary" display="block" type="supporting">
+          ID {repository.repository_id}
+        </Text>
+      </TableHeaderCell>
+      <TableCell>{repository.access.replaceAll("_", " ")}</TableCell>
+      <TableCell>
         {repository.enabled ? "Enabled" : "Disabled"}
         {repository.automatic_activation_blocked && (
-          <span className="subtext">Automatic activation blocked</span>
+          <Text color="secondary" display="block" type="supporting">
+            Automatic activation blocked
+          </Text>
         )}
-      </td>
-      <td>{repository.profile ?? "—"}</td>
-      <td>
+      </TableCell>
+      <TableCell>{repository.profile ?? "—"}</TableCell>
+      <TableCell>
         {!repository.enabled && repository.access !== "available" ? (
-          <span className="muted">Restore GitHub access before enabling</span>
+          <Text color="secondary">Restore GitHub access before enabling</Text>
         ) : (
-          <details>
-            <summary>
-              {repository.enabled ? "Disable reviews…" : "Enable reviews…"}
-            </summary>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                mutation.mutate();
-              }}
-            >
-              <p className="muted">
-                {repository.enabled
-                  ? "Disabling stops new review requests and blocks automatic activation. Review history is retained. To revoke GitHub access too, remove the repository in the GitHub App installation settings."
-                  : "Enabling admits new review requests using the selected profile."}
-              </p>
-              {!repository.enabled && (
-                <label className="field">
-                  Profile
-                  <input
-                    required
-                    maxLength={100}
-                    disabled={mutation.isPending}
+          <Collapsible
+            defaultIsOpen={false}
+            trigger={
+              <HStack gap={3} wrap="wrap" vAlign="center">
+                {repository.enabled ? "Disable reviews…" : "Enable reviews…"}
+              </HStack>
+            }
+          >
+            <VStack gap={4}>
+              <Form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  mutation.mutate();
+                }}
+              >
+                <Text as="p" color="secondary">
+                  {repository.enabled
+                    ? "Disabling stops new review requests and blocks automatic activation. Review history is retained. To revoke GitHub access too, remove the repository in the GitHub App installation settings."
+                    : "Enabling admits new review requests using the selected profile."}
+                </Text>
+                {!repository.enabled && (
+                  <TextInput
+                    label={"Profile"}
+                    isRequired={true}
+                    isDisabled={mutation.isPending}
                     value={profile}
-                    onChange={(event) => setProfile(event.target.value)}
+                    onChange={(value) => setProfile(value)}
+                    {...({
+                      required: true,
+                      maxLength: 100,
+                    } satisfies InputHTMLAttributes<HTMLInputElement>)}
                   />
-                </label>
-              )}
-              <label className="field">
-                Reason
-                <input
-                  required
-                  maxLength={500}
-                  disabled={mutation.isPending}
+                )}
+
+                <TextInput
+                  label={"Reason"}
+                  isRequired={true}
+                  isDisabled={mutation.isPending}
                   value={reason}
-                  onChange={(event) => setReason(event.target.value)}
+                  onChange={(value) => setReason(value)}
+                  {...({
+                    required: true,
+                    maxLength: 500,
+                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
                 />
-              </label>
-              {mutation.isError && (
-                <p className="notice error" role="alert">
-                  {mutation.error.message}
-                </p>
-              )}
-              <button disabled={mutation.isPending}>
-                {mutation.isPending
-                  ? "Saving…"
-                  : repository.enabled
-                    ? "Confirm disable"
-                    : "Confirm enable"}
-              </button>
-            </form>
-          </details>
+
+                {mutation.isError && (
+                  <Text as="p" role="alert">
+                    {mutation.error.message}
+                  </Text>
+                )}
+                <Button
+                  label={String(
+                    mutation.isPending
+                      ? "Saving…"
+                      : repository.enabled
+                        ? "Confirm disable"
+                        : "Confirm enable",
+                  )}
+                  variant="primary"
+                  type="submit"
+                  isDisabled={mutation.isPending}
+                />
+              </Form>
+            </VStack>
+          </Collapsible>
         )}
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -593,46 +685,49 @@ export function Access() {
   const failed = installations.error ?? repositories.error;
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Repositories &amp; access</h1>
-          <p>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Repositories &amp; access</Heading>
+          <Text as="p">
             Approve GitHub App installations and control review access for each
             repository.
-          </p>
-        </div>
-      </div>
+          </Text>
+        </VStack>
+      </HStack>
       <RepositoryTabs role="admin" />
       <GitHubConnection />
       {capability && !capability.configured && (
-        <p className="notice warning" role="status">
+        <Text as="p" role="status">
           {capability.detail}
-        </p>
+        </Text>
       )}
       {(installations.isPending || repositories.isPending) && (
-        <p role="status">Loading repository access…</p>
+        <Text as="p" role="status">
+          Loading repository access…
+        </Text>
       )}
       {failed && (
-        <div className="notice error" role="alert">
-          <p>Could not load repository access.</p>
-          <button
+        <VStack gap={3} role="alert">
+          <Text as="p">Could not load repository access.</Text>
+          <Button
+            label={"Retry"}
+            variant="primary"
+            type="submit"
             onClick={() => {
               void installations.refetch();
               void repositories.refetch();
             }}
-          >
-            Retry
-          </button>
-        </div>
+          />
+        </VStack>
       )}
       {installations.data && (
-        <section className="section">
-          <div className="section-heading">
-            <h2>Installations</h2>
-            <span>{installations.data.items.length} shown</span>
-          </div>
+        <VStack gap={4} as="section">
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <Heading level={2}>Installations</Heading>
+            <Text>{installations.data.items.length} shown</Text>
+          </HStack>
           {installations.data.items.length ? (
-            <div className="installation-grid">
+            <VStack gap={3}>
               {installations.data.items.map((installation) => (
                 <InstallationPanel
                   key={installation.installation_id}
@@ -640,33 +735,33 @@ export function Access() {
                   configured={installations.data.capability.configured}
                 />
               ))}
-            </div>
+            </VStack>
           ) : (
-            <p className="empty-state">No GitHub App installations found.</p>
+            <Text as="p">No GitHub App installations found.</Text>
           )}
-          <div className="pagination">
-            <button
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <Button
+              label={"Previous installations"}
+              variant="primary"
               type="button"
-              disabled={installationCursors.length === 1}
+              isDisabled={installationCursors.length === 1}
               onClick={() =>
                 setInstallationCursors((current) => current.slice(0, -1))
               }
-            >
-              Previous installations
-            </button>
-            <button
+            />
+            <Button
+              label={"Next installations"}
+              variant="primary"
               type="button"
-              disabled={installations.data.next_after_id === null}
+              isDisabled={installations.data.next_after_id === null}
               onClick={() => {
                 const next = installations.data?.next_after_id;
                 if (next !== null && next !== undefined)
                   setInstallationCursors((current) => [...current, next]);
               }}
-            >
-              Next installations
-            </button>
-          </div>
-        </section>
+            />
+          </HStack>
+        </VStack>
       )}
       {capability && (
         <AddRepository
@@ -675,24 +770,26 @@ export function Access() {
         />
       )}
       {repositories.data && (
-        <section className="section">
-          <div className="section-heading">
-            <h2>Repositories</h2>
-            <span>{repositories.data.items.length} shown</span>
-          </div>
+        <VStack gap={4} as="section">
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <Heading level={2}>Repositories</Heading>
+            <Text>{repositories.data.items.length} shown</Text>
+          </HStack>
           {repositories.data.items.length ? (
-            <div className="panel table-scroll">
-              <table className="access-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Repository</th>
-                    <th scope="col">Provider access</th>
-                    <th scope="col">Reviews</th>
-                    <th scope="col">Profile</th>
-                    <th scope="col">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <VStack gap={4}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell scope="col">Repository</TableHeaderCell>
+                    <TableHeaderCell scope="col">
+                      Provider access
+                    </TableHeaderCell>
+                    <TableHeaderCell scope="col">Reviews</TableHeaderCell>
+                    <TableHeaderCell scope="col">Profile</TableHeaderCell>
+                    <TableHeaderCell scope="col">Action</TableHeaderCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {repositories.data.items.map((repository) => (
                     <RepositoryRow
                       key={repository.repository_id}
@@ -702,35 +799,35 @@ export function Access() {
                       }
                     />
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </TableBody>
+              </Table>
+            </VStack>
           ) : (
-            <p className="empty-state">No repositories found.</p>
+            <Text as="p">No repositories found.</Text>
           )}
-          <div className="pagination">
-            <button
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <Button
+              label={"Previous repositories"}
+              variant="primary"
               type="button"
-              disabled={repositoryCursors.length === 1}
+              isDisabled={repositoryCursors.length === 1}
               onClick={() =>
                 setRepositoryCursors((current) => current.slice(0, -1))
               }
-            >
-              Previous repositories
-            </button>
-            <button
+            />
+            <Button
+              label={"Next repositories"}
+              variant="primary"
               type="button"
-              disabled={repositories.data.next_after_id === null}
+              isDisabled={repositories.data.next_after_id === null}
               onClick={() => {
                 const next = repositories.data?.next_after_id;
                 if (next !== null && next !== undefined)
                   setRepositoryCursors((current) => [...current, next]);
               }}
-            >
-              Next repositories
-            </button>
-          </div>
-        </section>
+            />
+          </HStack>
+        </VStack>
       )}
     </>
   );

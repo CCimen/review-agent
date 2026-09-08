@@ -1,12 +1,36 @@
-import { DeploymentLink } from "./deployment";
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
-import { SettingsTabs } from "./accounts";
+import { Code } from "@astryxdesign/core/CodeBlock";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import type { InputHTMLAttributes } from "react";
+import { Form } from "./ui";
+// Settings layout adapted from Astryx's Settings Form template.
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { FormEvent, ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { SettingsTabs } from "./accounts";
 import { read, write } from "./api";
 import type { components } from "./api.generated";
-import { Freshness, time } from "./ui";
+import { DeploymentLink } from "./deployment";
 import { Providers } from "./providers";
+import { Freshness, time } from "./ui";
 
 type Settings = components["schemas"]["DeploymentSettings"];
 type Page = components["schemas"]["DeploymentSettingsPage"];
@@ -165,17 +189,43 @@ export function SettingsPage() {
   });
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Settings</h1>
-          <p>Manage provider connections, review behavior, and user access.</p>
-        </div>
-      </div>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Settings</Heading>
+          <Text as="p">
+            Manage provider connections, review behavior, and user access.
+          </Text>
+        </VStack>
+      </HStack>
       <SettingsTabs />
       <Providers />
       <Freshness query={query} interval={false} />
       {query.data && <SettingsEditor data={query.data} />}
     </>
+  );
+}
+
+function SettingsGroup({
+  title,
+  description,
+  disabled,
+  children,
+}: {
+  title: string;
+  description: string;
+  disabled: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Grid columns={{ minWidth: 280, max: 2 }} gap={6}>
+      <VStack gap={2}>
+        <Heading level={3}>{title}</Heading>
+        <Text type="supporting">{description}</Text>
+      </VStack>
+      <fieldset aria-label={title} disabled={disabled}>
+        <VStack gap={5}>{children}</VStack>
+      </fieldset>
+    </Grid>
   );
 }
 
@@ -231,11 +281,12 @@ function SettingsEditor({ data }: { data: Page }) {
   }, [data, original.revision, dirty]);
   function numericInputs(fields: readonly NumericField[]) {
     return fields.map(([key, label, hint]) => (
-      <label className="field" key={key}>
-        {label}
-        <input
-          type="number"
-          required
+      <VStack gap={2} key={key}>
+        <NumberInput
+          isIntegerOnly
+          label={label}
+          id={`setting-${key}`}
+          isRequired={true}
           min={
             key === "publish_max_bytes" ? 1000 : key === "job_priority" ? 0 : 1
           }
@@ -250,12 +301,13 @@ function SettingsEditor({ data }: { data: Page }) {
           }
           step={1}
           value={draft[key]}
-          onChange={(event) =>
-            setDraft({ ...draft, [key]: event.target.valueAsNumber })
-          }
+          onChange={(value) => setDraft({ ...draft, [key]: value })}
+          description={hint}
+          {...({
+            required: true,
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
         />
-        <span className="field-hint">{hint}</span>
-      </label>
+      </VStack>
     ));
   }
   function submit(event: FormEvent) {
@@ -264,316 +316,333 @@ function SettingsEditor({ data }: { data: Page }) {
   }
   return (
     <>
-      <form onSubmit={submit} className="panel settings-panel">
-        <div className="panel-heading">
-          <h2>Review settings</h2>
-          <span className="muted">
-            {original.revision
-              ? `Revision ${original.revision}`
-              : "Environment defaults"}
-          </span>
-        </div>
-        <div className="panel-body">
-          <p className="notice">
-            Model changes apply to new requests. Queued reviews keep their
-            selected model. Other settings take effect after the relevant
-            services restart.
-          </p>
-          <fieldset disabled={save.isPending}>
-            <legend>Review model</legend>
-            <div className="settings-fields model-fields">
-              <label className="field">
-                Provider
-                <select
-                  value={draft.model_provider}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      model_provider: e.target
-                        .value as Settings["model_provider"],
-                    })
-                  }
-                >
-                  <option value="openai-codex">OpenAI Codex</option>
-                  <option value="anthropic">Anthropic</option>
-                </select>
-              </label>
-              <label className="field">
-                Model ID
-                <input
-                  required
-                  maxLength={200}
-                  value={draft.model}
-                  list="review-model-options"
-                  onChange={(e) =>
-                    setDraft({ ...draft, model: e.target.value })
-                  }
-                />
-                <span className="field-hint">
-                  Suggestions come from Hermes. You can also enter a supported
-                  model ID.
-                </span>
-              </label>
-              <datalist id="review-model-options">
-                {models.data?.items
-                  .filter((item) => item.provider === draft.model_provider)
-                  .map((item) => (
-                    <option key={item.model} value={item.model} />
-                  ))}
-              </datalist>
-              <label className="field">
-                Reasoning effort
-                <select
-                  value={draft.reasoning_effort}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      reasoning_effort: e.target
-                        .value as Settings["reasoning_effort"],
-                    })
-                  }
-                >
-                  {[
-                    "none",
-                    "minimal",
-                    "low",
-                    "medium",
-                    "high",
-                    "xhigh",
-                    "max",
-                    "ultra",
-                  ].map((value) => (
-                    <option key={value} value={value}>
-                      {value === "xhigh"
-                        ? "Extra high"
-                        : value === "max"
-                          ? "Maximum"
-                          : value.charAt(0).toUpperCase() + value.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </fieldset>
-          <fieldset disabled={save.isPending}>
-            <legend>Workload and delivery</legend>
-            <div className="settings-fields">
-              {numericInputs(numericFields)}
-            </div>
-          </fieldset>
-          <fieldset disabled={save.isPending}>
-            <legend>Feedback and repository context</legend>
-            <div className="settings-fields context-fields">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={draft.feedback_enabled}
-                  onChange={(e) =>
-                    setDraft({ ...draft, feedback_enabled: e.target.checked })
-                  }
-                />
-                Include feedback instructions in reviews
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={draft.code_graph_enabled}
-                  onChange={(e) =>
-                    setDraft({ ...draft, code_graph_enabled: e.target.checked })
-                  }
-                />
-                Include repository code relationships
-              </label>
-              <label className="field">
-                Code graph embeddings
-                <select
-                  value={draft.code_graph_embeddings}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      code_graph_embeddings: e.target
-                        .value as Settings["code_graph_embeddings"],
-                    })
-                  }
-                >
-                  <option value="none">None</option>
-                  <option value="openai">OpenAI</option>
-                </select>
-                <span className="field-hint">
-                  Requires the code graph service; OpenAI embeddings also
-                  require its gateway API key.
-                </span>
-              </label>
-            </div>
-          </fieldset>
-          <details className="advanced-settings">
-            <summary>Advanced operational settings</summary>
-            <p className="field-hint">
-              These controls apply after the relevant services restart.
-              Environment values provide the initial defaults.
-            </p>
-            {advancedGroups.map((group) => (
-              <fieldset key={group.title} disabled={save.isPending}>
-                <legend>{group.title}</legend>
-                <div className="settings-fields">
-                  {numericInputs(group.fields)}
-                </div>
-              </fieldset>
-            ))}
-          </details>
-          <label className="field change-reason">
-            Reason for change
-            <input
-              required
-              maxLength={500}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
+      <Form onSubmit={submit}>
+        <VStack gap={6}>
+          <HStack justify="between" align="center" gap={3} wrap="wrap">
+            <Heading level={2}>Review settings</Heading>
+            <Text type="supporting">
+              {original.revision
+                ? `Revision ${original.revision}`
+                : "Environment defaults"}
+            </Text>
+          </HStack>
+          <Banner
+            status="info"
+            title="When changes take effect"
+            description="Model changes apply to new requests. Queued reviews keep their selected model. Other settings take effect after the relevant services restart."
+          />
+          <SettingsGroup
+            title="Review model"
+            description="Choose the provider, model, and reasoning effort for new requests."
+            disabled={save.isPending}
+          >
+            <Selector
+              label="Provider"
+              value={draft.model_provider}
+              isDisabled={save.isPending}
+              options={[
+                { value: "openai-codex", label: "OpenAI Codex" },
+                { value: "anthropic", label: "Anthropic" },
+              ]}
+              onChange={(value) =>
+                setDraft({
+                  ...draft,
+                  model_provider: value as Settings["model_provider"],
+                })
+              }
             />
-            <span className="field-hint">
-              Required when saving. Describe why this change is needed for the
-              history.
-            </span>
-          </label>
+
+            <TextInput
+              label={"Model ID"}
+              id="setting-model"
+              isRequired={true}
+              value={draft.model}
+              onChange={(value) => setDraft({ ...draft, model: value })}
+              description="Suggestions come from Hermes. You can also enter a supported model ID."
+              {...({
+                required: true,
+                maxLength: 200,
+                list: "review-model-options",
+              } satisfies InputHTMLAttributes<HTMLInputElement>)}
+            />
+
+            <datalist id="review-model-options">
+              {models.data?.items
+                .filter((item) => item.provider === draft.model_provider)
+                .map((item) => (
+                  <option key={item.model} value={item.model} />
+                ))}
+            </datalist>
+            <Selector
+              label="Reasoning effort"
+              value={draft.reasoning_effort}
+              isDisabled={save.isPending}
+              options={(
+                [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max",
+                  "ultra",
+                ] as const
+              ).map((value) => ({
+                value,
+                label:
+                  value === "xhigh"
+                    ? "Extra high"
+                    : value === "max"
+                      ? "Maximum"
+                      : value.charAt(0).toUpperCase() + value.slice(1),
+              }))}
+              onChange={(value) =>
+                setDraft({
+                  ...draft,
+                  reasoning_effort: value as Settings["reasoning_effort"],
+                })
+              }
+            />
+          </SettingsGroup>
+          <Divider />
+          <SettingsGroup
+            title="Workload and delivery"
+            description="Control review capacity, timeouts, and publication attempts."
+            disabled={save.isPending}
+          >
+            {numericInputs(numericFields)}
+          </SettingsGroup>
+          <Divider />
+          <SettingsGroup
+            title="Feedback and repository context"
+            description="Choose which feedback and repository context reviews can use."
+            disabled={save.isPending}
+          >
+            <CheckboxInput
+              label="Include feedback instructions in reviews"
+              value={draft.feedback_enabled}
+              isDisabled={save.isPending}
+              onChange={(value) =>
+                setDraft({ ...draft, feedback_enabled: value })
+              }
+            />
+            <CheckboxInput
+              label="Include repository code relationships"
+              value={draft.code_graph_enabled}
+              isDisabled={save.isPending}
+              onChange={(value) =>
+                setDraft({ ...draft, code_graph_enabled: value })
+              }
+            />
+            <Selector
+              label="Code graph embeddings"
+              value={draft.code_graph_embeddings}
+              isDisabled={save.isPending}
+              description="Requires the code graph service; OpenAI embeddings also require its gateway API key."
+              options={[
+                { value: "none", label: "None" },
+                { value: "openai", label: "OpenAI" },
+              ]}
+              onChange={(value) =>
+                setDraft({
+                  ...draft,
+                  code_graph_embeddings:
+                    value as Settings["code_graph_embeddings"],
+                })
+              }
+            />
+          </SettingsGroup>
+          <Divider />
+          <Collapsible
+            defaultIsOpen={false}
+            trigger={
+              <HStack gap={3} wrap="wrap" vAlign="center">
+                Advanced operational settings
+              </HStack>
+            }
+          >
+            <VStack gap={4}>
+              <VStack gap={6}>
+                <Text type="supporting">
+                  These controls apply after the relevant services restart.
+                  Environment values provide the initial defaults.
+                </Text>
+                {advancedGroups.map((group) => (
+                  <SettingsGroup
+                    key={group.title}
+                    title={group.title}
+                    description="Saved deployment defaults for this service."
+                    disabled={save.isPending}
+                  >
+                    {numericInputs(group.fields)}
+                  </SettingsGroup>
+                ))}
+              </VStack>
+            </VStack>
+          </Collapsible>
+
+          <TextInput
+            label={"Reason for change"}
+            id="setting-reason"
+            isRequired={true}
+            value={reason}
+            onChange={(value) => setReason(value)}
+            description="Required when saving. Describe why this change is needed for the history."
+            {...({
+              required: true,
+              maxLength: 500,
+            } satisfies InputHTMLAttributes<HTMLInputElement>)}
+          />
+
           {save.error && (
-            <p className="notice error" role="alert">
-              {save.error.message}{" "}
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => {
-                  setOriginal(data);
-                  setDraft(data.settings);
-                  setReason("");
-                  void client.invalidateQueries({
-                    queryKey: ["deployment-settings"],
-                  });
-                }}
-              >
-                Reload saved settings and discard edits
-              </button>
-            </p>
+            <Banner
+              status="error"
+              title="Could not save settings"
+              description={save.error.message}
+              endContent={
+                <Button
+                  label="Reload saved settings and discard edits"
+                  onClick={() => {
+                    setOriginal(data);
+                    setDraft(data.settings);
+                    setReason("");
+                    void client.invalidateQueries({
+                      queryKey: ["deployment-settings"],
+                    });
+                  }}
+                />
+              }
+            />
           )}
-          <div className="inline-actions">
-            <button disabled={!dirty || !reason.trim() || save.isPending}>
-              {save.isPending ? "Saving…" : "Save settings"}
-            </button>
-            <span className="field-hint" role="status">
+          <HStack gap={3} wrap="wrap" align="center">
+            <Button
+              type="submit"
+              variant="primary"
+              label={save.isPending ? "Saving…" : "Save settings"}
+              isDisabled={!dirty || !reason.trim()}
+              isLoading={save.isPending}
+            />
+            <Button
+              label="Discard edits"
+              isDisabled={!dirty || save.isPending}
+              onClick={() => {
+                setDraft(original.settings);
+                setReason("");
+              }}
+            />
+            <Text type="supporting" role="status">
               {dirty
                 ? reason.trim()
                   ? "Changes ready to save"
                   : "Add a reason to save your changes"
                 : "No unsaved changes"}
-            </span>
-            <button
-              type="button"
-              className="secondary"
-              disabled={!dirty || save.isPending}
-              onClick={() => {
-                setDraft(original.settings);
-                setReason("");
-              }}
-            >
-              Discard edits
-            </button>
-          </div>
-        </div>
-      </form>
-      <section className="panel">
-        <div className="panel-heading">
-          <h2>Settings loaded by services</h2>
-        </div>
-        <div className="panel-body">
-          <p className="muted">
+            </Text>
+          </HStack>
+        </VStack>
+      </Form>
+      <VStack gap={4} as="section">
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Heading level={2}>Settings loaded by services</Heading>
+        </HStack>
+        <VStack gap={4}>
+          <Text as="p" color="secondary">
             Last 50 service starts. These records show which revision was loaded
             at startup; use Health to check current workers. Restart services
             through your deployment platform.
-          </p>
+          </Text>
           <DeploymentLink />
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Service</th>
-                  <th>Instance</th>
-                  <th>Revision</th>
-                  <th>Policy status</th>
-                  <th>Loaded</th>
-                </tr>
-              </thead>
-              <tbody>
+          <VStack gap={0}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHeaderCell>Service</TableHeaderCell>
+                  <TableHeaderCell>Instance</TableHeaderCell>
+                  <TableHeaderCell>Revision</TableHeaderCell>
+                  <TableHeaderCell>Policy status</TableHeaderCell>
+                  <TableHeaderCell>Loaded</TableHeaderCell>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {data.startup_loads.map((row, index) => (
-                  <tr key={index}>
-                    <td>{row.service}</td>
-                    <td>
-                      <code>{row.hostname}</code>
-                    </td>
-                    <td>{row.revision ?? "Environment"}</td>
-                    <td>
+                  <TableRow key={index}>
+                    <TableCell>{row.service}</TableCell>
+                    <TableCell>
+                      <Code>{row.hostname}</Code>
+                    </TableCell>
+                    <TableCell>{row.revision ?? "Environment"}</TableCell>
+                    <TableCell>
                       {(row.revision ?? 0) === data.revision
                         ? "Current at startup"
                         : "Older settings loaded"}
-                    </td>
-                    <td>{time(row.loaded_at)}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell>{time(row.loaded_at)}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </VStack>
           {!data.startup_loads.length && (
-            <p className="muted">No startup observations yet.</p>
+            <Text as="p" color="secondary">
+              No startup observations yet.
+            </Text>
           )}
-        </div>
-      </section>
-      <section className="panel">
-        <div className="panel-heading">
-          <h2>Settings history</h2>
-        </div>
-        <div className="panel-body">
+        </VStack>
+      </VStack>
+      <VStack gap={4} as="section">
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Heading level={2}>Settings history</Heading>
+        </HStack>
+        <VStack gap={4}>
           <Freshness query={history} interval={false} />
           {history.data?.history.map((revision) => (
-            <div className="settings-revision" key={revision.id}>
-              <div>
+            <HStack gap={3} wrap="wrap" vAlign="center" key={revision.id}>
+              <VStack gap={3}>
                 <strong>Revision {revision.id}</strong>
-                <p>{revision.reason}</p>
-                <span className="muted">
+                <Text as="p">{revision.reason}</Text>
+                <Text color="secondary">
                   {time(revision.created_at)} · {revision.actor}
-                </span>
-              </div>
-              <button
+                </Text>
+              </VStack>
+              <Button
+                label={"Restore to editor"}
+                variant="secondary"
                 type="button"
-                className="secondary"
-                disabled={revision.id === data.revision || save.isPending}
+
+                isDisabled={revision.id === data.revision || save.isPending}
                 onClick={() => {
                   setDraft(revision.settings);
                   setReason(`Restore revision ${revision.id}`);
                   window.scrollTo({ top: 0, behavior: "instant" });
                 }}
-              >
-                Restore to editor
-              </button>
-            </div>
+              />
+            </HStack>
           ))}
           {history.data?.history.length === 0 && (
-            <p className="muted">Saving a policy creates its first revision.</p>
+            <Text as="p" color="secondary">
+              Saving a policy creates its first revision.
+            </Text>
           )}
-          <div className="pagination">
-            <button
-              className="secondary"
-              disabled={before === null}
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <Button
+              label={"Newest"}
+              variant="secondary"
+              type="submit"
+
+              isDisabled={before === null}
               onClick={() => setBefore(null)}
-            >
-              Newest
-            </button>
-            <button
-              className="secondary"
-              disabled={!history.data?.next_before_id}
+            />
+            <Button
+              label={"Older"}
+              variant="secondary"
+              type="submit"
+
+              isDisabled={!history.data?.next_before_id}
               onClick={() => setBefore(history.data?.next_before_id ?? null)}
-            >
-              Older
-            </button>
-          </div>
-        </div>
-      </section>
+            />
+          </HStack>
+        </VStack>
+      </VStack>
     </>
   );
 }

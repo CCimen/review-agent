@@ -1,11 +1,41 @@
-import { ScopedLink as Link, useScope } from "./scope";
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Button } from "@astryxdesign/core/Button";
+import { Code } from "@astryxdesign/core/CodeBlock";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Selector } from "@astryxdesign/core/Selector";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { components } from "./api.generated";
+import type {
+  FormEvent,
+  InputHTMLAttributes,
+  TextareaHTMLAttributes,
+} from "react";
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { APIError, read, write } from "./api";
-import { Empty, Freshness, Period, Stat, number, time, useFilters } from "./ui";
+import type { components } from "./api.generated";
+import { ScopedLink as Link, useScope } from "./scope";
+import {
+  Empty,
+  Form,
+  Freshness,
+  Period,
+  Stat,
+  number,
+  time,
+  useFilters,
+} from "./ui";
 
 type QualityReport = components["schemas"]["QualityReport"];
 type QualityFeedbackPage = components["schemas"]["QualityFeedbackPage"];
@@ -68,116 +98,123 @@ function FeedbackRow({
     mutation.mutate();
   }
   return (
-    <article className="panel quality-feedback">
-      <div className="panel-heading">
-        <div>
+    <VStack gap={4} as="article">
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
           <strong>
             {item.repository} PR #{item.pr_number}
           </strong>
-          <span className="subtext">
+          <Text color="secondary" display="block" type="supporting">
             Feedback #{item.id} · {time(item.created_at)}
-          </span>
-        </div>
-        <span
-          className={`status ${item.triage_status === "pending" ? "queued" : ""}`}
-        >
-          {item.triage_status}
-        </span>
-      </div>
-      <div className="panel-body">
-        <p>{item.reason || "No reason was supplied."}</p>
+          </Text>
+        </VStack>
+        <Text>{item.triage_status}</Text>
+      </HStack>
+      <VStack gap={4}>
+        <Text as="p">{item.reason || "No reason was supplied."}</Text>
         {item.stable_key ? (
-          <p className="subtext">
-            <code>{item.stable_key}</code> · {item.target_owner}
-          </p>
+          <Text as="p" color="secondary" display="block" type="supporting">
+            <Code>{item.stable_key}</Code> · {item.target_owner}
+          </Text>
         ) : null}
         {item.triage_reason ? (
-          <p className="subtext">Latest triage: {item.triage_reason}</p>
+          <Text as="p" color="secondary" display="block" type="supporting">
+            Latest triage: {item.triage_reason}
+          </Text>
         ) : null}
         {admin && item.triage_status === "pending" ? (
-          <details
-            open={open}
-            onToggle={(event) => setOpen(event.currentTarget.open)}
+          <Collapsible
+            isOpen={open}
+            onOpenChange={(isOpen) => setOpen(isOpen)}
+            trigger={
+              <HStack gap={3} wrap="wrap" vAlign="center">
+                Triage feedback
+              </HStack>
+            }
           >
-            <summary>Triage feedback</summary>
-            <form className="decision-form" onSubmit={submit}>
-              <label className="field">
-                Outcome
-                <select
+            <VStack gap={4}>
+              <Form onSubmit={submit}>
+                <Selector
+                  label={"Outcome"}
+                  options={[
+                    { value: "actionable", label: "Actionable" },
+                    { value: "duplicate", label: "Duplicate" },
+                    { value: "insufficient", label: "Insufficient evidence" },
+                    { value: "resolved", label: "Resolved" },
+                  ]}
                   value={status}
-                  onChange={(event) =>
-                    setStatus(event.target.value as typeof status)
-                  }
-                >
-                  <option value="actionable">Actionable</option>
-                  <option value="duplicate">Duplicate</option>
-                  <option value="insufficient">Insufficient evidence</option>
-                  <option value="resolved">Resolved</option>
-                </select>
-              </label>
-              {status === "actionable" ? (
-                <>
-                  <label className="field">
-                    Stable key
-                    <input
-                      required
-                      pattern="[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*"
-                      maxLength={160}
+                  onChange={(value) => setStatus(value as typeof status)}
+                />
+                {status === "actionable" ? (
+                  <>
+                    <TextInput
+                      label={"Stable key"}
+                      isRequired={true}
                       value={stableKey}
-                      onChange={(event) => setStableKey(event.target.value)}
+                      onChange={(value) => setStableKey(value)}
+                      {...({
+                        required: true,
+                        pattern: "[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*",
+                        maxLength: 160,
+                      } satisfies InputHTMLAttributes<HTMLInputElement>)}
                     />
-                  </label>
-                  <label className="field">
-                    Owner
-                    <select
+
+                    <Selector
+                      label={"Owner"}
+                      options={[
+                        (
+                          [
+                            "source_tool",
+                            "coverage",
+                            "review_rule",
+                            "profile",
+                            "repository_decision",
+                            "documentation",
+                          ] as const
+                        ).map((value) => ({
+                          value: String(value),
+                          label: value.replaceAll("_", " "),
+                        })),
+                      ]
+                        .flat()
+                        .filter((option) => option != null)}
                       value={owner}
-                      onChange={(event) =>
-                        setOwner(event.target.value as typeof owner)
-                      }
-                    >
-                      {(
-                        [
-                          "source_tool",
-                          "coverage",
-                          "review_rule",
-                          "profile",
-                          "repository_decision",
-                          "documentation",
-                        ] as const
-                      ).map((value) => (
-                        <option key={value} value={value}>
-                          {value.replaceAll("_", " ")}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </>
-              ) : null}
-              <label className="field">
-                Reason
-                <textarea
-                  required
+                      onChange={(value) => setOwner(value as typeof owner)}
+                    />
+                  </>
+                ) : null}
+
+                <TextArea
+                  label={"Reason"}
+                  isRequired={true}
                   maxLength={2000}
                   rows={3}
                   value={reason}
-                  onChange={(event) => setReason(event.target.value)}
+                  onChange={(value) => setReason(value.slice(0, 2000))}
+                  {...({
+                    required: true,
+                  } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
                 />
-              </label>
-              {mutation.error ? (
-                <p className="form-error">
-                  {mutation.error instanceof APIError
-                    ? mutation.error.message
-                    : "Triage failed."}
-                </p>
-              ) : null}
-              <button type="submit" disabled={mutation.isPending}>
-                Confirm triage
-              </button>
-            </form>
-          </details>
+
+                {mutation.error ? (
+                  <Text as="p">
+                    {mutation.error instanceof APIError
+                      ? mutation.error.message
+                      : "Triage failed."}
+                  </Text>
+                ) : null}
+                <Button
+                  label={"Confirm triage"}
+                  variant="primary"
+                  type="submit"
+                  isDisabled={mutation.isPending}
+                />
+              </Form>
+            </VStack>
+          </Collapsible>
         ) : null}
-      </div>
-    </article>
+      </VStack>
+    </VStack>
   );
 }
 
@@ -229,28 +266,29 @@ export function QualityPage() {
   const data = report.data;
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Review quality</h1>
-          <p>Understand reported problems and follow up on review feedback.</p>
-        </div>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Review quality</Heading>
+          <Text as="p">
+            Understand reported problems and follow up on review feedback.
+          </Text>
+        </VStack>
         <Link
-          className="button secondary"
           to={`/history?${new URLSearchParams({ days: String(days), status: "published", ...(repository ? { repository } : {}) })}`}
         >
           Browse published reviews
         </Link>
-      </div>
-      <div className="toolbar">
+      </HStack>
+      <HStack gap={3} wrap="wrap" vAlign="center">
         <Period
           days={days}
           change={(value) => update({ days: value, feedback_offset: "" })}
         />
-      </div>
+      </HStack>
       <Freshness query={report} />
       {data ? (
         <>
-          <div className="stat-grid">
+          <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
             <Stat label="Published findings" value={data.published_findings} />
             <Stat
               label="Reported false positives"
@@ -278,26 +316,26 @@ export function QualityPage() {
                   : "No reports awaiting a decision"
               }
             />
-          </div>
-          <p className="stat-note">
+          </Grid>
+          <Text as="p" color="secondary">
             Counts reflect submitted feedback. Reviews without feedback have not
             been assessed here. Pending triage includes all retained history.
-          </p>
-          <section className="section">
-            <div className="section-heading">
-              <div>
-                <h2>Missed-issue reports</h2>
-                <p>
+          </Text>
+          <VStack gap={4} as="section">
+            <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+              <VStack gap={3}>
+                <Heading level={2}>Missed-issue reports</Heading>
+                <Text as="p">
                   {feedback.data
                     ? `${feedback.data.pending} pending across ${feedback.data.total} missed-issue reports`
                     : "Loading retained feedback…"}
-                </p>
-              </div>
-            </div>
+                </Text>
+              </VStack>
+            </HStack>
             <Freshness query={feedback} quiet />
             {feedback.data?.items.length ? (
               <>
-                <div className="quality-list">
+                <VStack gap={3}>
                   {feedback.data.items.map((item) => (
                     <FeedbackRow
                       key={item.id}
@@ -305,12 +343,14 @@ export function QualityPage() {
                       admin={item.can_triage ?? false}
                     />
                   ))}
-                </div>
-                <div className="pagination">
-                  <button
-                    className="secondary"
+                </VStack>
+                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                  <Button
+                    label={"Previous feedback"}
+                    variant="secondary"
+
                     type="button"
-                    disabled={feedback.data.offset === 0}
+                    isDisabled={feedback.data.offset === 0}
                     onClick={() =>
                       update({
                         feedback_offset: String(
@@ -318,10 +358,8 @@ export function QualityPage() {
                         ),
                       })
                     }
-                  >
-                    Previous feedback
-                  </button>
-                  <span className="subtext">
+                  />
+                  <Text color="secondary" display="block" type="supporting">
                     {number.format(feedback.data.offset + 1)}–
                     {number.format(
                       Math.min(
@@ -330,11 +368,13 @@ export function QualityPage() {
                       ),
                     )}{" "}
                     of {number.format(feedback.data.total)}
-                  </span>
-                  <button
-                    className="secondary"
+                  </Text>
+                  <Button
+                    label={"Next feedback"}
+                    variant="secondary"
+
                     type="button"
-                    disabled={feedback.data.next_offset === null}
+                    isDisabled={feedback.data.next_offset === null}
                     onClick={() =>
                       update({
                         feedback_offset: String(
@@ -342,10 +382,8 @@ export function QualityPage() {
                         ),
                       })
                     }
-                  >
-                    Next feedback
-                  </button>
-                </div>
+                  />
+                </HStack>
               </>
             ) : feedback.data ? (
               <Empty
@@ -356,83 +394,103 @@ export function QualityPage() {
                 }
               >
                 {feedback.data.total ? (
-                  <button
-                    className="text-button"
+                  <Button
+                    label={"Return to the first page"}
+                    variant="primary"
+                    type="submit"
+
                     onClick={() => update({ feedback_offset: "" })}
-                  >
-                    Return to the first page
-                  </button>
+                  />
                 ) : (
                   "Reports of issues missed by a review will appear here for follow-up."
                 )}
               </Empty>
             ) : null}
-          </section>
-          <details className="panel report-breakdown">
-            <summary>Model and policy breakdown</summary>
-            <div className="panel-body">
-              <p className="field-hint">
-                Completed reviews grouped by repository, model, and saved
-                policy. Missing model information is shown as not recorded.
-              </p>
-              {data.cohorts_truncated ? (
-                <p className="notice">
-                  Showing the first 200 groups. Select a repository or a shorter
-                  period to narrow this breakdown.
-                </p>
-              ) : null}
-              {data.cohorts.length ? (
-                <div
-                  className="table-scroll"
-                  tabIndex={0}
-                  role="region"
-                  aria-label="Model and policy breakdown"
-                >
-                  <table>
-                    <thead>
-                      <tr>
-                        <th scope="col">Repository</th>
-                        <th scope="col">Model</th>
-                        <th scope="col">Completed reviews</th>
-                        <th scope="col">Profile</th>
-                        <th scope="col">Policy</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.cohorts.map((cohort) => (
-                        <tr
-                          key={`${cohort.repository}:${cohort.review_contract_hash}:${cohort.policy_revision}`}
-                        >
-                          <th scope="row">{cohort.repository}</th>
-                          <td>
-                            {cohort.model && cohort.model !== "unknown" ? (
-                              <>
-                                <code>{cohort.model}</code>
-                                <span className="subtext">
-                                  {cohort.model_provider !== "unknown"
-                                    ? cohort.model_provider
-                                    : "Provider not recorded"}
-                                </span>
-                              </>
-                            ) : (
-                              "Not recorded"
-                            )}
-                          </td>
-                          <td className="numeric">
-                            {number.format(cohort.completed_reviews)}
-                          </td>
-                          <td>{cohort.profile}</td>
-                          <td>{cohort.policy_revision}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p>No completed reviews in this period.</p>
-              )}
-            </div>
-          </details>
+          </VStack>
+          <Collapsible
+            defaultIsOpen={false}
+            trigger={
+              <HStack gap={3} wrap="wrap" vAlign="center">
+                Model and policy breakdown
+              </HStack>
+            }
+          >
+            <VStack gap={4}>
+              <VStack gap={4}>
+                <Text as="p" color="secondary">
+                  Completed reviews grouped by repository, model, and saved
+                  policy. Missing model information is shown as not recorded.
+                </Text>
+                {data.cohorts_truncated ? (
+                  <Text as="p">
+                    Showing the first 200 groups. Select a repository or a
+                    shorter period to narrow this breakdown.
+                  </Text>
+                ) : null}
+                {data.cohorts.length ? (
+                  <VStack
+                    gap={0}
+
+                    tabIndex={0}
+                    role="region"
+                    aria-label="Model and policy breakdown"
+                  >
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHeaderCell scope="col">
+                            Repository
+                          </TableHeaderCell>
+                          <TableHeaderCell scope="col">Model</TableHeaderCell>
+                          <TableHeaderCell scope="col">
+                            Completed reviews
+                          </TableHeaderCell>
+                          <TableHeaderCell scope="col">Profile</TableHeaderCell>
+                          <TableHeaderCell scope="col">Policy</TableHeaderCell>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.cohorts.map((cohort) => (
+                          <TableRow
+                            key={`${cohort.repository}:${cohort.review_contract_hash}:${cohort.policy_revision}`}
+                          >
+                            <TableHeaderCell scope="row">
+                              {cohort.repository}
+                            </TableHeaderCell>
+                            <TableCell>
+                              {cohort.model && cohort.model !== "unknown" ? (
+                                <>
+                                  <Code>{cohort.model}</Code>
+                                  <Text
+                                    color="secondary"
+                                    display="block"
+                                    type="supporting"
+                                  >
+                                    {cohort.model_provider !== "unknown"
+                                      ? cohort.model_provider
+                                      : "Provider not recorded"}
+                                  </Text>
+                                </>
+                              ) : (
+                                "Not recorded"
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {number.format(cohort.completed_reviews)}
+                            </TableCell>
+                            <TableCell>{cohort.profile}</TableCell>
+                            <TableCell>{cohort.policy_revision}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </VStack>
+                ) : (
+                  <Text as="p">No completed reviews in this period.</Text>
+                )}
+              </VStack>
+            </VStack>
+          </Collapsible>
         </>
       ) : null}
     </>
@@ -526,124 +584,153 @@ export function FindingPage() {
       <Freshness query={query} />
       {finding ? (
         <>
-          <div className="page-heading">
-            <div>
-              <p>
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <VStack gap={3}>
+              <Text as="p">
                 <Link to="/quality">Review quality</Link> ·{" "}
-                <code>{finding.rule_id}</code>
-              </p>
-              <h1>{finding.title}</h1>
-              <p>
-                <code>
+                <Code>{finding.rule_id}</Code>
+              </Text>
+              <Heading level={1}>{finding.title}</Heading>
+              <Text as="p">
+                <Code>
                   {finding.path}:{finding.line}
-                </code>{" "}
+                </Code>{" "}
                 · {finding.severity} · {finding.category}
-              </p>
-            </div>
-          </div>
-          <div className="quality-detail">
-            <section className="panel">
-              <div className="panel-body">
-                <h2>What the reviewer found</h2>
-                <p>{finding.evidence}</p>
-                <h2>Impact</h2>
-                <p>{finding.impact}</p>
-                <h2>Smallest safe fix</h2>
-                <p>{finding.smallest_fix}</p>
-              </div>
-            </section>
-            <aside className="panel">
-              <div className="panel-body">
-                <h2>Human decision</h2>
+              </Text>
+            </VStack>
+          </HStack>
+          <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
+            <VStack gap={4} as="section">
+              <VStack gap={4}>
+                <Heading level={2}>What the reviewer found</Heading>
+                <Text as="p">{finding.evidence}</Text>
+                <Heading level={2}>Impact</Heading>
+                <Text as="p">{finding.impact}</Text>
+                <Heading level={2}>Smallest safe fix</Heading>
+                <Text as="p">{finding.smallest_fix}</Text>
+              </VStack>
+            </VStack>
+            <VStack as="aside" gap={3}>
+              <VStack gap={4}>
+                <Heading level={2}>Human decision</Heading>
                 {query.data!.decisions.length ? (
                   query.data!.decisions.map((item) => (
-                    <details key={item.id}>
-                      <summary>
-                        {item.decision} · {time(item.created_at)}
-                      </summary>
-                      <p>{item.reason}</p>
-                      <p className="subtext">
-                        {item.actor}
-                        {item.adr_id ? ` · ${item.adr_id}` : ""}
-                      </p>
-                    </details>
+                    <Collapsible
+                      key={item.id}
+                      defaultIsOpen={false}
+                      trigger={
+                        <HStack gap={3} wrap="wrap" vAlign="center">
+                          {item.decision} · {time(item.created_at)}
+                        </HStack>
+                      }
+                    >
+                      <VStack gap={4}>
+                        <Text as="p">{item.reason}</Text>
+                        <Text
+                          as="p"
+                          color="secondary"
+                          display="block"
+                          type="supporting"
+                        >
+                          {item.actor}
+                          {item.adr_id ? ` · ${item.adr_id}` : ""}
+                        </Text>
+                      </VStack>
+                    </Collapsible>
                   ))
                 ) : (
-                  <p className="subtext">No decision recorded.</p>
+                  <Text
+                    as="p"
+                    color="secondary"
+                    display="block"
+                    type="supporting"
+                  >
+                    No decision recorded.
+                  </Text>
                 )}
                 {query.data!.has_more_decisions &&
                 query.data!.next_decision_before_id ? (
                   <Link
-                    className="button secondary"
                     to={`?${new URLSearchParams({ repository, occurrence_id: occurrenceId, decisions_before_id: String(query.data!.next_decision_before_id) })}`}
                   >
                     Older decisions
                   </Link>
                 ) : null}
                 {query.data?.can_decide ? (
-                  <form
-                    className="decision-form"
+                  <Form
                     onSubmit={(event) => {
                       event.preventDefault();
                       mutation.mutate();
                     }}
                   >
-                    <label className="field">
-                      Decision
-                      <select
-                        value={decision}
-                        onChange={(event) =>
-                          setDecision(event.target.value as typeof decision)
-                        }
-                      >
-                        {decisions.map((value) => (
-                          <option key={value} value={value}>
-                            {value.replaceAll("_", " ")}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <Selector
+                      label={"Decision"}
+                      options={[
+                        decisions.map((value) => ({
+                          value: String(value),
+                          label: value.replaceAll("_", " "),
+                        })),
+                      ]
+                        .flat()
+                        .filter((option) => option != null)}
+                      value={decision}
+                      onChange={(value) =>
+                        setDecision(value as typeof decision)
+                      }
+                    />
                     {decision === "intentional_by_design" ? (
-                      <label className="field">
-                        Accepted ADR id
-                        <input
-                          required
-                          maxLength={80}
-                          value={adr}
-                          onChange={(event) => setAdr(event.target.value)}
-                        />
-                      </label>
-                    ) : null}
-                    <label className="field">
-                      Reason
-                      <textarea
-                        required
-                        maxLength={2000}
-                        rows={4}
-                        value={reason}
-                        onChange={(event) => setReason(event.target.value)}
+                      <TextInput
+                        label={"Accepted ADR id"}
+                        isRequired={true}
+                        value={adr}
+                        onChange={(value) => setAdr(value)}
+                        {...({
+                          required: true,
+                          maxLength: 80,
+                        } satisfies InputHTMLAttributes<HTMLInputElement>)}
                       />
-                    </label>
-                    <p className="subtext">
+                    ) : null}
+
+                    <TextArea
+                      label={"Reason"}
+                      isRequired={true}
+                      maxLength={2000}
+                      rows={4}
+                      value={reason}
+                      onChange={(value) => setReason(value.slice(0, 2000))}
+                      {...({
+                        required: true,
+                      } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
+                    />
+
+                    <Text
+                      as="p"
+                      color="secondary"
+                      display="block"
+                      type="supporting"
+                    >
                       This records a decision for occurrence #
                       {finding.occurrence_id}. Intentional decisions must match
                       its accepted ADR snapshot and path.
-                    </p>
+                    </Text>
                     {mutation.error ? (
-                      <p className="form-error">
+                      <Text as="p">
                         {mutation.error instanceof APIError
                           ? mutation.error.message
                           : "Decision failed."}
-                      </p>
+                      </Text>
                     ) : null}
-                    <button disabled={mutation.isPending} type="submit">
-                      Confirm decision
-                    </button>
-                  </form>
+                    <Button
+                      label={"Confirm decision"}
+                      variant="primary"
+                      isDisabled={mutation.isPending}
+                      type="submit"
+                    />
+                  </Form>
                 ) : null}
-              </div>
-            </aside>
-          </div>
+              </VStack>
+            </VStack>
+          </Grid>
         </>
       ) : null}
     </>

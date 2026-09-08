@@ -12,7 +12,7 @@ from psycopg.rows import TupleRow
 
 from ..domain.finding import SUPPRESSIVE_DECISION_KINDS
 from . import reporting as base_reporting
-from .team_access import AccessScope, repository_source
+from .team_access import ReadScope, repository_source
 
 
 class QualityReportingError(ValueError):
@@ -80,7 +80,7 @@ def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
 def build_report(
     connection: psycopg.Connection[TupleRow],
     *,
-    scope: AccessScope | None = None,
+    scope: ReadScope | None = None,
     repository: str | None,
     window_started_at: datetime,
     window_ended_at: datetime,

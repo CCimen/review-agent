@@ -10,13 +10,16 @@
   border-radius: var(--radius);
 }
 .model-choice legend { padding-inline: var(--space-2); }
-.model-efforts {
+.model-efforts,
+.checkbox-list {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
   margin-block: var(--space-3);
 }
-.model-efforts label {
+.model-efforts label,
+.checkbox-list label,
+.check-field {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);

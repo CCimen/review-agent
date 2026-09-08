@@ -12,7 +12,7 @@ from psycopg.rows import TupleRow, class_row
 
 from ..domain.review import ReviewRunId
 from . import coverage as postgres_coverage
-from .team_access import AccessScope, repository_source
+from .team_access import ReadScope, repository_source
 
 
 HistoryStatus = Literal[
@@ -56,6 +56,8 @@ class RepositoryPage:
     window_end: datetime
     total: int
     totals: RepositoryTotals
+    next_after_id: int | None = None
+    watermark_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,12 +110,13 @@ class HistoryPage:
     window_start: datetime
     window_end: datetime
     total: int
+    watermark_id: int | None = None
 
 
 def repositories(
     connection: psycopg.Connection[TupleRow],
     *,
-    scope: AccessScope | None = None,
+    scope: ReadScope | None = None,
     since: datetime,
     until: datetime,
     now: datetime,
@@ -121,6 +124,8 @@ def repositories(
     search: str,
     offset: int,
     limit: int,
+    after_id: int | None = None,
+    watermark_id: int | None = None,
 ) -> RepositoryPage:
     query = sql.SQL("""
             WITH activity AS (
@@ -162,6 +167,7 @@ def repositories(
             LEFT JOIN review_agent.team_repositories ownership ON ownership.repository_id = repo.id
             LEFT JOIN review_agent.teams team ON team.id = ownership.team_id
             WHERE position(lower(%(search)s) IN lower(repo.full_name)) > 0
+                AND (%(watermark)s::bigint IS NULL OR repo.id <= %(watermark)s)
                 """).format(repositories=repository_source(scope))
     parameters = {
         "since": since,
@@ -169,22 +175,29 @@ def repositories(
         "search": search,
         "limit": limit + 1,
         "offset": offset,
+        "after": after_id,
+        "watermark": watermark_id,
     }
     totals = connection.execute(
         sql.SQL(
             "SELECT count(*), coalesce(sum(prs_reviewed), 0)::bigint, "
             "coalesce(sum(published_requests), 0)::bigint, coalesce(sum(failed_requests), 0)::bigint, "
-            "coalesce(sum(active_requests), 0)::bigint, coalesce(sum(latest_failed_prs), 0)::bigint "
+            "coalesce(sum(active_requests), 0)::bigint, coalesce(sum(latest_failed_prs), 0)::bigint, max(repository_id) "
             "FROM ({}) AS matching"
         ).format(query),
         parameters,
     ).fetchone()
     assert totals is not None
+    watermark = watermark_id if watermark_id is not None else totals[6] or 0
+    if after_id is not None:
+        parameters["watermark"] = watermark
     with connection.cursor(row_factory=class_row(RepositoryActivity)) as cursor:
         rows = cursor.execute(
             query
             + sql.SQL(
-                " ORDER BY lower(repo.full_name), repo.id LIMIT %(limit)s OFFSET %(offset)s"
+                " AND repo.id > %(after)s ORDER BY repo.id LIMIT %(limit)s"
+                if after_id is not None
+                else " ORDER BY lower(repo.full_name), repo.id LIMIT %(limit)s OFFSET %(offset)s"
             ),
             parameters,
         ).fetchall()
@@ -197,6 +210,10 @@ def repositories(
         until,
         totals[0],
         RepositoryTotals(totals[1], totals[2], totals[3], totals[4], totals[5]),
+        rows[limit - 1].repository_id
+        if after_id is not None and len(rows) > limit
+        else None,
+        watermark if after_id is not None else None,
     )
 
 
@@ -245,6 +262,7 @@ _HISTORY_QUERY = (
     + """
             WHERE (%(repository)s::text IS NULL OR lower(repo.full_name) = lower(%(repository)s))
               AND (%(pr)s::integer IS NULL OR pr.number = %(pr)s)
+              AND (%(watermark)s::bigint IS NULL OR run.id <= %(watermark)s)
               AND (CASE WHEN %(status)s = 'active' THEN run.status = 'running'
                         ELSE run.started_at >= %(since)s AND run.started_at < %(until)s END)
               AND (%(status)s IN ('all', 'active')
@@ -262,7 +280,7 @@ _HISTORY_QUERY = (
 def history(
     connection: psycopg.Connection[TupleRow],
     *,
-    scope: AccessScope | None = None,
+    scope: ReadScope | None = None,
     since: datetime,
     until: datetime,
     now: datetime,
@@ -272,6 +290,7 @@ def history(
     pr_number: int | None,
     limit: int,
     before_id: int | None,
+    watermark_id: int | None = None,
 ) -> HistoryPage:
     query = sql.SQL(_HISTORY_QUERY).format(repositories=repository_source(scope))
     parameters = {
@@ -282,11 +301,15 @@ def history(
         "since": since,
         "until": until,
         "limit": limit + 1,
+        "watermark": watermark_id,
     }
     total = connection.execute(
-        sql.SQL("SELECT count(*) FROM ({}) AS matching").format(query), parameters
+        sql.SQL("SELECT count(*), max(id) FROM ({}) AS matching").format(query),
+        parameters,
     ).fetchone()
     assert total is not None
+    watermark = watermark_id if watermark_id is not None else total[1] or 0
+    parameters["watermark"] = watermark
     with connection.cursor(row_factory=class_row(HistoryRow)) as cursor:
         rows = cursor.execute(
             query
@@ -304,6 +327,7 @@ def history(
         since,
         until,
         total[0],
+        watermark,
     )
 
 
@@ -381,7 +405,7 @@ class ReviewDetail:
 def review_detail(
     connection: psycopg.Connection[TupleRow],
     *,
-    scope: AccessScope | None = None,
+    scope: ReadScope | None = None,
     run_id: ReviewRunId,
     before_id: int | None,
     now: datetime,
@@ -478,7 +502,7 @@ class _GroupRow:
 def pull_requests(
     connection: psycopg.Connection[TupleRow],
     *,
-    scope: AccessScope | None = None,
+    scope: ReadScope | None = None,
     since: datetime,
     until: datetime,
     now: datetime,
@@ -489,6 +513,7 @@ def pull_requests(
     before_id: int | None,
 ) -> PullRequestPage:
     parameters = {
+        "watermark": None,
         "repository": repository,
         "status": status,
         "pr": pr_number,

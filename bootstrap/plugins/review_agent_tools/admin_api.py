@@ -39,6 +39,7 @@ from . import (
     admin_deployment_api,
     admin_teams_api,
     model_connection_config,
+    integration_api,
 )
 from .admin_auth import AdminAuth
 from .postgres import admin_operations, admin_reporting
@@ -278,6 +279,11 @@ def create_app(
         return JSONResponse(
             status_code=error.status if isinstance(error, AccessDenied) else 404,
             content={"detail": str(error)},
+            headers={"WWW-Authenticate": "Bearer"}
+            if isinstance(error, AccessDenied)
+            and error.status == 401
+            and _request.url.path.startswith("/api/v1/")
+            else None,
         )
 
     def team_conflict(_request: Request, error: Exception) -> JSONResponse:
@@ -334,6 +340,7 @@ def create_app(
         "/teams/{team_id}",
         "/repository-requests",
         "/audit",
+        "/integrations",
         "/model-connections",
         "/model-connections/{connection_id}",
     ):
@@ -362,6 +369,8 @@ def create_app(
     app.include_router(admin_teams_api.create_router(runtime, auth))
     app.include_router(admin_audit_api.create_router(runtime, auth))
     app.include_router(admin_repository_requests_api.create_router(runtime, auth))
+    app.include_router(integration_api.create_management_router(runtime, auth))
+    app.include_router(integration_api.create_report_router(runtime))
     app.mount(
         "/assets",
         StaticFiles(directory=static_dir / "assets", check_dir=False),

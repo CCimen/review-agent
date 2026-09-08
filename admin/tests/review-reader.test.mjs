@@ -22,6 +22,7 @@ let contextualTo;
 let AuditLog;
 let AuditJSON;
 let ConnectionQuota;
+let IntegrationsPage;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -51,6 +52,7 @@ before(async () => {
   ({ HermesHealth } = await server.ssrLoadModule("/src/deployment.tsx"));
   ({ AuditLog, AuditJSON } = await server.ssrLoadModule("/src/audit.tsx"));
   ({ ConnectionQuota } = await server.ssrLoadModule("/src/modelQuota.tsx"));
+  ({ IntegrationsPage } = await server.ssrLoadModule("/src/integrations.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -95,6 +97,25 @@ const renderConsolePage = (component, cache) => {
   client.clear();
   return html;
 };
+
+test("integration management distinguishes report grants, content grants and revoked credentials", () => {
+  const html = renderConsolePage(createElement(IntegrationsPage), [
+    [scopedKey(["integrations", 0], "owner"), { items: [
+      { id: 1, name: "Metrics <script>consumer</script>", deployment_wide: false, read_review_content: false, created_at: "2026-09-08T12:00:00Z", expires_at: "2026-10-08T12:00:00Z", revoked_at: null, teams: [{ id: 1, name: "Payments" }], state: "active" },
+      { id: 2, name: "Retired consumer", deployment_wide: true, read_review_content: true, created_at: "2026-09-08T12:00:00Z", expires_at: "2026-10-08T12:00:00Z", revoked_at: "2026-09-08T13:00:00Z", teams: [], state: "revoked" },
+    ], next_after_id: null }],
+  ]);
+  assert.match(html, /Users &amp; roles/);
+  assert.match(html, /Metrics &lt;script&gt;consumer&lt;\/script&gt;/);
+  assert.match(html, /Payments/);
+  assert.match(html, /Reports only/);
+  assert.match(html, /Reports and published content/);
+  assert.match(html, /Entire deployment/);
+  assert.match(html, /Revoked/);
+  assert.equal((html.match(/>Revoke<\/button>/g) ?? []).length, 1);
+  assert.match(html, /Permissions are fixed/);
+  assert.match(html, /Open the API reference/);
+});
 
 test("account quota preserves actual windows, small percentages, and shared scope", () => {
   const connection = { id: 1, revision: 2, team_id: null, state: "enabled", accounts: [{ provider: "openai-codex", revision: 1, verified: true }] };

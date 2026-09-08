@@ -19,7 +19,7 @@ This feature is available in the source candidate and has not yet been released.
 The current v0.4.0-rc.4 image does not include it. Build both images from the same
 candidate checkout, or use a future qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 25.
+an older migration image: the current admin API requires PostgreSQL schema 26.
 
 After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
@@ -300,6 +300,92 @@ object instead of an array, so deploy the generated frontend and API together.
 Upgrade the main worker image as well as the admin image after applying schema
 18 to begin collecting presence and usage.
 
+## Application integrations
+
+Platform administrators can give an application read access from **Settings →
+Integrations**. Select up to 100 teams, or explicitly grant **Entire deployment**
+access. Deployment-wide grants include unassigned repositories and future teams.
+Outcome metadata and aggregate reports are available by default; **Allow published
+review content** is a separate permission. Integrations cannot manage users,
+reviews, providers, settings, or deployment.
+
+Choose an expiry and give a reason, then create the integration. Copy the
+credential into the consuming application's secret manager. It is shown once;
+Review Agent stores only its SHA-256 digest. The console does not retain the
+credential in its shared query cache or browser storage. If the response is lost
+or the credential is misplaced, revoke that integration and create a replacement.
+
+Permissions are fixed at creation. To rotate or change access, create a replacement,
+update the consumer, and revoke the old integration. Expiry and revocation are
+checked in every reporting transaction, without an authorization cache. Subsequent
+reads fail after revocation; an already-running request may finish. Neither action
+can retract data already downloaded by a consumer. Creation, revocation and
+successful reads enter the existing audit journal with the integration ID and
+operation name, without the credential or review text.
+
+The versioned HTTP contract uses the existing admin host and TLS configuration:
+
+| Endpoint | Result |
+| --- | --- |
+| `GET /api/v1/overview` | Activity, publication timing, token telemetry and its recording gaps. |
+| `GET /api/v1/repositories` | Repository counts and activity, in ascending repository ID order. |
+| `GET /api/v1/reviews` | Review outcome, exact subject identifiers, usage and coverage metadata, in descending run ID order. |
+| `GET /api/v1/reviews/{run_id}/content` | Bounded published text and GitHub links, requiring the separate content grant. |
+| `GET /api/v1/quality` | Recorded quality signals, cohorts and explicit denominators. |
+| `GET /api/v1/openapi.json` | The integration-only OpenAPI schema. |
+
+Send the credential as `Authorization: Bearer …`. A browser session cannot
+substitute for it on these endpoints, and the credential cannot authenticate
+console administration endpoints. The console's **API reference** also includes
+the integration routes and Swagger's **Authorize** control. Authorization is not
+saved between page visits.
+
+For example, with a credential supplied by the consumer's secret manager:
+
+```sh
+curl --fail-with-body --get \
+  --header "Authorization: Bearer ${REVIEW_AGENT_INTEGRATION_TOKEN:?}" \
+  --data-urlencode 'start=2026-09-01T00:00:00Z' \
+  --data-urlencode 'end=2026-09-08T00:00:00Z' \
+  'https://reviews.example.org/api/v1/overview'
+```
+
+Reports require explicit `start` and `end` timestamps with offsets, for a positive
+interval no longer than 366 days. The interval is `[start, end)` and responses use
+UTC. `window_days` is the interval length rounded up to whole 24-hour days; use
+the timestamps for its exact length. Metric definitions match the console:
+repository activity counts requests started in the interval, while Overview's
+publication and token totals use their recorded event times. The `active` review
+filter reports current active work regardless of the interval. Quality reports
+reflect retained recorded signals, not an independent measure of review accuracy.
+
+Each response wraps the shared report in `data`, with `metrics_version: 1`,
+`generated_at`, and `evidence_scope: "retained_records"`. Missing token evidence
+stays null. Compare started and reported attempts to assess recording gaps;
+Overview also supplies the earliest retained run time. Equal telemetry counts do
+not prove complete provider billing. Coverage, content and cohort truncation keep
+their explicit flags from the console contract.
+
+Page limits are 1–100. For repositories, send `next_after_id` as `after_id`; for
+reviews, send `next_cursor` as `before_id`. Retain the first page's `watermark_id`
+and the same interval, scope and filters on later pages. The watermark excludes
+newer IDs; it is **not a database snapshot**. Outcomes can change between pages,
+and retention, ownership transfers or late-committing transactions can change
+which rows are visible. Consumers doing incremental synchronization should reread
+an overlapping interval and deduplicate by stable IDs. Do not use page totals as
+a promise of a fixed export. Repository transfers remove access under the old
+team grant on subsequent reads, including access to older review text.
+
+An optional `team_id` narrows a grant; it never widens one. Invalid or expired
+credentials return `401` with a Bearer challenge, missing content permission
+returns `403`, and unavailable scope or content returns `404`. Invalid bounds
+return `422`; transient database unavailability returns a redacted `503`.
+Responses use `Cache-Control: no-store`. Clients should stop using a revoked
+credential and use bounded retries for transient failures.
+
+This contract is HTTP-only. An MCP adapter can reuse it when a concrete consumer
+needs one; it does not require another reporting database or identity service.
+
 ## Administrative controls
 
 Repository access separates GitHub's **All repositories / Only select repositories**
@@ -404,7 +490,7 @@ under **Advanced operational settings**.
 | `REVIEW_AGENT_DOKPLOY_URL`, `REVIEW_AGENT_DOKPLOY_COMPOSE_ID`, `REVIEW_AGENT_DOKPLOY_API_KEY` | Deployment integration binding and credential; fixes which external application the admin service may inspect. |
 | `REVIEW_AGENT_OPENAI_API_KEY`, `REVIEW_AGENT_HERMES_CONTROL_TOKEN`, `API_SERVER_KEY` | Deployment secrets; embedding, provider-companion and Hermes API credentials. They are never stored in policy revisions or sent to the browser. |
 
-When upgrading this candidate, back up PostgreSQL and apply migrations through 25 before
+When upgrading this candidate, back up PostgreSQL and apply migrations through 26 before
 starting the matching admin frontend/API. Existing admins become owners; existing
 viewers retain explicit global read access. New accounts default to team-scoped
 membership. Repository ownership starts unassigned, and existing GitHub activation

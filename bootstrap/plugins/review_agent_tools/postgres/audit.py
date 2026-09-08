@@ -9,10 +9,20 @@ import psycopg
 from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
-from .team_access import AccessDenied, AccessScope, require_admin, require_team
+from .team_access import (
+    AccessDenied,
+    AccessScope,
+    IntegrationScope,
+    ReadScope,
+    require_admin,
+    require_team,
+)
 
 
 class AuditAction(StrEnum):
+    INTEGRATION_CREATED = "integration_created"
+    INTEGRATION_REVOKED = "integration_revoked"
+    INTEGRATION_READ = "integration_read"
     AUDIT_ACCESS_STARTED = "audit_access_started"
     AUDIT_ACCESS_ENDED = "audit_access_ended"
     AUDIT_VIEWED = "audit_viewed"
@@ -195,7 +205,7 @@ def end_access(
 
 def record(
     connection: psycopg.Connection[TupleRow],
-    scope: AccessScope,
+    scope: ReadScope,
     *,
     action: AuditAction,
     subject: str,
@@ -207,6 +217,9 @@ def record(
     operation_id: UUID | None = None,
     outcome: AuditOutcome = AuditOutcome.SUCCEEDED,
 ) -> None:
+    actor_id = scope.user_id if isinstance(scope, AccessScope) else None
+    if isinstance(scope, IntegrationScope):
+        details = {**details, "integration_id": scope.id}
     if repository_id is not None:
         owner = connection.execute(
             "SELECT team_id FROM review_agent.team_repositories WHERE repository_id = %s",
@@ -220,8 +233,8 @@ def record(
             VALUES (%s, %s, (SELECT email FROM review_agent.admin_users WHERE id = %s), %s, %s, %s, %s, %s, %s, %s, %s)""",
         (
             team_id,
-            scope.user_id,
-            scope.user_id,
+            actor_id,
+            actor_id,
             scope.actor.split(":", 1)[0],
             action.value,
             subject,

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from math import ceil
 from uuid import UUID
 
 import psycopg
@@ -26,10 +29,94 @@ from .postgres import (
     audit,
     team_access,
     teams,
+    integrations,
 )
-from .postgres.team_access import AccessRequest, AccessScope, TeamRole
+from .postgres.team_access import (
+    AccessDenied,
+    AccessRequest,
+    AccessScope,
+    IntegrationScope,
+    IntegrationOperation,
+    IntegrationAccessRequest,
+    ReadAccessRequest,
+    ReadScope,
+    TeamRole,
+)
 from .postgres.team_access import authorized_transaction as _transaction
 from .postgres.runtime import PostgreSQLRuntime
+
+
+@contextmanager
+def _report_transaction(
+    runtime: PostgreSQLRuntime,
+    access: ReadAccessRequest,
+    operation: IntegrationOperation,
+) -> Iterator[tuple[psycopg.Connection[TupleRow], ReadScope]]:
+    with _transaction(runtime, access) as (connection, scope):
+        yield connection, scope
+        if isinstance(scope, IntegrationScope):
+            audit.record(
+                connection,
+                scope,
+                action=audit.AuditAction.INTEGRATION_READ,
+                subject=f"integration:{scope.id}",
+                reason="Read an authorized integration report",
+                details={"operation": operation},
+                team_id=scope.team_id,
+            )
+
+
+def authorize_integration_schema(
+    runtime: PostgreSQLRuntime, *, access: IntegrationAccessRequest
+) -> None:
+    with _report_transaction(runtime, access, "openapi"):
+        pass
+
+
+def list_integrations(
+    runtime: PostgreSQLRuntime, *, access: AccessRequest, after_id: int, limit: int
+) -> integrations.IntegrationPage:
+    with _transaction(runtime, access) as (connection, scope):
+        return integrations.list_integrations(
+            connection, scope, after_id=after_id, limit=limit
+        )
+
+
+def create_integration(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    name: str,
+    team_ids: tuple[int, ...],
+    deployment_wide: bool,
+    read_review_content: bool,
+    expires_at: datetime,
+    reason: str,
+) -> integrations.IssuedIntegration:
+    with _transaction(runtime, access, access_change=True) as (connection, scope):
+        return integrations.create(
+            connection,
+            scope,
+            name=name,
+            team_ids=team_ids,
+            deployment_wide=deployment_wide,
+            read_review_content=read_review_content,
+            expires_at=expires_at,
+            reason=reason,
+        )
+
+
+def revoke_integration(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    integration_id: int,
+    reason: str,
+) -> integrations.Integration:
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        return integrations.revoke(
+            connection, scope, integration_id=integration_id, reason=reason
+        )
 
 
 def list_teams(
@@ -155,36 +242,45 @@ def team_events(
 def repositories(
     runtime: PostgreSQLRuntime,
     *,
-    access: AccessRequest,
+    access: ReadAccessRequest,
     days: int = 30,
     start: datetime | None = None,
     end: datetime | None = None,
     search: str = "",
     offset: int = 0,
     limit: int = 50,
+    after_id: int | None = None,
+    watermark_id: int | None = None,
 ) -> admin_reporting.RepositoryPage:
     _bounds(days=days, limit=limit)
     if not 0 <= offset <= 10000 or len(search) > 200:
         raise ValueError("repository filter exceeds its bounds")
+    if any(
+        value is not None and not 0 <= value <= 9223372036854775807
+        for value in (after_id, watermark_id)
+    ):
+        raise ValueError("repository cursor exceeds its bounds")
     since, until, now = report_window(days=days, start=start, end=end)
-    with _transaction(runtime, access) as (connection, scope):
+    with _report_transaction(runtime, access, "repositories") as (connection, scope):
         return admin_reporting.repositories(
             connection,
             scope=scope,
             since=since,
             until=until,
             now=now,
-            days=days,
+            days=ceil((until - since) / timedelta(days=1)),
             search=search.strip(),
             offset=offset,
             limit=limit,
+            after_id=after_id,
+            watermark_id=watermark_id,
         )
 
 
 def history(
     runtime: PostgreSQLRuntime,
     *,
-    access: AccessRequest,
+    access: ReadAccessRequest,
     days: int = 30,
     start: datetime | None = None,
     end: datetime | None = None,
@@ -193,6 +289,7 @@ def history(
     pr_number: int | None = None,
     limit: int = 50,
     before_id: int | None = None,
+    watermark_id: int | None = None,
 ) -> admin_reporting.HistoryPage:
     normalized = _history_scope(
         days=days,
@@ -203,19 +300,22 @@ def history(
         before_id=before_id,
     )
     since, until, now = report_window(days=days, start=start, end=end)
-    with _transaction(runtime, access) as (connection, scope):
+    if watermark_id is not None and not 0 <= watermark_id <= 9223372036854775807:
+        raise ValueError("history watermark exceeds its bounds")
+    with _report_transaction(runtime, access, "reviews") as (connection, scope):
         return admin_reporting.history(
             connection,
             scope=scope,
             since=since,
             until=until,
             now=now,
-            days=days,
+            days=ceil((until - since) / timedelta(days=1)),
             repository=normalized,
             status=status,
             pr_number=pr_number,
             limit=limit,
             before_id=before_id,
+            watermark_id=watermark_id,
         )
 
 
@@ -227,13 +327,15 @@ def _bounds(*, days: int, limit: int) -> None:
 def review_detail(
     runtime: PostgreSQLRuntime,
     *,
-    access: AccessRequest,
+    access: ReadAccessRequest,
     run_id: int,
     before_id: int | None = None,
 ) -> admin_reporting.ReviewDetail | None:
     if run_id < 1 or (before_id is not None and before_id < 1):
         raise ValueError("Request ID and cursor must be positive")
-    with _transaction(runtime, access) as (connection, scope):
+    with _report_transaction(runtime, access, "review_content") as (connection, scope):
+        if isinstance(scope, IntegrationScope) and not scope.read_review_content:
+            raise AccessDenied("This integration does not have review content access")
         result = admin_reporting.review_detail(
             connection,
             scope=scope,
@@ -272,14 +374,14 @@ def report_window(
 def overview(
     runtime: PostgreSQLRuntime,
     *,
-    access: AccessRequest,
+    access: ReadAccessRequest,
     days: int = 30,
     start: datetime | None = None,
     end: datetime | None = None,
 ) -> admin_operations.Overview:
     _bounds(days=days, limit=1)
     window_start, window_end, now = report_window(days=days, start=start, end=end)
-    with _transaction(runtime, access) as (connection, scope):
+    with _report_transaction(runtime, access, "overview") as (connection, scope):
         return admin_operations.overview(
             connection, scope=scope, start=window_start, end=window_end, now=now
         )
@@ -375,23 +477,25 @@ def _history_scope(
 def quality_report(
     runtime: PostgreSQLRuntime,
     *,
-    access: AccessRequest,
+    access: ReadAccessRequest,
     repository: str | None,
     days: int,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ) -> quality_reporting.QualityReport:
     _bounds(days=days, limit=1)
-    moment = datetime.now(timezone.utc)
+    window_start, window_end, _ = report_window(days=days, start=start, end=end)
     normalized = resolve_repository(repository) if repository is not None else None
-    with _transaction(runtime, access) as (connection, scope):
+    with _report_transaction(runtime, access, "quality") as (connection, scope):
         if normalized is not None:
             team_access.require_repository(connection, scope, normalized)
         return quality_reporting.build_report(
             connection,
             scope=scope,
             repository=normalized,
-            window_started_at=moment - timedelta(days=days),
-            window_ended_at=moment,
-            window_days=days,
+            window_started_at=window_start,
+            window_ended_at=window_end,
+            window_days=ceil((window_end - window_start) / timedelta(days=1)),
         )
 
 

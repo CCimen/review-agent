@@ -11,7 +11,7 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
-from .team_access import AccessScope, repository_source, run_source
+from .team_access import ReadScope, repository_source, run_source
 
 WorkerKind = Literal["review", "publisher", "webhook"]
 
@@ -64,7 +64,7 @@ def _counts(
     connection: psycopg.Connection[TupleRow],
     start: datetime | None,
     end: datetime,
-    scope: AccessScope | None,
+    scope: ReadScope | None,
 ) -> ActivityCounts:
     with connection.cursor(row_factory=class_row(ActivityCounts)) as cursor:
         result = cursor.execute(
@@ -102,7 +102,7 @@ def _counts(
 def overview(
     connection: psycopg.Connection[TupleRow],
     *,
-    scope: AccessScope | None = None,
+    scope: ReadScope | None = None,
     start: datetime,
     end: datetime,
     now: datetime,

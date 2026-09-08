@@ -24,6 +24,11 @@ const ModelConnectionPage = lazy(() =>
     default: module.ModelConnectionPage,
   })),
 );
+const IntegrationsPage = lazy(() =>
+  import("./integrations").then((module) => ({
+    default: module.IntegrationsPage,
+  })),
+);
 const ModelConnectionsPage = lazy(() =>
   import("./modelConnections").then((module) => ({
     default: module.ModelConnectionsPage,
@@ -449,6 +454,18 @@ export function App() {
                 element={
                   isAdmin(current.role) ? (
                     <Users current={current} />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/integrations"
+                element={
+                  isAdmin(current.role) ? (
+                    <Suspense fallback={<p>Loading integrations…</p>}>
+                      <IntegrationsPage />
+                    </Suspense>
                   ) : (
                     <Navigate to="/" replace />
                   )

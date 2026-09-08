@@ -131,7 +131,7 @@ export function ConsoleLayout({
         ? "/repositories"
         : pathname.startsWith("/findings/")
           ? "/quality"
-          : pathname === "/users"
+          : pathname === "/users" || pathname === "/integrations"
             ? "/settings"
             : pathname;
   const title = pathname.startsWith("/history/")
@@ -146,10 +146,12 @@ export function ConsoleLayout({
             ? "Repository access"
             : pathname === "/users"
               ? "Users"
-              : pathname === "/account"
-                ? "Your account"
-                : (sections.find((section) => section.path === pathname)
-                    ?.label ?? "Activity");
+              : pathname === "/integrations"
+                ? "Integrations"
+                : pathname === "/account"
+                  ? "Your account"
+                  : (sections.find((section) => section.path === pathname)
+                      ?.label ?? "Activity");
   const commands = [
     ...navigation,
     { path: "/history", label: "Pull requests", key: "P" },

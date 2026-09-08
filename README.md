@@ -89,6 +89,7 @@ search and task-based navigation. Key pages:
 | Add repository instructions and platform context | [Repository context](docs/REPOSITORY_CONTEXT.md) |
 | Try optional graph context | [Code graph pilot](docs/CODE_GRAPH.md) |
 | Inspect team reviews and manage access, repository requests, audit, and platform policy | [Admin panel (source preview)](docs/ADMIN_PANEL.md) |
+| Connect an application to scoped reports with an expiring credential | [Application integrations (source preview)](docs/ADMIN_PANEL.md#application-integrations) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |
 | Assess trust boundaries | [Security](docs/SECURITY.md) |
 | See capabilities and boundaries | [Capabilities](docs/ROADMAP.md) |

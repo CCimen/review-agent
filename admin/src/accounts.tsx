@@ -24,6 +24,7 @@ export function SettingsTabs() {
         <NavLink to="/settings">General</NavLink>
       ) : null}
       <NavLink to="/users">Users &amp; roles</NavLink>
+      <NavLink to="/integrations">Integrations</NavLink>
     </nav>
   );
 }

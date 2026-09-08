@@ -19,8 +19,9 @@ to an exact published occurrence. Historical results, live worker state, contain
 state, and provider authentication must retain their distinct meanings.
 
 All displayed metrics come from typed API responses. Show an unavailable or empty
-state when a capability has no source. Keep credentials and deployment integration
-logic on the server. Build the generated API contract with the backend when
+state when a capability has no source. Keep provider credentials and deployment integration
+logic on the server. Newly issued application credentials are shown once and
+kept out of shared caches and browser storage. Build the generated API contract with the backend when
 changing a public boundary.
 
 Keep bounded page content aligned with the start of the console body on wide
@@ -36,3 +37,7 @@ popover; owners and admins can view all teams or select one. The picker shows te
 names, repository counts, and a link to team management. Team and reporting-period
 context follow console navigation. Platform administration pages identify their
 scope in the page introduction.
+
+Application integrations share Settings navigation with users and roles. State
+the platform scope, distinguish aggregate and published-content grants, and show
+expiry and revocation without an editable permission matrix.

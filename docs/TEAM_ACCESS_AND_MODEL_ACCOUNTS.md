@@ -13,8 +13,8 @@ actions, owner/admin roles, and the audit journal are implemented in the source
 candidate. See [Admin panel](ADMIN_PANEL.md) for the current operator contract.
 Model connections, team model choices, justified JSON audit access, Codex quota
 visibility, and fair scheduling with concurrency caps are also implemented in the
-source candidate. The machine-integration section below describes the remaining
-approved design. Track implementation and rollout on the existing
+source candidate. Scoped application credentials and the versioned reporting API
+are also implemented. Track implementation and rollout on the existing
 `ra-teams-and-integrations-wtd` epic.
 
 ## Smallest useful product model
@@ -157,42 +157,39 @@ from before a repository transfer only as permitted aggregate attribution to the
 former team; access to the transferred repository's review content follows its
 current owner. This avoids using historical usage as a route around revocation.
 
-## Future API and MCP access
+## Application API and future MCP access
 
-Build team scoping into the existing application/reporting owners now. The
-console, later integration API, and MCP tools must call the same authorized
-application operations and metric definitions. Each receives an authenticated
-principal and a validated scope; database queries apply that scope before
-aggregation and pagination. Do not accept a caller-supplied administrator flag,
-duplicate reporting SQL in MCP handlers, or give consumers direct database
-access. Team membership also protects counts, facets, cached results, and export
-rows, rather than only protecting individual review pages.
+The console and the versioned integration API use the same application operations,
+metric definitions, and scoped repository/run relations. Authorization is resolved
+inside the transaction containing the report, before aggregation and pagination.
+A separate typed integration principal has no user-management or control role.
+There is no duplicate reporting SQL, consumer database access, or caller-supplied
+administrator flag.
 
-When the first organizational consumer is ready, expose a small versioned,
-read-only HTTP contract for repositories, review outcomes, and usage/quality
-statistics. Generate its OpenAPI types from validated response models. Include
-stable IDs, explicit UTC intervals, metric definitions/version, generation time,
-and telemetry completeness. Use bounded page sizes, stable ordering and cursor
-pagination for growing histories; define snapshot/watermark behavior so repeated
-pages do not silently skip or duplicate records. Keep UTC interval semantics and
-feedback denominators identical to the console.
+Platform administrators create an expiring credential with immutable grants for
+selected teams or explicit deployment-wide access. Review outcome metadata and
+aggregate statistics are available by default; published review content requires
+an additional grant. Only the credential digest is stored. Expiry and revocation
+are checked on each operation, and reads are recorded in the existing audit
+journal without secrets or review bodies. See
+[Application integrations](ADMIN_PANEL.md#application-integrations) for creation,
+rotation, revocation, error responses and an HTTP example.
 
-Give each consuming application its own revocable integration identity with
-explicit team scope or administrator-approved deployment-wide read scope. Report
-read access does not confer user management, provider login, or deployment
-control. Default to aggregate statistics; grant review content separately when a
-consumer needs it. Reuse a suitable existing organizational machine-identity
-issuer if available; choose the credential mechanism when integrating that first
-consumer, without building an identity provider now. Record access and apply
-bounded query/export limits without logging secrets or review bodies.
+The `/api/v1/` contract exposes repository activity, review outcomes, token usage,
+and recorded quality evidence with generated OpenAPI schemas. It includes stable
+IDs, UTC intervals, a metric version, generation time, and the existing telemetry
+and truncation indicators. Page sizes are bounded. Repository and review pages
+use ID cursors and a watermark that excludes newer IDs, while explicitly
+preserving live-state semantics. Consumers retain their interval and filters,
+reread overlapping intervals, and deduplicate IDs to account for late commits,
+retention and ownership transfers. The watermark is not a retained snapshot.
 
-MCP can then be a thin adapter over those same read operations and schemas,
-preserving the caller's identity and scope. Repository text and findings remain
-untrusted content and cannot authorize further tool actions. Keep large exports
-paged initially. Add asynchronous exports or materialized reporting only after
-measured volume requires them; any stored export must have an owner, retention
-limit, and authorization recheck at download. Revocation stops subsequent access,
-although it cannot retract data that a consumer already downloaded.
+MCP remains an optional thin adapter over these same operations and schemas.
+Repository text and findings remain untrusted content and cannot authorize further
+tool actions. Larger asynchronous exports or materialized reporting need measured
+consumer demand; a stored export would require an owner, retention and an access
+check at download. Revocation stops subsequent access, although it cannot retract
+previously downloaded data or interrupt a read already in progress.
 
 ## Connections and model policy
 

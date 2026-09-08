@@ -38,7 +38,7 @@ from ..domain.review import (
 )
 from . import coverage as postgres_coverage
 from . import decisions as postgres_decisions
-from .team_access import AccessScope, repository_source
+from .team_access import ReadScope, repository_source
 
 
 EXPORT_SCHEMA_VERSION = 17
@@ -738,7 +738,7 @@ def _counts(
 def finding_stats(
     connection: psycopg.Connection[TupleRow],
     *,
-    scope: AccessScope | None = None,
+    scope: ReadScope | None = None,
     repository: str | None,
     expiring_at: datetime,
     expiring_within_days: int,

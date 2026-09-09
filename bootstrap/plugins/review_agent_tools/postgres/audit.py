@@ -48,6 +48,8 @@ class AuditAction(StrEnum):
     FEEDBACK_TRIAGED = "feedback_triaged"
     RUN_ACTION = "run_action"
     SETTINGS_UPDATED = "settings_updated"
+    EMAIL_UPDATED = "email_updated"
+    REGISTRATION_UPDATED = "registration_updated"
     ACCESS_UPDATED = "access_updated"
     PROVIDER_LOGIN = "provider_login"
     PROVIDER_LOGOUT = "provider_logout"

@@ -4,12 +4,12 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/Layout";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
-import { TextArea } from "@astryxdesign/core/TextArea";
+import { Section } from "@astryxdesign/core/Section";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
-import { useLocation } from "react-router-dom";
+import type { InputHTMLAttributes } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Form } from "./ui";
-// Login layout adapted from Astryx's Basic Login and Login SSO templates.
+// Login layout adapted from Astryx's Login Card template.
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -17,7 +17,11 @@ import { Card } from "@astryxdesign/core/Card";
 import { Center } from "@astryxdesign/core/Center";
 import { VStack } from "@astryxdesign/core/Layout";
 import { Heading, Text } from "@astryxdesign/core/Text";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { GitPullRequest } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -33,6 +37,8 @@ import type {
 import { login, read, write } from "./api";
 import { isAdmin, roleLabels, ScopedAnchor, useScope } from "./scope";
 import { Stat } from "./ui";
+import { RegistrationAccess } from "./registration";
+import type { components } from "./api.generated";
 
 export function SettingsTabs() {
   const { current } = useScope();
@@ -70,29 +76,76 @@ export function SettingsTabs() {
 
 export function Login() {
   const client = useQueryClient();
-  const { search } = useLocation();
-  const provider = useQuery({
-    queryKey: ["identity-provider"],
-    queryFn: ({ signal }) => read<IdentityProvider>("/api/auth/oidc/provider", signal),
-  });
-  const sso = useMutation({
-    mutationFn: () => write<OIDCStart>("/api/auth/oidc/start", "POST"),
-    onSuccess: ({ authorization_url }) => window.location.assign(authorization_url),
-  });
-  const ssoError = new URLSearchParams(search).get("sso_error");
-  const ssoMessage = ssoError === "account"
-    ? "Ask your administrator to provision your account, or sign in with your password and link organization sign-in from Your account."
-    : ssoError === "expired"
-      ? "This sign-in request expired or was already used. Start again from this page."
-      : ssoError === "cancelled"
-        ? "Organization sign-in was cancelled. You can try again."
-        : ssoError ? "Organization sign-in could not be verified. Try again or contact your administrator." : null;
+  const { search, hash, pathname } = useLocation();
+  const navigate = useNavigate();
+  const [token, setToken] = useState(
+    () => new URLSearchParams(hash.slice(1)).get("register_token") ?? "",
+  );
+  const [mode, setMode] = useState<"login" | "register" | "complete">(() =>
+    token
+      ? "complete"
+      : new URLSearchParams(search).get("register") === "1"
+        ? "register"
+        : "login",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [sent, setSent] = useState(false);
+  const registration = useQuery({
+    queryKey: ["registration-availability"],
+    queryFn: ({ signal }) =>
+      read<components["schemas"]["RegistrationAvailability"]>(
+        "/api/auth/registration",
+        signal,
+      ),
+  });
+  const provider = useQuery({
+    queryKey: ["identity-provider"],
+    queryFn: ({ signal }) =>
+      read<IdentityProvider>("/api/auth/oidc/provider", signal),
+  });
+  const sso = useMutation({
+    mutationFn: () =>
+      write<OIDCStart>(
+        mode === "register"
+          ? "/api/auth/oidc/register"
+          : "/api/auth/oidc/start",
+        "POST",
+      ),
+    onSuccess: ({ authorization_url }) =>
+      window.location.assign(authorization_url),
+  });
+  const ssoError = new URLSearchParams(search).get("sso_error");
+  const ssoMessage =
+    ssoError === "account"
+      ? "Ask your administrator to provision your account, or sign in with your password and link organization sign-in from Your account."
+      : ssoError === "registration"
+        ? "Registration is not allowed for this organization account. Use an approved email, or sign in to your existing account and link organization sign-in."
+        : ssoError === "expired"
+          ? "This sign-in request expired or was already used. Start again from this page."
+          : ssoError === "cancelled"
+            ? "Organization sign-in was cancelled. You can try again."
+            : ssoError
+              ? "Organization sign-in could not be verified. Try again or contact your administrator."
+              : null;
   const mutation = useMutation({
-    mutationFn: () => login(email, password),
+    mutationFn: () =>
+      mode === "register"
+        ? write("/api/auth/register", "POST", { email })
+        : mode === "complete"
+          ? write("/api/auth/register/complete", "POST", {
+              token,
+              password,
+            })
+          : login(email, password),
     onSuccess: async () => {
+      if (mode === "register") {
+        setSent(true);
+        return;
+      }
       setPassword("");
+      setToken("");
+      setMode("login");
       client.removeQueries({
         predicate: (query) => query.queryKey[0] !== "me",
       });
@@ -100,8 +153,33 @@ export function Login() {
     },
   });
   useEffect(() => {
-    document.title = "Review Agent · Sign in";
-  }, []);
+    document.title =
+      mode === "login"
+        ? "Review Agent · Sign in"
+        : "Review Agent · Register";
+  }, [mode]);
+  useEffect(() => {
+    if (token && hash)
+      void navigate({ pathname, search, hash: "" }, { replace: true });
+  }, [token, hash, pathname, search, navigate]);
+  const switchMode = (next: "login" | "register") => {
+    setMode(next);
+    setToken("");
+    setPassword("");
+    setSent(false);
+    mutation.reset();
+    sso.reset();
+  };
+  const pending = mutation.isPending || sso.isPending;
+  const canRegister =
+    registration.data?.enabled || provider.data?.registration_enabled;
+  const showForm = mode !== "register" || registration.data?.enabled;
+  const title =
+    mode === "complete"
+      ? "Choose your password"
+      : mode === "register"
+        ? "Create your account"
+        : "Sign in";
   return (
     <main>
       <Center minHeight="100dvh" padding={6}>
@@ -115,84 +193,203 @@ export function Login() {
           <Card padding={8} width="100%">
             <VStack gap={5}>
               <VStack gap={2}>
-                <Heading level={1}>Sign in</Heading>
+                <Heading level={1}>{title}</Heading>
                 <Text color="secondary">
-                  Review activity and administration for your team.
+                  {mode === "complete"
+                    ? "Finish registration with a password of 15–128 characters."
+                    : mode === "register"
+                      ? "Use an allowed email address. We’ll send a link to verify it and choose your password."
+                      : "Review activity and administration for your team."}
                 </Text>
               </VStack>
-              <Form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  mutation.mutate();
-                }}
-              >
-                <VStack gap={4}>
-                  <TextInput
-                    label={"Email address"}
-                    id="login-email"
-                    type="email"
-                    hasAutoFocus={true}
-                    isRequired={true}
-                    value={email}
-                    onChange={(value) => setEmail(value)}
-                    {...({
-                      autoComplete: "username",
-                      required: true,
-                      maxLength: 320,
-                    } satisfies InputHTMLAttributes<HTMLInputElement>)}
-                  />
-
-                  <TextInput
-                    label={"Password"}
-                    id="login-password"
-                    type="password"
-                    isRequired={true}
-                    value={password}
-                    onChange={(value) => setPassword(value)}
-                    {...({
-                      autoComplete: "current-password",
-                      required: true,
-                      maxLength: 128,
-                    } satisfies InputHTMLAttributes<HTMLInputElement>)}
-                  />
-
+              {showForm && (
+                <Form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    mutation.mutate();
+                  }}
+                >
+                  {mode !== "complete" && (
+                    <TextInput
+                      label="Email address"
+                      id="login-email"
+                      type="email"
+                      hasAutoFocus
+                      isRequired
+                      isDisabled={pending}
+                      value={email}
+                      onChange={(value) => {
+                        setEmail(value);
+                        setSent(false);
+                      }}
+                      {...({
+                        autoComplete: "username",
+                        required: true,
+                        maxLength: 320,
+                      } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                    />
+                  )}
+                  {mode !== "register" && (
+                    <TextInput
+                      label={
+                        mode === "complete" ? "New password" : "Password"
+                      }
+                      id="login-password"
+                      type="password"
+                      isRequired
+                      hasAutoFocus={mode === "complete"}
+                      isDisabled={pending}
+                      value={password}
+                      onChange={setPassword}
+                      {...({
+                        autoComplete:
+                          mode === "complete"
+                            ? "new-password"
+                            : "current-password",
+                        required: true,
+                        minLength: mode === "complete" ? 15 : undefined,
+                        maxLength: 128,
+                      } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                    />
+                  )}
                   {mutation.isError && (
                     <Banner
                       status="error"
-                      title="Could not sign in"
+                      title={
+                        mode === "login"
+                          ? "Could not sign in"
+                          : "Could not complete registration"
+                      }
                       description={mutation.error.message}
                     />
                   )}
+                  {sent && (
+                    <Text role="status">
+                      If this email is allowed and has no account, a
+                      verification link is on its way. Check your inbox and
+                      spam folder. The link expires in 30 minutes. Wait one
+                      minute before requesting another.
+                    </Text>
+                  )}
                   <Button
-                    label={mutation.isPending ? "Signing in…" : "Sign in"}
+                    label={
+                      mode === "complete"
+                        ? "Create account and sign in"
+                        : mode === "register"
+                          ? sent
+                            ? "Send another link"
+                            : "Send verification link"
+                          : "Sign in"
+                    }
                     type="submit"
                     variant="primary"
                     isLoading={mutation.isPending}
+                    isDisabled={pending}
                     width="100%"
                   />
-                </VStack>
-              </Form>
-              {ssoMessage && <Banner status="error" title="Could not complete organization sign-in" description={ssoMessage} />}
-              {provider.data?.name && (
-                <VStack gap={4}>
-                  <Divider label="Or sign in with" />
-                  <Button
-                    label={`Continue with ${provider.data.name}`}
-                    variant="secondary"
-                    width="100%"
-                    isLoading={sso.isPending}
-                    isDisabled={mutation.isPending}
-                    onClick={() => sso.mutate()}
-                  />
-                  {sso.isError && <Banner status="error" title="Organization sign-in is unavailable" description={sso.error.message} />}
-                </VStack>
+                </Form>
               )}
+              {mode === "register" &&
+                registration.data &&
+                provider.data &&
+                !canRegister && (
+                  <Text role="status">
+                    Registration is currently unavailable. Contact your
+                    administrator for an account.
+                  </Text>
+                )}
+              {ssoMessage && (
+                <Banner
+                  status="error"
+                  title="Could not complete organization sign-in"
+                  description={ssoMessage}
+                />
+              )}
+              {mode !== "complete" &&
+                provider.data?.name &&
+                (mode === "login" ||
+                  provider.data.registration_enabled) && (
+                  <VStack gap={4}>
+                    {showForm && (
+                      <Divider
+                        label={
+                          mode === "register"
+                            ? "Or register with"
+                            : "Or sign in with"
+                        }
+                      />
+                    )}
+                    <Button
+                      label={`Continue with ${provider.data.name}`}
+                      variant="secondary"
+                      width="100%"
+                      isLoading={sso.isPending}
+                      isDisabled={pending}
+                      onClick={() => sso.mutate()}
+                    />
+                    {sso.isError && (
+                      <Banner
+                        status="error"
+                        title="Organization sign-in is unavailable"
+                        description={sso.error.message}
+                      />
+                    )}
+                  </VStack>
+                )}
               {provider.isError && (
                 <VStack gap={2}>
-                  <Text role="alert" color="secondary">Could not check organization sign-in.</Text>
-                  <Button label="Check again" variant="ghost" isLoading={provider.isFetching} onClick={() => void provider.refetch()} />
+                  <Text role="alert" color="secondary">
+                    Could not check organization sign-in.
+                  </Text>
+                  <Button
+                    label="Check again"
+                    variant="ghost"
+                    isLoading={provider.isFetching}
+                    onClick={() => void provider.refetch()}
+                  />
                 </VStack>
               )}
+              {registration.isError && (
+                <VStack gap={2}>
+                  <Text role="alert" color="secondary">
+                    Could not check whether registration is open.
+                  </Text>
+                  <Button
+                    label="Check registration"
+                    variant="ghost"
+                    isLoading={registration.isFetching}
+                    onClick={() => void registration.refetch()}
+                  />
+                </VStack>
+              )}
+              {mode !== "login" ? (
+                <VStack gap={2}>
+                  {mode === "complete" && (
+                    <Button
+                      label="Request a new registration link"
+                      variant="ghost"
+                      isDisabled={pending}
+                      onClick={() => switchMode("register")}
+                    />
+                  )}
+                  <Button
+                    label="Back to sign in"
+                    variant="ghost"
+                    isDisabled={pending}
+                    onClick={() => switchMode("login")}
+                  />
+                </VStack>
+              ) : canRegister ? (
+                <VStack gap={2} hAlign="center">
+                  <Text type="supporting">Don’t have an account?</Text>
+                  <Button
+                    label="Register"
+                    variant="ghost"
+                    isDisabled={pending}
+                    onClick={() => switchMode("register")}
+                  />
+                </VStack>
+              ) : null}
             </VStack>
           </Card>
           <Text type="supporting">
@@ -211,7 +408,6 @@ export function Users({ current }: { current: Account }) {
   const [adding, setAdding] = useState(false);
   const addButton = useRef<HTMLButtonElement>(null);
   const [createdEmail, setCreatedEmail] = useState("");
-  const [reason, setReason] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<NewAccount["role"]>("member");
@@ -228,11 +424,10 @@ export function Users({ current }: { current: Account }) {
         email,
         password,
         role,
-        reason,
+        reason: "Account created",
       } satisfies NewAccount),
     onSuccess: async (account) => {
       setEmail("");
-      setReason("");
       setPassword("");
       setRole("member");
       setAdding(false);
@@ -260,8 +455,8 @@ export function Users({ current }: { current: Account }) {
         <VStack gap={3}>
           <Heading level={1}>Users &amp; roles</Heading>
           <Text as="p">
-            Platform administration · Manage accounts and platform roles. Team
-            roles are assigned in Teams.
+            Platform administration · Manage accounts and platform roles.
+            Team roles are assigned in Teams.
           </Text>
         </VStack>
         <Button
@@ -281,6 +476,11 @@ export function Users({ current }: { current: Account }) {
         />
       </HStack>
       <SettingsTabs />
+      {current.role === "owner" && (
+        <Collapsible trigger="Registration allowlist" defaultIsOpen={false}>
+          <RegistrationAccess />
+        </Collapsible>
+      )}
       <Collapsible
         defaultIsOpen={false}
         trigger={
@@ -293,10 +493,10 @@ export function Users({ current }: { current: Account }) {
           <Text as="p">
             <strong>Members</strong> receive access through their teams as
             viewers or maintainers. <strong>Global viewers</strong> can read
-            review data across the deployment. <strong>Admins</strong> manage
-            teams, repositories, and member accounts. <strong>Owners</strong>{" "}
-            also manage privileged accounts, provider credentials, and platform
-            settings.
+            review data across the deployment. <strong>Admins</strong>{" "}
+            manage teams, repositories, and member accounts.{" "}
+            <strong>Owners</strong> also manage privileged accounts,
+            provider credentials, and platform settings.
           </Text>
         </VStack>
       </Collapsible>
@@ -306,95 +506,93 @@ export function Users({ current }: { current: Account }) {
         </Text>
       )}
       {adding && (
-        <Form
-          id="add-user"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create.mutate();
-          }}
-        >
-          <Heading level={2}>Add a user</Heading>
-          <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
-            <TextInput
-              label={"Email address"}
-              type="email"
-              hasAutoFocus={true}
-              isDisabled={create.isPending}
-              isRequired={true}
-              value={email}
-              onChange={(value) => setEmail(value)}
-              {...({
-                autoComplete: "off",
-                required: true,
-                maxLength: 320,
-              } satisfies InputHTMLAttributes<HTMLInputElement>)}
-            />
-
-            <VStack gap={2}>
+        <Section variant="transparent" padding={0} maxWidth={760}>
+          <Form
+            id="add-user"
+            onSubmit={(event) => {
+              event.preventDefault();
+              create.mutate();
+            }}
+          >
+            <Heading level={2}>Add a user</Heading>
+            <Grid
+              gap={4}
+              columns={{ minWidth: 240, max: 2, repeat: "fit" }}
+            >
               <TextInput
-                label={"Initial password"}
-                type="password"
+                label={"Email address"}
+                type="email"
+                hasAutoFocus={true}
                 isDisabled={create.isPending}
                 isRequired={true}
-                value={password}
-                onChange={(value) => setPassword(value)}
+                value={email}
+                onChange={(value) => setEmail(value)}
                 {...({
-                  autoComplete: "new-password",
+                  autoComplete: "off",
                   required: true,
-                  minLength: 15,
-                  maxLength: 128,
+                  maxLength: 320,
                 } satisfies InputHTMLAttributes<HTMLInputElement>)}
               />
-              <Text color="secondary">
-                15–128 characters. Share it privately with the user.
+
+              <VStack gap={2}>
+                <TextInput
+                  label={"Initial password"}
+                  type="password"
+                  isDisabled={create.isPending}
+                  isRequired={true}
+                  value={password}
+                  onChange={(value) => setPassword(value)}
+                  {...({
+                    autoComplete: "new-password",
+                    required: true,
+                    minLength: 15,
+                    maxLength: 128,
+                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                />
+                <Text color="secondary">
+                  15–128 characters. Share it privately with the user.
+                </Text>
+              </VStack>
+              <Selector
+                label={"Role"}
+                options={[
+                  Object.entries(roleLabels)
+                    .filter(
+                      ([value]) =>
+                        current.role === "owner" ||
+                        value === "member" ||
+                        value === "viewer",
+                    )
+                    .map(([value, label]) => ({
+                      value: value,
+                      label: label,
+                    })),
+                ]
+                  .flat()
+                  .filter((option) => option != null)}
+                value={role}
+                onChange={(value) => setRole(value as Account["role"])}
+                isDisabled={create.isPending}
+              />
+            </Grid>
+
+            {create.isError && (
+              <Text as="p" role="alert">
+                {create.error.message}
               </Text>
-            </VStack>
-            <Selector
-              label={"Role"}
-              options={[
-                Object.entries(roleLabels)
-                  .filter(
-                    ([value]) =>
-                      current.role === "owner" ||
-                      value === "member" ||
-                      value === "viewer",
-                  )
-                  .map(([value, label]) => ({
-                    value: value,
-                    label: label,
-                  })),
-              ]
-                .flat()
-                .filter((option) => option != null)}
-              value={role}
-              onChange={(value) => setRole(value as Account["role"])}
-              isDisabled={create.isPending}
-            />
-          </Grid>
-
-          <TextArea
-            label={"Reason"}
-            isRequired={true}
-            maxLength={500}
-            value={reason}
-            onChange={(value) => setReason(value.slice(0, 500))}
-            {...({
-              required: true,
-            } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-          />
-
-          {create.isError && (
-            <Text as="p" role="alert">
-              {create.error.message}
-            </Text>
-          )}
-          <Button
-            label={String(create.isPending ? "Adding user…" : "Add user")}
-            variant="primary"
-            type="submit"
-            isDisabled={create.isPending}
-          />
-        </Form>
+            )}
+            <HStack>
+              <Button
+                label={String(
+                  create.isPending ? "Adding user…" : "Add user",
+                )}
+                variant="primary"
+                type="submit"
+                isDisabled={create.isPending}
+              />
+            </HStack>
+          </Form>
+        </Section>
       )}
       {query.isPending && (
         <Text as="p" role="status">
@@ -459,7 +657,11 @@ export function Users({ current }: { current: Account }) {
           {visible.length ? (
             <VStack gap={4}>
               {visible.map((account) => (
-                <UserRow key={account.id} account={account} current={current} />
+                <UserRow
+                  key={account.id}
+                  account={account}
+                  current={current}
+                />
               ))}
             </VStack>
           ) : (
@@ -476,7 +678,6 @@ export function Users({ current }: { current: Account }) {
             label={"Previous"}
             variant="secondary"
             type="submit"
-
             isDisabled={offset === 0}
             onClick={() => setOffset((value) => Math.max(0, value - 50))}
           />
@@ -485,7 +686,6 @@ export function Users({ current }: { current: Account }) {
             label={"Next"}
             variant="secondary"
             type="submit"
-
             isDisabled={!query.data?.has_more || offset >= 10000}
             onClick={() => setOffset((value) => value + 50)}
           />
@@ -495,10 +695,16 @@ export function Users({ current }: { current: Account }) {
   );
 }
 
-function UserRow({ account, current }: { account: Account; current: Account }) {
+function UserRow({
+  account,
+  current,
+}: {
+  account: Account;
+  current: Account;
+}) {
   const client = useQueryClient();
-  const protectedAccount = current.role !== "owner" && isAdmin(account.role);
-  const [reason, setReason] = useState("");
+  const protectedAccount =
+    current.role !== "owner" && isAdmin(account.role);
   const [role, setRole] = useState(account.role);
   const [active, setActive] = useState(account.active);
   const [password, setPassword] = useState("");
@@ -523,7 +729,7 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
   // Editing the fields after arming invalidates what was reviewed.
   useEffect(() => {
     setArmed(false);
-  }, [role, active, password, reason]);
+  }, [role, active, password]);
   useEffect(() => {
     if (armed) confirmButton.current?.focus();
   }, [armed]);
@@ -532,7 +738,7 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
       write<Account>(`/api/users/${account.id}`, "PATCH", {
         role,
         active,
-        reason,
+        reason: "Account access updated",
         ...(password ? { password } : {}),
       } satisfies AccountUpdate),
     onSuccess: async () => {
@@ -570,25 +776,25 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
         </HStack>
       }
     >
-      <VStack gap={4}>
+      <VStack gap={4} maxWidth={760}>
         <Form
           onSubmit={(event) => {
             event.preventDefault();
-            if (
-              changed &&
-              reason.trim() &&
-              !protectedAccount &&
-              !mutation.isPending
-            )
+            if (changed && !protectedAccount && !mutation.isPending)
               setArmed(true);
           }}
         >
           {protectedAccount ? (
-            <Text as="p">Only a platform owner can change this account.</Text>
+            <Text as="p">
+              Only a platform owner can change this account.
+            </Text>
           ) : null}
           <fieldset disabled={protectedAccount || mutation.isPending}>
             <VStack gap={4}>
-              <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+              <Grid
+                gap={4}
+                columns={{ minWidth: 240, max: 2, repeat: "fit" }}
+              >
                 <Selector
                   label={"Role"}
                   options={[
@@ -610,7 +816,9 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
                   value={role}
                   onChange={(value) => setRole(value as Account["role"])}
                   isDisabled={
-                    mutation.isPending || protectedAccount || mutation.isPending
+                    mutation.isPending ||
+                    protectedAccount ||
+                    mutation.isPending
                   }
                 />
                 <Selector
@@ -622,7 +830,9 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
                   value={String(active)}
                   onChange={(value) => setActive(value === "true")}
                   isDisabled={
-                    mutation.isPending || protectedAccount || mutation.isPending
+                    mutation.isPending ||
+                    protectedAccount ||
+                    mutation.isPending
                   }
                 />
 
@@ -641,17 +851,6 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
                 />
               </Grid>
 
-              <TextArea
-                label={"Reason"}
-                isRequired={true}
-                maxLength={500}
-                value={reason}
-                onChange={(value) => setReason(value.slice(0, 500))}
-                {...({
-                  required: true,
-                } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-              />
-
               <Text as="p" color="secondary">
                 Saving signs this account out on all devices. At least one
                 active platform owner must remain, so the last one cannot be
@@ -668,12 +867,7 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
                 </Text>
               )}
               {armed ? (
-                <VStack
-                  gap={3}
-
-                  role="group"
-                  aria-label="Confirm changes"
-                >
+                <VStack gap={3} role="group" aria-label="Confirm changes">
                   <Text as="p">
                     Apply these changes to <strong>{account.email}</strong>?
                   </Text>
@@ -690,7 +884,12 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
                         : "This is your own account. You will lose administrator access, including this page."}
                     </Text>
                   )}
-                  <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                  <HStack
+                    gap={3}
+                    wrap="wrap"
+                    vAlign="center"
+                    hAlign="between"
+                  >
                     <Button
                       label={String(
                         mutation.isPending ? "Saving…" : "Save changes",
@@ -705,20 +904,21 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
                       label={"Keep editing"}
                       variant="secondary"
                       type="button"
-
                       isDisabled={mutation.isPending}
                       onClick={() => setArmed(false)}
                     />
                   </HStack>
                 </VStack>
               ) : (
-                <Button
-                  label={"Review changes"}
-                  variant="primary"
-                  type="button"
-                  isDisabled={mutation.isPending || !changed || !reason.trim()}
-                  onClick={() => setArmed(true)}
-                />
+                <HStack>
+                  <Button
+                    label={"Review changes"}
+                    variant="primary"
+                    type="button"
+                    isDisabled={mutation.isPending || !changed}
+                    onClick={() => setArmed(true)}
+                  />
+                </HStack>
               )}
             </VStack>
           </fieldset>
@@ -734,11 +934,14 @@ export function MyAccount({ current }: { current: Account }) {
   const linkError = new URLSearchParams(search).get("sso_error");
   const identity = useQuery({
     queryKey: ["account-identity", current.id, current.access_revision],
-    queryFn: ({ signal }) => read<AccountIdentity>("/api/account/identity", signal),
+    queryFn: ({ signal }) =>
+      read<AccountIdentity>("/api/account/identity", signal),
   });
   const linkIdentity = useMutation({
-    mutationFn: () => write<OIDCStart>("/api/account/identity/link", "POST"),
-    onSuccess: ({ authorization_url }) => window.location.assign(authorization_url),
+    mutationFn: () =>
+      write<OIDCStart>("/api/account/identity/link", "POST"),
+    onSuccess: ({ authorization_url }) =>
+      window.location.assign(authorization_url),
   });
   const [oldPassword, setOldPassword] = useState("");
   const [password, setPassword] = useState("");
@@ -772,27 +975,60 @@ export function MyAccount({ current }: { current: Account }) {
           </Text>
         </VStack>
       </HStack>
-      {linkError && <Banner status="error" title="Organization sign-in was not linked" description={linkError === "account" ? `Use an organization account with the verified email ${current.email}. An existing link cannot be replaced.` : "The linking request expired, was cancelled, or could not be verified. Try linking again."} />}
+      {linkError && (
+        <Banner
+          status="error"
+          title="Organization sign-in was not linked"
+          description={
+            linkError === "account"
+              ? `Use an organization account with the verified email ${current.email}. An existing link cannot be replaced.`
+              : "The linking request expired, was cancelled, or could not be verified. Try linking again."
+          }
+        />
+      )}
       {identity.data?.provider_name && (
         <Card padding={6}>
           <VStack gap={3}>
             <Heading level={2}>Organization sign-in</Heading>
             {identity.data.linked ? (
-              <Text>{identity.data.provider_name} is linked to your account.</Text>
+              <Text>
+                {identity.data.provider_name} is linked to your account.
+              </Text>
             ) : (
               <>
-                <Text>Sign in to your organization with the same verified email as this account to link it.</Text>
-                <Button label={`Link ${identity.data.provider_name}`} variant="secondary" isLoading={linkIdentity.isPending} onClick={() => linkIdentity.mutate()} />
+                <Text>
+                  Sign in to your organization with the same verified email
+                  as this account to link it.
+                </Text>
+                <Button
+                  label={`Link ${identity.data.provider_name}`}
+                  variant="secondary"
+                  isLoading={linkIdentity.isPending}
+                  onClick={() => linkIdentity.mutate()}
+                />
               </>
             )}
-            {linkIdentity.isError && <Banner status="error" title="Could not start account linking" description={linkIdentity.error.message} />}
+            {linkIdentity.isError && (
+              <Banner
+                status="error"
+                title="Could not start account linking"
+                description={linkIdentity.error.message}
+              />
+            )}
           </VStack>
         </Card>
       )}
       {identity.isError && (
         <VStack gap={2}>
-          <Text role="alert">Could not load organization sign-in settings.</Text>
-          <Button label="Retry sign-in settings" variant="ghost" isLoading={identity.isFetching} onClick={() => void identity.refetch()} />
+          <Text role="alert">
+            Could not load organization sign-in settings.
+          </Text>
+          <Button
+            label="Retry sign-in settings"
+            variant="ghost"
+            isLoading={identity.isFetching}
+            onClick={() => void identity.refetch()}
+          />
         </VStack>
       )}
       <Form

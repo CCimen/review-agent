@@ -89,7 +89,7 @@ class AdminAPITests(unittest.TestCase):
         ):
             self.assertEqual(self.client.get(path).status_code, 401, path)
         self.assertEqual(
-            self.client.post("/api/auth/register", json={}).status_code, 404
+            self.client.post("/api/auth/register", json={}).status_code, 422
         )
         self.assertEqual(
             self.client.post(

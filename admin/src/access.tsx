@@ -15,7 +15,11 @@ import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
@@ -75,7 +79,8 @@ const connectionLabels = {
 export function GitHubConnection() {
   const query = useQuery({
     queryKey: ["github-connection"],
-    queryFn: ({ signal }) => read<Connection>("/api/access/connection", signal),
+    queryFn: ({ signal }) =>
+      read<Connection>("/api/access/connection", signal),
     refetchInterval: 60_000,
   });
   const data = query.data;
@@ -115,13 +120,16 @@ export function GitHubConnection() {
           <Button
             label={"Check connection now"}
             variant="secondary"
-
             type="button"
             isDisabled={query.isFetching}
             onClick={() => void query.refetch()}
           />
           {data?.edit_url && (
-            <AstryxLink href={data.edit_url} target="_blank" rel="noreferrer">
+            <AstryxLink
+              href={data.edit_url}
+              target="_blank"
+              rel="noreferrer"
+            >
               Edit GitHub App
               <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
             </AstryxLink>
@@ -137,7 +145,11 @@ export function GitHubConnection() {
             </AstryxLink>
           )}
           {data?.app_url && (
-            <AstryxLink href={data.app_url} target="_blank" rel="noreferrer">
+            <AstryxLink
+              href={data.app_url}
+              target="_blank"
+              rel="noreferrer"
+            >
               App page<VisuallyHidden> (opens in a new tab)</VisuallyHidden>
             </AstryxLink>
           )}
@@ -161,13 +173,16 @@ function InstallationPanel({
   configured: boolean;
 }) {
   const client = useQueryClient();
-  const [reason, setReason] = useState("");
   const [policy, setPolicy] = useState<"explicit" | "automatic">(
     installation.repository_activation,
   );
   const [checkEnabled, setCheckEnabled] = useState(false);
   const check = useQuery({
-    queryKey: ["access", "installation-status", installation.installation_id],
+    queryKey: [
+      "access",
+      "installation-status",
+      installation.installation_id,
+    ],
     queryFn: ({ signal }) =>
       read<LiveInstallation>(
         `/api/access/installations/${installation.installation_id}/status`,
@@ -182,10 +197,9 @@ function InstallationPanel({
       write<Installation>(
         `/api/access/installations/${installation.installation_id}/approve`,
         "POST",
-        { policy, reason },
+        { policy, reason: "Installation activation policy updated" },
       ),
     onSuccess: async () => {
-      setReason("");
       await client.invalidateQueries({ queryKey: ["access"] });
     },
   });
@@ -194,10 +208,9 @@ function InstallationPanel({
       write(
         `/api/access/installations/${installation.installation_id}/sync`,
         "POST",
-        { reason },
+        { reason: "Repository inventory synchronized" },
       ),
     onSuccess: async () => {
-      setReason("");
       await client.invalidateQueries({ queryKey: ["access"] });
     },
   });
@@ -261,7 +274,6 @@ function InstallationPanel({
             )}
             variant="secondary"
             type="button"
-
             isDisabled={!configured || check.isFetching}
             onClick={() => {
               if (checkEnabled) void check.refetch();
@@ -302,8 +314,8 @@ function InstallationPanel({
                 check.data.repository_selection !==
                   installation.repository_selection) && (
                 <Text as="p" color="secondary">
-                  Stored access differs from GitHub. Save the activation policy
-                  below to refresh the installation state.
+                  Stored access differs from GitHub. Save the activation
+                  policy below to refresh the installation state.
                 </Text>
               )}
             </>
@@ -320,9 +332,10 @@ function InstallationPanel({
           <VStack gap={4}>
             <Text as="p" color="secondary">
               Allow all accessible repositories to activate on their first
-              review request, or require an administrator to enable each one.
-              Switching to explicit enablement disables repositories activated
-              automatically; manually enabled repositories remain enabled.
+              review request, or require an administrator to enable each
+              one. Switching to explicit enablement disables repositories
+              activated automatically; manually enabled repositories remain
+              enabled.
             </Text>
             <Form
               onSubmit={(event) => {
@@ -337,25 +350,18 @@ function InstallationPanel({
                     value: "explicit",
                     label: "Only explicitly enabled repositories",
                   },
-                  { value: "automatic", label: "All accessible repositories" },
+                  {
+                    value: "automatic",
+                    label: "All accessible repositories",
+                  },
                 ]}
                 value={policy}
                 onChange={(value) =>
-                  setPolicy(value === "automatic" ? "automatic" : "explicit")
+                  setPolicy(
+                    value === "automatic" ? "automatic" : "explicit",
+                  )
                 }
                 isDisabled={pending || !configured}
-              />
-
-              <TextInput
-                label={"Reason for change"}
-                isRequired={true}
-                isDisabled={pending || !configured}
-                value={reason}
-                onChange={(value) => setReason(value)}
-                {...({
-                  required: true,
-                  maxLength: 500,
-                } satisfies InputHTMLAttributes<HTMLInputElement>)}
               />
 
               {error && (
@@ -366,7 +372,9 @@ function InstallationPanel({
               <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
                 <Button
                   label={String(
-                    approve.isPending ? "Saving…" : "Save activation policy",
+                    approve.isPending
+                      ? "Saving…"
+                      : "Save activation policy",
                   )}
                   variant="primary"
                   isDisabled={pending || !configured}
@@ -379,7 +387,6 @@ function InstallationPanel({
                   variant="primary"
                   isDisabled={
                     pending ||
-                    !reason.trim() ||
                     !configured ||
                     installation.repository_selection !== "selected"
                   }
@@ -419,17 +426,15 @@ function AddRepository({
   const client = useQueryClient();
   const [repository, setRepository] = useState("");
   const [profile, setProfile] = useState(defaultProfile);
-  const [reason, setReason] = useState("");
   const add = useMutation({
     mutationFn: () =>
       write<RepositoryAccess>("/api/access/repositories/onboard", "POST", {
         repository: repository.trim(),
         profile: profile.trim(),
-        reason: reason.trim(),
+        reason: "Repository enabled for reviews",
       }),
     onSuccess: async () => {
       setRepository("");
-      setReason("");
       await client.invalidateQueries({ queryKey: ["access"] });
     },
   });
@@ -445,12 +450,14 @@ function AddRepository({
       <VStack gap={4}>
         <VStack gap={4}>
           <Text as="p">
-            Enable reviews for one repository the GitHub App can access. Works
-            with both all-repository and selected-repository installations.
+            Enable reviews for one repository the GitHub App can access.
+            Works with both all-repository and selected-repository
+            installations.
           </Text>
           <Text as="p" color="secondary">
-            For a selected-repository installation, add the repository in GitHub
-            first. Disabling a repository here retains its review history.
+            For a selected-repository installation, add the repository in
+            GitHub first. Disabling a repository here retains its review
+            history.
           </Text>
           {!configured && (
             <Text as="p">
@@ -487,23 +494,12 @@ function AddRepository({
                     maxLength: 100,
                   } satisfies InputHTMLAttributes<HTMLInputElement>)}
                 />
-
-                <TextInput
-                  label={"Reason for enabling"}
-                  isRequired={true}
-                  value={reason}
-                  onChange={(value) => setReason(value)}
-                  {...({
-                    required: true,
-                    maxLength: 500,
-                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
-                />
               </VStack>
             </fieldset>
             {add.error && (
               <Text as="p" role="alert">
-                {add.error.message} Check that the GitHub installation includes
-                this repository and has the required permissions.
+                {add.error.message} Check that the GitHub installation
+                includes this repository and has the required permissions.
               </Text>
             )}
             {add.isSuccess && (
@@ -523,8 +519,7 @@ function AddRepository({
                 !configured ||
                 add.isPending ||
                 !repository.trim() ||
-                !profile.trim() ||
-                !reason.trim()
+                !profile.trim()
               }
             />
           </Form>
@@ -542,17 +537,19 @@ function RepositoryRow({
   defaultProfile: string;
 }) {
   const client = useQueryClient();
-  const [reason, setReason] = useState("");
-  const [profile, setProfile] = useState(repository.profile ?? defaultProfile);
+  const [profile, setProfile] = useState(
+    repository.profile ?? defaultProfile,
+  );
   const mutation = useMutation({
     mutationFn: () =>
       write<RepositoryAccess>(
         `/api/access/repositories/${repository.repository_id}/${repository.enabled ? "disable" : "enable"}`,
         "POST",
-        repository.enabled ? { reason } : { profile, reason },
+        repository.enabled
+          ? { reason: "Repository reviews disabled" }
+          : { profile, reason: "Repository reviews enabled" },
       ),
     onSuccess: async () => {
-      setReason("");
       await client.invalidateQueries({ queryKey: ["access"] });
     },
   });
@@ -577,13 +574,17 @@ function RepositoryRow({
       <TableCell>{repository.profile ?? "—"}</TableCell>
       <TableCell>
         {!repository.enabled && repository.access !== "available" ? (
-          <Text color="secondary">Restore GitHub access before enabling</Text>
+          <Text color="secondary">
+            Restore GitHub access before enabling
+          </Text>
         ) : (
           <Collapsible
             defaultIsOpen={false}
             trigger={
               <HStack gap={3} wrap="wrap" vAlign="center">
-                {repository.enabled ? "Disable reviews…" : "Enable reviews…"}
+                {repository.enabled
+                  ? "Disable reviews…"
+                  : "Enable reviews…"}
               </HStack>
             }
           >
@@ -612,18 +613,6 @@ function RepositoryRow({
                     } satisfies InputHTMLAttributes<HTMLInputElement>)}
                   />
                 )}
-
-                <TextInput
-                  label={"Reason"}
-                  isRequired={true}
-                  isDisabled={mutation.isPending}
-                  value={reason}
-                  onChange={(value) => setReason(value)}
-                  {...({
-                    required: true,
-                    maxLength: 500,
-                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
-                />
 
                 {mutation.isError && (
                   <Text as="p" role="alert">
@@ -689,8 +678,8 @@ export function Access() {
         <VStack gap={3}>
           <Heading level={1}>Repositories &amp; access</Heading>
           <Text as="p">
-            Approve GitHub App installations and control review access for each
-            repository.
+            Approve GitHub App installations and control review access for
+            each repository.
           </Text>
         </VStack>
       </HStack>
@@ -780,7 +769,9 @@ export function Access() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHeaderCell scope="col">Repository</TableHeaderCell>
+                    <TableHeaderCell scope="col">
+                      Repository
+                    </TableHeaderCell>
                     <TableHeaderCell scope="col">
                       Provider access
                     </TableHeaderCell>

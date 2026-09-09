@@ -83,7 +83,7 @@ const render = (markdown) =>
     }),
   );
 
-const renderConsolePage = (component, cache) => {
+const renderConsolePage = (component, cache, entry = "/") => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
@@ -98,7 +98,7 @@ const renderConsolePage = (component, cache) => {
       { client },
       createElement(
         MemoryRouter,
-        null,
+        { initialEntries: [entry] },
         createElement(ScopeProvider, { current: account() }, component),
       ),
     ),
@@ -628,7 +628,9 @@ test("review destination leads with publication and coverage, preserves filters 
   assert.ok(
     html.indexOf("F1: Handle cancellation") < html.indexOf("Execution details"),
   );
-  assert.doesNotMatch(html, /class="pr-requests"/);
+  assert.match(html, /<table[^>]*aria-label="Requests, newest first"/);
+  assert.match(html, /<thead[\s\S]*?Request[\s\S]*?Result[\s\S]*?<\/thead>/);
+  assert.match(textContent(elements(html, "tbody")[0]), /Request #24/);
   client.clear();
 });
 
@@ -923,6 +925,46 @@ test("organization sign-in appears only for the configured provider", async () =
   assert.doesNotMatch(linked, /Link Organization SSO/);
 });
 
+test("registration uses an email step and a password step only after a verification link", async () => {
+  const { Login } = await server.ssrLoadModule("/src/accounts.tsx");
+  const cache = [
+    [["registration-availability"], { enabled: true, email_configured: true }],
+    [["identity-provider"], { name: null, registration_enabled: false }],
+  ];
+  const login = renderConsolePage(createElement(Login), cache);
+  assert.match(button(login, "Register"), /Register/);
+  const signup = renderConsolePage(createElement(Login), cache, "/?register=1");
+  assert.match(signup, /Create your account/);
+  assert.match(signup, /Send verification link/);
+  assert.match(signup, /type="email"/);
+  assert.doesNotMatch(signup, /type="password"/);
+  const complete = renderConsolePage(createElement(Login), cache, `/#register_token=${"x".repeat(43)}`);
+  assert.match(complete, /Choose your password/);
+  assert.match(complete, /autoComplete="new-password"/);
+  assert.match(complete, /minLength="15"/);
+  assert.match(complete, /Create account and sign in/);
+  assert.doesNotMatch(complete, /type="email"/);
+  const closed = renderConsolePage(createElement(Login), [[
+    ["registration-availability"], { enabled: false, email_configured: false },
+  ]]);
+  assert.equal(button(closed, "Register"), "");
+});
+
+test("registration settings explain allowlist matching and mail configuration without a reason prompt", async () => {
+  const { RegistrationAccess } = await server.ssrLoadModule("/src/registration.tsx");
+  const html = renderConsolePage(createElement(RegistrationAccess), [
+    [["registration-settings"], { revision: 0, enabled: false, allowed_domains: [], allowed_emails: [] }],
+    [["registration-availability"], { enabled: false, email_configured: false }],
+  ]);
+  assert.match(html, /Allow self-registration/);
+  assert.match(html, /Allowed email domains/);
+  assert.match(html, /Allowed individual emails/);
+  assert.match(html, /Subdomains must be listed separately/);
+  assert.match(html, /Email delivery is not configured/);
+  assert.doesNotMatch(html, /Reason for change|Email ownership is not verified/);
+  assert.match(button(html, "Save registration settings"), /type="submit"/);
+});
+
 test("console shell preserves role-based navigation without browser globals", async () => {
   const { ConsoleLayout } = await server.ssrLoadModule("/src/console.tsx");
   for (const role of ["owner", "admin", "viewer"]) {
@@ -969,4 +1011,36 @@ test("forms block invalid numeric drafts and submit valid values", async () => {
   assert.equal(focused, 1);
   form.props.onSubmit(event(false));
   assert.equal(submitted, 1);
+});
+
+
+test("SMTP setup exposes owner controls and never fills a saved password", async () => {
+  const { EmailDelivery } = await server.ssrLoadModule("/src/email.tsx");
+  const configured = { revision: 1, enabled: true, configuration: {
+    host: "smtp.example.com", port: 587, sender: "review@example.com", tls: "starttls", username: "mailer",
+  }, password_set: true, credential_storage_available: true };
+  const html = renderConsolePage(createElement(EmailDelivery), [[["email-settings"], configured]]);
+  assert.match(html, /SMTP server/);
+  assert.match(html, /Sender email/);
+  assert.match(html, /type="password"[^>]*value=""/);
+  assert.match(html, /A password is saved/);
+  assert.match(button(html, "Save email settings"), /type="submit"/);
+  assert.doesNotMatch(button(html, "Send test to me"), /disabled=""/);
+  assert.doesNotMatch(html, /Reason for change/);
+  const unavailable = renderConsolePage(createElement(EmailDelivery), [[["email-settings"], {
+    ...configured, revision: 0, enabled: false, configuration: null, password_set: false, credential_storage_available: false,
+  }]]);
+  assert.match(unavailable, /Password storage needs a deployment key/);
+  assert.match(button(unavailable, "Send test to me"), /disabled=""/);
+});
+
+test("pull request results use aligned table columns", async () => {
+  const { History } = await server.ssrLoadModule("/src/history.tsx");
+  const html = renderConsolePage(createElement(History), [[
+    scopedKey(["pull-requests", "days=30&status=all&limit=50"], "owner"),
+    { items: [{ pull_request_id: 1, latest: request, matching_requests: 1, total_requests: 1 }], total: 1, next_cursor: null },
+  ]], "/history");
+  assert.match(html, /<table[^>]*aria-label="Pull requests"/);
+  assert.match(html, /<thead[\s\S]*?Pull request[\s\S]*?Latest matching result[\s\S]*?Started[\s\S]*?Action[\s\S]*?<\/thead>/);
+  assert.match(html, /<tbody[\s\S]*?PR #/);
 });

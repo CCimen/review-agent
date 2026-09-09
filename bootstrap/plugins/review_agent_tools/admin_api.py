@@ -46,6 +46,7 @@ from . import (
     admin_oidc,
 )
 from .admin_auth import AdminAuth
+from .admin_email import email_cipher
 from .admin_identity_config import IdentitySettings
 from .build_info import BuildInfo, read_build_info
 from .postgres import admin_operations, admin_reporting
@@ -74,7 +75,11 @@ def create_app(
     public_url: str,
     static_dir: Path,
 ) -> FastAPI:
-    auth = AdminAuth(runtime.database_url, public_url)
+    auth = AdminAuth(
+        runtime.database_url,
+        public_url,
+        email_secret=email_cipher(os.environ.get("REVIEW_AGENT_EMAIL_SECRET_KEY", "")),
+    )
     identity = IdentitySettings.load(os.environ)
     build = read_build_info()
 

@@ -16,17 +16,20 @@ import {
   TableRow,
 } from "@astryxdesign/core/Table";
 import { Heading, Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { SettingsTabs } from "./accounts";
 import type { TeamPage } from "./api";
 import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { useScope } from "./scope";
-import { ReasonAction } from "./teams";
+import { ConfirmAction } from "./teams";
 import { Copy, Empty, Form, Freshness, dateTimeValue, time } from "./ui";
 
 type Integration = components["schemas"]["Integration"];
@@ -51,7 +54,6 @@ function IntegrationEditor({
   const [expires, setExpires] = useState<ISODateTimeString | "">(() =>
     dateTimeValue(new Date(Date.now() + 90 * 86_400_000)),
   );
-  const [reason, setReason] = useState("");
   const teams = useQuery({
     queryKey: ["integration-team-options", search, "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -72,7 +74,7 @@ function IntegrationEditor({
           deployment_wide: deploymentWide,
           read_review_content: content,
           expires_at: new Date(`${expires}Z`).toISOString(),
-          reason,
+          reason: "Application integration created",
         } satisfies components["schemas"]["IntegrationInput"],
       );
       // Keep the one-time credential out of the shared query/mutation cache.
@@ -112,8 +114,8 @@ function IntegrationEditor({
       </Grid>
       {deploymentWide ? (
         <Text as="p">
-          This application can report on all repositories, including unassigned
-          repositories and teams added later.
+          This application can report on all repositories, including
+          unassigned repositories and teams added later.
         </Text>
       ) : (
         <fieldset>
@@ -133,7 +135,6 @@ function IntegrationEditor({
                 label={"Search"}
                 variant="secondary"
                 type="button"
-
                 onClick={() => setSearch(draftSearch.trim())}
               />
             </HStack>
@@ -150,7 +151,6 @@ function IntegrationEditor({
                     label={"Remove " + team.name}
                     variant="secondary"
                     type="button"
-
                     key={team.id}
                     onClick={() =>
                       setSelected((items) =>
@@ -203,9 +203,9 @@ function IntegrationEditor({
       />
 
       <Text as="p" color="secondary">
-        All integrations can read outcome metadata and aggregate reports. This
-        additional permission exposes published review text within the approved
-        scope.
+        All integrations can read outcome metadata and aggregate reports.
+        This additional permission exposes published review text within the
+        approved scope.
       </Text>
       <DateTimeInput
         label="Expires at (UTC)"
@@ -215,17 +215,6 @@ function IntegrationEditor({
         hourFormat="24h"
       />
 
-      <TextArea
-        label={"Reason"}
-        isRequired={true}
-        maxLength={500}
-        value={reason}
-        onChange={(value) => setReason(value.slice(0, 500))}
-        {...({
-          required: true,
-        } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-      />
-
       {save.isError && (
         <Text as="p" role="alert">
           {save.error.message}
@@ -233,13 +222,14 @@ function IntegrationEditor({
       )}
       <HStack gap={3} wrap="wrap" vAlign="center">
         <Button
-          label={String(save.isPending ? "Creating…" : "Create integration")}
+          label={String(
+            save.isPending ? "Creating…" : "Create integration",
+          )}
           variant="primary"
           type="submit"
           isDisabled={
             save.isPending ||
             !name.trim() ||
-            !reason.trim() ||
             !expires ||
             (!deploymentWide && selected.length === 0)
           }
@@ -248,7 +238,6 @@ function IntegrationEditor({
           label={"Cancel"}
           variant="secondary"
           type="button"
-
           isDisabled={save.isPending}
           onClick={cancel}
         />
@@ -290,7 +279,7 @@ function IntegrationRow({
       </TableCell>
       <TableCell>
         {integration.state === "active" && (
-          <ReasonAction
+          <ConfirmAction
             label="Revoke"
             path={`/api/integrations/${integration.id}/revoke`}
             description="Subsequent reads will fail. Requests already in progress may finish."
@@ -348,16 +337,15 @@ export function IntegrationsPage() {
         <VStack
           gap={4}
           as="section"
-
           aria-labelledby="integration-credential-title"
         >
           <Heading level={2} id="integration-credential-title">
             Save the credential for {issued.integration.name}
           </Heading>
           <Text as="p">
-            This is the only time it is shown. Store it in your application's
-            secret manager and send it in the Authorization header as a Bearer
-            credential.
+            This is the only time it is shown. Store it in your
+            application's secret manager and send it in the Authorization
+            header as a Bearer credential.
           </Text>
           <Copy value={issued.token} label="integration credential">
             <Code>{issued.token}</Code>
@@ -388,7 +376,6 @@ export function IntegrationsPage() {
         (query.data.items.length ? (
           <VStack
             gap={4}
-
             tabIndex={0}
             role="region"
             aria-label="Application integrations"
@@ -422,7 +409,8 @@ export function IntegrationsPage() {
           </VStack>
         ) : (
           <Empty title="No integrations">
-            Create a credential when an application needs to read team reports.
+            Create a credential when an application needs to read team
+            reports.
           </Empty>
         ))}
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -444,9 +432,9 @@ export function IntegrationsPage() {
         )}
       </HStack>
       <Text as="p" color="secondary">
-        Permissions are fixed when a credential is created. To change access or
-        rotate a credential, create its replacement and then revoke the old
-        integration.
+        Permissions are fixed when a credential is created. To change access
+        or rotate a credential, create its replacement and then revoke the
+        old integration.
       </Text>
       <Text as="p">
         <AstryxLink

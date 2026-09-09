@@ -5,9 +5,12 @@ import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Section } from "@astryxdesign/core/Section";
 import { Heading, Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { InputHTMLAttributes } from "react";
 import { useState } from "react";
 import { APIError, read, write } from "./api";
 import type { components } from "./api.generated";
@@ -37,8 +40,8 @@ export function RunControls({ runId }: { runId: number }) {
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [action, setAction] = useState<RunAction | null>(null);
-  const [reason, setReason] = useState("");
-  const [snapshot, setSnapshot] = useState<RunControlsResponse["job"]>(null);
+  const [snapshot, setSnapshot] =
+    useState<RunControlsResponse["job"]>(null);
   const [staleAfterMinutes, setStaleAfterMinutes] = useState(15);
   const query = useQuery({
     queryKey: ["run-controls", runId, "scoped", scope.key],
@@ -62,7 +65,7 @@ export function RunControls({ runId }: { runId: number }) {
           expected_lease_generation: job.lease_generation,
           expected_status: job.status,
           expected_available_at: job.available_at,
-          reason,
+          reason: labels[action],
           ...(action === "mark_stalled"
             ? { stale_after_minutes: staleAfterMinutes }
             : {}),
@@ -74,7 +77,6 @@ export function RunControls({ runId }: { runId: number }) {
         ["run-controls", runId, "scoped", scope.key],
         data,
       );
-      setReason("");
       setSnapshot(null);
       setAction(null);
       setIsOpen(false);
@@ -86,7 +88,6 @@ export function RunControls({ runId }: { runId: number }) {
     },
     onError: async (error) => {
       if (error instanceof APIError && error.status === 409) {
-        setReason("");
         setAction(null);
         await query.refetch();
       }
@@ -95,7 +96,6 @@ export function RunControls({ runId }: { runId: number }) {
 
   function confirm(nextAction: RunAction) {
     mutation.reset();
-    setReason("");
     setSnapshot(query.data?.job ?? null);
     setAction(nextAction);
   }
@@ -107,12 +107,10 @@ export function RunControls({ runId }: { runId: number }) {
         label={"Review actions"}
         variant="secondary"
         type="button"
-
         aria-haspopup="dialog"
         onClick={() => {
           mutation.reset();
           setAction(null);
-          setReason("");
           setIsOpen(true);
           void query.refetch();
         }}
@@ -129,7 +127,12 @@ export function RunControls({ runId }: { runId: number }) {
           <VStack gap={4}>
             {!action ? (
               <>
-                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                <HStack
+                  gap={3}
+                  wrap="wrap"
+                  vAlign="center"
+                  hAlign="between"
+                >
                   <Heading level={2} id="run-action-heading">
                     Review actions
                   </Heading>
@@ -137,7 +140,6 @@ export function RunControls({ runId }: { runId: number }) {
                     label={"Close"}
                     variant="secondary"
                     type="button"
-
                     onClick={() => setIsOpen(false)}
                   />
                 </HStack>
@@ -189,7 +191,6 @@ export function RunControls({ runId }: { runId: number }) {
                             label={"Cancel review"}
                             variant="destructive"
                             type="button"
-
                             isDisabled={query.isFetching}
                             onClick={() => confirm("cancel")}
                           />
@@ -210,14 +211,13 @@ export function RunControls({ runId }: { runId: number }) {
                       >
                         <VStack gap={4}>
                           <Text as="p">
-                            Mark the review as failed if its heartbeat is stale
-                            and no worker holds a live lease.
+                            Mark the review as failed if its heartbeat is
+                            stale and no worker holds a live lease.
                           </Text>
                           <Button
                             label={"Mark as stalled"}
                             variant="destructive"
                             type="button"
-
                             isDisabled={query.isFetching}
                             onClick={() => confirm("mark_stalled")}
                           />
@@ -228,8 +228,8 @@ export function RunControls({ runId }: { runId: number }) {
                       (availability) => availability.available,
                     ) && (
                       <Text as="p">
-                        No actions are available for this request in its current
-                        state.
+                        No actions are available for this request in its
+                        current state.
                       </Text>
                     )}
                     {controls.audit.length > 0 && (
@@ -284,26 +284,17 @@ export function RunControls({ runId }: { runId: number }) {
                   />
                 )}
 
-                <TextArea
-                  label={"Reason"}
-                  isRequired={true}
-                  hasAutoFocus={true}
-                  maxLength={500}
-                  rows={3}
-                  value={reason}
-                  isDisabled={mutation.isPending}
-                  onChange={(value) => setReason(value.slice(0, 500))}
-                  {...({
-                    required: true,
-                  } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-                />
-
                 {mutation.isError && (
                   <Text as="p" role="alert">
                     {mutation.error.message}
                   </Text>
                 )}
-                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                <HStack
+                  gap={3}
+                  wrap="wrap"
+                  vAlign="center"
+                  hAlign="between"
+                >
                   <Button
                     label={
                       mutation.isPending
@@ -311,7 +302,6 @@ export function RunControls({ runId }: { runId: number }) {
                         : `Confirm ${labels[action].toLowerCase()}`
                     }
                     variant="primary"
-
                     isDisabled={mutation.isPending}
                     type="submit"
                   />
@@ -319,7 +309,6 @@ export function RunControls({ runId }: { runId: number }) {
                     label={"Go back"}
                     variant="secondary"
                     type="button"
-
                     isDisabled={mutation.isPending}
                     onClick={() => {
                       setAction(null);

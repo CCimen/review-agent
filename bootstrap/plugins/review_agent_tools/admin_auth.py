@@ -5,12 +5,15 @@ import asyncio
 import getpass
 import json
 import secrets
+import smtplib
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urlsplit
 
+from cryptography.fernet import Fernet
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users import (
@@ -30,7 +33,15 @@ from fastapi_users_db_sqlalchemy.access_token import (
     SQLAlchemyAccessTokenDatabase,
     SQLAlchemyBaseAccessTokenTable,
 )
-from pydantic import BaseModel, EmailStr, Field, SecretStr
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    SecretStr,
+    TypeAdapter,
+    field_validator,
+)
 from sqlalchemy import DateTime, ForeignKey, delete, func, select, text, true
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
@@ -42,16 +53,120 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, aliased, mapped_column
 
 from .domain.access import Role
+from .admin_email import (
+    EmailSettings,
+    EmailUpdate,
+    EmailTest,
+    email_settings,
+    smtp_settings,
+)
 from .settings import PostgresDatabaseUrl, ReviewAgentSettings
 from .postgres.team_access import AccessRequest
 from .postgres.audit import AuditAction
 
 
 SESSION_SECONDS = 8 * 60 * 60
+REGISTRATION_SECONDS = 30 * 60
+REGISTRATION_RESEND_SECONDS = 60
+REGISTRATION_REQUESTS_PER_MINUTE = 30
+REGISTRATION_MAX_PENDING = 1000
+_EMAIL_ADDRESS: TypeAdapter[EmailStr] = TypeAdapter(EmailStr)
+
+
+class RegistrationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(default=False, strict=True)
+    allowed_domains: list[Annotated[str, Field(min_length=1, max_length=254)]] = Field(
+        default_factory=list, max_length=100
+    )
+    allowed_emails: list[EmailStr] = Field(default_factory=list, max_length=100)
+
+    @field_validator("allowed_domains")
+    @classmethod
+    def normalize_domains(cls, values: list[str]) -> list[str]:
+        return sorted(
+            {
+                str(
+                    _EMAIL_ADDRESS.validate_python(
+                        "registration@" + value.strip().removeprefix("@")
+                    )
+                )
+                .rsplit("@", 1)[1]
+                .lower()
+                for value in values
+            }
+        )
+
+    @field_validator("allowed_emails")
+    @classmethod
+    def normalize_emails(cls, values: list[EmailStr]) -> list[EmailStr]:
+        return [
+            _EMAIL_ADDRESS.validate_python(value)
+            for value in sorted({str(value).lower() for value in values})
+        ]
+
+    def allows(self, email: str) -> bool:
+        normalized = str(_EMAIL_ADDRESS.validate_python(email)).lower()
+        return self.enabled and (
+            normalized in self.allowed_emails
+            or normalized.rsplit("@", 1)[1] in self.allowed_domains
+        )
+
+
+class RegistrationSettings(RegistrationPolicy):
+    revision: int = Field(ge=0)
+
+
+class RegistrationUpdate(RegistrationPolicy):
+    expected_revision: int = Field(ge=0)
+    reason: str = Field(
+        default="Registration settings updated", min_length=1, max_length=500
+    )
+
+
+class RegistrationAvailability(BaseModel):
+    enabled: bool
+    email_configured: bool
+
+
+class RegistrationSignup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+
+
+class RegistrationComplete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: Annotated[SecretStr, Field(min_length=43, max_length=43)]
+    password: Annotated[SecretStr, Field(min_length=15, max_length=128)]
+
+
+async def registration_settings(session: AsyncSession) -> RegistrationSettings:
+    row = (
+        (
+            await session.execute(
+                text(
+                    "SELECT revision, enabled, allowed_domains, allowed_emails "
+                    "FROM review_agent.admin_registration_policy WHERE singleton"
+                )
+            )
+        )
+        .mappings()
+        .one()
+    )
+    return RegistrationSettings.model_validate(row)
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class RegistrationRequest(Base):
+    __tablename__ = "admin_registration_requests"
+    __table_args__ = {"schema": "review_agent"}
+    email: Mapped[str] = mapped_column(primary_key=True)
+    token_digest: Mapped[str] = mapped_column(unique=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
@@ -304,6 +419,15 @@ class ProvisionedAccountUpdate(BaseModel):
     active: bool | None = None
 
 
+async def _lock_registration_requests(session: AsyncSession) -> None:
+    # Counts, resends and consumption share one lock; sign-in needs only accounts.
+    await session.execute(
+        text(
+            "LOCK TABLE review_agent.admin_registration_requests IN SHARE ROW EXCLUSIVE MODE"
+        )
+    )
+
+
 async def revoke_account_sessions(session: AsyncSession, user: User) -> None:
     await session.execute(
         delete(SessionToken).where(SessionToken.__table__.c.user_id == user.id)
@@ -431,6 +555,7 @@ async def sign_in_oidc_account(
     link_user_id: uuid.UUID | None,
     link_access_revision: int | None,
     link_session_token: str | None,
+    register_account: bool = False,
 ) -> str:
     """Resolve or link the account and issue its audited, revocable session."""
     await _lock_accounts(session)
@@ -466,6 +591,42 @@ async def sign_in_oidc_account(
                 ~User.is_global_viewer,
             )
         )
+    if (
+        user is None
+        and register_account
+        and link_user_id is None
+        and email
+        and email_verified
+    ):
+        policy = await registration_settings(session)
+        if not policy.allows(email):
+            raise PermissionError("Registration is not allowed for this email")
+        try:
+            user = await UserManager(session).create(
+                UserCreate(
+                    email=_EMAIL_ADDRESS.validate_python(email.lower()),
+                    password=secrets.token_urlsafe(48),
+                    is_verified=True,
+                )
+            )
+        except exceptions.UserAlreadyExists as exc:
+            raise PermissionError(
+                "An existing account must be explicitly linked"
+            ) from exc
+        user.oidc_issuer, user.oidc_subject = issuer, subject
+        await _account_audit(
+            session,
+            actor=user,
+            user=user,
+            action=AuditAction.ACCOUNT_CREATED,
+            reason="Registered with a verified organization identity",
+            details={
+                "email": user.email,
+                "role": Role.MEMBER.value,
+                "method": "self_registration",
+                "issuer": issuer,
+            },
+        )
     if user is None or not user.is_active or user.scim_deleted:
         raise PermissionError(
             "An active provisioned or explicitly linked account is required"
@@ -491,7 +652,13 @@ async def sign_in_oidc_account(
 
 
 class AdminAuth:
-    def __init__(self, database_url: PostgresDatabaseUrl, public_url: str) -> None:
+    def __init__(
+        self,
+        database_url: PostgresDatabaseUrl,
+        public_url: str,
+        *,
+        email_secret: Fernet | None = None,
+    ) -> None:
         parsed = urlsplit(public_url)
         if (
             not parsed.hostname
@@ -565,6 +732,340 @@ class AdminAuth:
         self.current_scope = current_scope
         self.auth_router = users.get_auth_router(backend)
         self.router = APIRouter()
+
+        async def registration_availability(
+            session: Annotated[AsyncSession, Depends(session_dependency)],
+        ) -> RegistrationAvailability:
+            policy = await registration_settings(session)
+            delivery = await email_settings(session, email_secret)
+            configured = delivery.enabled and (
+                not delivery.password_set or delivery.credential_storage_available
+            )
+            return RegistrationAvailability(
+                enabled=bool(
+                    configured
+                    and policy.enabled
+                    and (policy.allowed_domains or policy.allowed_emails)
+                ),
+                email_configured=configured,
+            )
+
+        async def register(
+            change: RegistrationSignup,
+            session: Annotated[AsyncSession, Depends(session_dependency)],
+        ) -> None:
+            smtp = await smtp_settings(session, email_secret)
+            if smtp is None:
+                raise HTTPException(
+                    503,
+                    "Email registration is unavailable. Contact your administrator.",
+                )
+            policy = await registration_settings(session)
+            if not policy.enabled:
+                raise HTTPException(
+                    403, "Registration is closed. Contact your administrator."
+                )
+            email = str(change.email).lower()
+            if not policy.allows(email):
+                return
+            await _lock_registration_requests(session)
+            if await session.scalar(
+                select(User).where(func.lower(User.email) == email)
+            ):
+                return
+            now = datetime.now(timezone.utc)
+            await session.execute(
+                delete(RegistrationRequest).where(RegistrationRequest.expires_at < now)
+            )
+            pending = await session.get(RegistrationRequest, email)
+            if pending and pending.requested_at > now - timedelta(
+                seconds=REGISTRATION_RESEND_SECONDS
+            ):
+                return
+            recent = await session.scalar(
+                select(func.count())
+                .select_from(RegistrationRequest)
+                .where(RegistrationRequest.requested_at > now - timedelta(minutes=1))
+            )
+            total = await session.scalar(
+                select(func.count()).select_from(RegistrationRequest)
+            )
+            if (recent or 0) >= REGISTRATION_REQUESTS_PER_MINUTE or (
+                pending is None and (total or 0) >= REGISTRATION_MAX_PENDING
+            ):
+                raise HTTPException(
+                    429,
+                    "Registration is busy. Try again in a minute.",
+                    headers={"Retry-After": "60"},
+                )
+            token = secrets.token_urlsafe(32)
+            if pending is None:
+                pending = RegistrationRequest(email=email)
+                session.add(pending)
+            pending.token_digest = sha256(token.encode()).hexdigest()
+            pending.requested_at = now
+            pending.expires_at = now + timedelta(seconds=REGISTRATION_SECONDS)
+            await session.commit()
+            # Commit the cooldown before delivery and release the request lock while
+            # SMTP runs. Interrupted sends can be retried after one minute.
+            try:
+                await asyncio.to_thread(
+                    smtp.send_registration,
+                    email,
+                    f"{self.origin}/#register_token={token}",
+                )
+            except (OSError, smtplib.SMTPException):
+                raise HTTPException(
+                    503,
+                    "Could not send the verification email. Wait one minute and try again.",
+                ) from None
+
+        async def complete_registration(
+            change: RegistrationComplete,
+            session: Annotated[AsyncSession, Depends(session_dependency)],
+            manager: Annotated[UserManager, Depends(manager_dependency)],
+        ) -> Response:
+            await _lock_registration_requests(session)
+            pending = await session.scalar(
+                select(RegistrationRequest).where(
+                    RegistrationRequest.token_digest
+                    == sha256(change.token.get_secret_value().encode()).hexdigest()
+                )
+            )
+            if pending is None or pending.expires_at < datetime.now(timezone.utc):
+                raise HTTPException(
+                    400,
+                    "This verification link expired or was already used. Request a new link.",
+                )
+            await _lock_accounts(session)
+            policy = await registration_settings(session)
+            if not policy.allows(pending.email):
+                raise HTTPException(
+                    403,
+                    "Registration is no longer allowed for this email. Contact your administrator.",
+                )
+            try:
+                user = await manager.create(
+                    UserCreate(
+                        email=_EMAIL_ADDRESS.validate_python(pending.email),
+                        password=change.password.get_secret_value(),
+                        is_verified=True,
+                    )
+                )
+            except exceptions.UserAlreadyExists as exc:
+                raise HTTPException(
+                    400,
+                    "This registration cannot be completed. Sign in or contact your administrator.",
+                ) from exc
+            await _account_audit(
+                session,
+                actor=user,
+                user=user,
+                action=AuditAction.ACCOUNT_CREATED,
+                reason="Registered after email verification",
+                details={
+                    "email": user.email,
+                    "role": Role.MEMBER.value,
+                    "method": "email_registration",
+                },
+            )
+            await session.delete(pending)
+            await session.flush()
+            response = await backend.login(SessionStrategy(session), user)
+            await manager.on_after_login(user)
+            return response
+
+        async def get_registration(
+            _actor: Annotated[User, Depends(self.current_owner)],
+            session: Annotated[AsyncSession, Depends(session_dependency)],
+        ) -> RegistrationSettings:
+            return await registration_settings(session)
+
+        async def save_registration(
+            change: RegistrationUpdate,
+            actor: Annotated[User, Depends(self.current_owner)],
+            session: Annotated[AsyncSession, Depends(session_dependency)],
+        ) -> RegistrationSettings:
+            await _lock_accounts(session)
+            await session.refresh(actor)
+            if not actor.is_active or not actor.is_platform_owner:
+                raise HTTPException(403, "Platform owner access required")
+            if not change.reason.strip():
+                raise HTTPException(422, "A reason is required")
+            previous = await registration_settings(session)
+            if previous.revision != change.expected_revision:
+                raise HTTPException(
+                    409, "Registration settings changed. Reload before saving."
+                )
+            await session.execute(
+                text(
+                    "UPDATE review_agent.admin_registration_policy "
+                    "SET revision = revision + 1, enabled = :enabled, "
+                    "allowed_domains = CAST(:domains AS JSONB), allowed_emails = CAST(:emails AS JSONB) "
+                    "WHERE singleton"
+                ),
+                {
+                    "enabled": change.enabled,
+                    "domains": json.dumps(change.allowed_domains),
+                    "emails": json.dumps(change.allowed_emails),
+                },
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO review_agent.admin_audit_events "
+                    "(actor_id, actor_email, actor_role, action, subject, reason, details, owner_only) "
+                    "VALUES (:actor_id, :email, 'owner', :action, 'self-registration', :reason, CAST(:details AS JSONB), true)"
+                ),
+                {
+                    "actor_id": actor.id,
+                    "email": actor.email,
+                    "action": AuditAction.REGISTRATION_UPDATED.value,
+                    "reason": change.reason.strip(),
+                    "details": json.dumps(
+                        {
+                            "previous_revision": previous.revision,
+                            "enabled": change.enabled,
+                            "allowed_domains": json.dumps(change.allowed_domains),
+                            "allowed_emails": json.dumps(change.allowed_emails),
+                        }
+                    ),
+                },
+            )
+            result = await registration_settings(session)
+            await session.commit()
+            return result
+
+        async def get_email(
+            _actor: Annotated[User, Depends(self.current_owner)],
+            session: Annotated[AsyncSession, Depends(session_dependency)],
+        ) -> EmailSettings:
+            return await email_settings(session, email_secret)
+
+        async def save_email(
+            change: EmailUpdate,
+            actor: Annotated[User, Depends(self.current_owner)],
+            session: Annotated[AsyncSession, Depends(session_dependency)],
+        ) -> EmailSettings:
+            await _lock_accounts(session)
+            await session.refresh(actor)
+            if not actor.is_active or not actor.is_platform_owner:
+                raise HTTPException(403, "Platform owner access required")
+            previous = await email_settings(session, email_secret)
+            if previous.revision != change.expected_revision:
+                raise HTTPException(
+                    409, "Email settings changed. Reload before saving."
+                )
+            # A changed relay must not receive a password retained for another endpoint.
+            if (
+                change.password is None
+                and previous.password_set
+                and previous.configuration
+            ):
+                old = previous.configuration
+                new = change.configuration
+                if (old.host, old.port, old.tls, old.username) != (
+                    new.host,
+                    new.port,
+                    new.tls,
+                    new.username,
+                ):
+                    raise HTTPException(
+                        422,
+                        "Enter the password again when changing the SMTP server or login.",
+                    )
+            retained = await session.scalar(
+                text(
+                    "SELECT encrypted_password FROM review_agent.admin_email_settings WHERE singleton"
+                )
+            )
+            if change.password is not None:
+                password = change.password.get_secret_value()
+                if password and email_secret is None:
+                    raise HTTPException(
+                        503,
+                        "Configure the deployment email encryption key before saving a password.",
+                    )
+                retained = (
+                    email_secret.encrypt(password.encode()).decode()
+                    if password and email_secret
+                    else None
+                )
+            if bool(change.configuration.username) != bool(retained):
+                raise HTTPException(
+                    422, "SMTP username and password must be set together."
+                )
+            await session.execute(
+                text(
+                    "UPDATE review_agent.admin_email_settings SET revision = revision + 1, "
+                    "enabled = :enabled, configuration = CAST(:configuration AS JSONB), encrypted_password = :password WHERE singleton"
+                ),
+                {
+                    "enabled": change.enabled,
+                    "configuration": change.configuration.model_dump_json(),
+                    "password": retained,
+                },
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO review_agent.admin_audit_events "
+                    "(actor_id, actor_email, actor_role, action, subject, reason, details, owner_only) "
+                    "VALUES (:id, :email, 'owner', :action, 'email-delivery', 'Email settings updated', CAST(:details AS JSONB), true)"
+                ),
+                {
+                    "id": actor.id,
+                    "email": actor.email,
+                    "action": AuditAction.EMAIL_UPDATED.value,
+                    "details": json.dumps(
+                        {
+                            "previous_revision": previous.revision,
+                            "enabled": change.enabled,
+                            "host": change.configuration.host,
+                            "password_changed": change.password is not None,
+                        }
+                    ),
+                },
+            )
+            result = await email_settings(session, email_secret)
+            await session.commit()
+            return result
+
+        async def test_email(
+            change: EmailTest,
+            actor: Annotated[User, Depends(self.current_owner)],
+            session: Annotated[AsyncSession, Depends(session_dependency)],
+        ) -> None:
+            await _lock_accounts(session)
+            await session.refresh(actor)
+            if not actor.is_active or not actor.is_platform_owner:
+                raise HTTPException(403, "Platform owner access required")
+            settings = await email_settings(session, email_secret)
+            if settings.revision != change.expected_revision:
+                raise HTTPException(
+                    409, "Email settings changed. Reload before testing."
+                )
+            smtp = await smtp_settings(session, email_secret, for_test=True)
+            if smtp is None:
+                raise HTTPException(422, "Save SMTP settings before testing.")
+            claimed = await session.scalar(
+                text(
+                    "UPDATE review_agent.admin_email_settings SET last_test_at = now() "
+                    "WHERE singleton AND (last_test_at IS NULL OR last_test_at < now() - interval '1 minute') RETURNING singleton"
+                )
+            )
+            if not claimed:
+                raise HTTPException(
+                    429,
+                    "Wait one minute before sending another test.",
+                    headers={"Retry-After": "60"},
+                )
+            await session.commit()
+            try:
+                await asyncio.to_thread(smtp.send_test, actor.email)
+            except (OSError, smtplib.SMTPException):
+                raise HTTPException(
+                    503,
+                    "Could not send the test email. Check the SMTP settings and try again in a minute.",
+                ) from None
 
         async def me(user: Annotated[User, Depends(self.current_user)]) -> Account:
             return Account.from_user(user)
@@ -742,7 +1243,30 @@ class AdminAuth:
             )
             await session.commit()
 
+        self.router.add_api_route("/api/email", get_email, methods=["GET"])
+        self.router.add_api_route("/api/email", save_email, methods=["PUT"])
+        self.router.add_api_route(
+            "/api/email/test", test_email, methods=["POST"], status_code=204
+        )
         self.router.add_api_route("/api/me", me, methods=["GET"])
+        self.router.add_api_route(
+            "/api/registration", get_registration, methods=["GET"]
+        )
+        self.router.add_api_route(
+            "/api/registration", save_registration, methods=["PUT"]
+        )
+        self.router.add_api_route(
+            "/api/auth/registration", registration_availability, methods=["GET"]
+        )
+        self.router.add_api_route(
+            "/api/auth/register", register, methods=["POST"], status_code=202
+        )
+        self.router.add_api_route(
+            "/api/auth/register/complete",
+            complete_registration,
+            methods=["POST"],
+            status_code=204,
+        )
         self.router.add_api_route("/api/users", list_users, methods=["GET"])
         self.router.add_api_route(
             "/api/users", create_user, methods=["POST"], status_code=201

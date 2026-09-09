@@ -6,6 +6,10 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Link as AstryxLink } from "@astryxdesign/core/Link";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
+import {
+  MetadataList,
+  MetadataListItem,
+} from "@astryxdesign/core/MetadataList";
 import { Selector } from "@astryxdesign/core/Selector";
 import {
   Table,
@@ -16,11 +20,14 @@ import {
   TableRow,
 } from "@astryxdesign/core/Table";
 import { Heading, Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { TeamPage } from "./api";
@@ -28,7 +35,7 @@ import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { ConnectionQuota } from "./modelQuota";
 import { ScopedLink as Link, useScope } from "./scope";
-import { ReasonAction } from "./teams";
+import { ConfirmAction } from "./teams";
 import { Copy, Empty, Form, Freshness, time } from "./ui";
 
 type Connection = components["schemas"]["ModelConnection"];
@@ -94,7 +101,6 @@ function ConnectionEditor({
   const [choices, setChoices] = useState<ModelChoice[]>(
     connection?.allowed_routes ?? [],
   );
-  const [reason, setReason] = useState("");
   const runtimes = useQuery({
     queryKey: ["model-connections", "runtimes", "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -121,7 +127,7 @@ function ConnectionEditor({
               allowed_routes: choices,
               max_concurrency: maxConcurrency,
               expected_revision: connection.revision,
-              reason,
+              reason: "Model connection updated",
             } satisfies components["schemas"]["ConnectionUpdate"],
           )
         : write<Connection>("/api/model-connections", "POST", {
@@ -130,11 +136,10 @@ function ConnectionEditor({
             team_id: teamId ? Number(teamId) : null,
             allowed_routes: choices,
             max_concurrency: maxConcurrency,
-            reason,
+            reason: "Model connection created",
           } satisfies components["schemas"]["ConnectionCreate"]),
     onSuccess: async (value) => {
       await refresh();
-      setReason("");
       done?.();
       if (!connection)
         navigate(
@@ -144,7 +149,9 @@ function ConnectionEditor({
   });
   function updateChoice(index: number, value: Partial<ModelChoice>) {
     setChoices((items) =>
-      items.map((item, at) => (at === index ? { ...item, ...value } : item)),
+      items.map((item, at) =>
+        at === index ? { ...item, ...value } : item,
+      ),
     );
   }
   return (
@@ -204,7 +211,8 @@ function ConnectionEditor({
             A platform operator provisions each runtime and its private
             credential storage first.
           </Text>
-          {runtimes.data && !runtimes.data.some((key) => key !== "shared") ? (
+          {runtimes.data &&
+          !runtimes.data.some((key) => key !== "shared") ? (
             <Text as="p">
               No additional runtime is configured.{" "}
               <AstryxLink
@@ -228,7 +236,9 @@ function ConnectionEditor({
             } satisfies InputHTMLAttributes<HTMLInputElement>)}
           />
 
-          {teamSearch.trim().length >= 2 ? <Freshness query={teams} /> : null}
+          {teamSearch.trim().length >= 2 ? (
+            <Freshness query={teams} />
+          ) : null}
           <Selector
             label={"Connection owner"}
             options={[
@@ -263,15 +273,18 @@ function ConnectionEditor({
       ) : null}
       <Heading level={3}>Allowed team choices</Heading>
       <Text as="p">
-        Teams may inherit deployment defaults or choose one of these models and
-        reasoning levels.
+        Teams may inherit deployment defaults or choose one of these models
+        and reasoning levels.
       </Text>
       <VStack gap={4}>
         {choices.map((choice, index) => (
           <fieldset key={index}>
             <VStack gap={4}>
               <legend>Model {index + 1}</legend>
-              <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+              <Grid
+                gap={4}
+                columns={{ minWidth: 240, max: 4, repeat: "fit" }}
+              >
                 <Selector
                   label={"Provider"}
                   options={[
@@ -290,7 +303,9 @@ function ConnectionEditor({
                   label={"Model ID"}
                   isRequired={true}
                   value={choice.model}
-                  onChange={(value) => updateChoice(index, { model: value })}
+                  onChange={(value) =>
+                    updateChoice(index, { model: value })
+                  }
                   {...({
                     required: true,
                     maxLength: 200,
@@ -320,7 +335,6 @@ function ConnectionEditor({
                 label={"Remove model"}
                 variant="primary"
                 type="button"
-
                 onClick={() =>
                   setChoices((items) =>
                     items.filter((_item, at) => at !== index),
@@ -335,7 +349,6 @@ function ConnectionEditor({
         label={"Add a model choice"}
         variant="secondary"
         type="button"
-
         isDisabled={choices.length >= 50}
         onClick={() =>
           setChoices((items) => [
@@ -347,17 +360,6 @@ function ConnectionEditor({
             },
           ])
         }
-      />
-
-      <TextArea
-        label={"Reason"}
-        isRequired={true}
-        maxLength={500}
-        value={reason}
-        onChange={(value) => setReason(value.slice(0, 500))}
-        {...({
-          required: true,
-        } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
       />
 
       {save.isError ? (
@@ -439,7 +441,6 @@ export function ModelConnectionsPage() {
       {query.data?.items.length ? (
         <VStack
           gap={4}
-
           role="region"
           tabIndex={0}
           aria-label="Model connections"
@@ -482,8 +483,8 @@ export function ModelConnectionsPage() {
         </VStack>
       ) : query.data ? (
         <Empty title="No model connections in this view">
-          An administrator can assign a shared or dedicated connection to your
-          team.
+          An administrator can assign a shared or dedicated connection to
+          your team.
         </Empty>
       ) : null}
       {after !== "0" || query.data?.next_after_id ? (
@@ -492,7 +493,6 @@ export function ModelConnectionsPage() {
             label={"First page"}
             variant="secondary"
             type="submit"
-
             isDisabled={after === "0"}
             onClick={() => {
               const next = new URLSearchParams(params);
@@ -504,7 +504,6 @@ export function ModelConnectionsPage() {
             label={"Next connections"}
             variant="secondary"
             type="submit"
-
             isDisabled={!query.data?.next_after_id}
             onClick={() => {
               const next = new URLSearchParams(params);
@@ -529,9 +528,14 @@ function ConnectionLogin({
   const client = useQueryClient();
   const refresh = useConnectionRefresh();
   const [challenge, setChallenge] = useState<ModelLogin | null>(null);
-  const [reason, setReason] = useState("");
   const operationId = challenge?.id ?? connection.active_login_id;
-  const key = ["model-login", connection.id, operationId, "scoped", scope.key];
+  const key = [
+    "model-login",
+    connection.id,
+    operationId,
+    "scoped",
+    scope.key,
+  ];
   const path = scope.path(`/api/model-connections/${connection.id}/login`);
   const session = useQuery({
     queryKey: key,
@@ -551,11 +555,10 @@ function ConnectionLogin({
     mutationFn: () =>
       write<ModelLogin>(path, "POST", {
         expected_revision: connection.revision,
-        reason,
+        reason: "Provider login started",
       } satisfies components["schemas"]["ConnectionChange"]),
     onSuccess: (value) => {
       setChallenge(value);
-      setReason("");
       client.setQueryData(
         ["model-login", connection.id, value.id, "scoped", scope.key],
         value,
@@ -632,19 +635,18 @@ function ConnectionLogin({
             </>
           ) : (
             <Text as="p">
-              Continue in the provider verification tab, or cancel this login to
-              request a new code.
+              Continue in the provider verification tab, or cancel this
+              login to request a new code.
             </Text>
           )}
           <Text as="p" color="secondary" display="block" type="supporting">
-            Expires {time(current.expires_at)}. Checks every {interval} seconds
-            while this page is open.
+            Expires {time(current.expires_at)}. Checks every {interval}{" "}
+            seconds while this page is open.
           </Text>
           <Button
             label={"Cancel login"}
             variant="secondary"
             type="button"
-
             isDisabled={advancing}
             onClick={() => advance.mutate("cancel")}
           />
@@ -670,17 +672,6 @@ function ConnectionLogin({
             start.mutate();
           }}
         >
-          <TextArea
-            label={"Reason for connecting"}
-            isRequired={true}
-            maxLength={500}
-            value={reason}
-            onChange={(value) => setReason(value.slice(0, 500))}
-            {...({
-              required: true,
-            } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-          />
-
           <Button
             label={String(
               start.isPending ? "Starting login…" : "Connect OpenAI Codex",
@@ -732,157 +723,168 @@ function ConnectionContent({ connection }: { connection: Connection }) {
         </VStack>
         <Link to="/model-connections">All connections</Link>
       </HStack>
-      <Text as="p">
-        <Text>{stateNames[connection.state]}</Text>
-      </Text>
-      {connection.queued_jobs !== null ? (
-        <Text as="p">
-          {connection.queued_jobs} queued · {connection.leased_jobs} claimed ·{" "}
-          {connection.active_executions} unfinished executions
-        </Text>
-      ) : (
-        <Text as="p">Shared accounts are managed by a platform owner.</Text>
-      )}
-      <Text as="p">
-        Connection limit: {connection.max_concurrency} concurrent reviews.
-      </Text>
-      {!!connection.active_executions && (
-        <Text as="p">
-          Unfinished executions reserve capacity until Hermes records
-          completion. If this count remains after reviews stop, ask a platform
-          owner to pause the connection and use “Recover after a runtime
-          restart” below.
-        </Text>
-      )}
-      {connection.state === "disabled" ? (
-        <Text as="p">
-          New dispatch is paused. Reviews already running can finish.
-        </Text>
-      ) : null}
-      {connection.queued_jobs ||
-      connection.leased_jobs ||
-      connection.active_executions ? (
-        <Text as="p">
-          Account changes require these reviews to finish or be cancelled.{" "}
-          <Link to="/history">View reviews</Link>.
-        </Text>
-      ) : null}
-      {connection.can_manage ? (
-        <>
-          <Freshness query={runtime} quiet />
-          {runtime.data?.configured === false ? (
-            <VStack gap={3}>
-              <Text as="p">
-                Provider control is not configured for this runtime. Existing
-                review execution can continue.
-              </Text>
-              <AstryxLink
-                href="https://ccimen.github.io/review-agent/admin-panel#managed-model-connections"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open setup instructions
-              </AstryxLink>
-            </VStack>
+      <VStack gap={4}>
+        <MetadataList
+          orientation="horizontal"
+          columns="multi"
+          label={{ position: "top" }}
+        >
+          <MetadataListItem label="Status">
+            {stateNames[connection.state]}
+          </MetadataListItem>
+          <MetadataListItem label="Concurrent reviews">
+            {connection.max_concurrency}
+          </MetadataListItem>
+          {connection.queued_jobs !== null && (
+            <MetadataListItem label="Review workload">
+              {connection.queued_jobs} queued · {connection.leased_jobs}{" "}
+              claimed · {connection.active_executions} unfinished executions
+            </MetadataListItem>
+          )}
+        </MetadataList>
+        <VStack gap={2} maxWidth={760}>
+          {connection.queued_jobs === null && (
+            <Text as="p">
+              Shared accounts are managed by a platform owner.
+            </Text>
+          )}
+          {!!connection.active_executions && (
+            <Text as="p">
+              Unfinished executions reserve capacity until Hermes records
+              completion. If this count remains after reviews stop, ask a
+              platform owner to pause the connection and use “Recover after
+              a runtime restart” below.
+            </Text>
+          )}
+          {connection.state === "disabled" ? (
+            <Text as="p">
+              New dispatch is paused. Reviews already running can finish.
+            </Text>
           ) : null}
-          <HStack gap={3} wrap="wrap" vAlign="center">
-            {connection.state === "enabled" ||
-            connection.state === "disabled" ? (
-              <ReasonAction
-                key={`enabled:${connection.revision}`}
-                label={
-                  connection.state === "enabled"
-                    ? "Pause connection"
-                    : "Enable connection"
-                }
-                path={scope.path(`${base}/enabled`)}
-                body={{ ...body, enabled: connection.state !== "enabled" }}
-                description={
-                  connection.state === "enabled"
-                    ? "Stop new dispatch. Running reviews can finish; queued reviews retain their admitted account."
-                    : "Verify the recorded account and allow queued reviews to run."
-                }
-                done={done}
-              />
+          {connection.queued_jobs ||
+          connection.leased_jobs ||
+          connection.active_executions ? (
+            <Text as="p">
+              Account changes require these reviews to finish or be
+              cancelled. <Link to="/history">View reviews</Link>.
+            </Text>
+          ) : null}
+        </VStack>
+        {connection.can_manage ? (
+          <>
+            <Freshness query={runtime} quiet />
+            {runtime.data?.configured === false ? (
+              <VStack gap={3}>
+                <Text as="p">
+                  Provider control is not configured for this runtime.
+                  Existing review execution can continue.
+                </Text>
+                <AstryxLink
+                  href="https://ccimen.github.io/review-agent/admin-panel#managed-model-connections"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open setup instructions
+                </AstryxLink>
+              </VStack>
             ) : null}
-            {connection.state === "disabled" && runtime.data?.configured ? (
-              <ReasonAction
-                key={`reconcile:${connection.revision}`}
-                label="Record current accounts"
-                path={scope.path(`${base}/reconcile`)}
-                body={body}
-                description="Record an account connected or removed by the operator in this runtime. Queued and running reviews must be cleared first. The connection stays paused."
-                done={done}
-              />
-            ) : null}
-          </HStack>
-        </>
-      ) : null}
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              {connection.state === "enabled" ||
+              connection.state === "disabled" ? (
+                <ConfirmAction
+                  key={`enabled:${connection.revision}`}
+                  label={
+                    connection.state === "enabled"
+                      ? "Pause connection"
+                      : "Enable connection"
+                  }
+                  path={scope.path(`${base}/enabled`)}
+                  body={{
+                    ...body,
+                    enabled: connection.state !== "enabled",
+                  }}
+                  description={
+                    connection.state === "enabled"
+                      ? "Stop new dispatch. Running reviews can finish; queued reviews retain their admitted account."
+                      : "Verify the recorded account and allow queued reviews to run."
+                  }
+                  done={done}
+                />
+              ) : null}
+              {connection.state === "disabled" &&
+              runtime.data?.configured ? (
+                <ConfirmAction
+                  key={`reconcile:${connection.revision}`}
+                  label="Record current accounts"
+                  path={scope.path(`${base}/reconcile`)}
+                  body={body}
+                  description="Record an account connected or removed by the operator in this runtime. Queued and running reviews must be cleared first. The connection stays paused."
+                  done={done}
+                />
+              ) : null}
+            </HStack>
+          </>
+        ) : null}
+      </VStack>
       <VStack gap={4} as="section">
         <Heading level={2}>Provider accounts</Heading>
-        <VStack
-          gap={4}
 
-          role="region"
-          tabIndex={0}
-          aria-label="Provider account observations"
-        >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Provider</TableHeaderCell>
-                <TableHeaderCell>Account record</TableHeaderCell>
-                <TableHeaderCell>Observed</TableHeaderCell>
-                {connection.can_manage ? (
-                  <TableHeaderCell>Runtime observation</TableHeaderCell>
-                ) : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {connection.accounts.map((account) => {
-                const observed = runtime.data?.accounts.find(
-                  (item) => item.provider === account.provider,
-                );
-                const status = observed?.availability;
-                const descriptions = {
-                  available: "One credential found",
-                  disconnected: "No credential found",
-                  multiple_accounts:
-                    "Multiple credentials · Operator action required",
-                  identity_unavailable: "Account identity unavailable",
-                  isolation_required: "Private credential storage required",
-                };
-                return (
-                  <TableRow key={account.provider}>
-                    <TableHeaderCell scope="row">
-                      {providerNames[account.provider]}
-                      {account.label ? (
-                        <Text
-                          color="secondary"
-                          display="block"
-                          type="supporting"
-                        >
-                          {account.label}
-                        </Text>
-                      ) : null}
-                    </TableHeaderCell>
-                    <TableCell>
-                      {account.verified
-                        ? `Recorded · Revision ${account.revision}`
-                        : "No identity recorded"}
-                    </TableCell>
-                    <TableCell>{time(account.observed_at)}</TableCell>
-                    {connection.can_manage ? (
-                      <TableCell>
-                        {status ? descriptions[status] : "Unavailable"}
-                      </TableCell>
+        <Table aria-label="Provider account observations">
+          <TableHeader>
+            <TableRow>
+              <TableHeaderCell>Provider</TableHeaderCell>
+              <TableHeaderCell>Account record</TableHeaderCell>
+              <TableHeaderCell>Observed</TableHeaderCell>
+              {connection.can_manage ? (
+                <TableHeaderCell>Runtime observation</TableHeaderCell>
+              ) : null}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {connection.accounts.map((account) => {
+              const observed = runtime.data?.accounts.find(
+                (item) => item.provider === account.provider,
+              );
+              const status = observed?.availability;
+              const descriptions = {
+                available: "One credential found",
+                disconnected: "No credential found",
+                multiple_accounts:
+                  "Multiple credentials · Operator action required",
+                identity_unavailable: "Account identity unavailable",
+                isolation_required: "Private credential storage required",
+              };
+              return (
+                <TableRow key={account.provider}>
+                  <TableHeaderCell scope="row">
+                    {providerNames[account.provider]}
+                    {account.label ? (
+                      <Text
+                        color="secondary"
+                        display="block"
+                        type="supporting"
+                      >
+                        {account.label}
+                      </Text>
                     ) : null}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </VStack>
+                  </TableHeaderCell>
+                  <TableCell>
+                    {account.verified
+                      ? `Recorded · Revision ${account.revision}`
+                      : "No identity recorded"}
+                  </TableCell>
+                  <TableCell>{time(account.observed_at)}</TableCell>
+                  {connection.can_manage ? (
+                    <TableCell>
+                      {status ? descriptions[status] : "Unavailable"}
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+
         <Text as="p" color="secondary">
           These observations describe local credentials. They do not confirm
           provider availability or remaining quota.
@@ -906,10 +908,10 @@ function ConnectionContent({ connection }: { connection: Connection }) {
         >
           <VStack gap={4}>
             <Text as="p">
-              Pause this connection, clear queued and running reviews, then have
-              the platform operator connect or remove the authorized provider
-              credential in this runtime's private Hermes home. Choose Record
-              current accounts before enabling it.
+              Pause this connection, clear queued and running reviews, then
+              have the platform operator connect or remove the authorized
+              provider credential in this runtime's private Hermes home.
+              Choose Record current accounts before enabling it.
             </Text>
             <Text as="p">
               Anthropic API keys are supported. Provider secrets are never
@@ -932,12 +934,13 @@ function ConnectionContent({ connection }: { connection: Connection }) {
         >
           <VStack gap={4}>
             <Text as="p">
-              Stop and restart this connection's complete runtime, including its
-              provider control and login service. Confirm the old processes have
-              stopped, then cancel remaining queued or claimed reviews. Recovery
-              closes interrupted operations and records the current accounts.
+              Stop and restart this connection's complete runtime, including
+              its provider control and login service. Confirm the old
+              processes have stopped, then cancel remaining queued or
+              claimed reviews. Recovery closes interrupted operations and
+              records the current accounts.
             </Text>
-            <ReasonAction
+            <ConfirmAction
               key={`recover:${connection.revision}`}
               label="Confirm restart and reconcile"
               path={scope.path(`${base}/reconcile`)}
@@ -978,7 +981,7 @@ function ConnectionContent({ connection }: { connection: Connection }) {
           }
         >
           <VStack gap={4}>
-            <ReasonAction
+            <ConfirmAction
               key={`retire:${connection.revision}`}
               label="Retire connection"
               path={scope.path(`${base}/retire`)}

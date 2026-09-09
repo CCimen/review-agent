@@ -95,6 +95,106 @@
         ]
       }
     },
+    "/api/email": {
+      "get": {
+        "summary": "Get Email",
+        "operationId": "get_email_api_email_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailSettings"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Save Email",
+        "operationId": "save_email_api_email_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/email/test": {
+      "post": {
+        "summary": "Test Email",
+        "operationId": "test_email_api_email_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailTest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
     "/api/me": {
       "get": {
         "summary": "Me",
@@ -116,6 +216,155 @@
             "APIKeyCookie": []
           }
         ]
+      }
+    },
+    "/api/registration": {
+      "get": {
+        "summary": "Get Registration",
+        "operationId": "get_registration_api_registration_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationSettings"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Save Registration",
+        "operationId": "save_registration_api_registration_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/auth/registration": {
+      "get": {
+        "summary": "Registration Availability",
+        "operationId": "registration_availability_api_auth_registration_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationAvailability"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "summary": "Register",
+        "operationId": "register_api_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationSignup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register/complete": {
+      "post": {
+        "summary": "Complete Registration",
+        "operationId": "complete_registration_api_auth_register_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationComplete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/users": {
@@ -967,6 +1216,27 @@
         ],
         "summary": "Start",
         "operationId": "start_api_auth_oidc_start_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStart"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/oidc/register": {
+      "post": {
+        "tags": [
+          "organization sign-in"
+        ],
+        "summary": "Register",
+        "operationId": "register_api_auth_oidc_register_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -7740,6 +8010,8 @@
           "feedback_triaged",
           "run_action",
           "settings_updated",
+          "email_updated",
+          "registration_updated",
           "access_updated",
           "provider_login",
           "provider_logout",
@@ -8720,6 +8992,98 @@
         ],
         "title": "DeploymentStatus"
       },
+      "EmailSettings": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "configuration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SMTPConfiguration"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "password_set": {
+            "type": "boolean",
+            "title": "Password Set"
+          },
+          "credential_storage_available": {
+            "type": "boolean",
+            "title": "Credential Storage Available"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "enabled",
+          "configuration",
+          "password_set",
+          "credential_storage_available"
+        ],
+        "title": "EmailSettings"
+      },
+      "EmailTest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "EmailTest"
+      },
+      "EmailUpdate": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/SMTPConfiguration"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "format": "password",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "enabled",
+          "configuration"
+        ],
+        "title": "EmailUpdate"
+      },
       "ErrorModel": {
         "properties": {
           "detail": {
@@ -9449,6 +9813,11 @@
               }
             ],
             "title": "Name"
+          },
+          "registration_enabled": {
+            "type": "boolean",
+            "title": "Registration Enabled",
+            "default": false
           }
         },
         "type": "object",
@@ -11707,6 +12076,151 @@
         ],
         "title": "Reconciliation"
       },
+      "RegistrationAvailability": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "email_configured": {
+            "type": "boolean",
+            "title": "Email Configured"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "email_configured"
+        ],
+        "title": "RegistrationAvailability"
+      },
+      "RegistrationComplete": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 43,
+            "minLength": 43,
+            "format": "password",
+            "title": "Token",
+            "writeOnly": true
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 15,
+            "format": "password",
+            "title": "Password",
+            "writeOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "RegistrationComplete"
+      },
+      "RegistrationSettings": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "allowed_domains": {
+            "items": {
+              "type": "string",
+              "maxLength": 254,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Allowed Domains"
+          },
+          "allowed_emails": {
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Allowed Emails"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "title": "RegistrationSettings"
+      },
+      "RegistrationSignup": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "RegistrationSignup"
+      },
+      "RegistrationUpdate": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "allowed_domains": {
+            "items": {
+              "type": "string",
+              "maxLength": 254,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Allowed Domains"
+          },
+          "allowed_emails": {
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Allowed Emails"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "default": "Registration settings updated"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "RegistrationUpdate"
+      },
       "Report_HistoryPage_": {
         "properties": {
           "metrics_version": {
@@ -13146,6 +13660,51 @@
           "Resources"
         ],
         "title": "SCIMUserList"
+      },
+      "SMTPConfiguration": {
+        "properties": {
+          "host": {
+            "type": "string",
+            "maxLength": 253,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9.:-]+$",
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 587
+          },
+          "sender": {
+            "type": "string",
+            "format": "email",
+            "title": "Sender"
+          },
+          "tls": {
+            "type": "string",
+            "enum": [
+              "starttls",
+              "implicit"
+            ],
+            "title": "Tls",
+            "default": "starttls"
+          },
+          "username": {
+            "type": "string",
+            "maxLength": 320,
+            "title": "Username",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "host",
+          "sender"
+        ],
+        "title": "SMTPConfiguration"
       },
       "SaveSettings": {
         "properties": {

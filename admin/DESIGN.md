@@ -13,16 +13,24 @@ retain their existing behavior. Search, team context, account access, and build
 status stay available from the shell.
 
 Use `xds` MCP to inspect components, templates, and best practices before adding
-new UI. The Basic Login and Settings Form templates supply the login and settings
+new UI. The Login Card and Settings Form templates supply the login and settings
 layouts. The Side Nav template uses the same shell structure. The incident console
 and table templates provide useful scanning patterns for operational lists.
-Adapt those patterns to actual data and actions. The `login-sso` template is the
-starting point for the separately planned OIDC work.
+Adapt those patterns to actual data and actions. The login card includes optional
+organization sign-in and registration. Email registration verifies an allowed
+address before asking the user to choose a password.
 
 Use Astryx controls, tables, typography, feedback, and public layout props across
 the console. `src/theme.css` is the shared import entry: reset first, then Core,
 Neutral, and locally served fonts. Keep that order so the reset cannot override
 component styles. Do not add a separate visual stylesheet or copied theme.
+The page Section has zero container padding; its VStack owns page spacing so
+nested tables and sections cannot inherit an unrelated inset and overlap nearby
+content. Compare pull requests and retained review requests in native tables.
+Group related status and capacity details with MetadataList and explicit gaps.
+Ordinary actions record their operation automatically. Only audit-log access asks
+for a written justification. Owners manage SMTP in Settings; its password is
+write-only and the test action uses the owner’s account email.
 
 Keep form submission and browser validation native. Astryx text inputs forward
 standard DOM attributes through a spread checked against React's input types,

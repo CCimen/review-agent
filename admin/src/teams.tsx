@@ -14,10 +14,13 @@ import {
 } from "@astryxdesign/core/Table";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Heading, Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
@@ -30,7 +33,12 @@ import type {
 import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { AuditLog } from "./audit";
-import { isAdmin, ScopedLink as Link, ScopedAnchor, useScope } from "./scope";
+import {
+  isAdmin,
+  ScopedLink as Link,
+  ScopedAnchor,
+  useScope,
+} from "./scope";
 import { Empty, Form, Freshness, time } from "./ui";
 
 type TeamRole = components["schemas"]["TeamRole"];
@@ -56,7 +64,7 @@ function useTeamRefresh() {
     );
 }
 
-export function ReasonAction({
+export function ConfirmAction({
   label,
   path,
   body,
@@ -74,12 +82,10 @@ export function ReasonAction({
   danger?: boolean;
 }) {
   const refresh = useTeamRefresh();
-  const [reason, setReason] = useState("");
   const [open, setOpen] = useState(false);
   const action = useMutation({
-    mutationFn: () => write(path, method, { ...body, reason }),
+    mutationFn: () => write(path, method, { ...body, reason: label }),
     onSuccess: async () => {
-      setReason("");
       setOpen(false);
       await refresh();
       done?.();
@@ -91,7 +97,6 @@ export function ReasonAction({
         label={label}
         variant={danger ? "destructive" : "secondary"}
         type="button"
-
         aria-expanded={open}
         onClick={() => {
           setOpen(!open);
@@ -107,18 +112,6 @@ export function ReasonAction({
         >
           <Text as="p">{description}</Text>
 
-          <TextArea
-            label={"Reason"}
-            hasAutoFocus={true}
-            isRequired={true}
-            maxLength={500}
-            value={reason}
-            onChange={(value) => setReason(value.slice(0, 500))}
-            {...({
-              required: true,
-            } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-          />
-
           {action.isError ? (
             <Text as="p" role="alert">
               {action.error.message}
@@ -129,13 +122,12 @@ export function ReasonAction({
               label={action.isPending ? "Saving…" : label}
               variant="primary"
               type="submit"
-              isDisabled={action.isPending || !reason.trim()}
+              isDisabled={action.isPending}
             />
             <Button
               label={"Cancel"}
               variant="secondary"
               type="button"
-
               isDisabled={action.isPending}
               onClick={() => setOpen(false)}
             />
@@ -150,24 +142,22 @@ function TeamEditor({ team, done }: { team?: Team; done?: () => void }) {
   const refresh = useTeamRefresh();
   const [name, setName] = useState(team?.name ?? "");
   const [description, setDescription] = useState(team?.description ?? "");
-  const [reason, setReason] = useState("");
   const save = useMutation({
     mutationFn: () =>
       team
         ? write<Team>(`/api/teams/${team.id}`, "PATCH", {
             name,
             description,
-            reason,
+            reason: "Team updated",
             expected_revision: team.revision,
           } satisfies components["schemas"]["TeamUpdate"])
         : write<Team>("/api/teams", "POST", {
             name,
             description,
-            reason,
+            reason: "Team created",
           } satisfies components["schemas"]["NewTeam"]),
     onSuccess: async () => {
       await refresh();
-      setReason("");
       done?.();
     },
   });
@@ -201,17 +191,6 @@ function TeamEditor({ team, done }: { team?: Team; done?: () => void }) {
         />
       </Grid>
 
-      <TextArea
-        label={"Reason"}
-        isRequired={true}
-        maxLength={500}
-        value={reason}
-        onChange={(value) => setReason(value.slice(0, 500))}
-        {...({
-          required: true,
-        } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-      />
-
       {save.isError ? (
         <Text as="p" role="alert">
           {save.error.message}
@@ -243,7 +222,8 @@ export function TeamsPage() {
   const after = params.get("after_id") ?? "0";
   const requestedRepository = params.get("assign_repository") ?? "";
   const assignRepository =
-    isAdmin(scope.current.role) && /^[1-9]\d{0,18}$/.test(requestedRepository)
+    isAdmin(scope.current.role) &&
+    /^[1-9]\d{0,18}$/.test(requestedRepository)
       ? requestedRepository
       : null;
   const repositoryName =
@@ -311,7 +291,6 @@ export function TeamsPage() {
         wrap="wrap"
         vAlign="center"
         as="form"
-
         onSubmit={(event) => {
           event.preventDefault();
           const next = new URLSearchParams(params);
@@ -336,8 +315,8 @@ export function TeamsPage() {
       {assignRepository ? (
         <Text as="p">
           Choose the owning team for <strong>{repositoryName}</strong>. This
-          assigns retained review history; it leaves GitHub grants and review
-          activation as they are.{" "}
+          assigns retained review history; it leaves GitHub grants and
+          review activation as they are.{" "}
           <Button
             label={"Cancel assignment"}
             variant="primary"
@@ -347,13 +326,7 @@ export function TeamsPage() {
         </Text>
       ) : null}
       {query.data?.items.length ? (
-        <VStack
-          gap={4}
-
-          tabIndex={0}
-          role="region"
-          aria-label="Teams"
-        >
+        <VStack gap={4} tabIndex={0} role="region" aria-label="Teams">
           <Table>
             <TableHeader>
               <TableRow>
@@ -375,7 +348,11 @@ export function TeamsPage() {
                       {team.name}
                     </Link>
                     {team.description ? (
-                      <Text color="secondary" display="block" type="supporting">
+                      <Text
+                        color="secondary"
+                        display="block"
+                        type="supporting"
+                      >
                         {team.description}
                       </Text>
                     ) : null}
@@ -402,7 +379,7 @@ export function TeamsPage() {
                   </TableCell>
                   {assignRepository ? (
                     <TableCell>
-                      <ReasonAction
+                      <ConfirmAction
                         label="Assign to this team"
                         method="PUT"
                         path={`/api/repository-ownership/${assignRepository}`}
@@ -432,7 +409,6 @@ export function TeamsPage() {
             label={"First page"}
             variant="secondary"
             type="submit"
-
             isDisabled={after === "0"}
             onClick={() => {
               const next = new URLSearchParams(params);
@@ -445,7 +421,6 @@ export function TeamsPage() {
             label={"Next teams"}
             variant="secondary"
             type="submit"
-
             isDisabled={!query.data.next_after_id}
             onClick={() => {
               const next = new URLSearchParams(params);
@@ -465,7 +440,6 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
   const [offset, setOffset] = useState(0);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<TeamRole>("viewer");
-  const [reason, setReason] = useState("");
   const query = useQuery({
     queryKey: ["team-members", team.id, offset, "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -479,11 +453,10 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
       write(`/api/teams/${team.id}/members`, "PUT", {
         email,
         role,
-        reason,
+        reason: "Team membership updated",
       } satisfies components["schemas"]["TeamMemberUpdate"]),
     onSuccess: async () => {
       setEmail("");
-      setReason("");
       await refresh();
     },
   });
@@ -510,7 +483,10 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                 save.mutate();
               }}
             >
-              <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+              <Grid
+                gap={4}
+                columns={{ minWidth: 240, max: 4, repeat: "fit" }}
+              >
                 <VStack gap={2}>
                   <TextInput
                     label={"Account email"}
@@ -523,7 +499,9 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                       maxLength: 320,
                     } satisfies InputHTMLAttributes<HTMLInputElement>)}
                   />
-                  <Text color="secondary">Use an existing active account.</Text>
+                  <Text color="secondary">
+                    Use an existing active account.
+                  </Text>
                 </VStack>
                 <Selector
                   label={"Team role"}
@@ -536,17 +514,6 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                 />
               </Grid>
 
-              <TextArea
-                label={"Reason"}
-                isRequired={true}
-                maxLength={500}
-                value={reason}
-                onChange={(value) => setReason(value.slice(0, 500))}
-                {...({
-                  required: true,
-                } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-              />
-
               {save.isError ? (
                 <Text as="p" role="alert">
                   {save.error.message}
@@ -558,7 +525,9 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                 </Text>
               ) : null}
               <Button
-                label={String(save.isPending ? "Saving…" : "Save membership")}
+                label={String(
+                  save.isPending ? "Saving…" : "Save membership",
+                )}
                 variant="primary"
                 type="submit"
                 isDisabled={save.isPending}
@@ -571,7 +540,6 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
       {query.data?.items.length ? (
         <VStack
           gap={4}
-
           tabIndex={0}
           role="region"
           aria-label="Team members"
@@ -582,7 +550,9 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                 <TableHeaderCell>Account</TableHeaderCell>
                 <TableHeaderCell>Role</TableHeaderCell>
                 <TableHeaderCell>Access</TableHeaderCell>
-                {maintain ? <TableHeaderCell>Action</TableHeaderCell> : null}
+                {maintain ? (
+                  <TableHeaderCell>Action</TableHeaderCell>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -591,7 +561,11 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                   <TableHeaderCell scope="row">
                     {member.email}
                     {member.user_id === scope.current.id ? (
-                      <Text color="secondary" display="block" type="supporting">
+                      <Text
+                        color="secondary"
+                        display="block"
+                        type="supporting"
+                      >
                         You
                       </Text>
                     ) : null}
@@ -604,7 +578,7 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                   </TableCell>
                   {maintain ? (
                     <TableCell>
-                      <ReasonAction
+                      <ConfirmAction
                         label="Remove member"
                         path={`/api/teams/${team.id}/members/${member.user_id}/remove`}
                         description={`Remove ${member.email} from ${team.name}. Their access through other teams is retained.`}
@@ -630,7 +604,6 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
             label={"Previous"}
             variant="secondary"
             type="submit"
-
             isDisabled={!offset}
             onClick={() => setOffset(Math.max(0, offset - 50))}
           />
@@ -638,7 +611,6 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
             label={"Next"}
             variant="secondary"
             type="submit"
-
             isDisabled={!query.data?.next_offset}
             onClick={() => setOffset(query.data?.next_offset ?? 0)}
           />
@@ -659,7 +631,6 @@ function TeamRepositories({
   const refresh = useTeamRefresh();
   const [after, setAfter] = useState(0);
   const [repository, setRepository] = useState("");
-  const [reason, setReason] = useState("");
   const [destination, setDestination] = useState("");
   const [teamSearch, setTeamSearch] = useState("");
   const admin = isAdmin(scope.current.role);
@@ -684,11 +655,10 @@ function TeamRepositories({
     mutationFn: () =>
       write(`/api/teams/${team.id}/repository-requests`, "POST", {
         repository,
-        reason,
+        reason: "Repository access requested",
       } satisfies components["schemas"]["RepositorySubmission"]),
     onSuccess: async () => {
       setRepository("");
-      setReason("");
       await refresh();
     },
   });
@@ -696,8 +666,8 @@ function TeamRepositories({
     <>
       <Heading level={2}>Repositories</Heading>
       <Text as="p">
-        Each repository belongs to one team. Approval verifies its GitHub App
-        grant before enabling reviews.
+        Each repository belongs to one team. Approval verifies its GitHub
+        App grant before enabling reviews.
       </Text>
       {maintain ? (
         <Collapsible
@@ -727,20 +697,9 @@ function TeamRepositories({
                 } satisfies InputHTMLAttributes<HTMLInputElement>)}
               />
 
-              <TextArea
-                label={"Reason"}
-                isRequired={true}
-                maxLength={500}
-                value={reason}
-                onChange={(value) => setReason(value.slice(0, 500))}
-                {...({
-                  required: true,
-                } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-              />
-
               <Text as="p" color="secondary">
-                A platform administrator approves requests. The GitHub App must
-                already have access to the repository.
+                A platform administrator approves requests. The GitHub App
+                must already have access to the repository.
               </Text>
               {submit.isError ? (
                 <Text as="p" role="alert">
@@ -781,8 +740,9 @@ function TeamRepositories({
         >
           <VStack gap={4}>
             <Text as="p">
-              Find the destination team, then choose Transfer on a repository
-              below. Existing review history follows repository ownership.
+              Find the destination team, then choose Transfer on a
+              repository below. Existing review history follows repository
+              ownership.
             </Text>
 
             <TextInput
@@ -831,7 +791,6 @@ function TeamRepositories({
       {query.data?.items.length ? (
         <VStack
           gap={4}
-
           tabIndex={0}
           role="region"
           aria-label="Team repositories"
@@ -855,11 +814,17 @@ function TeamRepositories({
                     >
                       {repo.repository}
                     </Link>
-                    <Text color="secondary" display="block" type="supporting">
+                    <Text
+                      color="secondary"
+                      display="block"
+                      type="supporting"
+                    >
                       Assigned {time(repo.assigned_at)}
                     </Text>
                   </TableHeaderCell>
-                  <TableCell>{repo.enabled ? "Enabled" : "Disabled"}</TableCell>
+                  <TableCell>
+                    {repo.enabled ? "Enabled" : "Disabled"}
+                  </TableCell>
                   <TableCell>
                     {repo.access?.replaceAll("_", " ") ?? "Not granted"}
                   </TableCell>
@@ -867,7 +832,7 @@ function TeamRepositories({
                   {admin ? (
                     <TableCell>
                       {destination ? (
-                        <ReasonAction
+                        <ConfirmAction
                           label="Transfer"
                           method="PUT"
                           path={`/api/repository-ownership/${repo.repository_id}`}
@@ -878,7 +843,7 @@ function TeamRepositories({
                           description={`Transfer ${repo.repository} and its history to ${destinations.data?.items.find((item) => String(item.id) === destination)?.name ?? "the selected team"}. This team will lose access.`}
                         />
                       ) : null}
-                      <ReasonAction
+                      <ConfirmAction
                         label="Remove repository"
                         path={`/api/teams/${team.id}/repositories/${repo.repository_id}/remove`}
                         description={`Disable reviews for ${repo.repository} and remove its team ownership. Stored review history is retained for platform administrators.`}
@@ -904,7 +869,6 @@ function TeamRepositories({
             label={"First page"}
             variant="secondary"
             type="submit"
-
             isDisabled={!after}
             onClick={() => setAfter(0)}
           />
@@ -912,7 +876,6 @@ function TeamRepositories({
             label={"Next"}
             variant="secondary"
             type="submit"
-
             isDisabled={!query.data?.next_after_id}
             onClick={() => setAfter(query.data?.next_after_id ?? 0)}
           />
@@ -946,7 +909,10 @@ export function RepositoryRequests({
       scope.key,
     ],
     queryFn: ({ signal }) =>
-      read<RepositoryRequestPage>(`/api/repository-requests?${params}`, signal),
+      read<RepositoryRequestPage>(
+        `/api/repository-requests?${params}`,
+        signal,
+      ),
   });
   const admin = isAdmin(scope.current.role);
   useEffect(() => {
@@ -1016,15 +982,20 @@ export function RepositoryRequests({
                 </Text>
               ) : null}
               {request.status === "pending" ? (
-                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                <HStack
+                  gap={3}
+                  wrap="wrap"
+                  vAlign="center"
+                  hAlign="between"
+                >
                   {admin ? (
                     <>
-                      <ReasonAction
+                      <ConfirmAction
                         label="Approve repository"
                         path={`/api/repository-requests/${request.id}/approve`}
                         description={`Verify the current GitHub App grant, assign ${request.repository_name} to ${request.team_name}, and enable reviews with the deployment's default profile.`}
                       />
-                      <ReasonAction
+                      <ConfirmAction
                         label="Reject request"
                         path={`/api/repository-requests/${request.id}/reject`}
                         description="Record why this repository request cannot be approved."
@@ -1032,7 +1003,7 @@ export function RepositoryRequests({
                     </>
                   ) : null}
                   {maintain || admin ? (
-                    <ReasonAction
+                    <ConfirmAction
                       label="Withdraw request"
                       path={`/api/repository-requests/${request.id}/withdraw`}
                       description="Close this pending request. A new request can be submitted later."
@@ -1056,7 +1027,6 @@ export function RepositoryRequests({
             label={"Latest requests"}
             variant="secondary"
             type="submit"
-
             isDisabled={!before}
             onClick={() => setBefore(null)}
           />
@@ -1064,7 +1034,6 @@ export function RepositoryRequests({
             label={"Older requests"}
             variant="secondary"
             type="submit"
-
             isDisabled={!query.data?.next_before_id}
             onClick={() => setBefore(query.data?.next_before_id ?? null)}
           />
@@ -1077,7 +1046,9 @@ export function RepositoryRequests({
 function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
   const scope = useScope();
   const client = useQueryClient();
-  const [selected, setSelected] = useState<ModelConnection>(policy.connection);
+  const [selected, setSelected] = useState<ModelConnection>(
+    policy.connection,
+  );
   const [after, setAfter] = useState(0);
   const [route, setRoute] = useState(
     policy.provider === null
@@ -1089,8 +1060,9 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
         ),
   );
   const [effort, setEffort] = useState(policy.reasoning_effort ?? "");
-  const [maxConcurrency, setMaxConcurrency] = useState(policy.max_concurrency);
-  const [reason, setReason] = useState("");
+  const [maxConcurrency, setMaxConcurrency] = useState(
+    policy.max_concurrency,
+  );
   const admin = isAdmin(scope.current.role);
   const connections = useQuery({
     queryKey: [
@@ -1112,13 +1084,14 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
   const save = useMutation({
     mutationFn: () =>
       write(`/api/teams/${policy.team_id}/model-policy`, "PUT", {
-        connection_id: selected.runtime_key === "shared" ? null : selected.id,
+        connection_id:
+          selected.runtime_key === "shared" ? null : selected.id,
         provider: choice?.provider ?? null,
         model: choice?.model ?? null,
         reasoning_effort: choice ? effort : null,
         max_concurrency: maxConcurrency,
         expected_revision: policy.revision,
-        reason,
+        reason: "Team model policy updated",
       } satisfies components["schemas"]["TeamModelUpdate"]),
     onSuccess: async () => {
       await Promise.all(
@@ -1126,7 +1099,6 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
           client.invalidateQueries({ queryKey: [key] }),
         ),
       );
-      setReason("");
     },
   });
   return (
@@ -1178,7 +1150,6 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
                 label={"First connections"}
                 variant="secondary"
                 type="button"
-
                 isDisabled={after === 0}
                 onClick={() => setAfter(0)}
               />
@@ -1186,9 +1157,10 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
                 label={"Next connections"}
                 variant="secondary"
                 type="button"
-
                 isDisabled={!connections.data?.next_after_id}
-                onClick={() => setAfter(connections.data?.next_after_id ?? 0)}
+                onClick={() =>
+                  setAfter(connections.data?.next_after_id ?? 0)
+                }
               />
             </HStack>
           ) : null}
@@ -1262,22 +1234,11 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
         />
       ) : null}
 
-      <TextArea
-        label={"Reason"}
-        isRequired={true}
-        maxLength={500}
-        value={reason}
-        onChange={(value) => setReason(value.slice(0, 500))}
-        {...({
-          required: true,
-        } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-      />
-
       <Text as="p" color="secondary">
         Model changes apply to newly admitted reviews. Queued and running
-        reviews keep their original account and model. Capacity limits apply to
-        new claims across all workers and connections; reviews already claimed
-        can finish.
+        reviews keep their original account and model. Capacity limits apply
+        to new claims across all workers and connections; reviews already
+        claimed can finish.
       </Text>
       {save.isError ? (
         <Text as="p" role="alert">
@@ -1349,7 +1310,8 @@ function TeamModels({ team, maintain }: { team: Team; maintain: boolean }) {
                 <Text color="secondary">Team capacity</Text>
               </dt>
               <dd>
-                {policy.max_concurrency} concurrent reviews across connections
+                {policy.max_concurrency} concurrent reviews across
+                connections
               </dd>
             </HStack>
             <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
@@ -1357,8 +1319,8 @@ function TeamModels({ team, maintain }: { team: Team; maintain: boolean }) {
                 <Text color="secondary">Connection capacity</Text>
               </dt>
               <dd>
-                {policy.connection.max_concurrency} concurrent reviews shared by
-                its teams
+                {policy.connection.max_concurrency} concurrent reviews
+                shared by its teams
               </dd>
             </HStack>
             <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
@@ -1374,8 +1336,8 @@ function TeamModels({ team, maintain }: { team: Team; maintain: boolean }) {
           </VStack>
           {policy.connection.state !== "enabled" ? (
             <Text as="p">
-              This connection is paused or needs attention. Open the connection
-              to check its status.
+              This connection is paused or needs attention. Open the
+              connection to check its status.
             </Text>
           ) : null}
           {maintain ? (
@@ -1410,7 +1372,8 @@ export function TeamDetail() {
     if (query.data) document.title = `Review Agent · ${query.data.name}`;
   }, [query.data]);
   const team = query.data;
-  const maintain = isAdmin(scope.current.role) || team?.role === "maintainer";
+  const maintain =
+    isAdmin(scope.current.role) || team?.role === "maintainer";
   return (
     <>
       <Freshness query={query} />

@@ -30,6 +30,7 @@ from .admin_auth import (
     AdminAuth,
     Base,
     User,
+    registration_settings,
     sign_in_oidc_account,
 )
 from .admin_identity_config import IdentitySettings, OIDCSettings, identity_https_url
@@ -74,6 +75,7 @@ class OIDCRequest(Base):
     client_id: Mapped[str]
     nonce: Mapped[str]
     code_verifier: Mapped[str]
+    register_account: Mapped[bool] = mapped_column(default=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     link_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("review_agent.admin_users.id")
@@ -126,6 +128,7 @@ class OIDCStart(BaseModel):
 
 class IdentityProvider(BaseModel):
     name: str | None
+    registration_enabled: bool = False
 
 
 class AccountIdentity(BaseModel):
@@ -248,8 +251,16 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
             raise HTTPException(404, "Organization sign-in is not configured")
         return identity.oidc
 
-    def provider() -> IdentityProvider:
-        return IdentityProvider(name=identity.oidc.name if identity.oidc else None)
+    async def provider() -> IdentityProvider:
+        if identity.oidc is None:
+            return IdentityProvider(name=None)
+        async with auth.sessions() as session:
+            policy = await registration_settings(session)
+        return IdentityProvider(
+            name=identity.oidc.name,
+            registration_enabled=policy.enabled
+            and bool(policy.allowed_domains or policy.allowed_emails),
+        )
 
     def account_identity(
         user: Annotated[User, Depends(auth.current_user)],
@@ -260,9 +271,20 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
         )
 
     async def begin(
-        request: Request, response: Response, user: User | None = None
+        request: Request,
+        response: Response,
+        user: User | None = None,
+        *,
+        register_account: bool = False,
     ) -> OIDCStart:
         settings = configured()
+        if register_account:
+            async with auth.sessions() as session:
+                policy = await registration_settings(session)
+            if not policy.enabled or not (
+                policy.allowed_domains or policy.allowed_emails
+            ):
+                raise HTTPException(403, "Self-registration is closed")
         state, browser = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         transaction = OIDCRequest(
             state_digest=sha256(state.encode()).hexdigest(),
@@ -271,6 +293,7 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
             client_id=settings.client_id,
             nonce=secrets.token_urlsafe(32),
             code_verifier=secrets.token_urlsafe(64),
+            register_account=register_account,
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=REQUEST_SECONDS),
             link_user_id=user.id if user else None,
             link_access_revision=user.access_revision if user else None,
@@ -325,6 +348,9 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
 
     async def start(request: Request, response: Response) -> OIDCStart:
         return await begin(request, response)
+
+    async def register(request: Request, response: Response) -> OIDCStart:
+        return await begin(request, response, register_account=True)
 
     async def link(
         request: Request,
@@ -383,6 +409,7 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
                             link_user_id=transaction.link_user_id,
                             link_access_revision=transaction.link_access_revision,
                             link_session_token=transaction.link_session_token,
+                            register_account=transaction.register_account,
                         )
                         result = await auth.transport.get_login_response(token)
                         result.status_code = 303
@@ -392,8 +419,11 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
                             else "/"
                         )
                 except PermissionError:
+                    failure = (
+                        "registration" if transaction.register_account else "account"
+                    )
                     result = RedirectResponse(
-                        f"{destination}?sso_error=account", status_code=303
+                        f"{destination}?sso_error={failure}", status_code=303
                     )
                 except (
                     httpx2.HTTPError,
@@ -415,6 +445,7 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
 
     router.add_api_route("/api/auth/oidc/provider", provider, methods=["GET"])
     router.add_api_route("/api/auth/oidc/start", start, methods=["POST"])
+    router.add_api_route("/api/auth/oidc/register", register, methods=["POST"])
     router.add_api_route("/api/auth/oidc/callback", callback, methods=["GET"])
     router.add_api_route("/api/account/identity", account_identity, methods=["GET"])
     router.add_api_route("/api/account/identity/link", link, methods=["POST"])

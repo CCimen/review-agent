@@ -53,7 +53,7 @@ subsequent server operations always resolve current access. Team views omit
 deployment-wide worker and capacity figures.
 
 In a team's Repositories tab, maintainers submit `owner/repository` or its HTTPS
-GitHub URL with a reason. Owners and admins approve or reject requests in
+GitHub URL. Owners and admins approve or reject requests in
 **Repository requests**. Approval verifies the current GitHub App grant, assigns
 ownership, enables reviews, and records the decision in one database transaction.
 Repeating the same approval returns the stored decision. A competing owner or
@@ -80,6 +80,10 @@ tokens, and provider credentials are omitted. The journal is part of the normal
 database backup; it is not a tamper-proof external log archive.
 
 ### Search and export audit events
+
+Ordinary console actions record their operation automatically; they do not ask
+for a written reason. Viewing audit logs still requires the purpose and
+justification described below. API clients retain their existing reason fields.
 
 Before opening the log, select a purpose and enter a justification of 10–500
 characters. Access lasts 30 minutes for the selected team or all teams. Each view
@@ -198,6 +202,9 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `GET /api/history/{run_id}` | Team reader or global role | Selected request, original published Markdown and GitHub links, plus up to 20 retained requests for the same PR. `before_id` pages that PR's history; selection is independent of the cursor and reporting period. Missing requests return 404. |
 | `GET /api/operations` | Owner or admin | Worker presence and capacity, active leases, and webhook, review, and publication queue counts. |
 | `GET /api/operations/events` | Owner or admin | Structured process and review events, with optional `worker_id` and `before_id` filters. |
+| `GET /api/email`, `PUT /api/email` | Owner | Read redacted SMTP settings or save an audited revision. |
+| `POST /api/email/test` | Owner | Test the saved revision by sending to the signed-in owner. |
+| `GET /api/registration`, `PUT /api/registration` | Owner | Read or update the self-registration allowlist with a revision precondition. |
 | `GET /api/users` | Owner or admin | `AccountPage`: `items`, `total`, `admin_count`, `disabled_count`, and `has_more`. |
 | `GET /api/access/installations`, `GET /api/access/repositories` | Owner or admin | Bounded GitHub App access inventory and capability state. |
 | `GET /api/access/connection` | Owner or admin | Live App authentication, permission and event checks, plus App management links. |
@@ -311,7 +318,7 @@ Outcome metadata and aggregate reports are available by default; **Allow publish
 review content** is a separate permission. Integrations cannot manage users,
 reviews, providers, settings, or deployment.
 
-Choose an expiry and give a reason, then create the integration. Copy the
+Choose an expiry, then create the integration. Copy the
 credential into the consuming application's secret manager. It is shown once;
 Review Agent stores only its SHA-256 digest. The console does not retain the
 credential in its shared query cache or browser storage. If the response is lost
@@ -411,7 +418,7 @@ or that a model request will succeed.
 **Add repository** verifies one exact repository with a metadata-only installation
 token before enabling it. This works with both GitHub scope modes and does not
 scan or remove other repositories. Selected installations can also sync their
-complete repository inventory. Every change requires a reason and records the
+complete repository inventory. Every change records the
 signed-in administrator's stable account ID.
 
 **Disable reviews** stops new review admission and blocks automatic reactivation.
@@ -503,7 +510,7 @@ viewers retain explicit global read access. New accounts default to team-scoped
 membership. Repository ownership starts unassigned, and existing GitHub activation
 policy is preserved. Assign repositories before converting global viewers to
 members. Restore policy by loading an earlier
-revision into the editor and saving it with a reason. Use a coordinated application
+revision into the editor and saving it. Use a coordinated application
 rollback with the normal database backup procedure; an older application cannot
 read revisions containing newly introduced fields.
 
@@ -786,7 +793,7 @@ remains available. Keep a working local owner account before enabling either
 feature. MobilityGuard is the intended first provider; live interoperability has
 not yet been verified.
 
-Apply migration 27 with the matching worker and console images. Register a
+Apply migrations through 28 with the matching worker and console images. Register a
 confidential OIDC client with this exact callback, replacing the origin with
 `REVIEW_AGENT_ADMIN_PUBLIC_URL`:
 
@@ -796,7 +803,7 @@ https://reviews.example.com/api/auth/oidc/callback
 
 Use authorization code flow, PKCE S256, `client_secret_basic` client
 authentication, and a query-mode callback. Include `openid email` claims in the
-ID token, with `email_verified: true` for first linking. The issuer's HTTPS
+ID token, with `email_verified: true` for first linking or self-registration. The issuer's HTTPS
 discovery document must identify that exact issuer and provide HTTPS authorization,
 token and JWKS endpoints. RSA, RSA-PSS and ECDSA signed ID tokens are supported;
 unsigned and symmetric signatures are rejected. Discovery and keys are fetched
@@ -900,12 +907,74 @@ disable affected accounts if their sessions must also be revoked. Migration 27
 is additive: retain its data during recovery and follow the coordinated image
 and database recovery procedure when changing versions.
 
+## Self-registration
+
+Owners can open **Users & roles → Registration allowlist**, add allowed email
+domains or individual addresses, and enable self-registration. It starts disabled
+with empty lists. Enter one value per line, up to 100 in each list. `sundsvall.se`
+and `@sundsvall.se` both allow that exact domain; subdomains must be listed
+separately. Matching is case-insensitive, and either list can admit an address.
+Empty lists admit nobody. Saves are audited, and stale saves must be reloaded.
+
+For email/password registration, open **Settings → Email delivery (SMTP)** as an
+owner. Enter your existing provider's server, port, sender address, and optional
+username and password. Select STARTTLS (usually port 587) or implicit TLS (usually
+465); both verify the server certificate. Save the settings, then use **Send test
+to me** to send to your account email. Test delivery works while delivery is
+disabled, so you can check it before enabling registration. Saved SMTP changes
+take effect immediately; no OIDC configuration or service restart is needed.
+
+Before saving an SMTP password, set `REVIEW_AGENT_EMAIL_SECRET_KEY` in the console
+service's deployment secrets and restart that service once. Generate the key with:
+
+```sh
+python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+```
+
+Back up this key separately from the database. The database stores the encrypted
+password; API responses and audit events never return it. Leave the password
+field blank to retain it. Changing the server, port, TLS mode, or username requires
+re-entering the password. To use an unauthenticated relay, clear the username and
+select **Remove saved password**. Such relays do not require the encryption key.
+If the key is lost or replaced, restore it or save the SMTP password again with
+the new key. Existing account sign-in remains available when email delivery fails.
+
+Delivery starts disabled. Owners can pause it without erasing the configuration.
+Saves reject stale revisions, and test emails are limited to one per minute.
+This integration sends registration verification and owner-requested test emails;
+it adds no email-based password reset or mail queue.
+
+When registration is open, **Register** appears on the login card. An allowed
+address receives a link to choose a password and finish registration. Links expire
+after 30 minutes and work once; the allowlist is checked again before creating the
+account. The server stores a hash of each token, and the link carries the token in
+its URL fragment so it is not sent in page requests. Requesting a link does not
+create an account or reserve an existing account's credentials.
+
+Wait one minute before requesting another email. A new link replaces the previous
+one. Delivery errors preserve that cooldown and can be retried after a minute.
+Requests are limited to 30 emails per minute across the console and 1,000 pending
+addresses; expired requests are removed when another eligible request arrives.
+Response status and body do not disclose whether a particular address is allowed
+or already registered. Delivery time may differ for an eligible address.
+
+A configured organization sign-in provider can also register allowed addresses
+without SMTP when its signed identity contains a verified email. Existing local
+accounts must still link their identity explicitly from **Your account**.
+
+Both registration methods create Members with no automatic team access. Owners
+and admins assign teams afterward. Removing an allowlist entry or closing
+registration affects new accounts only; use the existing account controls to
+disable a user or revoke access. Migration 28 is additive; retain its tables when
+rolling back images, following the coordinated deployment recovery procedure.
+
 ## Accounts and recovery
 
 Authentication uses FastAPI Users, Argon2 password hashes, and revocable
 PostgreSQL sessions. HTTPS cookies are HttpOnly and SameSite Strict and expire
-after eight hours. There is no public registration or email service. Share an
-initial password privately; users can change it under **Your account**.
+after eight hours. Self-registration is optional as described above. For accounts
+created by an administrator, share the initial password privately; users can
+change it under **Your account**. Password resets remain administrator-managed.
 
 Owners can disable or reset any account; admins can manage Member and Global
 viewer accounts. Account changes revoke sessions, and logout revokes the current

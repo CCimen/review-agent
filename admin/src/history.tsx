@@ -5,6 +5,14 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Link as AstryxLink } from "@astryxdesign/core/Link";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from "@astryxdesign/core/Table";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
@@ -46,15 +54,19 @@ const ReviewMarkdown = lazy(() =>
   })),
 );
 
-const pullRequestURL = (item: Pick<HistoryItem, "repository" | "pr_number">) =>
-  `https://github.com/${item.repository}/pull/${item.pr_number}`;
+const pullRequestURL = (
+  item: Pick<HistoryItem, "repository" | "pr_number">,
+) => `https://github.com/${item.repository}/pull/${item.pr_number}`;
 function Result({ item }: { item: HistoryItem }) {
   return (
     <VStack gap={1}>
       <Text>{reviewStateLabel(item)}</Text>
       {item.posted_at !== null ? (
         <Text type="supporting">
-          {item.findings_count === null ? "Unknown" : number.format(item.findings_count)} finding{item.findings_count === 1 ? "" : "s"}
+          {item.findings_count === null
+            ? "Unknown"
+            : number.format(item.findings_count)}{" "}
+          finding{item.findings_count === 1 ? "" : "s"}
         </Text>
       ) : item.recovered ? (
         <Text type="supporting">Later review published</Text>
@@ -75,13 +87,13 @@ function PullRequestRow({
   const item = group.latest;
   const href = `/history/${item.id}${filters ? `?${filters}` : ""}`;
   return (
-    <VStack gap={4} as="section">
-      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-        <Text>
+    <TableRow>
+      <TableHeaderCell scope="row">
+        <VStack gap={1}>
           <Link to={href}>
             {item.repository} PR #{item.pr_number}
           </Link>
-          <Text color="secondary" display="block" type="supporting">
+          <Text color="secondary" type="supporting">
             {number.format(group.matching_requests)} matching request
             {group.matching_requests === 1 ? "" : "s"}
             {group.total_requests !== group.matching_requests
@@ -91,9 +103,15 @@ function PullRequestRow({
               ? " · Latest request"
               : " · Latest matching request"}
           </Text>
-        </Text>
+        </VStack>
+      </TableHeaderCell>
+      <TableCell>
         <Result item={item} />
+      </TableCell>
+      <TableCell>
         <time dateTime={item.started_at}>{time(item.started_at)}</time>
+      </TableCell>
+      <TableCell>
         <Link to={href}>
           {item.posted_at !== null ? "View review" : "View request"}
           <VisuallyHidden>
@@ -101,8 +119,8 @@ function PullRequestRow({
             for {item.repository} PR #{item.pr_number}
           </VisuallyHidden>
         </Link>
-      </HStack>
-    </VStack>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -127,22 +145,26 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
               <>
                 {" "}
                 · Worker cause:{" "}
-                <Copy value={item.job_failure_code} label="worker failure code">
+                <Copy
+                  value={item.job_failure_code}
+                  label="worker failure code"
+                >
                   <Code>{item.job_failure_code}</Code>
                 </Copy>
               </>
             ) : null}
           </Text>
           <Text as="p">
-            Check the review result on GitHub and the operator logs for request
-            #{item.id}. After resolving the cause, request <Code>/review</Code>{" "}
-            on the PR again.
+            Check the review result on GitHub and the operator logs for
+            request #{item.id}. After resolving the cause, request{" "}
+            <Code>/review</Code> on the PR again.
           </Text>
         </VStack>
       )}
       {item.coverage.state !== "complete" &&
         (item.posted_at !== null ||
-          (item.state !== "queued" && item.coverage.registration_complete)) && (
+          (item.state !== "queued" &&
+            item.coverage.registration_complete)) && (
           <Text as="p">
             {item.coverage.state === "unknown"
               ? "Coverage has not been established."
@@ -165,11 +187,21 @@ export function ReviewPage() {
   const location = useLocation();
   // Reset disclosure state when another run is selected, including browser Back.
   return (
-    <ReviewReader key={runId} runId={runId ?? ""} search={location.search} />
+    <ReviewReader
+      key={runId}
+      runId={runId ?? ""}
+      search={location.search}
+    />
   );
 }
 
-function ReviewReader({ runId, search }: { runId: string; search: string }) {
+function ReviewReader({
+  runId,
+  search,
+}: {
+  runId: string;
+  search: string;
+}) {
   const scope = useScope();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -203,14 +235,15 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
   }
   const selectedURL = (id: number) => `/history/${id}${search}`;
   const data = query.data;
-  const missing = query.error instanceof APIError && query.error.status === 404;
+  const missing =
+    query.error instanceof APIError && query.error.status === 404;
   return (
     <>
       <Link to={`/history${backSearch}`}>Back to review history</Link>
       {missing ? (
         <Empty title="Review request not found">
-          It may have been removed by retention. Return to history to find an
-          available review.
+          It may have been removed by retention. Return to history to find
+          an available review.
         </Empty>
       ) : (
         <Freshness query={query} />
@@ -224,7 +257,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
               </Heading>
               <Text as="p">
                 Request #{item.id} · {time(item.started_at)}
-                {item.is_latest ? " · Latest request" : " · Earlier request"}
+                {item.is_latest
+                  ? " · Latest request"
+                  : " · Earlier request"}
               </Text>
             </VStack>
             <AstryxLink
@@ -233,14 +268,16 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
               rel="noreferrer"
             >
               Open pull request
-              <VisuallyHidden> on GitHub (opens in a new tab)</VisuallyHidden>
+              <VisuallyHidden>
+                {" "}
+                on GitHub (opens in a new tab)
+              </VisuallyHidden>
             </AstryxLink>
           </HStack>
           <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
             <VStack
               as="aside"
               gap={3}
-
               aria-labelledby="request-history-title"
             >
               <Heading level={2} id="request-history-title">
@@ -258,9 +295,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                         label:
                           "#" +
                           String(item.id) +
-                          "·" +
+                          " · " +
                           time(item.started_at) +
-                          "·" +
+                          " · " +
                           " " +
                           reviewStateLabel(item),
                       }
@@ -270,9 +307,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                     label:
                       "#" +
                       String(request.id) +
-                      "·" +
+                      " · " +
                       time(request.started_at) +
-                      "·" +
+                      " · " +
                       " " +
                       reviewStateLabel(request),
                   })),
@@ -282,47 +319,69 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                 value={String(item.id)}
                 onChange={(value) => navigate(selectedURL(Number(value)))}
               />
-              <VStack
-                as="ol"
-                gap={3}
 
+              <Table
+                density="compact"
+                dividers="rows"
                 aria-label="Requests, newest first"
               >
-                {data.requests.map((request) => (
-                  <li key={request.id}>
-                    <Link
-                      to={selectedURL(request.id)}
-                      aria-current={request.id === item.id ? "page" : undefined}
-                    >
-                      <Text>
-                        <strong>#{request.id}</strong>
-                        <time dateTime={request.started_at}>
-                          {time(request.started_at)}
-                        </time>
-                      </Text>
-                      <Result item={request} />
-                      <Text color="secondary" display="block" type="supporting">
-                        <Code>{request.head_sha.slice(0, 10)}</Code>
-                        {request.previous_head_sha === null
-                          ? " · First request"
-                          : request.previous_head_sha === request.head_sha
-                            ? " · Same head"
-                            : " · New head"}
-                      </Text>
-                    </Link>
-                  </li>
-                ))}
-              </VStack>
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell>Request</TableHeaderCell>
+                    <TableHeaderCell>Result</TableHeaderCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.requests.map((request) => (
+                    <TableRow key={request.id}>
+                      <TableHeaderCell scope="row">
+                        <VStack gap={1}>
+                          <Link
+                            to={selectedURL(request.id)}
+                            aria-current={
+                              request.id === item.id ? "page" : undefined
+                            }
+                          >
+                            Request #{request.id}
+                          </Link>
+                          <Text color="secondary" type="supporting">
+                            <time dateTime={request.started_at}>
+                              {time(request.started_at)}
+                            </time>
+                          </Text>
+                          <Text color="secondary" type="supporting">
+                            <Code>{request.head_sha.slice(0, 10)}</Code>
+                            {request.previous_head_sha === null
+                              ? " · First request"
+                              : request.previous_head_sha ===
+                                  request.head_sha
+                                ? " · Same head"
+                                : " · New head"}
+                          </Text>
+                        </VStack>
+                      </TableHeaderCell>
+                      <TableCell>
+                        <Result item={request} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
               {data.requests.length === 0 ? (
                 <Text as="p">No older retained requests.</Text>
               ) : null}
               {cursor || data.next_cursor !== null ? (
-                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                <HStack
+                  gap={3}
+                  wrap="wrap"
+                  vAlign="center"
+                  hAlign="between"
+                >
                   <Button
                     label={"Newest"}
                     variant="secondary"
                     type="submit"
-
                     isDisabled={!cursor || query.isFetching}
                     onClick={() => page(null)}
                   />
@@ -330,8 +389,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                     label={"Older"}
                     variant="secondary"
                     type="submit"
-
-                    isDisabled={data.next_cursor === null || query.isFetching}
+                    isDisabled={
+                      data.next_cursor === null || query.isFetching
+                    }
                     onClick={() => page(data.next_cursor)}
                   />
                 </HStack>
@@ -340,14 +400,13 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
             <VStack
               gap={4}
               as="section"
-
               aria-label={`Review request ${item.id}`}
             >
               <VStack gap={4}>
-                <VStack gap={3}>
+                <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
                   <Result item={item} />
                   {data.can_maintain && <RunControls runId={item.id} />}
-                </VStack>
+                </HStack>
                 <Text as="p">
                   Request head{" "}
                   <Copy value={item.head_sha} label="reviewed head SHA">
@@ -381,7 +440,10 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                 ) : null}
               </VStack>
               <ReviewOutcome item={item} />
-              <ReviewFindings runId={item.id} repository={item.repository} />
+              <ReviewFindings
+                runId={item.id}
+                repository={item.repository}
+              />
               {data.markdown !== null ? (
                 <>
                   <VStack gap={3}>
@@ -393,7 +455,10 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                         rel="noreferrer"
                       >
                         {link.label}
-                        <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+                        <VisuallyHidden>
+                          {" "}
+                          (opens in a new tab)
+                        </VisuallyHidden>
                       </AstryxLink>
                     ))}
                   </VStack>
@@ -477,7 +542,8 @@ function RunDetails({ item }: { item: HistoryItem }) {
     ? Math.max(
         0,
         Math.round(
-          (Date.parse(item.completed_at) - Date.parse(item.started_at)) / 1000,
+          (Date.parse(item.completed_at) - Date.parse(item.started_at)) /
+            1000,
         ),
       )
     : null;
@@ -560,7 +626,8 @@ function RunDetails({ item }: { item: HistoryItem }) {
             <Text color="secondary">Changed-file coverage</Text>
           </dt>
           <dd>
-            {item.coverage.changed_paths_with_complete_diff} complete diffs of{" "}
+            {item.coverage.changed_paths_with_complete_diff} complete diffs
+            of{" "}
             {item.coverage.changed_files_reported ?? "an unknown number of"}{" "}
             {item.coverage.changed_files_reported === 1 ? "file" : "files"}
           </dd>
@@ -570,9 +637,13 @@ function RunDetails({ item }: { item: HistoryItem }) {
             <Text color="secondary">Inventory</Text>
           </dt>
           <dd>
-            {item.coverage.registration_complete ? "Complete" : "Incomplete"} ·{" "}
-            {item.coverage.changed_files_registered}{" "}
-            {item.coverage.changed_files_registered === 1 ? "file" : "files"}{" "}
+            {item.coverage.registration_complete
+              ? "Complete"
+              : "Incomplete"}{" "}
+            · {item.coverage.changed_files_registered}{" "}
+            {item.coverage.changed_files_registered === 1
+              ? "file"
+              : "files"}{" "}
             registered
           </dd>
         </HStack>
@@ -603,7 +674,12 @@ export function History() {
     setPrDraft(params.get("pr_number") ?? "");
   }, [params]);
   const query = useQuery({
-    queryKey: ["pull-requests", queryParams.toString(), "scoped", scope.key],
+    queryKey: [
+      "pull-requests",
+      queryParams.toString(),
+      "scoped",
+      scope.key,
+    ],
     queryFn: ({ signal }) =>
       read<PullRequestPage>(
         scope.path(`/api/pull-requests?${queryParams}`),
@@ -625,7 +701,7 @@ export function History() {
         </VStack>
       </HStack>
       <ActivityTabs />
-      <HStack gap={3} wrap="wrap" vAlign="center">
+      <HStack gap={3} wrap="wrap" vAlign="end">
         <Selector
           label={"Review state"}
           options={[
@@ -646,27 +722,30 @@ export function History() {
             update({ pr_number: prDraft });
           }}
         >
-          <NumberInput
-            isIntegerOnly
-            label={"PR number"}
-            id="pr-filter"
-            min={1}
-            hasClear
-            placeholder="All PRs"
-            value={prDraft ? Number(prDraft) : null}
-            onChange={(value) =>
-              setPrDraft(value === null ? "" : String(value))
-            }
-          />
+          <HStack gap={3} vAlign="end">
+            <NumberInput
+              isIntegerOnly
+              label={"PR number"}
+              id="pr-filter"
+              min={1}
+              hasClear
+              placeholder="All PRs"
+              value={prDraft ? Number(prDraft) : null}
+              onChange={(value) =>
+                setPrDraft(value === null ? "" : String(value))
+              }
+            />
 
-          <Button label={"Filter"} variant="primary" type="submit" />
+            <Button label={"Filter"} variant="secondary" type="submit" />
+          </HStack>
         </Form>
         <Button
           label={"Reset filters"}
-          variant="primary"
-          type="submit"
-
-          onClick={() => update({ status: "all", pr_number: "", days: "30" })}
+          variant="ghost"
+          type="button"
+          onClick={() =>
+            update({ status: "all", pr_number: "", days: "30" })
+          }
         />
       </HStack>
       {status === "active" && (
@@ -686,20 +765,29 @@ export function History() {
       )}
       {query.data &&
         (query.data.items.length ? (
-          <VStack gap={4}>
-            <VStack gap={3} aria-hidden="true">
-              <Text>Pull request</Text>
-              <Text>Latest matching result</Text>
-              <Text>Started</Text>
-            </VStack>
-            {query.data.items.map((group) => (
-              <PullRequestRow
-                key={`${group.pull_request_id}:${queryParams}`}
-                group={group}
-                filters={params.toString()}
-              />
-            ))}
-          </VStack>
+          <Table
+            density="balanced"
+            dividers="rows"
+            aria-label="Pull requests"
+          >
+            <TableHeader>
+              <TableRow>
+                <TableHeaderCell>Pull request</TableHeaderCell>
+                <TableHeaderCell>Latest matching result</TableHeaderCell>
+                <TableHeaderCell>Started</TableHeaderCell>
+                <TableHeaderCell>Action</TableHeaderCell>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {query.data.items.map((group) => (
+                <PullRequestRow
+                  key={`${group.pull_request_id}:${queryParams}`}
+                  group={group}
+                  filters={params.toString()}
+                />
+              ))}
+            </TableBody>
+          </Table>
         ) : (
           <Empty
             title={
@@ -710,7 +798,8 @@ export function History() {
                 : "No review requests yet"
             }
           >
-            Change the state or reporting period, or request a review on GitHub.
+            Change the state or reporting period, or request a review on
+            GitHub.
           </Empty>
         ))}
       {query.data &&
@@ -720,7 +809,6 @@ export function History() {
               label={"Newest pull requests"}
               variant="secondary"
               type="submit"
-
               isDisabled={!params.has("before_id")}
               onClick={() => update({ before_id: "" })}
             />
@@ -729,7 +817,6 @@ export function History() {
               label={"Older pull requests"}
               variant="secondary"
               type="submit"
-
               isDisabled={query.data.next_cursor === null}
               onClick={() =>
                 update({ before_id: String(query.data?.next_cursor) })

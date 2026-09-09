@@ -13,14 +13,13 @@ import {
   TableRow,
 } from "@astryxdesign/core/Table";
 import { Heading, Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  FormEvent,
-  InputHTMLAttributes,
-  TextareaHTMLAttributes,
-} from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { FormEvent, InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { APIError, read, write } from "./api";
@@ -41,8 +40,10 @@ type QualityReport = components["schemas"]["QualityReport"];
 type QualityFeedbackPage = components["schemas"]["QualityFeedbackPage"];
 type QualityFeedbackItem = components["schemas"]["QualityFeedbackItem"];
 type FindingDetail = components["schemas"]["AdminFindingDetail"];
-type FindingDecisionRequest = components["schemas"]["FindingDecisionRequest"];
-type OperatorDecisionResult = components["schemas"]["OperatorDecisionResult"];
+type FindingDecisionRequest =
+  components["schemas"]["FindingDecisionRequest"];
+type OperatorDecisionResult =
+  components["schemas"]["OperatorDecisionResult"];
 type QualityTriageRequest = components["schemas"]["QualityTriageRequest"];
 type QualityFeedbackTriage = components["schemas"]["QualityFeedbackTriage"];
 
@@ -66,15 +67,16 @@ function FeedbackRow({
   const [open, setOpen] = useState(false);
   const [status, setStatus] =
     useState<QualityTriageRequest["status"]>("actionable");
-  const [reason, setReason] = useState("");
   const [stableKey, setStableKey] = useState("");
   const [owner, setOwner] =
-    useState<NonNullable<QualityTriageRequest["target_owner"]>>("review_rule");
+    useState<NonNullable<QualityTriageRequest["target_owner"]>>(
+      "review_rule",
+    );
   const mutation = useMutation({
     mutationFn: () => {
       const body: QualityTriageRequest = {
         status,
-        reason,
+        reason: `Feedback marked ${status.replaceAll("_", " ")}`,
         stable_key: status === "actionable" ? stableKey : "",
         target_owner: status === "actionable" ? owner : null,
         evidence_reference: "",
@@ -89,7 +91,6 @@ function FeedbackRow({
     },
     onSuccess: async () => {
       setOpen(false);
-      setReason("");
       await client.invalidateQueries({ queryKey: ["quality"] });
     },
   });
@@ -139,7 +140,10 @@ function FeedbackRow({
                   options={[
                     { value: "actionable", label: "Actionable" },
                     { value: "duplicate", label: "Duplicate" },
-                    { value: "insufficient", label: "Insufficient evidence" },
+                    {
+                      value: "insufficient",
+                      label: "Insufficient evidence",
+                    },
                     { value: "resolved", label: "Resolved" },
                   ]}
                   value={status}
@@ -183,18 +187,6 @@ function FeedbackRow({
                     />
                   </>
                 ) : null}
-
-                <TextArea
-                  label={"Reason"}
-                  isRequired={true}
-                  maxLength={2000}
-                  rows={3}
-                  value={reason}
-                  onChange={(value) => setReason(value.slice(0, 2000))}
-                  {...({
-                    required: true,
-                  } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-                />
 
                 {mutation.error ? (
                   <Text as="p">
@@ -244,7 +236,10 @@ export function QualityPage() {
       scope.key,
     ],
     queryFn: ({ signal }) =>
-      read<QualityReport>(scope.path(`/api/quality?${reportParams}`), signal),
+      read<QualityReport>(
+        scope.path(`/api/quality?${reportParams}`),
+        signal,
+      ),
   });
   const feedback = useQuery({
     queryKey: [
@@ -289,7 +284,10 @@ export function QualityPage() {
       {data ? (
         <>
           <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
-            <Stat label="Published findings" value={data.published_findings} />
+            <Stat
+              label="Published findings"
+              value={data.published_findings}
+            />
             <Stat
               label="Reported false positives"
               value={data.false_positive_signals.count}
@@ -318,8 +316,9 @@ export function QualityPage() {
             />
           </Grid>
           <Text as="p" color="secondary">
-            Counts reflect submitted feedback. Reviews without feedback have not
-            been assessed here. Pending triage includes all retained history.
+            Counts reflect submitted feedback. Reviews without feedback have
+            not been assessed here. Pending triage includes all retained
+            history.
           </Text>
           <VStack gap={4} as="section">
             <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -344,11 +343,15 @@ export function QualityPage() {
                     />
                   ))}
                 </VStack>
-                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                <HStack
+                  gap={3}
+                  wrap="wrap"
+                  vAlign="center"
+                  hAlign="between"
+                >
                   <Button
                     label={"Previous feedback"}
                     variant="secondary"
-
                     type="button"
                     isDisabled={feedback.data.offset === 0}
                     onClick={() =>
@@ -372,7 +375,6 @@ export function QualityPage() {
                   <Button
                     label={"Next feedback"}
                     variant="secondary"
-
                     type="button"
                     isDisabled={feedback.data.next_offset === null}
                     onClick={() =>
@@ -398,7 +400,6 @@ export function QualityPage() {
                     label={"Return to the first page"}
                     variant="primary"
                     type="submit"
-
                     onClick={() => update({ feedback_offset: "" })}
                   />
                 ) : (
@@ -419,7 +420,8 @@ export function QualityPage() {
               <VStack gap={4}>
                 <Text as="p" color="secondary">
                   Completed reviews grouped by repository, model, and saved
-                  policy. Missing model information is shown as not recorded.
+                  policy. Missing model information is shown as not
+                  recorded.
                 </Text>
                 {data.cohorts_truncated ? (
                   <Text as="p">
@@ -430,7 +432,6 @@ export function QualityPage() {
                 {data.cohorts.length ? (
                   <VStack
                     gap={0}
-
                     tabIndex={0}
                     role="region"
                     aria-label="Model and policy breakdown"
@@ -441,12 +442,18 @@ export function QualityPage() {
                           <TableHeaderCell scope="col">
                             Repository
                           </TableHeaderCell>
-                          <TableHeaderCell scope="col">Model</TableHeaderCell>
+                          <TableHeaderCell scope="col">
+                            Model
+                          </TableHeaderCell>
                           <TableHeaderCell scope="col">
                             Completed reviews
                           </TableHeaderCell>
-                          <TableHeaderCell scope="col">Profile</TableHeaderCell>
-                          <TableHeaderCell scope="col">Policy</TableHeaderCell>
+                          <TableHeaderCell scope="col">
+                            Profile
+                          </TableHeaderCell>
+                          <TableHeaderCell scope="col">
+                            Policy
+                          </TableHeaderCell>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -458,7 +465,8 @@ export function QualityPage() {
                               {cohort.repository}
                             </TableHeaderCell>
                             <TableCell>
-                              {cohort.model && cohort.model !== "unknown" ? (
+                              {cohort.model &&
+                              cohort.model !== "unknown" ? (
                                 <>
                                   <Code>{cohort.model}</Code>
                                   <Text
@@ -517,7 +525,8 @@ export function FindingPage() {
     repository,
     occurrence_id: occurrenceId,
   });
-  if (decisionsBefore) detailParams.set("decisions_before_id", decisionsBefore);
+  if (decisionsBefore)
+    detailParams.set("decisions_before_id", decisionsBefore);
   const query = useQuery({
     queryKey: [
       "finding",
@@ -542,7 +551,6 @@ export function FindingPage() {
   const client = useQueryClient();
   const [decision, setDecision] =
     useState<FindingDecisionRequest["decision"]>("false_positive");
-  const [reason, setReason] = useState("");
   const [adr, setAdr] = useState("");
   const mutation = useMutation({
     mutationFn: () =>
@@ -555,12 +563,11 @@ export function FindingPage() {
           repository,
           occurrence_id: Number(occurrenceId),
           decision,
-          reason,
+          reason: `Finding marked ${decision.replaceAll("_", " ")}`,
           adr_id: decision === "intentional_by_design" ? adr : "",
         } satisfies FindingDecisionRequest,
       ),
     onSuccess: () => {
-      setReason("");
       setAdr("");
       return client.invalidateQueries({
         queryKey: ["finding", repository, fingerprint],
@@ -691,18 +698,6 @@ export function FindingPage() {
                       />
                     ) : null}
 
-                    <TextArea
-                      label={"Reason"}
-                      isRequired={true}
-                      maxLength={2000}
-                      rows={4}
-                      value={reason}
-                      onChange={(value) => setReason(value.slice(0, 2000))}
-                      {...({
-                        required: true,
-                      } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
-                    />
-
                     <Text
                       as="p"
                       color="secondary"
@@ -710,8 +705,8 @@ export function FindingPage() {
                       type="supporting"
                     >
                       This records a decision for occurrence #
-                      {finding.occurrence_id}. Intentional decisions must match
-                      its accepted ADR snapshot and path.
+                      {finding.occurrence_id}. Intentional decisions must
+                      match its accepted ADR snapshot and path.
                     </Text>
                     {mutation.error ? (
                       <Text as="p">

@@ -18,7 +18,11 @@ export function dateTimeValue(date: Date): ISODateTimeString {
 
 /** Astryx's numeric editor exposes invalid drafts through aria-invalid.
  * Keep those drafts from submitting the previously committed value. */
-export function Form({ children, onSubmit, ...props }: ComponentProps<"form">) {
+export function Form({
+  children,
+  onSubmit,
+  ...props
+}: ComponentProps<"form">) {
   return (
     <form
       {...props}
@@ -133,6 +137,7 @@ export function Copy({
   label: string;
 }) {
   const [done, setDone] = useState(false);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     if (!done) return;
     const timer = setTimeout(() => setDone(false), 1600);
@@ -141,25 +146,41 @@ export function Copy({
   if (typeof navigator === "undefined" || !navigator.clipboard)
     return <>{children}</>;
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      label={done ? `${label} copied to clipboard` : `Copy ${label}`}
-      onClick={() => {
-        void navigator.clipboard.writeText(value).then(() => setDone(true));
-      }}
-    >
-      {children}
-      <Text color="secondary" aria-hidden="true">
-        {done ? "Copied" : "Copy"}
-      </Text>
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        label={done ? `${label} copied to clipboard` : `Copy ${label}`}
+        onClick={() => {
+          setFailed(false);
+          void navigator.clipboard
+            .writeText(value)
+            .then(() => setDone(true))
+            .catch(() => setFailed(true));
+        }}
+      >
+        <HStack as="span" gap={2} vAlign="center">
+          {children}
+          <Text aria-hidden="true">{done ? "Copied" : "Copy"}</Text>
+        </HStack>
+      </Button>
+      {failed && (
+        <Text as="span" role="status">
+          {" "}
+          Could not copy. Select the value to copy it manually.
+        </Text>
+      )}
+    </>
   );
 }
 
 /** A figure the deployment does not record is unknown, never zero. */
-export function Unknown({ children = "Not recorded" }: { children?: string }) {
+export function Unknown({
+  children = "Not recorded",
+}: {
+  children?: string;
+}) {
   return <Text color="secondary">{children}</Text>;
 }
 
@@ -219,7 +240,9 @@ export function Section({
       <HStack gap={4} hAlign="between" vAlign="start" wrap="wrap">
         <VStack gap={1}>
           <Heading level={2}>{title}</Heading>
-          {description ? <Text color="secondary">{description}</Text> : null}
+          {description ? (
+            <Text color="secondary">{description}</Text>
+          ) : null}
         </VStack>
         {actions}
       </HStack>
@@ -264,14 +287,17 @@ export function Freshness<T>({
       {query.isError ? (
         <Banner
           status="error"
-          title={query.error.message || "Could not connect to Review Agent."}
+          title={
+            query.error.message || "Could not connect to Review Agent."
+          }
           description={
             query.data
               ? "The last available data is still shown below."
               : undefined
           }
           endContent={
-            query.error instanceof APIError && query.error.status === 401 ? (
+            query.error instanceof APIError &&
+            query.error.status === 401 ? (
               <Button
                 label="Reload to sign in"
                 onClick={() => window.location.reload()}
@@ -282,7 +308,10 @@ export function Freshness<T>({
           }
         />
       ) : (
-        <Text type="supporting" role={query.isPending ? "status" : undefined}>
+        <Text
+          type="supporting"
+          role={query.isPending ? "status" : undefined}
+        >
           {query.isPending
             ? "Loading…"
             : `Updated ${time(new Date(query.dataUpdatedAt).toISOString())}${interval ? ` · refreshes every ${interval} seconds` : ""}`}

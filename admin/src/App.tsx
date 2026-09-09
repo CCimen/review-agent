@@ -420,8 +420,8 @@ function Application({
         logout={() => logout.mutate()}
         signingOut={logout.isPending}
       >
-        <Section padding={6} paddingInline={isNarrow ? 4 : 6} maxWidth={1440}>
-          <VStack gap={6}>
+        <Section padding={0} maxWidth={1440}>
+          <VStack gap={6} padding={6} paddingInline={isNarrow ? 4 : 6}>
             {logout.isError && (
               <Text as="p" role="alert">
                 Could not sign out. Please try again.

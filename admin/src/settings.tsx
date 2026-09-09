@@ -22,13 +22,18 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Heading, Text } from "@astryxdesign/core/Text";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { SettingsTabs } from "./accounts";
 import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { DeploymentLink } from "./deployment";
+import { EmailDelivery } from "./email";
 import { Providers } from "./providers";
 import { Freshness, time } from "./ui";
 
@@ -199,6 +204,9 @@ export function SettingsPage() {
       </HStack>
       <SettingsTabs />
       <Providers />
+      <Collapsible trigger="Email delivery (SMTP)" defaultIsOpen={false}>
+        <EmailDelivery />
+      </Collapsible>
       <Freshness query={query} interval={false} />
       {query.data && <SettingsEditor data={query.data} />}
     </>
@@ -233,11 +241,14 @@ function SettingsEditor({ data }: { data: Page }) {
   const client = useQueryClient();
   const [original, setOriginal] = useState(data);
   const [draft, setDraft] = useState<Settings>(data.settings);
-  const [reason, setReason] = useState("");
+  const [restoredRevision, setRestoredRevision] = useState<number | null>(
+    null,
+  );
   const [before, setBefore] = useState<number | null>(null);
   const models = useQuery({
     queryKey: ["provider-models"],
-    queryFn: ({ signal }) => read<ModelPage>("/api/providers/models", signal),
+    queryFn: ({ signal }) =>
+      read<ModelPage>("/api/providers/models", signal),
     refetchInterval: false,
     staleTime: 300_000,
   });
@@ -256,7 +267,10 @@ function SettingsEditor({ data }: { data: Page }) {
       write<Revision>("/api/settings", "PUT", {
         expected_revision: original.revision,
         settings: draft,
-        reason: reason.trim(),
+        reason:
+          restoredRevision === null
+            ? "Deployment settings updated"
+            : `Settings restored from revision ${restoredRevision}`,
       }),
     onSuccess: async (revision) => {
       setOriginal({
@@ -265,7 +279,7 @@ function SettingsEditor({ data }: { data: Page }) {
         revision: revision.id,
       });
       setDraft(revision.settings);
-      setReason("");
+      setRestoredRevision(null);
       await client.invalidateQueries({ queryKey: ["deployment-settings"] });
       await client.invalidateQueries({
         queryKey: ["deployment-settings-history"],
@@ -277,6 +291,7 @@ function SettingsEditor({ data }: { data: Page }) {
     if (!dirty && data.revision > original.revision) {
       setOriginal(data);
       setDraft(data.settings);
+      setRestoredRevision(null);
     }
   }, [data, original.revision, dirty]);
   function numericInputs(fields: readonly NumericField[]) {
@@ -288,7 +303,11 @@ function SettingsEditor({ data }: { data: Page }) {
           id={`setting-${key}`}
           isRequired={true}
           min={
-            key === "publish_max_bytes" ? 1000 : key === "job_priority" ? 0 : 1
+            key === "publish_max_bytes"
+              ? 1000
+              : key === "job_priority"
+                ? 0
+                : 1
           }
           max={
             key === "publish_max_bytes"
@@ -482,19 +501,6 @@ function SettingsEditor({ data }: { data: Page }) {
             </VStack>
           </Collapsible>
 
-          <TextInput
-            label={"Reason for change"}
-            id="setting-reason"
-            isRequired={true}
-            value={reason}
-            onChange={(value) => setReason(value)}
-            description="Required when saving. Describe why this change is needed for the history."
-            {...({
-              required: true,
-              maxLength: 500,
-            } satisfies InputHTMLAttributes<HTMLInputElement>)}
-          />
-
           {save.error && (
             <Banner
               status="error"
@@ -506,7 +512,7 @@ function SettingsEditor({ data }: { data: Page }) {
                   onClick={() => {
                     setOriginal(data);
                     setDraft(data.settings);
-                    setReason("");
+                    setRestoredRevision(null);
                     void client.invalidateQueries({
                       queryKey: ["deployment-settings"],
                     });
@@ -520,7 +526,7 @@ function SettingsEditor({ data }: { data: Page }) {
               type="submit"
               variant="primary"
               label={save.isPending ? "Saving…" : "Save settings"}
-              isDisabled={!dirty || !reason.trim()}
+              isDisabled={!dirty}
               isLoading={save.isPending}
             />
             <Button
@@ -528,15 +534,11 @@ function SettingsEditor({ data }: { data: Page }) {
               isDisabled={!dirty || save.isPending}
               onClick={() => {
                 setDraft(original.settings);
-                setReason("");
+                setRestoredRevision(null);
               }}
             />
             <Text type="supporting" role="status">
-              {dirty
-                ? reason.trim()
-                  ? "Changes ready to save"
-                  : "Add a reason to save your changes"
-                : "No unsaved changes"}
+              {dirty ? "Changes ready to save" : "No unsaved changes"}
             </Text>
           </HStack>
         </VStack>
@@ -547,9 +549,9 @@ function SettingsEditor({ data }: { data: Page }) {
         </HStack>
         <VStack gap={4}>
           <Text as="p" color="secondary">
-            Last 50 service starts. These records show which revision was loaded
-            at startup; use Health to check current workers. Restart services
-            through your deployment platform.
+            Last 50 service starts. These records show which revision was
+            loaded at startup; use Health to check current workers. Restart
+            services through your deployment platform.
           </Text>
           <DeploymentLink />
           <VStack gap={0}>
@@ -608,11 +610,10 @@ function SettingsEditor({ data }: { data: Page }) {
                 label={"Restore to editor"}
                 variant="secondary"
                 type="button"
-
                 isDisabled={revision.id === data.revision || save.isPending}
                 onClick={() => {
                   setDraft(revision.settings);
-                  setReason(`Restore revision ${revision.id}`);
+                  setRestoredRevision(revision.id);
                   window.scrollTo({ top: 0, behavior: "instant" });
                 }}
               />
@@ -628,7 +629,6 @@ function SettingsEditor({ data }: { data: Page }) {
               label={"Newest"}
               variant="secondary"
               type="submit"
-
               isDisabled={before === null}
               onClick={() => setBefore(null)}
             />
@@ -636,9 +636,10 @@ function SettingsEditor({ data }: { data: Page }) {
               label={"Older"}
               variant="secondary"
               type="submit"
-
               isDisabled={!history.data?.next_before_id}
-              onClick={() => setBefore(history.data?.next_before_id ?? null)}
+              onClick={() =>
+                setBefore(history.data?.next_before_id ?? null)
+              }
             />
           </HStack>
         </VStack>

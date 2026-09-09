@@ -99,9 +99,13 @@ class IdentityAPITests(unittest.TestCase):
             patch("httpx2.AsyncHTTPTransport.handle_async_request", side_effect=respond)
         )
 
-    def start_oidc(self, *, link: bool = False) -> str:
+    def start_oidc(self, *, link: bool = False, register: bool = False) -> str:
         response = self.client.post(
-            "/api/account/identity/link" if link else "/api/auth/oidc/start"
+            "/api/account/identity/link"
+            if link
+            else "/api/auth/oidc/register"
+            if register
+            else "/api/auth/oidc/start"
         )
         self.assertEqual(response.status_code, 200, response.text)
         query = parse_qs(urlsplit(response.json()["authorization_url"]).query)
@@ -118,6 +122,168 @@ class IdentityAPITests(unittest.TestCase):
             params={"state": state, "code": "local-test-authorization-code"},
             follow_redirects=False,
         )
+
+    def test_registration_policy_is_owner_only_and_prevents_stale_overwrites(
+        self,
+    ) -> None:
+        self.assertEqual(self.client.get("/api/registration").status_code, 401)
+        self.fixture.login()
+        current = self.client.get("/api/registration")
+        self.assertEqual(current.status_code, 200, current.text)
+        self.assertEqual(
+            current.json(),
+            {
+                "revision": 0,
+                "enabled": False,
+                "allowed_domains": [],
+                "allowed_emails": [],
+            },
+        )
+        settings = {
+            "expected_revision": 0,
+            "enabled": True,
+            "allowed_domains": ["@Sundsvall.SE", "sundsvall.se"],
+            "allowed_emails": ["Partner@example.com"],
+            "reason": "Allow verified staff and one partner",
+        }
+        saved = self.client.put("/api/registration", json=settings)
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()["allowed_domains"], ["sundsvall.se"])
+        self.assertEqual(saved.json()["allowed_emails"], ["partner@example.com"])
+        self.assertEqual(
+            self.client.put("/api/registration", json=settings).status_code, 409
+        )
+        settings["expected_revision"] = 1
+        settings["allowed_domains"] = ["*.sundsvall.se"]
+        self.assertEqual(
+            self.client.put("/api/registration", json=settings).status_code, 422
+        )
+        member = self.client.post(
+            "/api/users",
+            json={
+                "email": "member@example.com",
+                "password": test_admin_api.PASSWORD,
+                "role": "admin",
+            },
+        )
+        self.assertEqual(member.status_code, 201, member.text)
+        self.client.post("/api/auth/logout")
+        self.fixture.login("member@example.com")
+        self.assertEqual(self.client.get("/api/registration").status_code, 403)
+        self.assertEqual(
+            self.client.put("/api/registration", json=settings).status_code, 403
+        )
+
+    def enable_registration(self) -> None:
+        self.fixture.login()
+        response = self.client.put(
+            "/api/registration",
+            json={
+                "expected_revision": 0,
+                "enabled": True,
+                "allowed_domains": ["sundsvall.se"],
+                "allowed_emails": ["partner@example.com", "admin@example.com"],
+                "reason": "Enable approved organization registration",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.client.post("/api/auth/logout")
+
+    def test_verified_registration_allows_exact_domains_and_emails_as_members(
+        self,
+    ) -> None:
+        self.enable_registration()
+        self.mock_provider("new@sundsvall.se")
+        for index, email in enumerate(("new@sundsvall.se", "partner@example.com")):
+            with self.subTest(email=email):
+                self.claim_changes = {"email": email, "sub": f"new-member-{index}"}
+                response = self.callback(self.start_oidc(register=True))
+                self.assertEqual(response.headers["location"], "/", response.text)
+                me = self.client.get("/api/me")
+                self.assertEqual(me.status_code, 200, me.text)
+                self.assertEqual(
+                    (me.json()["role"], me.json()["email"]), ("member", email)
+                )
+                self.assertEqual(self.client.get("/api/users").status_code, 403)
+                self.client.post("/api/auth/logout")
+                # Retrying Register signs in the same durable identity.
+                self.assertEqual(
+                    self.callback(self.start_oidc(register=True)).headers["location"],
+                    "/",
+                )
+                self.client.post("/api/auth/logout")
+        with psycopg.connect(DSN) as connection:
+            users = connection.execute(
+                "SELECT count(*) FROM review_agent.admin_users WHERE NOT is_superuser AND NOT is_global_viewer AND is_verified"
+            ).fetchone()
+            registrations = connection.execute(
+                "SELECT count(*) FROM review_agent.admin_audit_events WHERE action = 'account_created' AND details->>'method' = 'self_registration'"
+            ).fetchone()
+        self.assertEqual(users, (2,))
+        self.assertEqual(registrations, (2,))
+
+    def test_registration_denies_lookalikes_unverified_email_and_existing_local_accounts(
+        self,
+    ) -> None:
+        self.enable_registration()
+        self.mock_provider("outside@example.com")
+        for index, (email, verified) in enumerate(
+            (
+                ("outside@example.com", True),
+                ("intruder@notsundsvall.se", True),
+                ("intruder@sundsvall.se.example.com", True),
+                ("intruder@sub.sundsvall.se", True),
+                ("intruder@sundsvall.se", False),
+                ("admin@example.com", True),
+            )
+        ):
+            with self.subTest(email=email, verified=verified):
+                self.claim_changes = {
+                    "email": email,
+                    "email_verified": verified,
+                    "sub": f"denied-{index}",
+                }
+                response = self.callback(self.start_oidc(register=True))
+                self.assertIn("sso_error=registration", response.headers["location"])
+                self.assertEqual(self.client.get("/api/me").status_code, 401)
+        with psycopg.connect(DSN) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM review_agent.admin_users"
+                ).fetchone(),
+                (1,),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT oidc_subject FROM review_agent.admin_users"
+                ).fetchone(),
+                (None,),
+            )
+
+    def test_registration_rechecks_allowlist_after_provider_redirect(self) -> None:
+        self.enable_registration()
+        self.mock_provider("new@sundsvall.se")
+        state = self.start_oidc(register=True)
+        self.fixture.login()
+        response = self.client.put(
+            "/api/registration",
+            json={
+                "expected_revision": 1,
+                "enabled": False,
+                "allowed_domains": ["sundsvall.se"],
+                "allowed_emails": [],
+                "reason": "Pause new registrations",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.client.post("/api/auth/logout")
+        self.assertIn(
+            "sso_error=registration", self.callback(state).headers["location"]
+        )
+        self.assertFalse(
+            self.client.get("/api/auth/oidc/provider").json()["registration_enabled"]
+        )
+        self.assertEqual(self.client.post("/api/auth/oidc/register").status_code, 403)
 
     def test_existing_account_links_deliberately_and_signs_in_by_issuer_subject(
         self,

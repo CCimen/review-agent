@@ -63,6 +63,8 @@ const actions: readonly AuditEvent["action"][] = [
   "request_rejected",
   "request_withdrawn",
   "account_created",
+  "registration_updated",
+  "email_updated",
   "account_updated",
   "password_changed",
   "signed_in",

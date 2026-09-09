@@ -38,6 +38,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Email */
+        get: operations["get_email_api_email_get"];
+        /** Save Email */
+        put: operations["save_email_api_email_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/email/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Email */
+        post: operations["test_email_api_email_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -49,6 +84,75 @@ export interface paths {
         get: operations["me_api_me_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Registration */
+        get: operations["get_registration_api_registration_get"];
+        /** Save Registration */
+        put: operations["save_registration_api_registration_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/registration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Registration Availability */
+        get: operations["registration_availability_api_auth_registration_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register */
+        post: operations["register_api_auth_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/register/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Registration */
+        post: operations["complete_registration_api_auth_register_complete_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -258,6 +362,23 @@ export interface paths {
         put?: never;
         /** Start */
         post: operations["start_api_auth_oidc_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register */
+        post: operations["register_api_auth_oidc_register_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1682,7 +1803,7 @@ export interface components {
          * AuditAction
          * @enum {string}
          */
-        AuditAction: "integration_created" | "integration_revoked" | "integration_read" | "audit_access_started" | "audit_access_ended" | "audit_viewed" | "audit_exported" | "team_created" | "team_updated" | "member_added" | "member_updated" | "member_removed" | "repository_assigned" | "repository_transferred" | "repository_removed" | "repository_requested" | "request_approved" | "request_rejected" | "request_withdrawn" | "account_created" | "account_updated" | "password_changed" | "signed_in" | "signed_out" | "finding_decided" | "feedback_triaged" | "run_action" | "settings_updated" | "access_updated" | "provider_login" | "provider_logout" | "provider_login_cancelled" | "connection_created" | "connection_updated" | "connection_removed" | "identity_linked" | "scim_provisioned" | "scim_updated" | "scim_deactivated";
+        AuditAction: "integration_created" | "integration_revoked" | "integration_read" | "audit_access_started" | "audit_access_ended" | "audit_viewed" | "audit_exported" | "team_created" | "team_updated" | "member_added" | "member_updated" | "member_removed" | "repository_assigned" | "repository_transferred" | "repository_removed" | "repository_requested" | "request_approved" | "request_rejected" | "request_withdrawn" | "account_created" | "account_updated" | "password_changed" | "signed_in" | "signed_out" | "finding_decided" | "feedback_triaged" | "run_action" | "settings_updated" | "email_updated" | "registration_updated" | "access_updated" | "provider_login" | "provider_logout" | "provider_login_cancelled" | "connection_created" | "connection_updated" | "connection_removed" | "identity_linked" | "scim_provisioned" | "scim_updated" | "scim_deactivated";
         /** AuditEvent */
         AuditEvent: {
             /** Id */
@@ -2097,6 +2218,33 @@ export interface components {
              */
             observed_at: string;
         };
+        /** EmailSettings */
+        EmailSettings: {
+            /** Revision */
+            revision: number;
+            /** Enabled */
+            enabled: boolean;
+            configuration: components["schemas"]["SMTPConfiguration"] | null;
+            /** Password Set */
+            password_set: boolean;
+            /** Credential Storage Available */
+            credential_storage_available: boolean;
+        };
+        /** EmailTest */
+        EmailTest: {
+            /** Expected Revision */
+            expected_revision: number;
+        };
+        /** EmailUpdate */
+        EmailUpdate: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Enabled */
+            enabled: boolean;
+            configuration: components["schemas"]["SMTPConfiguration"];
+            /** Password */
+            password?: string | null;
+        };
         /** ErrorModel */
         ErrorModel: {
             /** Detail */
@@ -2343,6 +2491,11 @@ export interface components {
         IdentityProvider: {
             /** Name */
             name: string | null;
+            /**
+             * Registration Enabled
+             * @default false
+             */
+            registration_enabled: boolean;
         };
         /** Installation */
         Installation: {
@@ -3094,6 +3247,67 @@ export interface components {
             /** Repositories Enabled */
             repositories_enabled: number;
         };
+        /** RegistrationAvailability */
+        RegistrationAvailability: {
+            /** Enabled */
+            enabled: boolean;
+            /** Email Configured */
+            email_configured: boolean;
+        };
+        /** RegistrationComplete */
+        RegistrationComplete: {
+            /**
+             * Token
+             * Format: password
+             */
+            token: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+        };
+        /** RegistrationSettings */
+        RegistrationSettings: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Allowed Domains */
+            allowed_domains?: string[];
+            /** Allowed Emails */
+            allowed_emails?: string[];
+            /** Revision */
+            revision: number;
+        };
+        /** RegistrationSignup */
+        RegistrationSignup: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
+        /** RegistrationUpdate */
+        RegistrationUpdate: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Allowed Domains */
+            allowed_domains?: string[];
+            /** Allowed Emails */
+            allowed_emails?: string[];
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Reason
+             * @default Registration settings updated
+             */
+            reason: string;
+        };
         /** Report[HistoryPage] */
         Report_HistoryPage_: {
             /**
@@ -3646,6 +3860,32 @@ export interface components {
             /** Resources */
             Resources: components["schemas"]["SCIMUser"][];
         };
+        /** SMTPConfiguration */
+        SMTPConfiguration: {
+            /** Host */
+            host: string;
+            /**
+             * Port
+             * @default 587
+             */
+            port: number;
+            /**
+             * Sender
+             * Format: email
+             */
+            sender: string;
+            /**
+             * Tls
+             * @default starttls
+             * @enum {string}
+             */
+            tls: "starttls" | "implicit";
+            /**
+             * Username
+             * @default
+             */
+            username: string;
+        };
         /** SaveSettings */
         SaveSettings: {
             /** Expected Revision */
@@ -4050,6 +4290,90 @@ export interface operations {
             };
         };
     };
+    get_email_api_email_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailSettings"];
+                };
+            };
+        };
+    };
+    save_email_api_email_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmailSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_email_api_email_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmailTest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_api_me_get: {
         parameters: {
             query?: never;
@@ -4066,6 +4390,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Account"];
+                };
+            };
+        };
+    };
+    get_registration_api_registration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationSettings"];
+                };
+            };
+        };
+    };
+    save_registration_api_registration_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    registration_availability_api_auth_registration_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegistrationAvailability"];
+                };
+            };
+        };
+    };
+    register_api_auth_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrationSignup"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_registration_api_auth_register_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistrationComplete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4672,6 +5133,26 @@ export interface operations {
         };
     };
     start_api_auth_oidc_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OIDCStart"];
+                };
+            };
+        };
+    };
+    register_api_auth_oidc_register_post: {
         parameters: {
             query?: never;
             header?: never;

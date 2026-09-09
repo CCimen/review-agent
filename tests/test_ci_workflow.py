@@ -276,7 +276,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
     def test_fast_quality_tools_are_pinned_and_cover_production_entrypoints(self):
         self.assertEqual(
             DEVELOPMENT_REQUIREMENTS.read_text(encoding="utf-8"),
-            "ruff==0.14.4\nhttpx2==2.12.0\n",
+            "ruff==0.14.4\nhttpx2==2.12.0\ntypes-authlib==1.8.0.20260907\n",
         )
         ruff = mapping(tomllib.loads(RUFF_CONFIG.read_text(encoding="utf-8")))
         self.assertEqual("py311", ruff["target-version"])

@@ -467,7 +467,7 @@ the diff is read again. Keep the added columns when recovering; no data removal
 or reverse migration is needed. The previous coverage queries remain compatible,
 but an image rollback still requires the release-specific checks below.
 
-The current admin API requires schema 26. Schema 22 introduced team access and
+The current admin API requires schema 27. Schema 22 introduced team access and
 separate owner/admin roles in the console.
 Earlier console images do not enforce these boundaries and treat new team members
 as global viewers. Do not roll back the console image alone after this upgrade;

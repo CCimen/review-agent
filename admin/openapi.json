@@ -309,6 +309,806 @@
         ]
       }
     },
+    "/scim/v2/Users": {
+      "post": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "Create User",
+        "operationId": "create_user_scim_v2_Users_post",
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SCIMUserInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMUser"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
+          "503": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "List Users",
+        "operationId": "list_users_scim_v2_Users_get",
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "startIndex",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2147483647,
+              "default": 1,
+              "title": "Startindex"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2147483647,
+              "default": 100,
+              "title": "Count"
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMUserList"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
+          "503": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/scim/v2/Users/{user_id}": {
+      "get": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "Get User",
+        "operationId": "get_user_scim_v2_Users__user_id__get",
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMUser"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
+          "503": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "Replace User",
+        "operationId": "replace_user_scim_v2_Users__user_id__put",
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SCIMUserInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMUser"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
+          "503": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "Patch User",
+        "operationId": "patch_user_scim_v2_Users__user_id__patch",
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SCIMPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMUser"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
+          "503": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "Delete User",
+        "operationId": "delete_user_scim_v2_Users__user_id__delete",
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Client Error"
+          },
+          "503": {
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/scim/v2/ServiceProviderConfig": {
+      "get": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "Service Provider Config",
+        "operationId": "service_provider_config_scim_v2_ServiceProviderConfig_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/JsonValue"
+                  },
+                  "type": "object",
+                  "title": "Response Service Provider Config Scim V2 Serviceproviderconfig Get"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client Error",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ]
+      }
+    },
+    "/scim/v2/ResourceTypes": {
+      "get": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "Resource Types",
+        "operationId": "resource_types_scim_v2_ResourceTypes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/JsonValue"
+                  },
+                  "type": "object",
+                  "title": "Response Resource Types Scim V2 Resourcetypes Get"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client Error",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ]
+      }
+    },
+    "/scim/v2/ResourceTypes/User": {
+      "get": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "User Type",
+        "operationId": "user_type_scim_v2_ResourceTypes_User_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/JsonValue"
+                  },
+                  "type": "object",
+                  "title": "Response User Type Scim V2 Resourcetypes User Get"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client Error",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ]
+      }
+    },
+    "/scim/v2/Schemas": {
+      "get": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "Schemas",
+        "operationId": "schemas_scim_v2_Schemas_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/JsonValue"
+                  },
+                  "type": "object",
+                  "title": "Response Schemas Scim V2 Schemas Get"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client Error",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ]
+      }
+    },
+    "/scim/v2/Schemas/urn:ietf:params:scim:schemas:core:2.0:User": {
+      "get": {
+        "tags": [
+          "SCIM"
+        ],
+        "summary": "User Schema",
+        "operationId": "user_schema_scim_v2_Schemas_urn_ietf_params_scim_schemas_core_2_0_User_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/JsonValue"
+                  },
+                  "type": "object",
+                  "title": "Response User Schema Scim V2 Schemas Urn Ietf Params Scim Schemas Core 2 0 User Get"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Client Error",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/scim+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SCIMCredential": []
+          }
+        ]
+      }
+    },
+    "/api/auth/oidc/provider": {
+      "get": {
+        "tags": [
+          "organization sign-in"
+        ],
+        "summary": "Provider",
+        "operationId": "provider_api_auth_oidc_provider_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityProvider"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/oidc/start": {
+      "post": {
+        "tags": [
+          "organization sign-in"
+        ],
+        "summary": "Start",
+        "operationId": "start_api_auth_oidc_start_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStart"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/oidc/callback": {
+      "get": {
+        "tags": [
+          "organization sign-in"
+        ],
+        "summary": "Callback",
+        "operationId": "callback_api_auth_oidc_callback_get",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43,
+              "title": "State"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 8192
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/account/identity": {
+      "get": {
+        "tags": [
+          "organization sign-in"
+        ],
+        "summary": "Account Identity",
+        "operationId": "account_identity_api_account_identity_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountIdentity"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
+    "/api/account/identity/link": {
+      "post": {
+        "tags": [
+          "organization sign-in"
+        ],
+        "summary": "Link",
+        "operationId": "link_api_account_identity_link_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStart"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ]
+      }
+    },
     "/api/repositories": {
       "get": {
         "summary": "Repositories",
@@ -6405,6 +7205,31 @@
         ],
         "title": "AccountAvailability"
       },
+      "AccountIdentity": {
+        "properties": {
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name"
+          },
+          "linked": {
+            "type": "boolean",
+            "title": "Linked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider_name",
+          "linked"
+        ],
+        "title": "AccountIdentity"
+      },
       "AccountPage": {
         "properties": {
           "items": {
@@ -8586,6 +9411,26 @@
         ],
         "title": "HistoryPage"
       },
+      "IdentityProvider": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "IdentityProvider"
+      },
       "Installation": {
         "properties": {
           "installation_id": {
@@ -8972,6 +9817,7 @@
         ],
         "title": "JobControlSnapshot"
       },
+      "JsonValue": {},
       "LiveInstallationStatus": {
         "properties": {
           "installation_id": {
@@ -9351,6 +10197,19 @@
           "name"
         ],
         "title": "NewTeam"
+      },
+      "OIDCStart": {
+        "properties": {
+          "authorization_url": {
+            "type": "string",
+            "title": "Authorization Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "authorization_url"
+        ],
+        "title": "OIDCStart"
       },
       "Operations": {
         "properties": {
@@ -11874,6 +12733,282 @@
         ],
         "title": "RuntimePage"
       },
+      "SCIMErrorBody": {
+        "properties": {
+          "schemas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Schemas",
+            "default": [
+              "urn:ietf:params:scim:api:messages:2.0:Error"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "scimType": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scimtype"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "detail"
+        ],
+        "title": "SCIMErrorBody"
+      },
+      "SCIMMeta": {
+        "properties": {
+          "resourceType": {
+            "type": "string",
+            "const": "User",
+            "title": "Resourcetype",
+            "default": "User"
+          },
+          "location": {
+            "type": "string",
+            "title": "Location"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created"
+          },
+          "lastModified": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastmodified"
+          }
+        },
+        "type": "object",
+        "required": [
+          "location",
+          "created",
+          "lastModified"
+        ],
+        "title": "SCIMMeta"
+      },
+      "SCIMPatch": {
+        "properties": {
+          "schemas": {
+            "items": {
+              "type": "string",
+              "const": "urn:ietf:params:scim:api:messages:2.0:PatchOp"
+            },
+            "type": "array",
+            "maxItems": 1,
+            "minItems": 1,
+            "title": "Schemas"
+          },
+          "Operations": {
+            "items": {
+              "$ref": "#/components/schemas/SCIMPatchOperation"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Operations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schemas",
+          "Operations"
+        ],
+        "title": "SCIMPatch"
+      },
+      "SCIMPatchOperation": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "maxLength": 7,
+            "title": "Op"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue"
+          }
+        },
+        "type": "object",
+        "required": [
+          "op"
+        ],
+        "title": "SCIMPatchOperation"
+      },
+      "SCIMUser": {
+        "properties": {
+          "schemas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Schemas",
+            "default": [
+              "urn:ietf:params:scim:schemas:core:2.0:User"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "userName": {
+            "type": "string",
+            "title": "Username"
+          },
+          "externalId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Externalid"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/SCIMMeta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "userName",
+          "externalId",
+          "active",
+          "meta"
+        ],
+        "title": "SCIMUser"
+      },
+      "SCIMUserInput": {
+        "properties": {
+          "schemas": {
+            "items": {
+              "type": "string",
+              "const": "urn:ietf:params:scim:schemas:core:2.0:User"
+            },
+            "type": "array",
+            "maxItems": 1,
+            "minItems": 1,
+            "title": "Schemas"
+          },
+          "userName": {
+            "type": "string",
+            "format": "email",
+            "title": "Username"
+          },
+          "externalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Externalid"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "schemas",
+          "userName"
+        ],
+        "title": "SCIMUserInput"
+      },
+      "SCIMUserList": {
+        "properties": {
+          "schemas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Schemas",
+            "default": [
+              "urn:ietf:params:scim:api:messages:2.0:ListResponse"
+            ]
+          },
+          "totalResults": {
+            "type": "integer",
+            "title": "Totalresults"
+          },
+          "startIndex": {
+            "type": "integer",
+            "title": "Startindex"
+          },
+          "itemsPerPage": {
+            "type": "integer",
+            "title": "Itemsperpage"
+          },
+          "Resources": {
+            "items": {
+              "$ref": "#/components/schemas/SCIMUser"
+            },
+            "type": "array",
+            "title": "Resources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "totalResults",
+          "startIndex",
+          "itemsPerPage",
+          "Resources"
+        ],
+        "title": "SCIMUserList"
+      },
       "SaveSettings": {
         "properties": {
           "expected_revision": {
@@ -12770,6 +13905,10 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "__Host-review_agent_session"
+      },
+      "SCIMCredential": {
+        "type": "http",
+        "scheme": "bearer"
       },
       "IntegrationCredential": {
         "type": "http",

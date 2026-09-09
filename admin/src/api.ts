@@ -21,6 +21,9 @@ export type Account = components["schemas"]["Account"];
 export type NewAccount = components["schemas"]["NewAccount"];
 export type AccountUpdate = components["schemas"]["AccountUpdate"];
 export type PasswordChange = components["schemas"]["PasswordChange"];
+export type IdentityProvider = components["schemas"]["IdentityProvider"];
+export type AccountIdentity = components["schemas"]["AccountIdentity"];
+export type OIDCStart = components["schemas"]["OIDCStart"];
 
 export type Team = components["schemas"]["Team"];
 export type TeamPage = components["schemas"]["TeamPage"];

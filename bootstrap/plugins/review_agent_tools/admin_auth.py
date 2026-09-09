@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import getpass
 import json
+import secrets
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -30,7 +31,7 @@ from fastapi_users_db_sqlalchemy.access_token import (
     SQLAlchemyBaseAccessTokenTable,
 )
 from pydantic import BaseModel, EmailStr, Field, SecretStr
-from sqlalchemy import ForeignKey, delete, func, select, text, true
+from sqlalchemy import DateTime, ForeignKey, delete, func, select, text, true
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -59,6 +60,13 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     is_global_viewer: Mapped[bool] = mapped_column(default=False)
     is_platform_owner: Mapped[bool] = mapped_column(default=False)
     access_revision: Mapped[int] = mapped_column(default=0)
+    oidc_issuer: Mapped[str | None] = mapped_column(default=None)
+    oidc_subject: Mapped[str | None] = mapped_column(default=None)
+    scim_issuer: Mapped[str | None] = mapped_column(default=None)
+    scim_external_id: Mapped[str | None] = mapped_column(default=None)
+    scim_deleted: Mapped[bool] = mapped_column(default=False)
+    scim_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scim_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SessionToken(SQLAlchemyBaseAccessTokenTable[uuid.UUID], Base):
@@ -163,6 +171,7 @@ async def _account_audit(
     details: dict[str, str | int | bool | None],
     was_privileged: bool = False,
     actor_role: Role | None = None,
+    actor_source: str = "bootstrap",
 ) -> None:
     await session.execute(
         text("""INSERT INTO review_agent.admin_audit_events
@@ -173,7 +182,7 @@ async def _account_audit(
             "actor_email": actor.email if actor else None,
             "actor_role": (actor_role or Account.from_user(actor).role).value
             if actor
-            else "bootstrap",
+            else actor_source,
             "action": action.value,
             "subject": str(user.id),
             "reason": reason,
@@ -285,6 +294,199 @@ async def _lock_accounts(session: AsyncSession) -> None:
     )
 
 
+class ProvisioningConflict(ValueError):
+    """A directory operation conflicts with an existing console account."""
+
+
+class ProvisionedAccountUpdate(BaseModel):
+    email: EmailStr | None = None
+    external_id: str | None = None
+    active: bool | None = None
+
+
+async def revoke_account_sessions(session: AsyncSession, user: User) -> None:
+    await session.execute(
+        delete(SessionToken).where(SessionToken.__table__.c.user_id == user.id)
+    )
+    user.access_revision += 1
+
+
+async def provision_account(
+    session: AsyncSession,
+    *,
+    issuer: str,
+    email: EmailStr,
+    external_id: str | None,
+    active: bool,
+) -> User:
+    await _lock_accounts(session)
+    if (
+        external_id is not None
+        and await session.scalar(
+            select(User).where(
+                User.scim_issuer == issuer, User.scim_external_id == external_id
+            )
+        )
+        is not None
+    ):
+        raise ProvisioningConflict("An account with this externalId already exists")
+    try:
+        user = await UserManager(session).create(
+            UserCreate(
+                email=email,
+                password=secrets.token_urlsafe(48),
+                is_active=active,
+            )
+        )
+    except exceptions.UserAlreadyExists as exc:
+        raise ProvisioningConflict(
+            "An account with this userName already exists"
+        ) from exc
+    user.scim_issuer = issuer
+    user.scim_external_id = external_id
+    user.scim_created_at = user.scim_modified_at = datetime.now(timezone.utc)
+    await _account_audit(
+        session,
+        actor=None,
+        actor_source="scim",
+        user=user,
+        action=AuditAction.SCIM_PROVISIONED,
+        reason="Account provisioned by the organization directory",
+        details={"issuer": issuer, "email": user.email, "active": active},
+    )
+    await session.commit()
+    return user
+
+
+async def update_provisioned_account(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    issuer: str,
+    change: ProvisionedAccountUpdate,
+    deleted: bool = False,
+) -> User:
+    await _lock_accounts(session)
+    user = await session.get(User, user_id)
+    if user is None or user.scim_issuer != issuer or user.scim_deleted:
+        raise exceptions.UserNotExists()
+    if user.is_superuser or user.is_global_viewer:
+        raise PermissionError("Only a platform owner can change privileged accounts")
+    if (
+        change.external_id is not None
+        and await session.scalar(
+            select(User).where(
+                User.scim_issuer == issuer,
+                User.scim_external_id == change.external_id,
+                User.__table__.c.id != user_id,
+            )
+        )
+        is not None
+    ):
+        raise ProvisioningConflict("An account with this externalId already exists")
+    previous_active = user.is_active
+    values = schemas.BaseUserUpdate()
+    if change.email is not None:
+        values.email = change.email
+    if change.active is not None or deleted:
+        values.is_active = False if deleted else change.active
+    try:
+        await UserManager(session).update(values, user)
+    except exceptions.UserAlreadyExists as exc:
+        raise ProvisioningConflict(
+            "An account with this userName already exists"
+        ) from exc
+    if "external_id" in change.model_fields_set:
+        user.scim_external_id = change.external_id
+    user.scim_deleted = deleted
+    user.scim_modified_at = datetime.now(timezone.utc)
+    await revoke_account_sessions(session, user)
+    await _account_audit(
+        session,
+        actor=None,
+        actor_source="scim",
+        user=user,
+        action=AuditAction.SCIM_DEACTIVATED
+        if not user.is_active
+        else AuditAction.SCIM_UPDATED,
+        reason="Account updated by the organization directory",
+        details={
+            "issuer": issuer,
+            "previous_active": previous_active,
+            "active": user.is_active,
+            "deleted": deleted,
+        },
+    )
+    await session.commit()
+    return user
+
+
+async def authenticate_oidc_account(
+    session: AsyncSession,
+    *,
+    issuer: str,
+    subject: str,
+    email: str | None,
+    email_verified: bool,
+    link_user_id: uuid.UUID | None,
+    link_access_revision: int | None,
+    link_session_token: str | None,
+) -> User:
+    await _lock_accounts(session)
+    user = await session.scalar(
+        select(User).where(User.oidc_issuer == issuer, User.oidc_subject == subject)
+    )
+    if link_user_id is not None:
+        initiating_session = (
+            await session.get(SessionToken, link_session_token)
+            if link_session_token
+            else None
+        )
+        target = await session.get(User, link_user_id)
+        if (
+            target is None
+            or not target.is_active
+            or target.access_revision != link_access_revision
+            or initiating_session is None
+            or initiating_session.user_id != link_user_id
+            or initiating_session.created_at
+            < datetime.now(timezone.utc) - timedelta(seconds=SESSION_SECONDS)
+            or (user is not None and user.id != link_user_id)
+        ):
+            raise PermissionError("The account link request is no longer valid")
+        user = target
+    elif user is None and email and email_verified:
+        user = await session.scalar(
+            select(User).where(
+                func.lower(User.email) == email.lower(),
+                User.scim_issuer == issuer,
+                ~User.scim_deleted,
+                ~User.__table__.c.is_superuser,
+                ~User.is_global_viewer,
+            )
+        )
+    if user is None or not user.is_active or user.scim_deleted:
+        raise PermissionError(
+            "An active provisioned or explicitly linked account is required"
+        )
+    if user.oidc_issuer is None:
+        if not email_verified or email is None or user.email.lower() != email.lower():
+            raise PermissionError("First linking requires a matching verified email")
+        user.oidc_issuer, user.oidc_subject = issuer, subject
+        await _account_audit(
+            session,
+            actor=user,
+            user=user,
+            action=AuditAction.IDENTITY_LINKED,
+            reason="Organization identity linked to the account",
+            details={"issuer": issuer, "method": "account" if link_user_id else "scim"},
+        )
+    elif (user.oidc_issuer, user.oidc_subject) != (issuer, subject):
+        raise PermissionError("This account is linked to another organization identity")
+    await session.flush()
+    return user
+
+
 class AdminAuth:
     def __init__(self, database_url: PostgresDatabaseUrl, public_url: str) -> None:
         parsed = urlsplit(public_url)
@@ -332,6 +534,7 @@ class AdminAuth:
             cookie_secure=secure,
             cookie_samesite="strict",
         )
+        self.transport = transport
         backend = AuthenticationBackend[User, uuid.UUID](
             name="cookie", transport=transport, get_strategy=strategy_dependency
         )
@@ -484,10 +687,7 @@ class AdminAuth:
                 values.is_active = change.active
             if change.password is not None:
                 values.password = change.password.get_secret_value()
-            await session.execute(
-                delete(SessionToken).where(SessionToken.__table__.c.user_id == user.id)
-            )
-            user.access_revision += 1
+            await revoke_account_sessions(session, user)
             updated = await manager.update(values, user)
             await _account_audit(
                 session,
@@ -523,10 +723,7 @@ class AdminAuth:
             )
             if not verified:
                 raise HTTPException(400, "Current password is incorrect")
-            await session.execute(
-                delete(SessionToken).where(SessionToken.__table__.c.user_id == user.id)
-            )
-            user.access_revision += 1
+            await revoke_account_sessions(session, user)
             await manager.update(
                 schemas.BaseUserUpdate(password=change.password.get_secret_value()),
                 user,

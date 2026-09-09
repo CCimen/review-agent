@@ -854,6 +854,22 @@ test("login retains native validation and password manager attributes", async ()
   assert.match(html, /<button[^>]*type="submit"/);
 });
 
+test("organization sign-in appears only for the configured provider", async () => {
+  const { Login, MyAccount } = await server.ssrLoadModule("/src/accounts.tsx");
+  const disabled = renderConsolePage(createElement(Login), [[['identity-provider'], { name: null }]]);
+  assert.doesNotMatch(disabled, /Continue with/);
+  const enabled = renderConsolePage(createElement(Login), [[['identity-provider'], { name: 'Organization SSO' }]]);
+  assert.match(enabled, /Continue with Organization SSO/);
+  assert.match(enabled, /type="password"/);
+  assert.match(enabled, /Or sign in with/);
+  const unlinked = renderConsolePage(createElement(MyAccount, { current: account() }), [[['account-identity', 'test-account', 0], { provider_name: 'Organization SSO', linked: false }]]);
+  assert.match(unlinked, /Link Organization SSO/);
+  assert.match(unlinked, /verified email/);
+  const linked = renderConsolePage(createElement(MyAccount, { current: account() }), [[['account-identity', 'test-account', 0], { provider_name: 'Organization SSO', linked: true }]]);
+  assert.match(linked, /Organization SSO is linked/);
+  assert.doesNotMatch(linked, /Link Organization SSO/);
+});
+
 test("console shell preserves role-based navigation without browser globals", async () => {
   const { ConsoleLayout } = await server.ssrLoadModule("/src/console.tsx");
   for (const role of ["owner", "admin", "viewer"]) {

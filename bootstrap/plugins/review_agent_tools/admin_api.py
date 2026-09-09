@@ -19,6 +19,8 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 from fastapi.staticfiles import StaticFiles
@@ -40,8 +42,11 @@ from . import (
     admin_teams_api,
     model_connection_config,
     integration_api,
+    admin_scim,
+    admin_oidc,
 )
 from .admin_auth import AdminAuth
+from .admin_identity_config import IdentitySettings
 from .build_info import BuildInfo, read_build_info
 from .postgres import admin_operations, admin_reporting
 from .postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
@@ -70,6 +75,7 @@ def create_app(
     static_dir: Path,
 ) -> FastAPI:
     auth = AdminAuth(runtime.database_url, public_url)
+    identity = IdentitySettings.load(os.environ)
     build = read_build_info()
 
     @asynccontextmanager
@@ -97,6 +103,7 @@ def create_app(
         if (
             request.method not in ("GET", "HEAD", "OPTIONS")
             and request.headers.get("origin") != auth.origin
+            and not request.url.path.startswith("/scim/v2/")
         ):
             response = JSONResponse(
                 status_code=403, content={"detail": "Request origin is not allowed"}
@@ -112,6 +119,11 @@ def create_app(
         return response
 
     def database_unavailable(_request: Request, _error: Exception) -> JSONResponse:
+        if _request.url.path.startswith("/scim/v2/"):
+            return admin_scim.error_response(
+                _request,
+                admin_scim.SCIMError(503, "Account data is temporarily unavailable"),
+            )
         return JSONResponse(
             status_code=503,
             content={
@@ -253,6 +265,11 @@ def create_app(
         return {"status": "ready"}
 
     def invalid_request(_request: Request, error: Exception) -> JSONResponse:
+        if _request.url.path.startswith("/scim/v2/"):
+            return admin_scim.error_response(
+                _request,
+                admin_scim.SCIMError(400, "Invalid SCIM request", "invalidValue"),
+            )
         if not isinstance(error, RequestValidationError):
             raise error
         # Validation errors must not echo submitted passwords or session values.
@@ -275,10 +292,23 @@ def create_app(
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=[auth.hostname, "127.0.0.1", "localhost"]
     )
+    app.add_middleware(admin_scim.SCIMBodyLimit)
     app.middleware("http")(response_headers)
     app.add_exception_handler(PostgreSQLRuntimeError, database_unavailable)
     app.add_exception_handler(SQLAlchemyError, database_unavailable)
     app.add_exception_handler(RequestValidationError, invalid_request)
+    app.add_exception_handler(admin_scim.SCIMError, admin_scim.error_response)
+
+    async def http_error(request: Request, error: Exception) -> Response:
+        if not isinstance(error, StarletteHTTPException):
+            raise error
+        if request.url.path.startswith("/scim/v2/"):
+            return admin_scim.error_response(
+                request, admin_scim.SCIMError(error.status_code, str(error.detail))
+            )
+        return await http_exception_handler(request, error)
+
+    app.add_exception_handler(StarletteHTTPException, http_error)
 
     def access_denied(_request: Request, error: Exception) -> JSONResponse:
         return JSONResponse(
@@ -361,6 +391,8 @@ def create_app(
     )
     app.include_router(auth.auth_router, prefix="/api/auth")
     app.include_router(auth.router)
+    app.include_router(admin_scim.create_router(auth, identity))
+    app.include_router(admin_oidc.create_router(auth, identity))
     app.include_router(router)
     app.include_router(admin_quality_api.create_router(runtime, auth))
     app.include_router(admin_run_api.create_router(runtime, auth))

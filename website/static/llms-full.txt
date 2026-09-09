@@ -769,7 +769,7 @@ the diff is read again. Keep the added columns when recovering; no data removal
 or reverse migration is needed. The previous coverage queries remain compatible,
 but an image rollback still requires the release-specific checks below.
 
-The current admin API requires schema 26. Schema 22 introduced team access and
+The current admin API requires schema 27. Schema 22 introduced team access and
 separate owner/admin roles in the console.
 Earlier console images do not enforce these boundaries and treat new team members
 as global viewers. Do not roll back the console image alone after this upgrade;
@@ -2102,7 +2102,7 @@ token use, and resource use on the deployment hardware.
 Title: Review Agent operator console
 Canonical URL: https://ccimen.github.io/review-agent/docs/admin-panel
 Status: transitional
-Last verified: 2026-09-08
+Last verified: 2026-09-09
 
 # Review Agent operator console
 
@@ -2116,7 +2116,7 @@ This feature is available in the source candidate and has not yet been released.
 The current v0.4.0-rc.4 image does not include it. Build both images from the same
 candidate checkout, or use a future qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 26.
+an older migration image: the current admin API requires PostgreSQL schema 27.
 
 After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
@@ -2396,7 +2396,7 @@ is sanitized before rendering; embedded images and form controls are omitted.
 The users endpoint now returns an
 object instead of an array, so deploy the generated frontend and API together.
 Upgrade the main worker image as well as the admin image after applying the
-current schema 26, so workers and the console use the same presence, usage,
+current schema 27, so workers and the console use the same presence, usage,
 team-access, and integration contracts.
 
 ## Application integrations
@@ -2594,7 +2594,7 @@ under **Advanced operational settings**.
 | `REVIEW_AGENT_DOKPLOY_URL`, `REVIEW_AGENT_DOKPLOY_COMPOSE_ID`, `REVIEW_AGENT_DOKPLOY_API_KEY` | Deployment integration binding and credential; fixes which external application the admin service may inspect. |
 | `REVIEW_AGENT_OPENAI_API_KEY`, `REVIEW_AGENT_HERMES_CONTROL_TOKEN`, `API_SERVER_KEY` | Deployment secrets; embedding, provider-companion and Hermes API credentials. They are never stored in policy revisions or sent to the browser. |
 
-When upgrading this candidate, back up PostgreSQL and apply migrations through 26 before
+When upgrading this candidate, back up PostgreSQL and apply migrations through 27 before
 starting the matching admin frontend/API. Existing admins become owners; existing
 viewers retain explicit global read access. New accounts default to team-scoped
 membership. Repository ownership starts unassigned, and existing GitHub activation
@@ -2874,6 +2874,128 @@ web assets. Qualified releases attach the inventory with their other
 5. Open the admin hostname and sign in. Check repository counts and a known
    review, then use **Users** to add a Member account. Add it to a team as Viewer
    and verify that it can read that team’s repositories without user administration.
+
+## Organization sign-in and SCIM
+
+The source candidate supports one generic OpenID Connect provider and a basic
+SCIM 2.0 Users API. Both are disabled by default. Local email/password sign-in
+remains available. Keep a working local owner account before enabling either
+feature. MobilityGuard is the intended first provider; live interoperability has
+not yet been verified.
+
+Apply migration 27 with the matching worker and console images. Register a
+confidential OIDC client with this exact callback, replacing the origin with
+`REVIEW_AGENT_ADMIN_PUBLIC_URL`:
+
+```text
+https://reviews.example.com/api/auth/oidc/callback
+```
+
+Use authorization code flow, PKCE S256, `client_secret_basic` client
+authentication, and a query-mode callback. Include `openid email` claims in the
+ID token, with `email_verified: true` for first linking. The issuer's HTTPS
+discovery document must identify that exact issuer and provide HTTPS authorization,
+token and JWKS endpoints. RSA, RSA-PSS and ECDSA signed ID tokens are supported;
+unsigned and symmetric signatures are rejected. Discovery and keys are fetched
+for each sign-in, so key rotation does not require a service restart. Provider
+responses are limited to 256 KiB and token strings to 16 KiB.
+
+Set these values on `review-admin`, using the deployment's secret store for the
+client secret and provisioning credential. The Compose admin overlay passes
+them through. They do not belong in repository files or team settings.
+
+| Variable | Value |
+| --- | --- |
+| `REVIEW_AGENT_OIDC_ISSUER` | Exact HTTPS issuer URL, including its path and trailing slash if present. |
+| `REVIEW_AGENT_OIDC_CLIENT_ID` | Registered client ID. |
+| `REVIEW_AGENT_OIDC_CLIENT_SECRET` | Client secret. |
+| `REVIEW_AGENT_OIDC_NAME` | Login button label; defaults to `Organization sign-in`. |
+| `REVIEW_AGENT_SCIM_TOKEN` | Optional dedicated random credential of 32–512 characters. Set this to enable SCIM with the configured issuer. |
+
+Generate the SCIM credential in your secret manager, or use `openssl rand -hex 32`
+in a private terminal. Give it only to the directory provisioning connector.
+It cannot sign in to the console or authorize reporting integrations. Rotate it
+by replacing the configured value and restarting the admin service; the old
+credential then stops working. Incomplete identity configuration prevents startup.
+
+### Link accounts and sign in
+
+Existing accounts sign in with their local password, open **Your account**, and
+choose **Link** under Organization sign-in. The provider must return the same
+verified email as the local account. Email matching by itself never links an
+existing local account. A pending link expires after five minutes and also
+becomes unusable when the initiating session is revoked or account access changes.
+
+SCIM-created accounts may link on their first organization sign-in using their
+matching verified email. They start as Members with no team access. Assign teams
+and roles in the console. Provider group and role claims never grant access.
+Accounts promoted to a privileged platform role require explicit linking.
+
+After linking, the issuer and subject identify the account; a later provider
+email change does not select another local account. An existing link cannot be
+replaced by matching a different subject to the same email. Changing issuer
+configuration does not migrate linked identities or directory ownership.
+
+Sign-in requests are bound to a temporary browser cookie and consumed once.
+Successful OIDC sign-in issues the existing eight-hour console session, with the
+same logout, deactivation and authorization rules as password sign-in. Only the
+identity link is retained; provider access and refresh tokens are not stored.
+Logout ends the console session and does not sign the user out of the provider.
+
+### Configure directory provisioning
+
+Use `https://reviews.example.com/scim/v2` as the SCIM base URL and send
+`Authorization: Bearer <credential>`. Requests and responses use
+`application/scim+json`; a browser Origin header is not required.
+Discovery is available at `ServiceProviderConfig`, `ResourceTypes`, and `Schemas`.
+The supported resource is **User**, with this mutable contract:
+
+| Attribute | Meaning |
+| --- | --- |
+| `userName` | Required email address; map the directory's account email here. Unique without case sensitivity. |
+| `externalId` | Optional directory identifier, up to 255 characters. Unique within this configured directory and independent of the OIDC subject. |
+| `active` | Boolean, defaulting to true. False disables both password and OIDC sign-in and revokes existing sessions. |
+
+Paths below are relative to the SCIM base URL. `POST Users` creates an account.
+`GET Users` and `GET Users/{id}` return only accounts created through this
+directory connector. `PUT Users/{id}` replaces
+the supported mutable fields. `PATCH` accepts add/replace for those fields and
+remove for `externalId`, with all operations committed together. Other attributes
+in create/replace documents are ignored; unsupported PATCH paths are rejected.
+The connector does not write passwords, platform roles or team memberships.
+
+Lists support `startIndex`, `count` up to 100, and exact filters
+`userName eq "person@example.com"` or `externalId eq "directory-id"`. A zero
+count returns the total without resources. Groups, bulk requests, sorting,
+versioned ETags, and the enterprise User extension are not supported.
+
+SCIM cannot adopt existing local accounts or change accounts with a privileged
+platform role. Duplicates return `409` with `scimType: uniqueness`. `DELETE`
+revokes sessions, disables the account and removes it from SCIM results, while
+retaining its local account, audit and team history. Deleted account identifiers
+and emails are not recycled by provisioning. Requests are limited to 64 KiB;
+PATCH accepts at most 100 operations.
+
+These contracts use [OpenID Connect Core](https://openid.net/specs/openid-connect-core-1_0.html),
+[SCIM's User schema](https://www.rfc-editor.org/rfc/rfc7643.html), and the
+[SCIM protocol](https://www.rfc-editor.org/rfc/rfc7644.html). Configure the
+connector to the advertised subset before enabling synchronization.
+
+### Verify and recover
+
+First verify local owner sign-in. Use a test directory account to provision a
+Member, sign in through OIDC, and confirm that access appears only after team
+assignment. Deactivate it through SCIM and verify that its existing browser
+session loses access. Check the console audit journal for provisioning, linking,
+sign-in and deactivation events.
+
+If the provider is unavailable, use local password sign-in. A failed or expired
+OIDC request must be restarted from the login or account page. To disable identity
+integration, clear the OIDC and SCIM variables and restart the admin service.
+This preserves local accounts, existing console sessions and identity records;
+disable affected accounts if their sessions must also be revoked. Migration 27
+is additive: retain its data during recovery and follow the coordinated image
+and database recovery procedure when changing versions.
 
 ## Accounts and recovery
 

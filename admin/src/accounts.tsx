@@ -1,4 +1,5 @@
 import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Divider } from "@astryxdesign/core/Divider";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/Layout";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -8,7 +9,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import type { InputHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useLocation } from "react-router-dom";
 import { Form } from "./ui";
-// Login layout adapted from Astryx's Basic Login template.
+// Login layout adapted from Astryx's Basic Login and Login SSO templates.
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -25,6 +26,9 @@ import type {
   AccountUpdate,
   NewAccount,
   PasswordChange,
+  IdentityProvider,
+  AccountIdentity,
+  OIDCStart,
 } from "./api";
 import { login, read, write } from "./api";
 import { isAdmin, roleLabels, ScopedAnchor, useScope } from "./scope";
@@ -66,6 +70,23 @@ export function SettingsTabs() {
 
 export function Login() {
   const client = useQueryClient();
+  const { search } = useLocation();
+  const provider = useQuery({
+    queryKey: ["identity-provider"],
+    queryFn: ({ signal }) => read<IdentityProvider>("/api/auth/oidc/provider", signal),
+  });
+  const sso = useMutation({
+    mutationFn: () => write<OIDCStart>("/api/auth/oidc/start", "POST"),
+    onSuccess: ({ authorization_url }) => window.location.assign(authorization_url),
+  });
+  const ssoError = new URLSearchParams(search).get("sso_error");
+  const ssoMessage = ssoError === "account"
+    ? "Ask your administrator to provision your account, or sign in with your password and link organization sign-in from Your account."
+    : ssoError === "expired"
+      ? "This sign-in request expired or was already used. Start again from this page."
+      : ssoError === "cancelled"
+        ? "Organization sign-in was cancelled. You can try again."
+        : ssoError ? "Organization sign-in could not be verified. Try again or contact your administrator." : null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const mutation = useMutation({
@@ -151,6 +172,27 @@ export function Login() {
                   />
                 </VStack>
               </Form>
+              {ssoMessage && <Banner status="error" title="Could not complete organization sign-in" description={ssoMessage} />}
+              {provider.data?.name && (
+                <VStack gap={4}>
+                  <Divider label="Or sign in with" />
+                  <Button
+                    label={`Continue with ${provider.data.name}`}
+                    variant="secondary"
+                    width="100%"
+                    isLoading={sso.isPending}
+                    isDisabled={mutation.isPending}
+                    onClick={() => sso.mutate()}
+                  />
+                  {sso.isError && <Banner status="error" title="Organization sign-in is unavailable" description={sso.error.message} />}
+                </VStack>
+              )}
+              {provider.isError && (
+                <VStack gap={2}>
+                  <Text role="alert" color="secondary">Could not check organization sign-in.</Text>
+                  <Button label="Check again" variant="ghost" isLoading={provider.isFetching} onClick={() => void provider.refetch()} />
+                </VStack>
+              )}
             </VStack>
           </Card>
           <Text type="supporting">
@@ -688,6 +730,16 @@ function UserRow({ account, current }: { account: Account; current: Account }) {
 
 export function MyAccount({ current }: { current: Account }) {
   const client = useQueryClient();
+  const { search } = useLocation();
+  const linkError = new URLSearchParams(search).get("sso_error");
+  const identity = useQuery({
+    queryKey: ["account-identity", current.id, current.access_revision],
+    queryFn: ({ signal }) => read<AccountIdentity>("/api/account/identity", signal),
+  });
+  const linkIdentity = useMutation({
+    mutationFn: () => write<OIDCStart>("/api/account/identity/link", "POST"),
+    onSuccess: ({ authorization_url }) => window.location.assign(authorization_url),
+  });
   const [oldPassword, setOldPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -720,6 +772,29 @@ export function MyAccount({ current }: { current: Account }) {
           </Text>
         </VStack>
       </HStack>
+      {linkError && <Banner status="error" title="Organization sign-in was not linked" description={linkError === "account" ? `Use an organization account with the verified email ${current.email}. An existing link cannot be replaced.` : "The linking request expired, was cancelled, or could not be verified. Try linking again."} />}
+      {identity.data?.provider_name && (
+        <Card padding={6}>
+          <VStack gap={3}>
+            <Heading level={2}>Organization sign-in</Heading>
+            {identity.data.linked ? (
+              <Text>{identity.data.provider_name} is linked to your account.</Text>
+            ) : (
+              <>
+                <Text>Sign in to your organization with the same verified email as this account to link it.</Text>
+                <Button label={`Link ${identity.data.provider_name}`} variant="secondary" isLoading={linkIdentity.isPending} onClick={() => linkIdentity.mutate()} />
+              </>
+            )}
+            {linkIdentity.isError && <Banner status="error" title="Could not start account linking" description={linkIdentity.error.message} />}
+          </VStack>
+        </Card>
+      )}
+      {identity.isError && (
+        <VStack gap={2}>
+          <Text role="alert">Could not load organization sign-in settings.</Text>
+          <Button label="Retry sign-in settings" variant="ghost" isLoading={identity.isFetching} onClick={() => void identity.refetch()} />
+        </VStack>
+      )}
       <Form
         onSubmit={(event) => {
           event.preventDefault();

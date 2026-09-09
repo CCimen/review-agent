@@ -12,6 +12,9 @@ import {
   TableHeader,
   TableHeaderCell,
   TableRow,
+  pixel,
+  proportional,
+  type TableColumn,
 } from "@astryxdesign/core/Table";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Heading, Text } from "@astryxdesign/core/Text";
@@ -54,9 +57,8 @@ const ReviewMarkdown = lazy(() =>
   })),
 );
 
-const pullRequestURL = (
-  item: Pick<HistoryItem, "repository" | "pr_number">,
-) => `https://github.com/${item.repository}/pull/${item.pr_number}`;
+const pullRequestURL = (item: Pick<HistoryItem, "repository" | "pr_number">) =>
+  `https://github.com/${item.repository}/pull/${item.pr_number}`;
 function Result({ item }: { item: HistoryItem }) {
   return (
     <VStack gap={1}>
@@ -77,21 +79,21 @@ function Result({ item }: { item: HistoryItem }) {
   );
 }
 
-function PullRequestRow({
-  group,
-  filters,
-}: {
-  group: PullRequestGroup;
-  filters: string;
-}) {
-  const item = group.latest;
-  const href = `/history/${item.id}${filters ? `?${filters}` : ""}`;
-  return (
-    <TableRow>
-      <TableHeaderCell scope="row">
+/** Column widths follow content: the pull request and its supporting line are
+ *  the long values, while the timestamp and the action are fixed. Without them
+ *  the table sized columns from header text and clipped the repository name. */
+function pullRequestColumns(filters: string): TableColumn<PullRequestGroup>[] {
+  const hrefFor = (group: PullRequestGroup) =>
+    `/history/${group.latest.id}${filters ? `?${filters}` : ""}`;
+  return [
+    {
+      key: "pull_request",
+      header: "Pull request",
+      width: proportional(2, { minWidth: 280 }),
+      renderCell: (group) => (
         <VStack gap={1}>
-          <Link to={href}>
-            {item.repository} PR #{item.pr_number}
+          <Link to={hrefFor(group)}>
+            {group.latest.repository} PR #{group.latest.pr_number}
           </Link>
           <Text color="secondary" type="supporting">
             {number.format(group.matching_requests)} matching request
@@ -99,29 +101,44 @@ function PullRequestRow({
             {group.total_requests !== group.matching_requests
               ? ` · ${number.format(group.total_requests)} total`
               : ""}
-            {item.is_latest
+            {group.latest.is_latest
               ? " · Latest request"
               : " · Latest matching request"}
           </Text>
         </VStack>
-      </TableHeaderCell>
-      <TableCell>
-        <Result item={item} />
-      </TableCell>
-      <TableCell>
-        <time dateTime={item.started_at}>{time(item.started_at)}</time>
-      </TableCell>
-      <TableCell>
-        <Link to={href}>
-          {item.posted_at !== null ? "View review" : "View request"}
+      ),
+    },
+    {
+      key: "result",
+      header: "Latest matching result",
+      width: proportional(1, { minWidth: 200 }),
+      renderCell: (group) => <Result item={group.latest} />,
+    },
+    {
+      key: "started",
+      header: "Started",
+      width: pixel(168),
+      renderCell: (group) => (
+        <time dateTime={group.latest.started_at}>
+          {time(group.latest.started_at)}
+        </time>
+      ),
+    },
+    {
+      key: "action",
+      header: "Action",
+      width: pixel(132),
+      renderCell: (group) => (
+        <Link to={hrefFor(group)}>
+          {group.latest.posted_at !== null ? "View review" : "View request"}
           <VisuallyHidden>
             {" "}
-            for {item.repository} PR #{item.pr_number}
+            for {group.latest.repository} PR #{group.latest.pr_number}
           </VisuallyHidden>
         </Link>
-      </TableCell>
-    </TableRow>
-  );
+      ),
+    },
+  ];
 }
 
 function ReviewOutcome({ item }: { item: HistoryItem }) {
@@ -145,26 +162,22 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
               <>
                 {" "}
                 · Worker cause:{" "}
-                <Copy
-                  value={item.job_failure_code}
-                  label="worker failure code"
-                >
+                <Copy value={item.job_failure_code} label="worker failure code">
                   <Code>{item.job_failure_code}</Code>
                 </Copy>
               </>
             ) : null}
           </Text>
           <Text as="p">
-            Check the review result on GitHub and the operator logs for
-            request #{item.id}. After resolving the cause, request{" "}
-            <Code>/review</Code> on the PR again.
+            Check the review result on GitHub and the operator logs for request
+            #{item.id}. After resolving the cause, request <Code>/review</Code>{" "}
+            on the PR again.
           </Text>
         </VStack>
       )}
       {item.coverage.state !== "complete" &&
         (item.posted_at !== null ||
-          (item.state !== "queued" &&
-            item.coverage.registration_complete)) && (
+          (item.state !== "queued" && item.coverage.registration_complete)) && (
           <Text as="p">
             {item.coverage.state === "unknown"
               ? "Coverage has not been established."
@@ -187,21 +200,11 @@ export function ReviewPage() {
   const location = useLocation();
   // Reset disclosure state when another run is selected, including browser Back.
   return (
-    <ReviewReader
-      key={runId}
-      runId={runId ?? ""}
-      search={location.search}
-    />
+    <ReviewReader key={runId} runId={runId ?? ""} search={location.search} />
   );
 }
 
-function ReviewReader({
-  runId,
-  search,
-}: {
-  runId: string;
-  search: string;
-}) {
+function ReviewReader({ runId, search }: { runId: string; search: string }) {
   const scope = useScope();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
@@ -235,15 +238,14 @@ function ReviewReader({
   }
   const selectedURL = (id: number) => `/history/${id}${search}`;
   const data = query.data;
-  const missing =
-    query.error instanceof APIError && query.error.status === 404;
+  const missing = query.error instanceof APIError && query.error.status === 404;
   return (
     <>
       <Link to={`/history${backSearch}`}>Back to review history</Link>
       {missing ? (
         <Empty title="Review request not found">
-          It may have been removed by retention. Return to history to find
-          an available review.
+          It may have been removed by retention. Return to history to find an
+          available review.
         </Empty>
       ) : (
         <Freshness query={query} />
@@ -257,9 +259,7 @@ function ReviewReader({
               </Heading>
               <Text as="p">
                 Request #{item.id} · {time(item.started_at)}
-                {item.is_latest
-                  ? " · Latest request"
-                  : " · Earlier request"}
+                {item.is_latest ? " · Latest request" : " · Earlier request"}
               </Text>
             </VStack>
             <AstryxLink
@@ -268,18 +268,11 @@ function ReviewReader({
               rel="noreferrer"
             >
               Open pull request
-              <VisuallyHidden>
-                {" "}
-                on GitHub (opens in a new tab)
-              </VisuallyHidden>
+              <VisuallyHidden> on GitHub (opens in a new tab)</VisuallyHidden>
             </AstryxLink>
           </HStack>
           <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
-            <VStack
-              as="aside"
-              gap={3}
-              aria-labelledby="request-history-title"
-            >
+            <VStack as="aside" gap={3} aria-labelledby="request-history-title">
               <Heading level={2} id="request-history-title">
                 Review history
               </Heading>
@@ -353,8 +346,7 @@ function ReviewReader({
                             <Code>{request.head_sha.slice(0, 10)}</Code>
                             {request.previous_head_sha === null
                               ? " · First request"
-                              : request.previous_head_sha ===
-                                  request.head_sha
+                              : request.previous_head_sha === request.head_sha
                                 ? " · Same head"
                                 : " · New head"}
                           </Text>
@@ -372,12 +364,7 @@ function ReviewReader({
                 <Text as="p">No older retained requests.</Text>
               ) : null}
               {cursor || data.next_cursor !== null ? (
-                <HStack
-                  gap={3}
-                  wrap="wrap"
-                  vAlign="center"
-                  hAlign="between"
-                >
+                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
                   <Button
                     label={"Newest"}
                     variant="secondary"
@@ -389,9 +376,7 @@ function ReviewReader({
                     label={"Older"}
                     variant="secondary"
                     type="submit"
-                    isDisabled={
-                      data.next_cursor === null || query.isFetching
-                    }
+                    isDisabled={data.next_cursor === null || query.isFetching}
                     onClick={() => page(data.next_cursor)}
                   />
                 </HStack>
@@ -440,10 +425,7 @@ function ReviewReader({
                 ) : null}
               </VStack>
               <ReviewOutcome item={item} />
-              <ReviewFindings
-                runId={item.id}
-                repository={item.repository}
-              />
+              <ReviewFindings runId={item.id} repository={item.repository} />
               {data.markdown !== null ? (
                 <>
                   <VStack gap={3}>
@@ -455,10 +437,7 @@ function ReviewReader({
                         rel="noreferrer"
                       >
                         {link.label}
-                        <VisuallyHidden>
-                          {" "}
-                          (opens in a new tab)
-                        </VisuallyHidden>
+                        <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
                       </AstryxLink>
                     ))}
                   </VStack>
@@ -542,8 +521,7 @@ function RunDetails({ item }: { item: HistoryItem }) {
     ? Math.max(
         0,
         Math.round(
-          (Date.parse(item.completed_at) - Date.parse(item.started_at)) /
-            1000,
+          (Date.parse(item.completed_at) - Date.parse(item.started_at)) / 1000,
         ),
       )
     : null;
@@ -626,8 +604,7 @@ function RunDetails({ item }: { item: HistoryItem }) {
             <Text color="secondary">Changed-file coverage</Text>
           </dt>
           <dd>
-            {item.coverage.changed_paths_with_complete_diff} complete diffs
-            of{" "}
+            {item.coverage.changed_paths_with_complete_diff} complete diffs of{" "}
             {item.coverage.changed_files_reported ?? "an unknown number of"}{" "}
             {item.coverage.changed_files_reported === 1 ? "file" : "files"}
           </dd>
@@ -637,13 +614,9 @@ function RunDetails({ item }: { item: HistoryItem }) {
             <Text color="secondary">Inventory</Text>
           </dt>
           <dd>
-            {item.coverage.registration_complete
-              ? "Complete"
-              : "Incomplete"}{" "}
-            · {item.coverage.changed_files_registered}{" "}
-            {item.coverage.changed_files_registered === 1
-              ? "file"
-              : "files"}{" "}
+            {item.coverage.registration_complete ? "Complete" : "Incomplete"} ·{" "}
+            {item.coverage.changed_files_registered}{" "}
+            {item.coverage.changed_files_registered === 1 ? "file" : "files"}{" "}
             registered
           </dd>
         </HStack>
@@ -674,12 +647,7 @@ export function History() {
     setPrDraft(params.get("pr_number") ?? "");
   }, [params]);
   const query = useQuery({
-    queryKey: [
-      "pull-requests",
-      queryParams.toString(),
-      "scoped",
-      scope.key,
-    ],
+    queryKey: ["pull-requests", queryParams.toString(), "scoped", scope.key],
     queryFn: ({ signal }) =>
       read<PullRequestPage>(
         scope.path(`/api/pull-requests?${queryParams}`),
@@ -743,9 +711,7 @@ export function History() {
           label={"Reset filters"}
           variant="ghost"
           type="button"
-          onClick={() =>
-            update({ status: "all", pr_number: "", days: "30" })
-          }
+          onClick={() => update({ status: "all", pr_number: "", days: "30" })}
         />
       </HStack>
       {status === "active" && (
@@ -766,28 +732,15 @@ export function History() {
       {query.data &&
         (query.data.items.length ? (
           <Table
+            aria-label="Pull requests"
+            data={query.data.items}
+            columns={pullRequestColumns(params.toString())}
+            idKey="pull_request_id"
             density="balanced"
             dividers="rows"
-            aria-label="Pull requests"
-          >
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Pull request</TableHeaderCell>
-                <TableHeaderCell>Latest matching result</TableHeaderCell>
-                <TableHeaderCell>Started</TableHeaderCell>
-                <TableHeaderCell>Action</TableHeaderCell>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {query.data.items.map((group) => (
-                <PullRequestRow
-                  key={`${group.pull_request_id}:${queryParams}`}
-                  group={group}
-                  filters={params.toString()}
-                />
-              ))}
-            </TableBody>
-          </Table>
+            hasHover
+            verticalAlign="top"
+          />
         ) : (
           <Empty
             title={
@@ -798,8 +751,7 @@ export function History() {
                 : "No review requests yet"
             }
           >
-            Change the state or reporting period, or request a review on
-            GitHub.
+            Change the state or reporting period, or request a review on GitHub.
           </Empty>
         ))}
       {query.data &&

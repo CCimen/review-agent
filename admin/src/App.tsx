@@ -6,11 +6,9 @@ import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Section } from "@astryxdesign/core/Section";
 import {
   Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
+  pixel,
+  proportional,
+  type TableColumn,
 } from "@astryxdesign/core/Table";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
@@ -89,6 +87,100 @@ function Repositories({ current }: { current: Account }) {
   function historyURL(repository: string, status = "all") {
     return `/history?${new URLSearchParams({ repository, days: String(days), status })}`;
   }
+  // Width follows content, not header length: the repository name and its
+  // supporting lines need the room, while each count is a short number. Left
+  // to itself the table gave the widest content the narrowest column.
+  const repositoryColumns: TableColumn<RepositoryPage["items"][number]>[] = [
+    {
+      key: "repository",
+      header: "Repository",
+      width: proportional(2, { minWidth: 260 }),
+      renderCell: (repo) => (
+        <VStack gap={1}>
+          <Link to={historyURL(repo.repository)}>{repo.repository}</Link>
+          <Text type="supporting">
+            {repo.last_activity_at
+              ? `Last activity ${time(repo.last_activity_at)}`
+              : "No activity in this period"}
+          </Text>
+          <Text type="supporting">
+            {repo.team_id ? (
+              <Link to={`/teams/${repo.team_id}?team_id=${repo.team_id}`}>
+                {repo.team_name}
+              </Link>
+            ) : isAdmin(current.role) ? (
+              <Link
+                to={`/teams?${new URLSearchParams({ assign_repository: String(repo.repository_id), repository_name: repo.repository })}`}
+              >
+                Assign to a team
+              </Link>
+            ) : (
+              "Unassigned"
+            )}
+          </Text>
+        </VStack>
+      ),
+    },
+    {
+      key: "prs_reviewed",
+      header: "PRs reviewed",
+      width: pixel(118),
+      renderCell: (repo) => <Text>{number.format(repo.prs_reviewed)}</Text>,
+    },
+    {
+      key: "published_requests",
+      header: "Published",
+      width: pixel(108),
+      renderCell: (repo) => (
+        <Link
+          aria-label={`${repo.published_requests} published reviews for ${repo.repository}`}
+          to={historyURL(repo.repository, "published")}
+        >
+          {number.format(repo.published_requests)}
+        </Link>
+      ),
+    },
+    {
+      key: "failed_requests",
+      header: "Failed",
+      width: pixel(94),
+      renderCell: (repo) => (
+        <Link
+          aria-label={`${repo.failed_requests} failed requests for ${repo.repository}`}
+          to={historyURL(repo.repository, "failed")}
+        >
+          {number.format(repo.failed_requests)}
+        </Link>
+      ),
+    },
+    {
+      key: "active_requests",
+      header: "Active now",
+      width: pixel(104),
+      renderCell: (repo) => (
+        <Link
+          aria-label={`${repo.active_requests} active reviews for ${repo.repository}`}
+          to={historyURL(repo.repository, "active")}
+        >
+          {number.format(repo.active_requests)}
+        </Link>
+      ),
+    },
+    {
+      key: "latest_failed_prs",
+      header: "Latest failures",
+      width: pixel(150),
+      renderCell: (repo) =>
+        repo.latest_failed_prs ? (
+          <Link to={historyURL(repo.repository, "latest_failed")}>
+            {number.format(repo.latest_failed_prs)} PR
+            {repo.latest_failed_prs === 1 ? "" : "s"} to check
+          </Link>
+        ) : (
+          <Text color="secondary">None in period</Text>
+        ),
+    },
+  ];
   return (
     <>
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -106,7 +198,9 @@ function Repositories({ current }: { current: Account }) {
           <TextInput
             label={"Find a repository"}
             id="repo-search"
-            placeholder="Search owner or repository"
+            hasClear
+            width={280}
+            placeholder="owner/repository"
             value={draft}
             onChange={(value) => setDraft(value)}
             {...({
@@ -121,7 +215,7 @@ function Repositories({ current }: { current: Account }) {
       <Freshness query={query} />
       {query.data && totals && (
         <>
-          <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
+          <Grid gap={4} columns={{ minWidth: 160, max: 3, repeat: "fit" }}>
             <Stat label="Repositories" value={query.data.total} />
             <Stat label="PRs reviewed" value={totals.prs_reviewed} />
             <Stat label="Published reviews" value={totals.published_requests} />
@@ -144,125 +238,20 @@ function Repositories({ current }: { current: Account }) {
       {query.data &&
         (query.data.items.length ? (
           <VStack gap={4}>
-            <VStack
-              gap={0}
-
-              tabIndex={0}
-              role="region"
+            <Text type="supporting" display="block">
+              Requests started in the last {days} days. Active work is the
+              current total.
+            </Text>
+            <Table
               aria-label="Repository statistics"
-            >
-              {/* Keep table semantics when the rows reflow on small screens. */}
-              <Table role="table">
-                <caption>
-                  <Text type="supporting" display="block" justify="start">
-                    Requests started in the last {days} days. Active work is the
-                    current total.
-                  </Text>
-                </caption>
-                <TableHeader role="rowgroup">
-                  <TableRow role="row">
-                    <TableHeaderCell scope="col" role="columnheader">
-                      Repository
-                    </TableHeaderCell>
-                    <TableHeaderCell scope="col" role="columnheader">
-                      PRs reviewed
-                    </TableHeaderCell>
-                    <TableHeaderCell scope="col" role="columnheader">
-                      Published reviews
-                    </TableHeaderCell>
-                    <TableHeaderCell scope="col" role="columnheader">
-                      Failed requests
-                    </TableHeaderCell>
-                    <TableHeaderCell scope="col" role="columnheader">
-                      Active now
-                    </TableHeaderCell>
-                    <TableHeaderCell scope="col" role="columnheader">
-                      Latest failures
-                    </TableHeaderCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody role="rowgroup">
-                  {query.data.items.map((repo) => (
-                    <TableRow key={repo.repository} role="row">
-                      <TableHeaderCell scope="row" role="rowheader">
-                        <Link to={historyURL(repo.repository)}>
-                          {repo.repository}
-                        </Link>
-                        <Text
-                          color="secondary"
-                          display="block"
-                          type="supporting"
-                        >
-                          {repo.last_activity_at
-                            ? `Last activity ${time(repo.last_activity_at)}`
-                            : "No activity in this period"}
-                        </Text>
-                        <Text
-                          color="secondary"
-                          display="block"
-                          type="supporting"
-                        >
-                          {repo.team_id ? (
-                            <Link
-                              to={`/teams/${repo.team_id}?team_id=${repo.team_id}`}
-                            >
-                              {repo.team_name}
-                            </Link>
-                          ) : isAdmin(current.role) ? (
-                            <Link
-                              to={`/teams?${new URLSearchParams({ assign_repository: String(repo.repository_id), repository_name: repo.repository })}`}
-                            >
-                              Assign to a team
-                            </Link>
-                          ) : (
-                            "Unassigned"
-                          )}
-                        </Text>
-                      </TableHeaderCell>
-                      <TableCell role="cell">
-                        <Text>{number.format(repo.prs_reviewed)}</Text>
-                      </TableCell>
-                      <TableCell role="cell">
-                        <Link
-                          aria-label={`${repo.published_requests} published reviews for ${repo.repository}`}
-                          to={historyURL(repo.repository, "published")}
-                        >
-                          {number.format(repo.published_requests)}
-                        </Link>
-                      </TableCell>
-                      <TableCell role="cell">
-                        <Link
-                          aria-label={`${repo.failed_requests} failed requests for ${repo.repository}`}
-                          to={historyURL(repo.repository, "failed")}
-                        >
-                          {number.format(repo.failed_requests)}
-                        </Link>
-                      </TableCell>
-                      <TableCell role="cell">
-                        <Link
-                          aria-label={`${repo.active_requests} active reviews for ${repo.repository}`}
-                          to={historyURL(repo.repository, "active")}
-                        >
-                          {number.format(repo.active_requests)}
-                        </Link>
-                      </TableCell>
-                      <TableCell role="cell">
-                        {repo.latest_failed_prs ? (
-                          <Link
-                            to={historyURL(repo.repository, "latest_failed")}
-                          >
-                            {number.format(repo.latest_failed_prs)} PR
-                            {repo.latest_failed_prs === 1 ? "" : "s"} to check
-                          </Link>
-                        ) : (
-                          <Text color="secondary">None in period</Text>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </VStack>
+              data={query.data.items}
+              columns={repositoryColumns}
+              idKey="repository"
+              density="balanced"
+              dividers="rows"
+              hasHover
+              verticalAlign="top"
+            />
           </VStack>
         ) : (
           <Empty

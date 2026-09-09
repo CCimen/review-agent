@@ -4543,7 +4543,7 @@ OAuth state, or repository rules.
 Title: Feedback and design decisions
 Canonical URL: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
 Status: current
-Last verified: 2026-09-06
+Last verified: 2026-09-09
 
 # Feedback and design decisions
 
@@ -4556,6 +4556,28 @@ Review feedback has two jobs. It corrects one finding when the code disproves it
 and it gives operators evidence for later reviewer improvements. Teams should
 record durable design intent in the repository rather than asking PostgreSQL to
 become a second documentation store.
+
+## Read the review result
+
+The summary identifies the reviewed commit, current findings, changes since the
+previous review, and diff coverage. Current findings stay expanded. Coverage
+details and evidence for closed findings are expandable.
+
+Coverage counts describe complete diff content available to the reviewer. A
+partial review can contain useful findings, but a result with no confirmed
+findings can still have gaps. Expand **Coverage details** for exact counts of
+unfetched, partially fetched, and unavailable diffs, plus up to 20 example files.
+The totals include files outside that example list. Deleted-file links open the
+base commit.
+
+An unavailable diff does not necessarily mean its source file is missing.
+Repeating `/review` can encounter the same unavailable patches. Inspect the
+remaining changes locally, or ask the operator to investigate a persistent
+coverage gap. Previously prepared reviews retain their original content when
+retried.
+
+See the [example review](../examples/comments/example-review.md) for the comment
+layout and feedback instructions.
 
 ## What each feedback command does
 
@@ -5184,7 +5206,7 @@ infrastructure.
 Title: Example review
 Canonical URL: https://ccimen.github.io/review-agent/docs/example-review
 Status: current
-Last verified: 2026-08-21
+Last verified: 2026-09-09
 
 # Example review
 
@@ -5193,13 +5215,20 @@ Last verified: 2026-08-21
 
 ## AI code & security review
 
+**Reviewed commit:** [`a1b2c3d4e5f6`](https://github.com/example-org/example-repository/commit/a1b2c3d4e5f678901234567890abcdef12345678)
+
 There is 1 current finding: 1 Medium (P2).
+
+**Diff coverage:** Complete diffs were available for all 2 changed files.
+
+<details>
+<summary>Coverage details</summary>
 
 Scope: base-to-head diff, including stacked and off-title changes; unchanged files are supporting evidence only.
 
-<sub>Review context: textual diff content was available for all 2 registered
-changed paths. Additional source context was read from 1 changed path and 1
-supporting file.</sub>
+Additional source context was read from 1 changed file and 1 supporting file.
+
+</details>
 
 ### F1 · Medium (P2): Retry delay uses milliseconds as seconds
 [`src/jobs/retry.py:87`](https://github.com/example-org/example-repository/blob/a1b2c3d4e5f678901234567890abcdef12345678/src/jobs/retry.py#L87) · correctness

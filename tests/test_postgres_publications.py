@@ -27,6 +27,7 @@ from review_agent_tools import (  # noqa: E402
 )
 from review_agent_tools.domain.finding import FindingInput  # noqa: E402
 from review_agent_tools.domain.publication import (  # noqa: E402
+    IssueCommentDelivery,
     PublicationDomainError,
     PublicationFindingInput,
     PublicationFindingOutcome,
@@ -35,7 +36,7 @@ from review_agent_tools.domain.publication import (  # noqa: E402
     PublicationPlan,
     resolve_publication_plan,
 )
-from review_agent_tools.domain.review import ReviewPhase, ReviewStatus  # noqa: E402
+from review_agent_tools.domain.review import DiffState, ReviewPhase, ReviewStatus  # noqa: E402
 from review_agent_tools.github.publication import (  # noqa: E402
     PUBLICATION_REQUEST_MAX_PAGES,
     GitHubPublicationError,
@@ -288,6 +289,41 @@ class FakePostgresPublicationGitHub:
 
 
 class PublicationDomainTests(unittest.TestCase):
+    def test_shortened_history_keeps_coverage_disclosures_balanced(self) -> None:
+        from review_agent_tools.publication_partition import historical_bodies
+
+        body = (
+            "## AI code & security review\n\n"
+            "<details>\n<summary>Coverage details</summary>\n\n"
+            + "Retained evidence. " * 400
+            + "\n\n</details>\n"
+        )
+        parts = historical_bodies(
+            {
+                "review_number": 1,
+                "repository": "team/service",
+                "pr_number": 41,
+                "head_sha": "a" * 40,
+                "publication_key": "sha256:" + "b" * 64,
+                "rendered_markdown": body,
+                "rendered_blocks_json": json.dumps(
+                    [{"kind": "header", "markdown": body}]
+                ),
+                "current_findings_count": 0,
+                "superseded_by_review_number": 2,
+                "superseded_by_comment_id": 700,
+            },
+            max_comment_bytes=1_300,
+            target_parts=2,
+        )
+        self.assertEqual(len(parts), 2)
+        self.assertIn("Retained evidence", parts[0].body)
+        for part in parts:
+            self.assertLessEqual(len(part.body.encode()), 1_300)
+            self.assertEqual(
+                part.body.count("<details>"), part.body.count("</details>")
+            )
+
     def test_plan_freezes_exact_bytes_and_canonical_payload_hashes(self) -> None:
         plan = resolve_publication_plan(
             publication_key="sha256:" + ("a" * 64),
@@ -460,10 +496,23 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         *,
         request_key: str = "github:issue-comment:publication-1",
         findings: tuple[FindingInput, ...] | None = None,
+        changed_files: tuple[review_run_application.PostgresChangedFile, ...]
+        | None = None,
         pr_number: int = 41,
-    ) -> tuple[review_runs.ReviewRunId, review_finding_application.PostgresFindingBatch]:
+    ) -> tuple[
+        review_runs.ReviewRunId, review_finding_application.PostgresFindingBatch
+    ]:
         inputs = findings if findings is not None else (self.finding(),)
-        paths = sorted({item.path for item in inputs} or {"backend/changed.py"})
+        if changed_files is None:
+            changed_files = tuple(
+                review_run_application.PostgresChangedFile(
+                    path=path, change_status="modified"
+                )
+                for path in sorted(
+                    {item.path for item in inputs} or {"backend/changed.py"}
+                )
+            )
+        paths = [item.path for item in changed_files]
         result = review_run_application.start_postgres_review(
             self.runtime,
             review_run_application.PostgresRunRequest(
@@ -483,12 +532,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         review_run_application.register_postgres_changed_files(
             self.runtime,
             run_id=result.run.id,
-            files=tuple(
-                review_run_application.PostgresChangedFile(
-                    path=path, change_status="modified"
-                )
-                for path in paths
-            ),
+            files=changed_files,
             changed_files_reported=len(paths),
             registration_complete=True,
         )
@@ -1594,6 +1638,105 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             f"review-agent:canonical publication={stored.plan.publication_key}",
             stored.parts[0].delivery.body,
         )
+
+    def test_prepared_coverage_totals_are_independent_of_bounded_examples(self) -> None:
+        paths = tuple(f"src/file{index:02}.py" for index in range(29))
+        run_id, _ = self.start_recorded_run(
+            findings=(),
+            changed_files=tuple(
+                review_run_application.PostgresChangedFile(
+                    path=path,
+                    change_status="removed" if path == paths[-1] else "modified",
+                )
+                for path in paths
+            ),
+        )
+        for selected, state in (
+            (paths[:25], DiffState.UNAVAILABLE),
+            (paths[25:27], DiffState.TRUNCATED),
+            (paths[27:28], DiffState.COMPLETE),
+        ):
+            review_run_application.record_postgres_diff_observation(
+                self.runtime,
+                run_id=run_id,
+                paths=selected,
+                state=state,
+                unavailable_reason=(
+                    "patch_unavailable" if state is DiffState.UNAVAILABLE else ""
+                ),
+            )
+
+        prepared = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=None,
+            feedback_enabled=True,
+            max_comment_bytes=60_000,
+        )
+        with self.runtime.transaction() as connection:
+            stored = publications.get_publication(
+                connection, publications.PublicationId(prepared.publication_id)
+            )
+        body = stored.plan.rendered_markdown
+        self.assertIn("coverage_state=incomplete\n", body)
+        self.assertIn("changed_paths=29\n", body)
+        self.assertIn("diff_exposed=1\n", body)
+        self.assertIn("unavailable=25\n", body)
+        self.assertIn("diff_truncated=2\n", body)
+        self.assertIn("diff_unseen=1\n", body)
+        self.assertEqual(sum(path in body for path in paths), 20)
+        self.assertIn("Showing 20 of 28 registered files with incomplete diffs", body)
+        self.assertIn("GitHub did not provide a text patch", body)
+        self.assertIn(
+            "https://github.com/team/service/blob/" + "b" * 40 + "/src/file28.py",
+            body,
+        )
+
+    def test_coverage_examples_fit_the_configured_comment_budget(self) -> None:
+        paths = tuple(f"src/feature_{index:02}.py" for index in range(20))
+        run_id, _ = self.start_recorded_run(
+            findings=(),
+            changed_files=tuple(
+                review_run_application.PostgresChangedFile(
+                    path=path, change_status="modified"
+                )
+                for path in paths
+            ),
+        )
+        review_run_application.record_postgres_diff_observation(
+            self.runtime,
+            run_id=run_id,
+            paths=paths,
+            state=DiffState.UNAVAILABLE,
+            unavailable_reason="patch_unavailable",
+        )
+        prepared = review_publication_application.prepare_postgres_publication(
+            self.runtime,
+            run_id=int(run_id),
+            previous_verdicts=None,
+            feedback_enabled=True,
+            max_comment_bytes=2_000,
+        )
+        with self.runtime.transaction() as connection:
+            stored = publications.get_publication(
+                connection, publications.PublicationId(prepared.publication_id)
+            )
+        body = stored.plan.rendered_markdown
+        self.assertIn("0 of 20 changed files", body)
+        self.assertIn("unavailable=20\n", body)
+        self.assertIn("Findings may be missing.", body)
+        self.assertGreater(sum(path in body for path in paths), 0)
+        self.assertLess(sum(path in body for path in paths), len(paths))
+        self.assertIn(
+            "https://github.com/team/service/blob/" + "a" * 40, body
+        )
+        for part in stored.parts:
+            assert isinstance(part.delivery, IssueCommentDelivery)
+            self.assertLessEqual(len(part.delivery.body.encode("utf-8")), 2_000)
+            self.assertEqual(
+                part.delivery.body.count("<details>"),
+                part.delivery.body.count("</details>"),
+            )
 
     def test_claim_acknowledge_and_complete_use_short_exact_transitions(self) -> None:
         run_id, batch = self.start_recorded_run()

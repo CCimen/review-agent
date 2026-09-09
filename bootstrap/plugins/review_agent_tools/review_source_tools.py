@@ -677,7 +677,7 @@ def _pr_diff_from_patches(
 def pr_diff(args: dict[str, Any], **context: Any) -> str:
     try:
         source = gateway_source_session(args, context)
-        repository, number, _ = pull_request_identity(source)
+        repository, number, initial_pull = pull_request_identity(source)
         run_id = source.run_id
         path = parse_path(args.get("path"), required=False)
         try:
@@ -700,6 +700,7 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
             repository=repository,
             pr_number=number,
             phase="collecting_diff",
+            observed_pull=initial_pull,
         )
         try:
             source_diff = source.client.get_review_diff(

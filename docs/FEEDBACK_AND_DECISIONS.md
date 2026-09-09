@@ -4,7 +4,7 @@ slug: /feedback-and-decisions
 title: Feedback and design decisions
 description: Use review feedback to improve reviewer quality and record repository decisions that later changes must respect.
 status: current
-last_verified: 2026-09-06
+last_verified: 2026-09-09
 ---
 
 # Feedback and design decisions
@@ -18,6 +18,28 @@ Review feedback has two jobs. It corrects one finding when the code disproves it
 and it gives operators evidence for later reviewer improvements. Teams should
 record durable design intent in the repository rather than asking PostgreSQL to
 become a second documentation store.
+
+## Read the review result
+
+The summary identifies the reviewed commit, current findings, changes since the
+previous review, and diff coverage. Current findings stay expanded. Coverage
+details and evidence for closed findings are expandable.
+
+Coverage counts describe complete diff content available to the reviewer. A
+partial review can contain useful findings, but a result with no confirmed
+findings can still have gaps. Expand **Coverage details** for exact counts of
+unfetched, partially fetched, and unavailable diffs, plus up to 20 example files.
+The totals include files outside that example list. Deleted-file links open the
+base commit.
+
+An unavailable diff does not necessarily mean its source file is missing.
+Repeating `/review` can encounter the same unavailable patches. Inspect the
+remaining changes locally, or ask the operator to investigate a persistent
+coverage gap. Previously prepared reviews retain their original content when
+retried.
+
+See the [example review](../examples/comments/example-review.md) for the comment
+layout and feedback instructions.
 
 ## What each feedback command does
 

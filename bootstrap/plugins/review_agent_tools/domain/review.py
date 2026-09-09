@@ -83,6 +83,7 @@ class ReviewMode(StrEnum):
     CONFIGURATION = "configuration"
     GENERATED_CONTRACT = "generated-contract"
 
+
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
 
 
@@ -125,6 +126,14 @@ class FileReadDefinition:
 @dataclass(frozen=True, slots=True)
 class DiffObservation:
     paths: tuple[str, ...]
+    state: DiffState
+    unavailable_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class DiffCoverageExample:
+    path: str
+    revision: str
     state: DiffState
     unavailable_reason: str
 

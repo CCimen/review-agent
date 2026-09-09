@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal, cast
 
 from .domain.publication import (
@@ -30,7 +30,7 @@ from .postgres.publications import (
     PreviousPublicationFinding,
     PublicationPreparationContext,
 )
-from .publication_partition import split_publication_body
+from .publication_partition import publication_content_budget, split_publication_body
 from .review_renderer import (
     ClosedFinding,
     PublishedFinding,
@@ -39,6 +39,7 @@ from .review_renderer import (
     RepositoryDecisionSummary,
     UncheckedFinding,
     render_review,
+    review_heading,
     review_blocks_to_json,
     review_markdown_from_blocks,
 )
@@ -167,8 +168,6 @@ def _coverage(context: PublicationPreparationContext) -> ReviewCoverageSummary:
     item = context.coverage
     changed_paths = item.changed_files_registered
     diff_exposed = item.changed_paths_with_complete_diff
-    unavailable = len(item.unavailable_paths)
-    truncated = len(item.truncated_paths)
     material = json.dumps(
         {
             "state": item.state,
@@ -178,8 +177,10 @@ def _coverage(context: PublicationPreparationContext) -> ReviewCoverageSummary:
             "source_reads": item.changed_paths_with_source_reads,
             "supporting_reads": item.supporting_context_paths_read,
             "ranges": item.context_ranges_read,
-            "unavailable": item.unavailable_paths,
-            "truncated": item.truncated_paths,
+            "unavailable": item.unavailable_count,
+            "truncated": item.truncated_count,
+            "unseen": item.unseen_count,
+            "examples": [asdict(example) for example in item.examples],
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -210,11 +211,11 @@ def _coverage(context: PublicationPreparationContext) -> ReviewCoverageSummary:
         "changed_files_reported": item.changed_files_reported,
         "changed_files_registered": changed_paths,
         "changed_file_registration_complete": item.registration_complete,
-        "unavailable": unavailable,
-        "diff_truncated": truncated,
+        "unavailable": item.unavailable_count,
+        "diff_truncated": item.truncated_count,
+        "diff_unseen": item.unseen_count,
         "coverage_hash": hashlib.sha256(material.encode("utf-8")).hexdigest(),
-        "unavailable_paths": list(item.unavailable_paths),
-        "truncated_paths": list(item.truncated_paths),
+        "examples": item.examples,
     }
 
 
@@ -494,6 +495,14 @@ def build_publication(
         review_number=context.review_number,
         previous_review_number=context.previous_review_number,
         previous_head_sha=context.previous_head_sha,
+        # Packing appends one newline to each rendered block.
+        max_header_bytes=(
+            publication_content_budget(
+                review_heading(context.review_number),
+                max_comment_bytes=max_comment_bytes,
+            )
+            - 1
+        ),
     )
     key = _publication_key(context, rendered.markdown)
     marker = ReviewBlock(

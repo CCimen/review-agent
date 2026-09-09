@@ -35,7 +35,16 @@ import { OperationsPage } from "./operations";
 import { OverviewPage } from "./overview";
 import { FindingPage, QualityPage } from "./quality";
 import { SettingsPage } from "./settings";
-import { Empty, Freshness, Period, Stat, number, time, useFilters } from "./ui";
+import {
+  Empty,
+  Freshness,
+  Period,
+  Prose,
+  Stat,
+  number,
+  time,
+  useFilters,
+} from "./ui";
 
 const ModelConnectionPage = lazy(() =>
   import("./modelConnections").then((module) => ({
@@ -227,12 +236,14 @@ function Repositories({ current }: { current: Account }) {
               attention
             />
           </Grid>
-          <Text as="p" color="secondary">
-            Totals cover all {query.data.total}{" "}
-            {query.data.total === 1 ? "repository" : "repositories"}
-            {search ? ` matching “${search}”` : ""} over the last {days} days.
-            “Needs attention” counts PRs whose most recent request failed.
-          </Text>
+          <Prose>
+            <Text as="p" color="secondary">
+              Totals cover all {query.data.total}{" "}
+              {query.data.total === 1 ? "repository" : "repositories"}
+              {search ? ` matching “${search}”` : ""} over the last {days} days.
+              “Needs attention” counts PRs whose most recent request failed.
+            </Text>
+          </Prose>
         </>
       )}
       {query.data &&

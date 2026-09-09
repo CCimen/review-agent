@@ -18,11 +18,7 @@ export function dateTimeValue(date: Date): ISODateTimeString {
 
 /** Astryx's numeric editor exposes invalid drafts through aria-invalid.
  * Keep those drafts from submitting the previously committed value. */
-export function Form({
-  children,
-  onSubmit,
-  ...props
-}: ComponentProps<"form">) {
+export function Form({ children, onSubmit, ...props }: ComponentProps<"form">) {
   return (
     <form
       {...props}
@@ -176,11 +172,7 @@ export function Copy({
 }
 
 /** A figure the deployment does not record is unknown, never zero. */
-export function Unknown({
-  children = "Not recorded",
-}: {
-  children?: string;
-}) {
+export function Unknown({ children = "Not recorded" }: { children?: string }) {
   return <Text color="secondary">{children}</Text>;
 }
 
@@ -224,6 +216,13 @@ export function Stat({
   );
 }
 
+/** Explanatory prose sits inside a readable measure. The console body runs to
+ *  1180 CSS pixels on a wide screen, which is roughly twice a comfortable line
+ *  length, so notes that span it become hard to track back to the next line. */
+export function Prose({ children }: { children: ReactNode }) {
+  return <VStack maxWidth={620}>{children}</VStack>;
+}
+
 export function Section({
   title,
   description,
@@ -240,9 +239,7 @@ export function Section({
       <HStack gap={4} hAlign="between" vAlign="start" wrap="wrap">
         <VStack gap={1}>
           <Heading level={2}>{title}</Heading>
-          {description ? (
-            <Text color="secondary">{description}</Text>
-          ) : null}
+          {description ? <Text color="secondary">{description}</Text> : null}
         </VStack>
         {actions}
       </HStack>
@@ -287,17 +284,14 @@ export function Freshness<T>({
       {query.isError ? (
         <Banner
           status="error"
-          title={
-            query.error.message || "Could not connect to Review Agent."
-          }
+          title={query.error.message || "Could not connect to Review Agent."}
           description={
             query.data
               ? "The last available data is still shown below."
               : undefined
           }
           endContent={
-            query.error instanceof APIError &&
-            query.error.status === 401 ? (
+            query.error instanceof APIError && query.error.status === 401 ? (
               <Button
                 label="Reload to sign in"
                 onClick={() => window.location.reload()}
@@ -308,10 +302,7 @@ export function Freshness<T>({
           }
         />
       ) : (
-        <Text
-          type="supporting"
-          role={query.isPending ? "status" : undefined}
-        >
+        <Text type="supporting" role={query.isPending ? "status" : undefined}>
           {query.isPending
             ? "Loading…"
             : `Updated ${time(new Date(query.dataUpdatedAt).toISOString())}${interval ? ` · refreshes every ${interval} seconds` : ""}`}
@@ -331,7 +322,7 @@ export function Empty({
   children: ReactNode;
 }) {
   return (
-    <VStack gap={3} role="status">
+    <VStack gap={3} role="status" maxWidth={560} hAlign="center" width="100%">
       <EmptyState
         title={title}
         headingLevel={level}

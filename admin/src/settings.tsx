@@ -22,11 +22,7 @@ import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Heading, Text } from "@astryxdesign/core/Text";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { SettingsTabs } from "./accounts";
@@ -35,7 +31,7 @@ import type { components } from "./api.generated";
 import { DeploymentLink } from "./deployment";
 import { EmailDelivery } from "./email";
 import { Providers } from "./providers";
-import { Freshness, time } from "./ui";
+import { Freshness, Prose, time } from "./ui";
 
 type Settings = components["schemas"]["DeploymentSettings"];
 type Page = components["schemas"]["DeploymentSettingsPage"];
@@ -241,14 +237,11 @@ function SettingsEditor({ data }: { data: Page }) {
   const client = useQueryClient();
   const [original, setOriginal] = useState(data);
   const [draft, setDraft] = useState<Settings>(data.settings);
-  const [restoredRevision, setRestoredRevision] = useState<number | null>(
-    null,
-  );
+  const [restoredRevision, setRestoredRevision] = useState<number | null>(null);
   const [before, setBefore] = useState<number | null>(null);
   const models = useQuery({
     queryKey: ["provider-models"],
-    queryFn: ({ signal }) =>
-      read<ModelPage>("/api/providers/models", signal),
+    queryFn: ({ signal }) => read<ModelPage>("/api/providers/models", signal),
     refetchInterval: false,
     staleTime: 300_000,
   });
@@ -303,11 +296,7 @@ function SettingsEditor({ data }: { data: Page }) {
           id={`setting-${key}`}
           isRequired={true}
           min={
-            key === "publish_max_bytes"
-              ? 1000
-              : key === "job_priority"
-                ? 0
-                : 1
+            key === "publish_max_bytes" ? 1000 : key === "job_priority" ? 0 : 1
           }
           max={
             key === "publish_max_bytes"
@@ -548,11 +537,13 @@ function SettingsEditor({ data }: { data: Page }) {
           <Heading level={2}>Settings loaded by services</Heading>
         </HStack>
         <VStack gap={4}>
-          <Text as="p" color="secondary">
-            Last 50 service starts. These records show which revision was
-            loaded at startup; use Health to check current workers. Restart
-            services through your deployment platform.
-          </Text>
+          <Prose>
+            <Text as="p" color="secondary">
+              Last 50 service starts. These records show which revision was
+              loaded at startup; use Health to check current workers. Restart
+              services through your deployment platform.
+            </Text>
+          </Prose>
           <DeploymentLink />
           <VStack gap={0}>
             <Table>
@@ -637,9 +628,7 @@ function SettingsEditor({ data }: { data: Page }) {
               variant="secondary"
               type="submit"
               isDisabled={!history.data?.next_before_id}
-              onClick={() =>
-                setBefore(history.data?.next_before_id ?? null)
-              }
+              onClick={() => setBefore(history.data?.next_before_id ?? null)}
             />
           </HStack>
         </VStack>

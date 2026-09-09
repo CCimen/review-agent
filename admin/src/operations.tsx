@@ -189,6 +189,17 @@ function Workers({
 
 function Queue({ queue }: { queue: QueueStatus }) {
   const backlog = queue.due > 0;
+  // An idle queue has nothing to report but still filled a card with six
+  // zeros. The counts appear once any of them carries information.
+  const counts = [
+    queue.waiting,
+    queue.due,
+    queue.delayed,
+    queue.leased,
+    queue.expired_leases,
+    queue.failed,
+  ];
+  const idle = counts.every((count) => count === 0);
   const hasLiveWorker = queue.live_workers > 0;
   const tone =
     queue.expired_leases > 0
@@ -219,39 +230,37 @@ function Queue({ queue }: { queue: QueueStatus }) {
           <Text>{label}</Text>
         </HStack>
       </HStack>
-      {/* The design system owns this key/value pairing; the hand-built
-          definition list set its own gaps and crowded the six counts. */}
-      <MetadataList label={{ position: "start" }}>
-        <MetadataListItem label="Waiting">
-          {number.format(queue.waiting)}
-        </MetadataListItem>
-        <MetadataListItem label="Ready to start">
-          {number.format(queue.due)}
-        </MetadataListItem>
-        <MetadataListItem label="Delayed">
-          {number.format(queue.delayed)}
-        </MetadataListItem>
-        <MetadataListItem label="Claimed by workers">
-          {number.format(queue.leased)}
-        </MetadataListItem>
-        <MetadataListItem label="Expired claims">
-          {number.format(queue.expired_leases)}
-        </MetadataListItem>
-        <MetadataListItem label="Retained failures">
-          {number.format(queue.failed)}
-        </MetadataListItem>
-      </MetadataList>
+      {idle ? null : (
+        /* The design system owns this key/value pairing; the hand-built
+           definition list set its own gaps and crowded the six counts. */
+        <MetadataList label={{ position: "start" }}>
+          <MetadataListItem label="Waiting">
+            {number.format(queue.waiting)}
+          </MetadataListItem>
+          <MetadataListItem label="Ready to start">
+            {number.format(queue.due)}
+          </MetadataListItem>
+          <MetadataListItem label="Delayed">
+            {number.format(queue.delayed)}
+          </MetadataListItem>
+          <MetadataListItem label="Claimed by workers">
+            {number.format(queue.leased)}
+          </MetadataListItem>
+          <MetadataListItem label="Expired claims">
+            {number.format(queue.expired_leases)}
+          </MetadataListItem>
+          <MetadataListItem label="Retained failures">
+            {number.format(queue.failed)}
+          </MetadataListItem>
+        </MetadataList>
+      )}
       {Number.isFinite(queue.live_workers) &&
       Number.isFinite(queue.worker_capacity) ? (
         <Text type="supporting">
           {number.format(queue.live_workers)} live workers ·{" "}
           {number.format(queue.worker_capacity)} slots
         </Text>
-      ) : (
-        <Text type="supporting">
-          Worker count unavailable from this API build
-        </Text>
-      )}
+      ) : null}
       {queue.capacity_waiting > 0 && (
         <Text type="supporting">
           Waiting for review capacity: {number.format(queue.capacity_waiting)}
@@ -421,7 +430,9 @@ export function OperationsPage() {
               label="Unresponsive"
               value={unresponsive}
               hint={
-                data.workers_truncated ? "Among shown instances" : undefined
+                data.workers_truncated
+                  ? "Among shown instances"
+                  : "No heartbeat for 90 seconds"
               }
               attention={unresponsive > 0}
             />
@@ -471,11 +482,20 @@ export function OperationsPage() {
             title="Queues"
             description="Follow work from incoming GitHub events to review and publication."
           >
-            <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
+            <Grid
+              gap={5}
+              maxWidth={900}
+              columns={{ minWidth: 240, max: 3, repeat: "fit" }}
+            >
               {[...data.queues].sort(byPipeline).map((queue) => (
                 <Queue key={queue.kind} queue={queue} />
               ))}
             </Grid>
+            {liveCountsKnown ? null : (
+              <Text type="supporting">
+                Worker counts are unavailable from this API build.
+              </Text>
+            )}
             <Collapsible
               defaultIsOpen={false}
               trigger={

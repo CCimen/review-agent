@@ -17,11 +17,7 @@ import {
 } from "@astryxdesign/core/Table";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { SettingsTabs } from "./accounts";
@@ -30,7 +26,7 @@ import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { useScope } from "./scope";
 import { ConfirmAction } from "./teams";
-import { Copy, Empty, Form, Freshness, dateTimeValue, time } from "./ui";
+import { Copy, Empty, Form, Freshness, Prose, dateTimeValue, time } from "./ui";
 
 type Integration = components["schemas"]["Integration"];
 type IntegrationPage = components["schemas"]["IntegrationPage"];
@@ -114,8 +110,8 @@ function IntegrationEditor({
       </Grid>
       {deploymentWide ? (
         <Text as="p">
-          This application can report on all repositories, including
-          unassigned repositories and teams added later.
+          This application can report on all repositories, including unassigned
+          repositories and teams added later.
         </Text>
       ) : (
         <fieldset>
@@ -203,9 +199,9 @@ function IntegrationEditor({
       />
 
       <Text as="p" color="secondary">
-        All integrations can read outcome metadata and aggregate reports.
-        This additional permission exposes published review text within the
-        approved scope.
+        All integrations can read outcome metadata and aggregate reports. This
+        additional permission exposes published review text within the approved
+        scope.
       </Text>
       <DateTimeInput
         label="Expires at (UTC)"
@@ -222,9 +218,7 @@ function IntegrationEditor({
       )}
       <HStack gap={3} wrap="wrap" vAlign="center">
         <Button
-          label={String(
-            save.isPending ? "Creating…" : "Create integration",
-          )}
+          label={String(save.isPending ? "Creating…" : "Create integration")}
           variant="primary"
           type="submit"
           isDisabled={
@@ -343,9 +337,9 @@ export function IntegrationsPage() {
             Save the credential for {issued.integration.name}
           </Heading>
           <Text as="p">
-            This is the only time it is shown. Store it in your
-            application's secret manager and send it in the Authorization
-            header as a Bearer credential.
+            This is the only time it is shown. Store it in your application's
+            secret manager and send it in the Authorization header as a Bearer
+            credential.
           </Text>
           <Copy value={issued.token} label="integration credential">
             <Code>{issued.token}</Code>
@@ -409,8 +403,7 @@ export function IntegrationsPage() {
           </VStack>
         ) : (
           <Empty title="No integrations">
-            Create a credential when an application needs to read team
-            reports.
+            Create a credential when an application needs to read team reports.
           </Empty>
         ))}
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -431,11 +424,13 @@ export function IntegrationsPage() {
           />
         )}
       </HStack>
-      <Text as="p" color="secondary">
-        Permissions are fixed when a credential is created. To change access
-        or rotate a credential, create its replacement and then revoke the
-        old integration.
-      </Text>
+      <Prose>
+        <Text as="p" color="secondary">
+          Permissions are fixed when a credential is created. To change access
+          or rotate a credential, create its replacement and then revoke the old
+          integration.
+        </Text>
+      </Prose>
       <Text as="p">
         <AstryxLink
           href="/api/docs#integration%20reports"

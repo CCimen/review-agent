@@ -196,7 +196,7 @@ export function Login() {
                 <Heading level={1}>{title}</Heading>
                 <Text color="secondary">
                   {mode === "complete"
-                    ? "Finish registration with a password of 15–128 characters."
+                    ? "Finish registration with a password of 15-128 characters."
                     : mode === "register"
                       ? "Use an allowed email address. We’ll send a link to verify it and choose your password."
                       : "Review activity and administration for your team."}
@@ -550,7 +550,7 @@ export function Users({ current }: { current: Account }) {
                   } satisfies InputHTMLAttributes<HTMLInputElement>)}
                 />
                 <Text color="secondary">
-                  15–128 characters. Share it privately with the user.
+                  15-128 characters. Share it privately with the user.
                 </Text>
               </VStack>
               <Selector
@@ -1069,7 +1069,7 @@ export function MyAccount({ current }: { current: Account }) {
               maxLength: 128,
             } satisfies InputHTMLAttributes<HTMLInputElement>)}
           />
-          <Text color="secondary">15–128 characters.</Text>
+          <Text color="secondary">15-128 characters.</Text>
         </VStack>
 
         <TextInput

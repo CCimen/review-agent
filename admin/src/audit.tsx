@@ -373,7 +373,7 @@ function AuditAccessGate({ teamId }: { teamId?: number }) {
             />
 
             <Text as="p" color="secondary" id="audit-reason-hint">
-              10–500 characters. Include enough detail to explain this access to
+              10-500 characters. Include enough detail to explain this access to
               another administrator.
             </Text>
             <Button

@@ -1,5 +1,3 @@
-import type { BadgeProps } from "@astryxdesign/core/Badge";
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
@@ -14,6 +12,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@astryxdesign/core/Table";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { useQuery } from "@tanstack/react-query";
@@ -46,8 +45,9 @@ const workerStates: Record<WorkerInstance["state"], string> = {
   stopped: "Stopped",
   unresponsive: "Unresponsive",
 };
-const workerTone: Record<WorkerInstance["state"], BadgeProps["variant"]> = {
-  running: "info",
+type Tone = "success" | "warning" | "error" | "accent" | "neutral";
+const workerTone: Record<WorkerInstance["state"], Tone> = {
+  running: "success",
   draining: "warning",
   stopped: "neutral",
   unresponsive: "error",
@@ -123,10 +123,14 @@ function Workers({
                   </Text>
                 </TableHeaderCell>
                 <TableCell>
-                  <Badge
-                    label={workerStates[worker.state]}
-                    variant={workerTone[worker.state]}
-                  />
+                  <HStack gap={2} vAlign="center">
+                    <StatusDot
+                      aria-hidden="true"
+                      label={workerStates[worker.state]}
+                      variant={workerTone[worker.state]}
+                    />
+                    <Text>{workerStates[worker.state]}</Text>
+                  </HStack>
                 </TableCell>
                 <TableCell>{number.format(worker.capacity)}</TableCell>
                 <TableCell>
@@ -181,25 +185,35 @@ function Workers({
 
 function Queue({ queue }: { queue: QueueStatus }) {
   const backlog = queue.due > 0;
-  const tone = queue.expired_leases > 0
-    ? "error"
-    : backlog
-      ? "warning"
-      : queue.live_workers === 0 ? "neutral" : "success";
-  const label = queue.expired_leases > 0
-    ? "Recovery needed"
-    : queue.live_workers === 0
-      ? "No live worker"
+  const hasLiveWorker = queue.live_workers > 0;
+  const tone =
+    queue.expired_leases > 0
+      ? "error"
       : backlog
-        ? "Ready"
-        : queue.leased > 0
-          ? "In progress"
-          : queue.waiting ? "Scheduled" : "Clear";
+        ? "warning"
+        : !hasLiveWorker
+          ? "neutral"
+          : "success";
+  const label =
+    queue.expired_leases > 0
+      ? "Recovery needed"
+      : !hasLiveWorker
+        ? "No live worker"
+        : backlog
+          ? "Ready"
+          : queue.leased > 0
+            ? "In progress"
+            : queue.waiting
+              ? "Scheduled"
+              : "Clear";
   return (
     <VStack gap={3}>
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
         <Heading level={3}>{queueLabels[queue.kind] ?? queue.kind}</Heading>
-        <Badge label={label} variant={tone} />
+        <HStack gap={2} vAlign="center">
+          <StatusDot aria-hidden="true" label={label} variant={tone} />
+          <Text>{label}</Text>
+        </HStack>
       </HStack>
       <VStack as="dl" gap={2}>
         <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -239,20 +253,34 @@ function Queue({ queue }: { queue: QueueStatus }) {
           <dd>{number.format(queue.failed)}</dd>
         </HStack>
       </VStack>
-      <Text type="supporting">
-        {number.format(queue.live_workers)} live workers · {number.format(queue.worker_capacity)} slots
-      </Text>
+      {Number.isFinite(queue.live_workers) &&
+      Number.isFinite(queue.worker_capacity) ? (
+        <Text type="supporting">
+          {number.format(queue.live_workers)} live workers ·{" "}
+          {number.format(queue.worker_capacity)} slots
+        </Text>
+      ) : (
+        <Text type="supporting">
+          Worker count unavailable from this API build
+        </Text>
+      )}
       {queue.capacity_waiting > 0 && (
-        <Text type="supporting">Waiting for review capacity: {number.format(queue.capacity_waiting)}</Text>
+        <Text type="supporting">
+          Waiting for review capacity: {number.format(queue.capacity_waiting)}
+        </Text>
       )}
       {queue.cooldown_waiting > 0 && (
         <Text type="supporting">
           Waiting for account quota: {number.format(queue.cooldown_waiting)}
-          {queue.cooldown_until ? ` · next check ${time(queue.cooldown_until)}` : ""}
+          {queue.cooldown_until
+            ? ` · next check ${time(queue.cooldown_until)}`
+            : ""}
         </Text>
       )}
       {queue.oldest_due_at && (
-        <Text type="supporting">Oldest due since {time(queue.oldest_due_at)}</Text>
+        <Text type="supporting">
+          Oldest due since {time(queue.oldest_due_at)}
+        </Text>
       )}
       <Text as="p" color="secondary">
         {queue.oldest_waiting_at
@@ -263,7 +291,9 @@ function Queue({ queue }: { queue: QueueStatus }) {
           : ""}
       </Text>
       {queue.last_progress_at && (
-        <Text type="supporting">Last start or completion: {time(queue.last_progress_at)}</Text>
+        <Text type="supporting">
+          Last start or completion: {time(queue.last_progress_at)}
+        </Text>
       )}
       {queue.last_terminal_reason && (
         <Text type="supporting">
@@ -367,13 +397,19 @@ export function OperationsPage() {
     queryFn: ({ signal }) => read<Operations>("/api/operations", signal),
   });
   const data = query.data;
-  const running = data?.queues.reduce((sum, queue) => sum + queue.live_workers, 0) ?? 0;
+  const liveCountsKnown =
+    data?.queues.every((queue) => Number.isFinite(queue.live_workers)) ?? false;
+  const running = liveCountsKnown
+    ? (data?.queues.reduce((sum, queue) => sum + queue.live_workers, 0) ?? 0)
+    : null;
   const unresponsive =
     data?.workers.filter((worker) => worker.state === "unresponsive").length ??
     0;
   const due = data?.queues.reduce((sum, queue) => sum + queue.due, 0) ?? 0;
   const waitingWithoutWorkers =
-    data?.queues.filter((queue) => queue.due > 0 && queue.live_workers === 0) ?? [];
+    data?.queues.filter(
+      (queue) => queue.due > 0 && !(queue.live_workers > 0),
+    ) ?? [];
   return (
     <>
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">

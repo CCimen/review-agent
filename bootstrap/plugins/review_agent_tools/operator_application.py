@@ -47,7 +47,7 @@ from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import reporting as postgres_reporting
 from .postgres import review_runs as postgres_review_runs
 from .postgres.runtime import PostgreSQLRuntime
-from .postgres import audit as postgres_audit, team_access
+from .postgres import audit as postgres_audit, team_access, admin_operations
 
 
 class OperatorInputError(ValueError):
@@ -58,16 +58,17 @@ MAX_COACH_INTERVENTION_HISTORY_ITEMS = 100
 
 
 @dataclass(frozen=True, slots=True)
-class DeploymentHealth:
-    github_app: postgres_github_app.GitHubAppAccessHealth
-    review_queue: postgres_jobs.ReviewQueueHealth
-    publication_queue: postgres_publications.PublicationQueueHealth
-
-
-@dataclass(frozen=True, slots=True)
 class QueueHealth:
     review_queue: postgres_jobs.ReviewQueueHealth
     publication_queue: postgres_publications.PublicationQueueHealth
+    progress: tuple[admin_operations.QueueStatus, ...]
+    generated_at: datetime
+    stale_after_seconds: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentHealth(QueueHealth):
+    github_app: postgres_github_app.GitHubAppAccessHealth
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,24 +85,50 @@ class RepositoryOnboardingResult:
 
 
 def queue_health(runtime: PostgreSQLRuntime) -> QueueHealth:
-    """Read only review and publication queue health counters."""
+    """Read queue counters and progress through the shared operational reader."""
     with runtime.transaction() as connection:
-        return QueueHealth(
-            review_queue=postgres_jobs.queue_health(connection),
-            publication_queue=postgres_publications.queue_health(connection),
-        )
+        return _queue_health(connection)
+
+
+def _queue_health(connection: psycopg.Connection[TupleRow]) -> QueueHealth:
+    now = datetime.now(timezone.utc)
+    progress = admin_operations.queue_status(connection, now=now)
+    kinds = {queue.kind: queue for queue in progress}
+    reviews, publications = kinds["review"], kinds["publisher"]
+    return QueueHealth(
+        review_queue=postgres_jobs.ReviewQueueHealth(
+            active=reviews.waiting + reviews.leased + reviews.awaiting_publication,
+            queued=reviews.waiting,
+            leased=reviews.leased,
+            expired_leases=reviews.expired_leases,
+            dead_letters=reviews.dead_letters,
+        ),
+        publication_queue=postgres_publications.PublicationQueueHealth(
+            pending=publications.waiting,
+            posting=publications.leased,
+            expired_recoverable=publications.expired_leases - publications.expired_exhausted,
+            expired_exhausted=publications.expired_exhausted,
+        ),
+        progress=progress,
+        generated_at=now,
+        stale_after_seconds=admin_operations.WORKER_STALE_SECONDS,
+    )
 
 
 def deployment_health(runtime: PostgreSQLRuntime, *, profile: str) -> DeploymentHealth:
     """Read one consistent, set-oriented operator health snapshot."""
     with runtime.transaction() as connection:
+        queues = _queue_health(connection)
         return DeploymentHealth(
             github_app=postgres_github_app.access_health(
                 connection,
                 profile_key=profile,
             ),
-            review_queue=postgres_jobs.queue_health(connection),
-            publication_queue=postgres_publications.queue_health(connection),
+            review_queue=queues.review_queue,
+            publication_queue=queues.publication_queue,
+            progress=queues.progress,
+            generated_at=queues.generated_at,
+            stale_after_seconds=queues.stale_after_seconds,
         )
 
 
@@ -754,8 +781,10 @@ def list_runs(
     repository: str | None,
     limit: int,
     failed_only: bool = False,
+    pr_number: int | None = None,
 ) -> tuple[postgres_reporting.ReviewRunReport, ...]:
     normalized_repository = _repository(repository)
+    normalized_pr = _positive(pr_number, field="pr_number") if pr_number is not None else None
     row_limit = _positive(limit, field="limit")
     with runtime.transaction() as connection:
         return postgres_reporting.list_runs(
@@ -763,6 +792,7 @@ def list_runs(
             repository=normalized_repository,
             limit=row_limit,
             failed_only=failed_only,
+            pr_number=normalized_pr,
         )
 
 
@@ -815,8 +845,10 @@ def run_stats(
     days: int,
     stale_after_minutes: int,
     now: datetime | None = None,
+    pr_number: int | None = None,
 ) -> postgres_reporting.RunStats:
     normalized_repository = _repository(repository)
+    normalized_pr = _positive(pr_number, field="pr_number") if pr_number is not None else None
     window_days = _positive(days, field="days")
     stale_minutes = _positive(stale_after_minutes, field="stale_after_minutes")
     moment = _now(now)
@@ -824,6 +856,7 @@ def run_stats(
         return postgres_reporting.run_stats(
             connection,
             repository=normalized_repository,
+            pr_number=normalized_pr,
             since=moment - timedelta(days=window_days),
             stale_before=moment - timedelta(minutes=stale_minutes),
             window_days=window_days,

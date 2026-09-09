@@ -11294,6 +11294,34 @@
             "type": "integer",
             "title": "Failed"
           },
+          "awaiting_publication": {
+            "type": "integer",
+            "title": "Awaiting Publication"
+          },
+          "dead_letters": {
+            "type": "integer",
+            "title": "Dead Letters"
+          },
+          "expired_exhausted": {
+            "type": "integer",
+            "title": "Expired Exhausted"
+          },
+          "live_workers": {
+            "type": "integer",
+            "title": "Live Workers"
+          },
+          "worker_capacity": {
+            "type": "integer",
+            "title": "Worker Capacity"
+          },
+          "cooldown_waiting": {
+            "type": "integer",
+            "title": "Cooldown Waiting"
+          },
+          "capacity_waiting": {
+            "type": "integer",
+            "title": "Capacity Waiting"
+          },
           "oldest_waiting_at": {
             "anyOf": [
               {
@@ -11306,6 +11334,18 @@
             ],
             "title": "Oldest Waiting At"
           },
+          "oldest_due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Due At"
+          },
           "next_available_at": {
             "anyOf": [
               {
@@ -11317,6 +11357,65 @@
               }
             ],
             "title": "Next Available At"
+          },
+          "cooldown_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cooldown Until"
+          },
+          "last_progress_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Progress At"
+          },
+          "last_heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat At"
+          },
+          "last_terminal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Terminal Reason"
+          },
+          "last_terminal_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Terminal At"
           }
         },
         "type": "object",
@@ -11328,8 +11427,21 @@
           "leased",
           "expired_leases",
           "failed",
+          "awaiting_publication",
+          "dead_letters",
+          "expired_exhausted",
+          "live_workers",
+          "worker_capacity",
+          "cooldown_waiting",
+          "capacity_waiting",
           "oldest_waiting_at",
-          "next_available_at"
+          "oldest_due_at",
+          "next_available_at",
+          "cooldown_until",
+          "last_progress_at",
+          "last_heartbeat_at",
+          "last_terminal_reason",
+          "last_terminal_at"
         ],
         "title": "QueueStatus"
       },

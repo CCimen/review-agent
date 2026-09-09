@@ -2998,10 +2998,36 @@ export interface components {
             expired_leases: number;
             /** Failed */
             failed: number;
+            /** Awaiting Publication */
+            awaiting_publication: number;
+            /** Dead Letters */
+            dead_letters: number;
+            /** Expired Exhausted */
+            expired_exhausted: number;
+            /** Live Workers */
+            live_workers: number;
+            /** Worker Capacity */
+            worker_capacity: number;
+            /** Cooldown Waiting */
+            cooldown_waiting: number;
+            /** Capacity Waiting */
+            capacity_waiting: number;
             /** Oldest Waiting At */
             oldest_waiting_at: string | null;
+            /** Oldest Due At */
+            oldest_due_at: string | null;
             /** Next Available At */
             next_available_at: string | null;
+            /** Cooldown Until */
+            cooldown_until: string | null;
+            /** Last Progress At */
+            last_progress_at: string | null;
+            /** Last Heartbeat At */
+            last_heartbeat_at: string | null;
+            /** Last Terminal Reason */
+            last_terminal_reason: string | null;
+            /** Last Terminal At */
+            last_terminal_at: string | null;
         };
         /** QuotaBucket */
         QuotaBucket: {

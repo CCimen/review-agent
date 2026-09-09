@@ -270,6 +270,9 @@ class OperatorSetupTests(unittest.TestCase):
 
     def test_doctor_uses_read_only_contract_and_returns_secret_safe_status(self) -> None:
         snapshot = operator_application.DeploymentHealth(
+            generated_at=datetime.now(timezone.utc),
+            stale_after_seconds=90,
+            progress=(),
             github_app=github_app.GitHubAppAccessHealth(
                 active_installations=1,
                 automatic_installations=1,
@@ -346,8 +349,8 @@ class OperatorSetupTests(unittest.TestCase):
         queue_check = next(check for check in report.checks if check.name == "queues")
         self.assertEqual(
             queue_check.detail,
-            "Review queue has 2/100 active jobs, 1 dead-letter record, and no "
-            "expired work",
+            "Review queue has 2/100 active jobs, 1 dead-letter record; "
+            "webhook, review and publication queues have no expired or unattended due work",
         )
         repository_check = next(
             check for check in report.checks if check.name == "repositories"
@@ -359,6 +362,9 @@ class OperatorSetupTests(unittest.TestCase):
 
     def test_smoke_test_checks_capacity_then_uses_only_gateway_dry_run(self) -> None:
         snapshot = operator_application.DeploymentHealth(
+            generated_at=datetime.now(timezone.utc),
+            stale_after_seconds=90,
+            progress=(),
             github_app=github_app.GitHubAppAccessHealth(
                 active_installations=0,
                 automatic_installations=0,
@@ -435,6 +441,9 @@ class OperatorSetupTests(unittest.TestCase):
                 expired_publications=expired_publications,
             ):
                 snapshot = operator_application.DeploymentHealth(
+                    generated_at=datetime.now(timezone.utc),
+                    stale_after_seconds=90,
+                    progress=(),
                     github_app=github_app.GitHubAppAccessHealth(
                         active_installations=1,
                         automatic_installations=0,
@@ -458,21 +467,27 @@ class OperatorSetupTests(unittest.TestCase):
                 )
                 gateway = Mock()
 
-                with (
-                    patch.object(
-                        operator_setup.operator_application,
-                        "deployment_health",
-                        return_value=snapshot,
-                    ),
-                    self.assertRaises(error),
+                with patch.object(
+                    operator_setup.operator_application,
+                    "deployment_health",
+                    return_value=snapshot,
                 ):
-                    operator_setup.smoke_test(
-                        {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": "100"},
-                        runtime=Mock(),
-                        gateway=gateway,
-                        repository="CCimen/review-agent",
-                        pr_number=42,
+                    report = operator_setup.doctor(
+                        {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": "100"}, runtime=Mock(),
+                        gateway=gateway, hermes_probe=lambda: True,
                     )
+                    self.assertEqual(
+                        next(check for check in report.checks if check.name == "queues").status,
+                        "error",
+                    )
+                    with self.assertRaises(error):
+                        operator_setup.smoke_test(
+                            {"REVIEW_AGENT_ACTIVE_JOB_LIMIT": "100"},
+                            runtime=Mock(),
+                            gateway=gateway,
+                            repository="CCimen/review-agent",
+                            pr_number=42,
+                        )
 
                 gateway.operator_smoke.assert_not_called()
 

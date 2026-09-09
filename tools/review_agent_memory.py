@@ -559,12 +559,12 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
             )
         elif args.stats:
             result = operator_application.run_stats(
-                runtime, repository=args.repo, days=args.days,
+                runtime, repository=args.repo, pr_number=args.pr, days=args.days,
                 stale_after_minutes=args.stale_after_minutes,
             )
         else:
             result = operator_application.list_runs(
-                runtime, repository=args.repo, limit=args.limit,
+                runtime, repository=args.repo, pr_number=args.pr, limit=args.limit,
                 failed_only=args.failed,
             )
     elif args.command == "publications":

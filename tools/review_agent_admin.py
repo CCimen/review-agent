@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import datetime
 import json
 import os
@@ -397,21 +398,41 @@ def _repository_inventory(
 
 def _queue_inventory(runtime: PostgreSQLRuntime) -> int:
     snapshot = operator_application.queue_health(runtime)
+    progress: dict[str, dict[str, object]] = {}
+    for queue in snapshot.progress:
+        values: dict[str, object] = {
+            key: value.isoformat() if isinstance(value, datetime) else value
+            for key, value in asdict(queue).items()
+        }
+        values["oldest_due_age_seconds"] = (
+            max(0.0, (snapshot.generated_at - queue.oldest_due_at).total_seconds())
+            if queue.oldest_due_at is not None else None
+        )
+        values["oldest_waiting_age_seconds"] = (
+            max(0.0, (snapshot.generated_at - queue.oldest_waiting_at).total_seconds())
+            if queue.oldest_waiting_at is not None else None
+        )
+        progress[queue.kind] = values
     _json(
         {
+            "generated_at": snapshot.generated_at.isoformat(),
+            "worker_stale_after_seconds": snapshot.stale_after_seconds,
             "publications": {
+                **progress["publisher"],
                 "expired_exhausted": snapshot.publication_queue.expired_exhausted,
                 "expired_recoverable": snapshot.publication_queue.expired_recoverable,
                 "pending": snapshot.publication_queue.pending,
                 "posting": snapshot.publication_queue.posting,
             },
             "reviews": {
+                **progress["review"],
                 "active": snapshot.review_queue.active,
                 "dead_letters": snapshot.review_queue.dead_letters,
                 "expired_leases": snapshot.review_queue.expired_leases,
                 "leased": snapshot.review_queue.leased,
                 "queued": snapshot.review_queue.queued,
             },
+            "webhooks": progress["webhook"],
         }
     )
     return 0

@@ -4087,6 +4087,30 @@ review-agent-admin queues inspect
 review-agent-admin jobs list --limit 100
 ```
 
+`queues inspect` reports webhook intake, review jobs and publication delivery
+from the same reader used by the console. The existing `reviews` and
+`publications` count keys remain available. Publication counts include final
+review comments and pending failure notices.
+
+| Signal | Meaning |
+| --- | --- |
+| `waiting`, `due`, `delayed` | Waiting work, split by whether its scheduled availability has arrived. Due work may still need a scheduler slot. |
+| `oldest_due_age_seconds` | Time since the oldest waiting item became due, excluding its scheduled delay. |
+| `oldest_waiting_age_seconds` | Total waiting age; for publications, this measures delivery lag since generation. |
+| `next_available_at` | The next scheduled retry or cooldown expiry that makes delayed work due. |
+| `live_workers`, `worker_capacity` | Recently reporting worker instances and their advertised capacity, using the returned `worker_stale_after_seconds` threshold. |
+| `leased`, `expired_leases` | Claimed work and the subset whose lease expired. |
+| `capacity_waiting` | Webhook requests deferred by the last admission capacity check. |
+| `cooldown_waiting`, `cooldown_until` | Review jobs waiting for model-account quota and the next recorded quota deadline. GitHub retry deadlines are included in `next_available_at`. |
+| `last_progress_at`, `last_heartbeat_at` | The latest persisted start/completion and the latest heartbeat of leased work. A heartbeat proves liveness, not completion. |
+| `last_terminal_reason`, `last_terminal_at` | The latest terminal reason and its timestamp, including rejected webhook requests. |
+
+`doctor` reports expired leases, review-capacity exhaustion, and work that has
+been due for at least 90 seconds with neither a live worker nor a current lease.
+Scheduled retries and quota waits do not trigger the missing-worker check.
+Idle queues have zero waiting and leased counts and null wait ages; retained
+failure history remains visible.
+
 Release a delayed queued retry or cancel its active run:
 
 ```bash
@@ -4105,6 +4129,8 @@ Inspect recent runs:
 ```bash
 review-agent-memory runs --repo <org>/<repo> --limit 10
 review-agent-memory runs --repo <org>/<repo> --stats
+review-agent-memory runs --repo <org>/<repo> --pr <number> --limit 10
+review-agent-memory runs --repo <org>/<repo> --pr <number> --stats
 ```
 
 Inspect publication state:

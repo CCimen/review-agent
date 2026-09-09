@@ -38,6 +38,7 @@ from review_agent_tools.postgres import (  # noqa: E402
     registry,
     reporting,
     review_runs,
+    webhook_deliveries,
 )
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
@@ -84,6 +85,140 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     full_name=self.repository,
                 ),
             )
+
+    def register_webhook(self) -> webhook_deliveries.WebhookDelivery:
+        with self.runtime.transaction() as connection:
+            result = webhook_deliveries.register_delivery(
+                connection,
+                definition=webhook_deliveries.DeliveryDefinition(
+                    delivery_guid=str(uuid4()),
+                    event="issue_comment",
+                    action="created",
+                    payload_sha256="a" * 64,
+                    provider_installation_id=7001,
+                    provider_repository_id=self.provider_repository_id,
+                    repository_full_name=self.repository,
+                    command_category=webhook_deliveries.CommandCategory.REVIEW,
+                    normalized_schema_version=1,
+                    normalized_payload={"command": "review", "pull_request_number": 12},
+                ),
+                max_attempts=3,
+            )
+        return result.delivery
+
+    def test_queue_inventory_exposes_waiting_webhook_and_missing_consumer(self) -> None:
+        from unittest.mock import Mock
+        from review_agent_tools import operator_setup
+
+        self.register_webhook()
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                """UPDATE review_agent.github_webhook_deliveries
+                   SET received_at = statement_timestamp() - interval '10 minutes',
+                       available_at = statement_timestamp() - interval '5 minutes'"""
+            )
+        self.runtime.readiness()
+        completed = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "review_agent_admin.py"), "queues", "inspect"],
+            cwd=ROOT,
+            env={**os.environ, "REVIEW_AGENT_DATABASE_URL": DSN},
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        inventory = json.loads(completed.stdout)
+        self.assertEqual(inventory["webhooks"]["waiting"], 1)
+        self.assertEqual(inventory["webhooks"]["due"], 1)
+        self.assertEqual(inventory["webhooks"]["live_workers"], 0)
+        self.assertGreaterEqual(inventory["webhooks"]["oldest_due_age_seconds"], 300)
+        report = operator_setup.doctor(
+            {}, runtime=self.runtime, gateway=Mock(), hermes_probe=lambda: True
+        )
+        queue_check = next(check for check in report.checks if check.name == "queues")
+        self.assertEqual(queue_check.status, "error")
+        self.assertIn("webhook", queue_check.detail)
+
+    def test_queue_report_preserves_cooldowns_and_includes_failure_notice_delivery(self) -> None:
+        from unittest.mock import Mock
+        from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
+        from review_agent_tools import operator_setup, review_contract
+        from review_agent_tools.postgres import jobs
+
+        self.register_webhook()
+        with self.runtime.transaction() as connection:
+            leased = webhook_deliveries.claim_next_delivery(
+                connection, lease_owner="queue-test", lease_duration=timedelta(minutes=2)
+            )
+            assert leased is not None
+            webhook_deliveries.finish_delivery(
+                connection, delivery_id=leased.id, lease_owner="queue-test",
+                lease_generation=leased.lease_generation,
+                status=webhook_deliveries.TerminalStatus.REJECTED,
+                actor="queue-test", failure_code="review_permission_denied",
+            )
+        delayed = self.register_webhook()
+        with self.runtime.transaction() as connection:
+            leased = webhook_deliveries.claim_next_delivery(
+                connection, lease_owner="queue-test", lease_duration=timedelta(minutes=2)
+            )
+            assert leased is not None and leased.id == delayed.id
+            webhook_deliveries.retry_or_fail_delivery(
+                connection, delivery_id=leased.id, lease_owner="queue-test",
+                lease_generation=leased.lease_generation, actor="queue-test",
+                failure_code="review_waiting_for_capacity", waiting_for_capacity=True,
+                retry_delay=timedelta(hours=1),
+            )
+        queued = self.start(
+            pr_number=90, request_suffix="quota-wait",
+            resolved_config=review_contract.resolved_config(
+                TEST_REVIEW_CONTRACT,
+                model_route=review_contract.ModelRoute(None, 1, 1, 1),
+            ),
+        )
+        failed = self.start(pr_number=91, request_suffix="failure-notice-wait")
+        reviewed = self.start(pr_number=92, request_suffix="publication-wait")
+        publication = self.prepare_publication(
+            reviewed, self.record_finding(reviewed, findings=()), key_character="e"
+        )
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(
+                connection, review_run_id=queued.run.id, priority=0,
+                max_attempts=3, active_job_limit=10,
+            )
+            review_runs.fail_run(connection, failed.run.id, failure_code="review_failed")
+            connection.execute(
+                """UPDATE review_agent.model_accounts
+                   SET quota_wait_until = statement_timestamp() + interval '1 hour'
+                   WHERE connection_id = 1 AND provider = 'openai-codex'"""
+            )
+            connection.execute(
+                """UPDATE review_agent.publications
+                   SET delivery_available_at = statement_timestamp() + interval '1 hour'
+                   WHERE id = %s""", (publication.id,),
+            )
+            connection.execute(
+                """UPDATE review_agent.review_runs
+                   SET failure_status_delivery_available_at = statement_timestamp() + interval '1 hour'
+                   WHERE id = %s""", (failed.run.id,),
+            )
+        snapshot = operator_application.queue_health(self.runtime)
+        queues = {queue.kind: queue for queue in snapshot.progress}
+        self.assertEqual(snapshot.publication_queue.pending, 2)
+        self.assertEqual(queues["review"].cooldown_waiting, 1)
+        self.assertEqual(queues["review"].next_available_at, queues["review"].cooldown_until)
+        self.assertEqual(queues["webhook"].last_terminal_reason, "review_permission_denied")
+        self.assertEqual(queues["webhook"].capacity_waiting, 1)
+        self.assertIsNotNone(queues["webhook"].last_progress_at)
+        for kind, delayed_count in (("review", 1), ("publisher", 2), ("webhook", 1)):
+            with self.subTest(queue=kind):
+                self.assertEqual(queues[kind].due, 0)
+                self.assertEqual(queues[kind].delayed, delayed_count)
+                self.assertIsNone(queues[kind].oldest_due_at)
+                self.assertGreater(queues[kind].next_available_at, snapshot.generated_at)
+        report = operator_setup.doctor(
+            {}, runtime=self.runtime, gateway=Mock(), hermes_probe=lambda: True
+        )
+        self.assertEqual(next(check for check in report.checks if check.name == "queues").status, "ready")
 
     @staticmethod
     def finding(**overrides: object) -> FindingInput:
@@ -691,6 +826,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     ),
                     ("running", 4, 1),
                 )
+                self.assertEqual(
+                    next(queue for queue in current.queues if queue.kind == "review").live_workers,
+                    1,
+                )
                 connection.execute(
                     "UPDATE review_agent.worker_instances SET last_seen_at = statement_timestamp() - interval '91 seconds' WHERE id = %s",
                     (telemetry.id,),
@@ -699,6 +838,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     connection, now=datetime.now(timezone.utc)
                 )
                 self.assertEqual(stale.workers[0].state, "unresponsive")
+                self.assertEqual(
+                    next(queue for queue in stale.queues if queue.kind == "review").live_workers,
+                    0,
+                )
                 connection.execute(
                     "INSERT INTO review_agent.worker_events (worker_id, event) SELECT %s, 'review_started' FROM generate_series(1, 1001)",
                     (telemetry.id,),
@@ -1215,6 +1358,29 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 days=30,
                 now=now,
             )
+
+    def test_runs_cli_applies_pr_filter_to_listing_and_statistics(self) -> None:
+        wanted = self.start(pr_number=12, request_suffix="filtered-run")
+        self.start(pr_number=2, request_suffix="unrelated-run")
+        for extra in ([], ["--stats"]):
+            with self.subTest(options=extra):
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(ROOT / "tools" / "review_agent_memory.py"),
+                        "runs", "--repo", self.repository, "--pr", "12", *extra,
+                    ],
+                    cwd=ROOT,
+                    env={**os.environ, "REVIEW_AGENT_DATABASE_URL": DSN},
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                result = json.loads(completed.stdout)
+                if extra:
+                    self.assertEqual(result["total"], 1)
+                else:
+                    self.assertEqual([row["id"] for row in result], [wanted.run.id])
 
     def test_quality_cli_renders_json_and_markdown_without_accuracy_claims(
         self,

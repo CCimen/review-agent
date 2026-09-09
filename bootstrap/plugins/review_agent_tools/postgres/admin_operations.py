@@ -14,6 +14,7 @@ from psycopg.rows import TupleRow, class_row
 from .team_access import ReadScope, repository_source, run_source
 
 WorkerKind = Literal["review", "publisher", "webhook"]
+WORKER_STALE_SECONDS = 90
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,11 +115,11 @@ def overview(
             (SELECT count(*) FROM {runs} r WHERE status = 'running'),
             (SELECT coalesce(sum(j.lease_generation), 0)::bigint FROM review_agent.review_jobs j JOIN {runs} r ON r.id = j.review_run_id),
             (SELECT count(*) FROM review_agent.review_attempt_usage u JOIN review_agent.review_jobs j ON j.id = u.job_id JOIN {runs} r ON r.id = j.review_run_id),
-            count(*) FILTER (WHERE kind = 'review' AND state = 'running' AND last_seen_at > %(now)s - interval '90 seconds'),
-            coalesce(sum(capacity) FILTER (WHERE kind = 'review' AND state = 'running' AND last_seen_at > %(now)s - interval '90 seconds'), 0)::bigint
+            count(*) FILTER (WHERE kind = 'review' AND state = 'running' AND last_seen_at > %(now)s - %(stale_seconds)s * interval '1 second'),
+            coalesce(sum(capacity) FILTER (WHERE kind = 'review' AND state = 'running' AND last_seen_at > %(now)s - %(stale_seconds)s * interval '1 second'), 0)::bigint
         FROM review_agent.worker_instances
     """).format(runs=run_source(scope), repositories=repository_source(scope)),
-        {"now": now},
+        {"now": now, "stale_seconds": WORKER_STALE_SECONDS},
     ).fetchone()
     assert totals is not None
     with connection.cursor(row_factory=class_row(ActivityDay)) as cursor:
@@ -183,8 +184,21 @@ class QueueStatus:
     leased: int
     expired_leases: int
     failed: int
+    awaiting_publication: int
+    dead_letters: int
+    expired_exhausted: int
+    live_workers: int
+    worker_capacity: int
+    cooldown_waiting: int
+    capacity_waiting: int
     oldest_waiting_at: datetime | None
+    oldest_due_at: datetime | None
     next_available_at: datetime | None
+    cooldown_until: datetime | None
+    last_progress_at: datetime | None
+    last_heartbeat_at: datetime | None
+    last_terminal_reason: str | None
+    last_terminal_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,10 +221,12 @@ def operations(
                 UNION ALL
                 SELECT 'publisher', delivery_lease_owner FROM review_agent.publications WHERE status = 'posting' AND delivery_lease_expires_at > %(now)s
                 UNION ALL
+                SELECT 'publisher', failure_status_delivery_lease_owner FROM review_agent.review_runs WHERE failure_status_delivery_status = 'posting' AND failure_status_delivery_lease_expires_at > %(now)s
+                UNION ALL
                 SELECT 'webhook', lease_owner FROM review_agent.github_webhook_deliveries WHERE status = 'processing' AND lease_expires_at > %(now)s
             ), busy AS (SELECT kind, lease_owner, count(*) AS count FROM leases GROUP BY kind, lease_owner)
             SELECT w.id, w.kind, w.lease_owner, w.capacity, w.started_at, w.last_seen_at,
-                CASE WHEN state <> 'stopped' AND last_seen_at <= %(now)s - interval '90 seconds' THEN 'unresponsive' ELSE state END AS state,
+                CASE WHEN state <> 'stopped' AND last_seen_at <= %(now)s - %(stale_seconds)s * interval '1 second' THEN 'unresponsive' ELSE state END AS state,
                 CASE WHEN w.state = 'stopped' THEN 0
                      WHEN count(*) FILTER (WHERE w.state <> 'stopped') OVER (PARTITION BY w.kind, w.lease_owner) > 1 THEN NULL
                      ELSE coalesce(b.count, 0) END AS active_leases
@@ -218,15 +234,31 @@ def operations(
             LEFT JOIN busy b ON b.kind = w.kind AND b.lease_owner = w.lease_owner
             ORDER BY (w.state <> 'stopped') DESC, w.last_seen_at DESC, w.id LIMIT 101
         """,
-            {"now": now},
+            {"now": now, "stale_seconds": WORKER_STALE_SECONDS},
         ).fetchall()
+    return Operations(
+        now, WORKER_STALE_SECONDS, tuple(workers[:100]), len(workers) > 100,
+        queue_status(connection, now=now),
+    )
+
+
+def queue_status(
+    connection: psycopg.Connection[TupleRow], *, now: datetime
+) -> tuple[QueueStatus, ...]:
+    """Share queue timing and worker evidence across console and operator reports."""
     with connection.cursor(row_factory=class_row(QueueStatus)) as cursor:
-        queues = cursor.execute(
+        rows = cursor.execute(
             """
             WITH work AS (
-                SELECT 'review' AS kind, job.status = 'queued' AS waiting, job.status = 'leased' AS leased,
-                    job.status IN ('failed', 'dead_letter') AS failed, job.created_at,
-                    GREATEST(job.available_at, account.quota_wait_until) AS available_at, job.lease_expires_at
+                SELECT 'review' AS kind, 'job' AS source, job.id,
+                    job.status = 'queued' AS waiting, job.status = 'leased' AS leased,
+                    job.status IN ('failed', 'dead_letter') AS failed,
+                    job.status = 'dead_letter' AS dead_letter,
+                    job.status = 'awaiting_publication' AS awaiting_publication,
+                    job.attempt_count >= job.max_attempts AS exhausted,
+                    job.created_at, GREATEST(job.available_at, account.quota_wait_until) AS available_at,
+                    job.lease_expires_at, job.started_at, job.last_heartbeat_at,
+                    job.completed_at, job.failure_code, account.quota_wait_until AS cooldown_until
                 FROM review_agent.review_jobs job
                 JOIN review_agent.review_runs run ON run.id = job.review_run_id
                 JOIN review_agent.review_subjects subject ON subject.id = run.review_subject_id
@@ -234,9 +266,42 @@ def operations(
                   ON account.connection_id = subject.model_connection_id
                  AND account.provider = subject.model_provider AND account.revision = subject.model_account_revision
                 UNION ALL
-                SELECT 'publisher', status IN ('generated', 'publish_failed'), status = 'posting', status = 'failed', generated_at, delivery_available_at, delivery_lease_expires_at FROM review_agent.publications WHERE posted_at IS NULL AND superseded_at IS NULL
+                SELECT 'publisher', 'publication', id,
+                    status IN ('generated', 'publish_failed'), status = 'posting',
+                    status = 'failed', false, false,
+                    delivery_attempt_count >= delivery_max_attempts,
+                    generated_at, delivery_available_at, delivery_lease_expires_at,
+                    posting_started_at, delivery_last_heartbeat_at,
+                    delivery_completed_at, failure_code, NULL::timestamptz
+                FROM review_agent.publications
                 UNION ALL
-                SELECT 'webhook', status = 'received', status = 'processing', status = 'failed', received_at, available_at, lease_expires_at FROM review_agent.github_webhook_deliveries
+                SELECT 'publisher', 'failure_status', id,
+                    failure_status_delivery_status IN ('pending', 'publish_failed'),
+                    failure_status_delivery_status = 'posting', failure_status_delivery_status = 'failed',
+                    false, false,
+                    failure_status_delivery_attempt_count >= failure_status_delivery_max_attempts,
+                    completed_at, failure_status_delivery_available_at,
+                    failure_status_delivery_lease_expires_at, NULL::timestamptz,
+                    failure_status_delivery_last_heartbeat_at,
+                    failure_status_delivery_completed_at, failure_status_delivery_failure_code,
+                    NULL::timestamptz
+                FROM review_agent.review_runs WHERE failure_status_delivery_status <> 'not_required'
+                UNION ALL
+                SELECT 'webhook', 'delivery', id, status = 'received', status = 'processing',
+                    status = 'failed', false, false, attempt_count >= max_attempts,
+                    received_at, available_at, lease_expires_at, started_at,
+                    last_heartbeat_at, processed_at, failure_code, NULL::timestamptz
+                FROM review_agent.github_webhook_deliveries
+            ), workers AS (
+                SELECT kind, count(*) AS live_workers, sum(capacity)::bigint AS capacity
+                FROM review_agent.worker_instances
+                WHERE state = 'running'
+                  AND last_seen_at > %(now)s - %(stale_seconds)s * interval '1 second'
+                GROUP BY kind
+            ), terminal AS (
+                SELECT DISTINCT ON (kind) kind, failure_code, completed_at
+                FROM work WHERE completed_at IS NOT NULL AND failure_code IS NOT NULL
+                ORDER BY kind, completed_at DESC, source, id DESC
             )
             SELECT kinds.kind,
                 count(*) FILTER (WHERE w.waiting AND NOT w.failed) AS waiting,
@@ -245,14 +310,32 @@ def operations(
                 count(*) FILTER (WHERE w.leased) AS leased,
                 count(*) FILTER (WHERE w.leased AND lease_expires_at <= %(now)s) AS expired_leases,
                 count(*) FILTER (WHERE w.failed) AS failed,
+                count(*) FILTER (WHERE w.awaiting_publication) AS awaiting_publication,
+                count(*) FILTER (WHERE w.dead_letter) AS dead_letters,
+                count(*) FILTER (WHERE w.leased AND lease_expires_at <= %(now)s AND w.exhausted) AS expired_exhausted,
+                coalesce(workers.live_workers, 0) AS live_workers,
+                coalesce(workers.capacity, 0) AS worker_capacity,
+                count(*) FILTER (WHERE w.waiting AND w.cooldown_until > %(now)s) AS cooldown_waiting,
+                count(*) FILTER (WHERE w.waiting AND w.failure_code = 'review_waiting_for_capacity') AS capacity_waiting,
                 min(created_at) FILTER (WHERE w.waiting AND NOT w.failed) AS oldest_waiting_at,
-                min(available_at) FILTER (WHERE w.waiting AND NOT w.failed AND available_at > %(now)s) AS next_available_at
+                min(available_at) FILTER (WHERE w.waiting AND NOT w.failed AND available_at <= %(now)s) AS oldest_due_at,
+                min(available_at) FILTER (WHERE w.waiting AND NOT w.failed AND available_at > %(now)s) AS next_available_at,
+                min(w.cooldown_until) FILTER (WHERE w.waiting AND w.cooldown_until > %(now)s) AS cooldown_until,
+                max(GREATEST(w.started_at, w.completed_at)) AS last_progress_at,
+                max(w.last_heartbeat_at) FILTER (WHERE w.leased) AS last_heartbeat_at,
+                terminal.failure_code AS last_terminal_reason,
+                terminal.completed_at AS last_terminal_at
             FROM (VALUES ('review'), ('publisher'), ('webhook')) kinds(kind)
-            LEFT JOIN work w ON w.kind = kinds.kind GROUP BY kinds.kind ORDER BY kinds.kind
+            LEFT JOIN work w ON w.kind = kinds.kind
+            LEFT JOIN workers ON workers.kind = kinds.kind
+            LEFT JOIN terminal ON terminal.kind = kinds.kind
+            GROUP BY kinds.kind, workers.live_workers, workers.capacity,
+                terminal.failure_code, terminal.completed_at
+            ORDER BY kinds.kind
         """,
-            {"now": now},
+            {"now": now, "stale_seconds": WORKER_STALE_SECONDS},
         ).fetchall()
-    return Operations(now, 90, tuple(workers[:100]), len(workers) > 100, tuple(queues))
+    return tuple(rows)
 
 
 @dataclass(frozen=True, slots=True)

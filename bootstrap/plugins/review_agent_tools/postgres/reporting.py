@@ -955,6 +955,7 @@ def list_runs(
     repository: str | None,
     limit: int,
     failed_only: bool,
+    pr_number: int | None = None,
 ) -> tuple[ReviewRunReport, ...]:
     _require_transaction(connection)
     conditions: list[str] = []
@@ -962,6 +963,9 @@ def list_runs(
     if repository is not None:
         conditions.append("lower(repository.full_name) = lower(%s)")
         parameters.append(repository)
+    if pr_number is not None:
+        conditions.append("pull_request.number = %s")
+        parameters.append(pr_number)
     if failed_only:
         # Superseded runs also need operator recovery because they carry a
         # terminal snapshot-superseded failure code.
@@ -1007,17 +1011,21 @@ def run_stats(
     stale_before: datetime,
     window_days: int,
     now: datetime,
+    pr_number: int | None = None,
 ) -> RunStats:
     _require_transaction(connection)
-    repository_filter = (
-        "" if repository is None else "AND lower(repository.full_name) = lower(%s)"
-    )
-    parameters: tuple[object, ...] = (
-        (since,) if repository is None else (since, repository)
-    )
+    conditions = ["run.started_at >= %s"]
+    parameters: list[object] = [since]
+    if repository is not None:
+        conditions.append("lower(repository.full_name) = lower(%s)")
+        parameters.append(repository)
+    if pr_number is not None:
+        conditions.append("pull_request.number = %s")
+        parameters.append(pr_number)
+    where = " AND ".join(conditions)
     with connection.cursor(row_factory=class_row(_RunTotalsRow)) as cursor:
         totals = cursor.execute(
-            f"""
+            _trusted_sql(f"""
             SELECT count(*)::integer AS total,
                    count(*) FILTER (
                        WHERE run.status = 'running'
@@ -1038,8 +1046,8 @@ def run_stats(
               ON pull_request.id = run.pull_request_id
             JOIN review_agent.repositories AS repository
               ON repository.id = pull_request.repository_id
-            WHERE run.started_at >= %s {repository_filter}
-            """,
+            WHERE {where}
+            """),
             (stale_before, *parameters),
         ).fetchone()
     if totals is None:
@@ -1053,10 +1061,10 @@ def run_stats(
           ON pull_request.id = run.pull_request_id
         JOIN review_agent.repositories AS repository
           ON repository.id = pull_request.repository_id
-        WHERE run.started_at >= %s {repository_filter}
+        WHERE {where}
         GROUP BY run.status ORDER BY run.status
         """,
-        parameters,
+        tuple(parameters),
     )
     return RunStats(
         repository=repository,

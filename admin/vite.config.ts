@@ -10,16 +10,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // The admin API rejects writes whose Origin is not its own, so the dev
-      // proxy has to present the target's origin instead of the Vite server's.
-      "/api": {
-        target,
-        changeOrigin: true,
-        configure: (proxy) =>
-          proxy.on("proxyReq", (request) =>
-            request.setHeader("origin", target),
-          ),
-      },
+      // The admin API rejects writes whose Origin is not its own. In dev the
+      // API's configured public URL is this Vite server, so the browser's own
+      // Origin is the one it expects; rewriting it here made every write fail
+      // the check. Only the Host header is changed for the upstream hop.
+      "/api": { target, changeOrigin: true },
     },
   },
 });

@@ -6,3 +6,19 @@
 @import "@fontsource/figtree/latin-500.css";
 @import "@fontsource/figtree/latin-600.css";
 @import "@fontsource/figtree/latin-700.css";
+
+/* The segmented control draws its track as a translucent white overlay, so on
+   an elevated surface the composited background rises to about #3c3c3c and the
+   theme's secondary text lands at 4.11:1 — under the 4.5:1 that Astryx's own
+   accessibility notes require for an unselected segment label. Mixing the
+   secondary tone toward the primary one keeps the label visibly quieter than
+   the selected segment while clearing the ratio, and stays derived from theme
+   tokens rather than a hardcoded grey. Remove when upstream raises the tone. */
+.astryx-segmented-control-item:not([data-selected]),
+.astryx-segmented-control-item:not([data-selected]) span {
+  color: color-mix(
+    in srgb,
+    var(--color-text-secondary) 55%,
+    var(--color-text-primary)
+  );
+}

@@ -17,11 +17,21 @@ import "./theme.css";
 const client = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
-      if (error instanceof APIError && [401, 403, 404].includes(error.status)) {
-        query.setState({ data: undefined });
-        if (query.queryKey[0] !== "me")
-          void client.invalidateQueries({ queryKey: ["me"] });
-      }
+      // A 404 means an optional endpoint is not configured on this deployment
+      // (registration and OIDC both answer that way), not that the session went
+      // stale, so it must not be read as an authentication signal.
+      if (!(error instanceof APIError) || ![401, 403].includes(error.status))
+        return;
+      query.setState({ data: undefined });
+      // Rechecking the account is only meaningful when we believed we had one.
+      // On the sign-in screen "me" holds no data, and invalidating it there
+      // re-rendered the page, which refetched these endpoints, which
+      // invalidated it again: a request loop with no delay between passes.
+      if (
+        query.queryKey[0] !== "me" &&
+        client.getQueryData(["me"]) !== undefined
+      )
+        void client.invalidateQueries({ queryKey: ["me"] });
     },
   }),
   defaultOptions: {

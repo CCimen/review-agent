@@ -212,7 +212,7 @@ export function ActivityPage() {
         <Period days={days} change={(value) => update({ days: value })} />
       </HStack>
       <ActivityTabs />
-      <Grid columns={{ minWidth: 180, max: 4 }} gap={6}>
+      <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
         <Stat
           label="Active requests"
           value={data?.active_requests ?? null}
@@ -242,7 +242,6 @@ export function ActivityPage() {
         <HStack gap={4} justify="between" align="end" wrap="wrap">
           <SegmentedControl
             label="Filter request state"
-
             value={status}
             onChange={(value) => update({ status: value })}
           >
@@ -267,7 +266,10 @@ export function ActivityPage() {
               <TextInput
                 label={"Repository"}
                 id="activity-repo"
-                placeholder="owner/repository (optional)"
+                isOptional
+                hasClear
+                width={260}
+                placeholder="owner/repository"
                 value={repository}
                 onChange={(value) => setRepository(value)}
                 {...({

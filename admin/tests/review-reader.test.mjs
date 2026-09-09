@@ -23,6 +23,7 @@ let AuditLog;
 let AuditJSON;
 let ConnectionQuota;
 let IntegrationsPage;
+let OperationsPage;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -53,6 +54,7 @@ before(async () => {
   ({ AuditLog, AuditJSON } = await server.ssrLoadModule("/src/audit.tsx"));
   ({ ConnectionQuota } = await server.ssrLoadModule("/src/modelQuota.tsx"));
   ({ IntegrationsPage } = await server.ssrLoadModule("/src/integrations.tsx"));
+  ({ OperationsPage } = await server.ssrLoadModule("/src/operations.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -104,6 +106,32 @@ const renderConsolePage = (component, cache) => {
   client.clear();
   return html;
 };
+
+test("queue health uses all worker reports and explains capacity waits with a truncated worker list", () => {
+  const html = renderConsolePage(createElement(OperationsPage), [[
+    ["operations"],
+    {
+      generated_at: "2026-09-09T12:00:00Z", stale_after_seconds: 90,
+      workers: [], workers_truncated: true,
+      queues: [{
+        kind: "webhook", waiting: 2, due: 1, delayed: 1, leased: 0,
+        expired_leases: 0, failed: 4, live_workers: 0, worker_capacity: 0,
+        capacity_waiting: 1, cooldown_waiting: 0, cooldown_until: null,
+        oldest_waiting_at: "2026-09-09T11:50:00Z",
+        oldest_due_at: "2026-09-09T11:55:00Z",
+        next_available_at: "2026-09-09T12:05:00Z",
+        last_progress_at: "2026-09-09T11:49:00Z",
+        last_terminal_reason: "review_permission_denied",
+        last_terminal_at: "2026-09-09T11:48:00Z",
+      }],
+    },
+  ]]);
+  assert.match(html, /Work is waiting without an online worker report/);
+  assert.match(html, /Waiting for review capacity: 1/);
+  assert.match(html, /Oldest due since/);
+  assert.match(html, /Retained failures/);
+  assert.doesNotMatch(html, /Worker list incomplete/);
+});
 
 test("integration management distinguishes report grants, content grants and revoked credentials", () => {
   const html = renderConsolePage(createElement(IntegrationsPage), [
@@ -476,6 +504,9 @@ const request = {
   previous_head_sha: "c".repeat(40),
   failure_code: null,
   job_failure_code: null,
+  publication_failure_code: null,
+  next_attempt_at: null,
+  quota_wait_until: null,
   recovered: false,
   is_latest: true,
   publication_superseded: false,
@@ -557,6 +588,28 @@ test("queued review explains account quota waiting and the next check", async ()
   client.clear();
 });
 
+test("review progress distinguishes delayed delivery, expired leases and actual phases", async () => {
+  for (const [changes, expected] of [
+    [{ state: "queued", phase: "reviewing", next_attempt_at: "2026-09-10T12:00:00Z" }, /Next attempt/],
+    [{ state: "running", phase: "collecting_diff" }, /Reading changes/],
+    [{ state: "publishing", phase: "publishing", next_attempt_at: "2026-09-10T12:00:00Z", publication_failure_code: "github_rate_limited" }, /Publication retry scheduled/],
+    [{ state: "stalled", phase: "reviewing" }, /Worker lease expired/],
+  ]) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+    });
+    const item = { ...request, posted_at: null, completed_at: null, ...changes };
+    client.setQueryData(scopedKey(["review", "24", null]), {
+      ...review, item, markdown: null, requests: [item],
+    });
+    const html = await renderReader(client);
+    assert.match(html, expected);
+    assert.doesNotMatch(html, /role="progressbar"/);
+    if (item.state === "stalled") assert.doesNotMatch(html, /Review in progress/);
+    client.clear();
+  }
+});
+
 test("review destination leads with publication and coverage, preserves filters and exposes diagnostics separately", async () => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
@@ -568,7 +621,7 @@ test("review destination leads with publication and coverage, preserves filters 
     /href="\/history\?days=7&amp;status=published&amp;before_id=99"/,
   );
   assert.match(html, /#issuecomment-123/);
-  assert.match(html, /Limited coverage/);
+  assert.match(html, /Incomplete/);
   assert.match(html, /46 min 24 s/);
   assert.match(html, /aria-current="page"/);
   assert.match(button(html, "Execution details"), /aria-expanded="false"/);

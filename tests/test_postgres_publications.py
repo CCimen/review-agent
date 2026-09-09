@@ -2722,6 +2722,10 @@ class PostgreSQLPublicationTests(unittest.TestCase):
 
         self.assertEqual(repeated.comment_id, first.comment_id)
         self.assertEqual(len(github.comments), 1)
+        self.assertIn(
+            "**Requested commit:** `" + github.head_sha + "`",
+            github.comments[0].body.split("<!--", 1)[0],
+        )
         with self.runtime.transaction() as connection:
             stored = review_runs.failure_status_target(connection, failed_run)
         self.assertEqual(stored.comment_id, first.comment_id)

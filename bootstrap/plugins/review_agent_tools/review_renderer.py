@@ -848,6 +848,12 @@ def render_review(
     header_lines = [
         heading,
         "",
+        (
+            f"**Reviewed commit:** [{inline_code(head_sha[:12])}]"
+            f"(https://github.com/{urllib.parse.quote(repository, safe='/')}/commit/"
+            f"{urllib.parse.quote(head_sha, safe='')})"
+        ),
+        "",
         lifecycle_summary(
             findings=current,
             closed=closed,

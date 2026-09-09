@@ -17,6 +17,16 @@ import memory_validation  # noqa: E402
 
 
 class ReviewRendererTests(unittest.TestCase):
+    def test_review_header_identifies_the_exact_commit_without_findings(self) -> None:
+        rendered = review_renderer.render_review_markdown(
+            repository="example/repository", pr_number=12, head_sha="a" * 40,
+            findings=[], closed=[], still_present=[], partially_resolved=[],
+            new_refs=[], not_checked_refs=[], coverage=self.coverage(),
+        )
+        visible = rendered.split("<!--", 1)[0]
+        self.assertIn("**Reviewed commit:**", visible)
+        self.assertIn("https://github.com/example/repository/commit/" + "a" * 40, visible)
+
     def coverage(self, **overrides):
         value = {
             "state": "complete",

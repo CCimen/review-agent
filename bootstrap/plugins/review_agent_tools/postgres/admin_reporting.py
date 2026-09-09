@@ -19,7 +19,7 @@ HistoryStatus = Literal[
     "all", "active", "published", "failed", "latest_failed", "superseded"
 ]
 RunState = Literal[
-    "queued", "running", "publishing", "published", "failed", "superseded"
+    "queued", "running", "publishing", "stalled", "published", "failed", "superseded"
 ]
 
 
@@ -84,6 +84,8 @@ class HistoryRow:
     is_latest: bool
     recovered: bool
     quota_wait_until: datetime | None
+    next_attempt_at: datetime | None
+    publication_failure_code: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,12 +230,18 @@ _HISTORY_SELECT = """
                 CASE WHEN run.status = 'failed' THEN 'failed'
                      WHEN run.status = 'superseded' THEN 'superseded'
                      WHEN pub.posted_at IS NOT NULL THEN 'published'
-                     WHEN pub.status IN ('generated', 'posting') THEN 'publishing'
+                     WHEN (pub.status = 'posting' AND pub.delivery_lease_expires_at <= statement_timestamp())
+                       OR (job.status = 'leased' AND job.lease_expires_at <= statement_timestamp())
+                       THEN 'stalled'
+                     WHEN pub.status IN ('generated', 'posting', 'publish_failed') THEN 'publishing'
                      WHEN job.status = 'queued' THEN 'queued' ELSE 'running' END AS state,
                 run.phase, run.findings_count, run.failure_code,
                 job.failure_code AS job_failure_code,
                 coalesce(job.attempt_count, 0) AS attempt_count, job.max_attempts,
-                run.started_at, run.last_heartbeat_at, run.completed_at, pub.posted_at,
+                run.started_at,
+                GREATEST(run.last_heartbeat_at, job.last_heartbeat_at,
+                         pub.delivery_last_heartbeat_at) AS last_heartbeat_at,
+                run.completed_at, pub.posted_at,
                 (pub.superseded_at IS NOT NULL) AS publication_superseded,
                 NOT EXISTS (
                     SELECT 1 FROM review_agent.review_runs AS newer
@@ -245,7 +253,18 @@ _HISTORY_SELECT = """
                       AND newer.posted_at IS NOT NULL
                 )) AS recovered,
                 CASE WHEN job.status = 'queued' AND run.status = 'running'
-                     THEN account.quota_wait_until END AS quota_wait_until
+                          AND account.quota_wait_until > statement_timestamp()
+                     THEN account.quota_wait_until END AS quota_wait_until,
+                CASE WHEN run.status = 'running' THEN
+                    CASE WHEN pub.status IN ('generated', 'publish_failed')
+                              AND pub.delivery_available_at > statement_timestamp()
+                         THEN pub.delivery_available_at
+                         WHEN job.status = 'queued'
+                              AND GREATEST(job.available_at, account.quota_wait_until) > statement_timestamp()
+                         THEN GREATEST(job.available_at, account.quota_wait_until)
+                    END
+                END AS next_attempt_at,
+                pub.failure_code AS publication_failure_code
             FROM review_agent.review_runs AS run
             JOIN review_agent.pull_requests AS pr ON pr.id = run.pull_request_id
             JOIN {repositories} AS repo ON repo.id = pr.repository_id
@@ -376,6 +395,8 @@ def _history_items(
             is_latest=row.is_latest,
             recovered=row.recovered,
             quota_wait_until=row.quota_wait_until,
+            next_attempt_at=row.next_attempt_at,
+            publication_failure_code=row.publication_failure_code,
             coverage=summaries[row.id],
             usage=usage.get(row.id, ReviewUsage(0, 0, None, None, None)),
         )

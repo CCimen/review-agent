@@ -2269,7 +2269,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "queued" | "running" | "publishing" | "published" | "failed" | "superseded";
+            state: "queued" | "running" | "publishing" | "stalled" | "published" | "failed" | "superseded";
             /** Phase */
             phase: string;
             /** Findings Count */
@@ -2304,6 +2304,10 @@ export interface components {
             recovered: boolean;
             /** Quota Wait Until */
             quota_wait_until: string | null;
+            /** Next Attempt At */
+            next_attempt_at: string | null;
+            /** Publication Failure Code */
+            publication_failure_code: string | null;
             usage: components["schemas"]["ReviewUsage"];
             coverage: components["schemas"]["CoverageSummary"];
         };

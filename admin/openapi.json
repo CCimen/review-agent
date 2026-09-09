@@ -9192,6 +9192,7 @@
               "queued",
               "running",
               "publishing",
+              "stalled",
               "published",
               "failed",
               "superseded"
@@ -9308,6 +9309,29 @@
             ],
             "title": "Quota Wait Until"
           },
+          "next_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Attempt At"
+          },
+          "publication_failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Failure Code"
+          },
           "usage": {
             "$ref": "#/components/schemas/ReviewUsage"
           },
@@ -9339,6 +9363,8 @@
           "is_latest",
           "recovered",
           "quota_wait_until",
+          "next_attempt_at",
+          "publication_failure_code",
           "usage",
           "coverage"
         ],

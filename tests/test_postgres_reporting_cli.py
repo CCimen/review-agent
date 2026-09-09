@@ -220,6 +220,98 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertEqual(next(check for check in report.checks if check.name == "queues").status, "ready")
 
+    def test_review_history_distinguishes_review_retry_and_expired_worker(self) -> None:
+        from review_agent_tools import admin_application, review_contract
+        from review_agent_tools.postgres import jobs
+        from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
+
+        run = self.start(
+            pr_number=93,
+            request_suffix="progress-review",
+            resolved_config=review_contract.resolved_config(
+                TEST_REVIEW_CONTRACT,
+                model_route=review_contract.ModelRoute(None, 1, 1, 1),
+            ),
+        )
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(connection, review_run_id=run.run.id, priority=0,
+                             max_attempts=3, active_job_limit=10)
+            connection.execute(
+                "UPDATE review_agent.review_jobs SET available_at = statement_timestamp() + interval '1 hour' WHERE review_run_id = %s",
+                (run.run.id,),
+            )
+        waiting = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(waiting.item.state, "queued")
+        self.assertGreater(waiting.item.next_attempt_at, datetime.now(timezone.utc))
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_jobs SET available_at = created_at WHERE review_run_id = %s",
+                (run.run.id,),
+            )
+            claim = jobs.claim_next_job(connection, lease_owner="progress-test",
+                                        lease_duration=timedelta(minutes=5),
+                                        priority_aging_interval=timedelta(minutes=5))
+            self.assertIsNotNone(claim)
+        active = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(active.item.state, "running")
+        self.assertIsNone(active.item.next_attempt_at)
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                """UPDATE review_agent.review_jobs
+                   SET created_at = created_at - interval '3 minutes',
+                       started_at = started_at - interval '3 minutes',
+                       last_heartbeat_at = statement_timestamp() - interval '2 minutes',
+                       lease_expires_at = statement_timestamp() - interval '1 minute'
+                   WHERE review_run_id = %s""", (run.run.id,),
+            )
+        expired = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(expired.item.state, "stalled")
+
+    def test_review_history_keeps_publication_retry_and_recovery_in_delivery(self) -> None:
+        from review_agent_tools import admin_application
+
+        run = self.start(pr_number=94, request_suffix="progress-publication")
+        publication = self.prepare_publication(
+            run, self.record_finding(run, findings=()), key_character="f"
+        )
+        with self.runtime.transaction() as connection:
+            claim = publications.claim_publication(connection, publication.id)
+            publications.fail_publication(
+                connection, publication_id=publication.id,
+                posting_started_at=claim.publication.posting_started_at,
+                failure_code="github_rate_limited", retryable=True,
+                retry_delay=timedelta(hours=1),
+            )
+        delayed = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(delayed.item.state, "publishing")
+        self.assertGreater(delayed.item.next_attempt_at, datetime.now(timezone.utc))
+        self.assertEqual(delayed.item.publication_failure_code, "github_rate_limited")
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.publications SET delivery_available_at = generated_at WHERE id = %s",
+                (publication.id,),
+            )
+            publications.claim_publication(connection, publication.id)
+            connection.execute(
+                """UPDATE review_agent.publications
+                   SET delivery_last_heartbeat_at = statement_timestamp() - interval '2 minutes',
+                       delivery_lease_expires_at = statement_timestamp() - interval '1 minute'
+                   WHERE id = %s""", (publication.id,),
+            )
+        expired = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(expired.item.state, "stalled")
+        self.assertIsNone(expired.markdown)
+
     @staticmethod
     def finding(**overrides: object) -> FindingInput:
         item = FindingInput(

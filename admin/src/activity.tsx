@@ -3,7 +3,6 @@ import { Code } from "@astryxdesign/core/CodeBlock";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -24,6 +23,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import type { HistoryItem, HistoryPage, Overview } from "./api";
 import { read } from "./api";
+import { ReviewProgress, reviewStateLabel } from "./reviewProgress";
 import { ScopedLink as Link, ScopedAnchor, useScope } from "./scope";
 import {
   Empty,
@@ -37,34 +37,6 @@ import {
   time,
   useFilters,
 } from "./ui";
-
-const states: Record<HistoryItem["state"], string> = {
-  queued: "Queued",
-  running: "Reviewing",
-  publishing: "Publishing",
-  published: "Published",
-  failed: "Failed",
-  superseded: "Superseded",
-};
-const phases = [
-  "accepted",
-  "fetching_pr",
-  "collecting_diff",
-  "reviewing",
-  "rendering",
-  "publishing",
-  "posted",
-];
-const phaseLabels: Record<string, string> = {
-  accepted: "Waiting for a worker",
-  fetching_pr: "Fetching pull request",
-  collecting_diff: "Reading changes",
-  reviewing: "Reviewing code",
-  rendering: "Preparing the result",
-  publishing: "Publishing to GitHub",
-  posted: "Review published",
-  failed: "Review stopped",
-};
 
 export function ActivityTabs() {
   const { pathname } = useLocation();
@@ -95,23 +67,6 @@ export function ActivityTabs() {
         label="Statistics"
       />
     </TabList>
-  );
-}
-
-export function Phase({ item }: { item: HistoryItem }) {
-  const index = phases.indexOf(item.phase);
-  return (
-    <VStack gap={1}>
-      {item.state === "running" || item.state === "publishing" ? (
-        <ProgressBar
-          value={index + 1}
-          max={phases.length}
-          label="Review progress"
-          isLabelHidden
-        />
-      ) : null}
-      <Text>{phaseLabels[item.phase] ?? item.phase.replaceAll("_", " ")}</Text>
-    </VStack>
   );
 }
 
@@ -177,19 +132,23 @@ export function ActivityPage() {
       renderCell: (item) => (
         <HStack gap={2}>
           <StatusDot
-            label={states[item.state]}
+            label={reviewStateLabel(item)}
             aria-hidden="true"
             variant={
               item.state === "published"
-                ? "success"
-                : item.state === "failed"
-                  ? "error"
-                  : item.state === "running" || item.state === "publishing"
-                    ? "accent"
-                    : "neutral"
+                ? item.coverage.state === "complete"
+                  ? "success"
+                  : "warning"
+                : item.state === "stalled"
+                  ? "warning"
+                  : item.state === "failed"
+                    ? "error"
+                    : item.state === "running" || item.state === "publishing"
+                      ? "accent"
+                      : "neutral"
             }
           />
-          <Text>{states[item.state]}</Text>
+          <Text>{reviewStateLabel(item)}</Text>
         </HStack>
       ),
     },
@@ -197,7 +156,7 @@ export function ActivityPage() {
       key: "phase",
       header: "Progress",
       width: proportional(1, { minWidth: 170 }),
-      renderCell: (item) => <Phase item={item} />,
+      renderCell: (item) => <ReviewProgress item={item} />,
     },
     {
       key: "head_sha",

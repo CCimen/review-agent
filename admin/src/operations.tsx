@@ -179,36 +179,22 @@ function Workers({
   );
 }
 
-function Queue({
-  queue,
-  consumers,
-}: {
-  queue: QueueStatus;
-  consumers: number | null;
-}) {
-  const stuck = queue.expired_leases > 0 || queue.failed > 0;
+function Queue({ queue }: { queue: QueueStatus }) {
   const backlog = queue.due > 0;
-  // An empty queue means "drained" only if something is running to drain it.
-  // With no live worker the honest reading is that we cannot tell.
-  const tone = stuck
+  const tone = queue.expired_leases > 0
     ? "error"
-    : consumers === null || consumers === 0
-      ? "neutral"
+    : backlog
+      ? "warning"
+      : queue.live_workers === 0 ? "neutral" : "success";
+  const label = queue.expired_leases > 0
+    ? "Recovery needed"
+    : queue.live_workers === 0
+      ? "No live worker"
       : backlog
-        ? "warning"
-        : "success";
-  const label =
-    consumers === null
-      ? "Worker list incomplete"
-      : consumers === 0
-        ? backlog
-          ? `${number.format(queue.due)} ready · no worker reporting`
-          : "No workers reporting"
-        : backlog
-          ? `${number.format(queue.due)} ready`
-          : queue.waiting
-            ? "Scheduled"
-            : "Clear";
+        ? "Ready"
+        : queue.leased > 0
+          ? "In progress"
+          : queue.waiting ? "Scheduled" : "Clear";
   return (
     <VStack gap={3}>
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -248,11 +234,26 @@ function Queue({
         </HStack>
         <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
           <dt>
-            <Text color="secondary">Failed</Text>
+            <Text color="secondary">Retained failures</Text>
           </dt>
           <dd>{number.format(queue.failed)}</dd>
         </HStack>
       </VStack>
+      <Text type="supporting">
+        {number.format(queue.live_workers)} live workers · {number.format(queue.worker_capacity)} slots
+      </Text>
+      {queue.capacity_waiting > 0 && (
+        <Text type="supporting">Waiting for review capacity: {number.format(queue.capacity_waiting)}</Text>
+      )}
+      {queue.cooldown_waiting > 0 && (
+        <Text type="supporting">
+          Waiting for account quota: {number.format(queue.cooldown_waiting)}
+          {queue.cooldown_until ? ` · next check ${time(queue.cooldown_until)}` : ""}
+        </Text>
+      )}
+      {queue.oldest_due_at && (
+        <Text type="supporting">Oldest due since {time(queue.oldest_due_at)}</Text>
+      )}
       <Text as="p" color="secondary">
         {queue.oldest_waiting_at
           ? `Oldest waiting since ${time(queue.oldest_waiting_at)}.`
@@ -261,6 +262,15 @@ function Queue({
           ? ` Next becomes available ${time(queue.next_available_at)}.`
           : ""}
       </Text>
+      {queue.last_progress_at && (
+        <Text type="supporting">Last start or completion: {time(queue.last_progress_at)}</Text>
+      )}
+      {queue.last_terminal_reason && (
+        <Text type="supporting">
+          Last terminal reason: <Code>{queue.last_terminal_reason}</Code>
+          {queue.last_terminal_at ? ` · ${time(queue.last_terminal_at)}` : ""}
+        </Text>
+      )}
     </VStack>
   );
 }
@@ -357,23 +367,13 @@ export function OperationsPage() {
     queryFn: ({ signal }) => read<Operations>("/api/operations", signal),
   });
   const data = query.data;
-  const running =
-    data?.workers.filter((worker) => worker.state === "running").length ?? 0;
+  const running = data?.queues.reduce((sum, queue) => sum + queue.live_workers, 0) ?? 0;
   const unresponsive =
     data?.workers.filter((worker) => worker.state === "unresponsive").length ??
     0;
   const due = data?.queues.reduce((sum, queue) => sum + queue.due, 0) ?? 0;
   const waitingWithoutWorkers =
-    data && !data.workers_truncated
-      ? data.queues.filter(
-          (queue) =>
-            queue.due > 0 &&
-            !data.workers.some(
-              (worker) =>
-                worker.kind === queue.kind && worker.state === "running",
-            ),
-        )
-      : [];
+    data?.queues.filter((queue) => queue.due > 0 && queue.live_workers === 0) ?? [];
   return (
     <>
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -391,11 +391,7 @@ export function OperationsPage() {
             <Stat
               label="Workers online"
               value={running}
-              hint={
-                data.workers_truncated
-                  ? "Among shown instances"
-                  : "Sending heartbeats"
-              }
+              hint="Sending heartbeats"
             />
             <Stat
               label="Unresponsive"
@@ -452,23 +448,9 @@ export function OperationsPage() {
             description="Follow work from incoming GitHub events to review and publication."
           >
             <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
-              {[...data.queues].sort(byPipeline).map((queue) => {
-                const consumers = data.workers.filter(
-                  (worker) =>
-                    worker.kind === queue.kind && worker.state === "running",
-                ).length;
-                return (
-                  <Queue
-                    key={queue.kind}
-                    queue={queue}
-                    consumers={
-                      consumers === 0 && data.workers_truncated
-                        ? null
-                        : consumers
-                    }
-                  />
-                );
-              })}
+              {[...data.queues].sort(byPipeline).map((queue) => (
+                <Queue key={queue.kind} queue={queue} />
+              ))}
             </Grid>
             <Collapsible
               defaultIsOpen={false}
@@ -486,7 +468,7 @@ export function OperationsPage() {
                   jobs belong to a worker; an expired claim needs recovery.
                 </Text>
                 <Text as="p">
-                  {running === 0 && !data.workers_truncated
+                  {running === 0
                     ? "No worker is reporting, so an empty queue does not mean work is being drained."
                     : "A quota wait ending makes a review eligible for another provider check; it does not confirm quota has recovered."}
                 </Text>

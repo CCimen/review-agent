@@ -25,6 +25,7 @@ import type {
 } from "./api";
 import { APIError, read } from "./api";
 import { ReviewFindings } from "./reviewFindings";
+import { ReviewProgress, reviewStateLabel } from "./reviewProgress";
 import { RunControls } from "./runControls";
 import { ScopedLink as Link, useScope } from "./scope";
 import {
@@ -47,48 +48,20 @@ const ReviewMarkdown = lazy(() =>
 
 const pullRequestURL = (item: Pick<HistoryItem, "repository" | "pr_number">) =>
   `https://github.com/${item.repository}/pull/${item.pr_number}`;
-const stateLabels: Record<HistoryItem["state"], string> = {
-  queued: "Queued",
-  running: "Reviewing",
-  publishing: "Publishing",
-  published: "Published",
-  failed: "Failed",
-  superseded: "Superseded",
-};
-
 function Result({ item }: { item: HistoryItem }) {
   return (
-    <Text>
-      <Text>{stateLabels[item.state]}</Text>
-      <Text color="secondary" display="block" type="supporting">
-        {item.posted_at !== null
-          ? `${item.findings_count === null ? "Unknown" : number.format(item.findings_count)} finding${item.findings_count === 1 ? "" : "s"}`
-          : item.recovered
-            ? "Later review published"
-            : item.state === "failed"
-              ? failureSentence(item.failure_code ?? "")
-              : item.state === "superseded"
-                ? "A newer request replaced this run"
-                : item.state === "queued"
-                  ? item.quota_wait_until
-                    ? "Waiting for account quota"
-                    : "Waiting for a worker"
-                  : item.state === "running"
-                    ? "Review in progress"
-                    : item.state === "publishing"
-                      ? "Delivering the result to GitHub"
-                      : "No published result yet"}
-        {item.coverage.state !== "complete" && item.posted_at !== null ? (
-          <Text>
-            {" "}
-            ·{" "}
-            {item.coverage.state === "unknown"
-              ? "Coverage unknown"
-              : "Limited coverage"}
-          </Text>
-        ) : null}
-      </Text>
-    </Text>
+    <VStack gap={1}>
+      <Text>{reviewStateLabel(item)}</Text>
+      {item.posted_at !== null ? (
+        <Text type="supporting">
+          {item.findings_count === null ? "Unknown" : number.format(item.findings_count)} finding{item.findings_count === 1 ? "" : "s"}
+        </Text>
+      ) : item.recovered ? (
+        <Text type="supporting">Later review published</Text>
+      ) : (
+        <ReviewProgress item={item} />
+      )}
+    </VStack>
   );
 }
 
@@ -289,7 +262,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                           time(item.started_at) +
                           "·" +
                           " " +
-                          stateLabels[item.state],
+                          reviewStateLabel(item),
                       }
                     : null,
                   data.requests.map((request) => ({
@@ -301,7 +274,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                       time(request.started_at) +
                       "·" +
                       " " +
-                      stateLabels[request.state],
+                      reviewStateLabel(request),
                   })),
                 ]
                   .flat()
@@ -451,11 +424,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
               ) : !item.posted_at &&
                 (item.state === "queued" ||
                   item.state === "running" ||
-                  item.state === "publishing") ? (
+                  item.state === "publishing" ||
+                  item.state === "stalled") ? (
                 <Text as="p">
-                  {item.quota_wait_until
-                    ? `The next quota check is due ${time(item.quota_wait_until)}. Work resumes after the provider confirms quota is available. `
-                    : ""}
                   This page updates automatically as the review progresses.
                 </Text>
               ) : (

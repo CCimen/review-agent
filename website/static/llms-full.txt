@@ -4080,6 +4080,22 @@ decisions remain governance actions.
 
 ## Runbook
 
+Follow live review progress in the console's **Activity** view or open a request
+from **Pull requests**. Progress shows the recorded phase, scheduled retry or
+quota check, and **Waiting for recovery** when a worker lease expires. It does
+not estimate a completion percentage. Published results with incomplete or
+unknown coverage are labeled **Incomplete**; their finding count is not a clean
+result. Every request identifies its exact commit.
+
+The **Health** view shows due-work ages, capacity and quota waits, live worker
+totals, and recent progress for each queue. Worker totals include instances beyond
+the displayed process list. Retained failures remain visible as history without
+marking an otherwise clear queue as currently failed.
+
+GitHub receives the final result or failure notice, with the reviewed or requested
+commit visible. Waiting and active progress stay in the console. These reports
+do not change GitHub checks or merge requirements.
+
 Inspect active queue work:
 
 ```bash

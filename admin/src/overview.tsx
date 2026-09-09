@@ -1,6 +1,10 @@
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
+import {
+  MetadataList,
+  MetadataListItem,
+} from "@astryxdesign/core/MetadataList";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
@@ -182,24 +186,20 @@ function Latency({ counts }: { counts: ActivityCounts }) {
   return (
     <VStack gap={4}>
       <Heading level={3}>Request to publication</Heading>
-      <dl>
-        <div>
-          <dt>Median</dt>
-          <dd>{median ?? <Unknown>No published reviews</Unknown>}</dd>
-        </div>
-        <div>
-          <dt>95th percentile</dt>
-          <dd>
-            {p95 ?? (
-              <Unknown>
-                {counts.published_reviews
-                  ? "Too few reviews"
-                  : "No published reviews"}
-              </Unknown>
-            )}
-          </dd>
-        </div>
-      </dl>
+      <MetadataList label={{ position: "start" }}>
+        <MetadataListItem label="Median">
+          {median ?? <Unknown>No published reviews</Unknown>}
+        </MetadataListItem>
+        <MetadataListItem label="95th percentile">
+          {p95 ?? (
+            <Unknown>
+              {counts.published_reviews
+                ? "Too few reviews"
+                : "No published reviews"}
+            </Unknown>
+          )}
+        </MetadataListItem>
+      </MetadataList>
       <Text as="p" color="secondary">
         {`Across ${number.format(counts.published_reviews)} published review${counts.published_reviews === 1 ? "" : "s"}, measured from the request to a result reaching GitHub, including queueing, retries and delivery.`}
         {enough ? "" : " A 95th percentile needs at least 20 to mean anything."}

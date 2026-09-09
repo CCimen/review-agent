@@ -3,6 +3,10 @@ import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
+import {
+  MetadataList,
+  MetadataListItem,
+} from "@astryxdesign/core/MetadataList";
 import { Link as AstryxLink } from "@astryxdesign/core/Link";
 import {
   Table,
@@ -215,44 +219,28 @@ function Queue({ queue }: { queue: QueueStatus }) {
           <Text>{label}</Text>
         </HStack>
       </HStack>
-      <VStack as="dl" gap={2}>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Waiting</Text>
-          </dt>
-          <dd>{number.format(queue.waiting)}</dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Ready to start</Text>
-          </dt>
-          <dd>{number.format(queue.due)}</dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Delayed</Text>
-          </dt>
-          <dd>{number.format(queue.delayed)}</dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Claimed by workers</Text>
-          </dt>
-          <dd>{number.format(queue.leased)}</dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Expired claims</Text>
-          </dt>
-          <dd>{number.format(queue.expired_leases)}</dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Retained failures</Text>
-          </dt>
-          <dd>{number.format(queue.failed)}</dd>
-        </HStack>
-      </VStack>
+      {/* The design system owns this key/value pairing; the hand-built
+          definition list set its own gaps and crowded the six counts. */}
+      <MetadataList label={{ position: "start" }}>
+        <MetadataListItem label="Waiting">
+          {number.format(queue.waiting)}
+        </MetadataListItem>
+        <MetadataListItem label="Ready to start">
+          {number.format(queue.due)}
+        </MetadataListItem>
+        <MetadataListItem label="Delayed">
+          {number.format(queue.delayed)}
+        </MetadataListItem>
+        <MetadataListItem label="Claimed by workers">
+          {number.format(queue.leased)}
+        </MetadataListItem>
+        <MetadataListItem label="Expired claims">
+          {number.format(queue.expired_leases)}
+        </MetadataListItem>
+        <MetadataListItem label="Retained failures">
+          {number.format(queue.failed)}
+        </MetadataListItem>
+      </MetadataList>
       {Number.isFinite(queue.live_workers) &&
       Number.isFinite(queue.worker_capacity) ? (
         <Text type="supporting">

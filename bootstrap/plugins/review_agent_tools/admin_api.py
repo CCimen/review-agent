@@ -120,10 +120,9 @@ def create_app(
 
     def database_unavailable(_request: Request, _error: Exception) -> JSONResponse:
         if _request.url.path.startswith("/scim/v2/"):
-            return admin_scim.error_response(
-                _request,
-                admin_scim.SCIMError(503, "Account data is temporarily unavailable"),
-            )
+            return admin_scim.SCIMError(
+                503, "Account data is temporarily unavailable"
+            ).response()
         return JSONResponse(
             status_code=503,
             content={
@@ -266,10 +265,9 @@ def create_app(
 
     def invalid_request(_request: Request, error: Exception) -> JSONResponse:
         if _request.url.path.startswith("/scim/v2/"):
-            return admin_scim.error_response(
-                _request,
-                admin_scim.SCIMError(400, "Invalid SCIM request", "invalidValue"),
-            )
+            return admin_scim.SCIMError(
+                400, "Invalid SCIM request", "invalidValue"
+            ).response()
         if not isinstance(error, RequestValidationError):
             raise error
         # Validation errors must not echo submitted passwords or session values.
@@ -303,9 +301,7 @@ def create_app(
         if not isinstance(error, StarletteHTTPException):
             raise error
         if request.url.path.startswith("/scim/v2/"):
-            return admin_scim.error_response(
-                request, admin_scim.SCIMError(error.status_code, str(error.detail))
-            )
+            return admin_scim.SCIMError(error.status_code, str(error.detail)).response()
         return await http_exception_handler(request, error)
 
     app.add_exception_handler(StarletteHTTPException, http_error)

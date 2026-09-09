@@ -29,10 +29,8 @@ from starlette.responses import RedirectResponse
 from .admin_auth import (
     AdminAuth,
     Base,
-    SessionStrategy,
     User,
-    UserManager,
-    authenticate_oidc_account,
+    sign_in_oidc_account,
 )
 from .admin_identity_config import IdentitySettings, OIDCSettings, identity_https_url
 
@@ -376,7 +374,7 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
                             settings, transaction, code, redirect_uri
                         )
                     async with auth.sessions() as session:
-                        user = await authenticate_oidc_account(
+                        token = await sign_in_oidc_account(
                             session,
                             issuer=claims.iss,
                             subject=claims.sub,
@@ -386,9 +384,6 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
                             link_access_revision=transaction.link_access_revision,
                             link_session_token=transaction.link_session_token,
                         )
-                        token = await SessionStrategy(
-                            session, method="oidc"
-                        ).write_token(user)
                         result = await auth.transport.get_login_response(token)
                         result.status_code = 303
                         result.headers["Location"] = (
@@ -396,7 +391,6 @@ def create_router(auth: AdminAuth, identity: IdentitySettings) -> APIRouter:
                             if transaction.link_user_id
                             else "/"
                         )
-                        await UserManager(session).on_after_login(user)
                 except PermissionError:
                     result = RedirectResponse(
                         f"{destination}?sso_error=account", status_code=303

@@ -421,7 +421,7 @@ async def update_provisioned_account(
     return user
 
 
-async def authenticate_oidc_account(
+async def sign_in_oidc_account(
     session: AsyncSession,
     *,
     issuer: str,
@@ -431,7 +431,8 @@ async def authenticate_oidc_account(
     link_user_id: uuid.UUID | None,
     link_access_revision: int | None,
     link_session_token: str | None,
-) -> User:
+) -> str:
+    """Resolve or link the account and issue its audited, revocable session."""
     await _lock_accounts(session)
     user = await session.scalar(
         select(User).where(User.oidc_issuer == issuer, User.oidc_subject == subject)
@@ -484,7 +485,9 @@ async def authenticate_oidc_account(
     elif (user.oidc_issuer, user.oidc_subject) != (issuer, subject):
         raise PermissionError("This account is linked to another organization identity")
     await session.flush()
-    return user
+    token = await SessionStrategy(session, method="oidc").write_token(user)
+    await UserManager(session).on_after_login(user)
+    return token
 
 
 class AdminAuth:

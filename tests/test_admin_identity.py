@@ -358,6 +358,36 @@ class IdentityAPITests(unittest.TestCase):
         self.assertEqual(self.client.get(path, headers=headers).status_code, 404)
         self.assertEqual(self.client.get("/api/users").json()["disabled_count"], 1)
 
+    def test_scim_patch_rejects_duplicate_attributes_without_changing_account(
+        self,
+    ) -> None:
+        headers = {"Authorization": f"Bearer {SCIM_TOKEN}"}
+        created = self.client.post(
+            "/scim/v2/Users",
+            headers=headers,
+            json={"schemas": [USER_SCHEMA], "userName": "duplicate@example.com"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        path = f"/scim/v2/Users/{created.json()['id']}"
+        rejected = self.client.patch(
+            path,
+            headers=headers,
+            json={
+                "schemas": [PATCH_SCHEMA],
+                "Operations": [
+                    {
+                        "op": "replace",
+                        "path": "userName",
+                        "value": "changed@example.com",
+                    },
+                    {"op": "replace", "value": {"active": True, "ACTIVE": False}},
+                ],
+            },
+        )
+        self.assertEqual(rejected.status_code, 400, rejected.text)
+        self.assertEqual(rejected.json()["scimType"], "invalidValue")
+        self.assertEqual(self.client.get(path, headers=headers).json(), created.json())
+
     def test_scim_advertises_supported_contract_and_returns_protocol_errors(
         self,
     ) -> None:

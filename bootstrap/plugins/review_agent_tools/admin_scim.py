@@ -5,7 +5,7 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, TypeVar, cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -38,6 +38,17 @@ USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"
 LIST_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:ListResponse"
 ERROR_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:Error"
 ExternalId = Annotated[str, Field(min_length=1, max_length=255)]
+_Value = TypeVar("_Value")
+
+
+def _attribute_names(value: dict[str, _Value]) -> dict[str, _Value]:
+    result: dict[str, _Value] = {}
+    for name, item in value.items():
+        canonical = name.lower()
+        if canonical in result:
+            raise ValueError("Duplicate SCIM attribute")
+        result[canonical] = item
+    return result
 
 
 class SCIMErrorBody(BaseModel):
@@ -68,14 +79,10 @@ class SCIMBodyLimit:
                 return
             chunk = message.get("body", b"")
             if len(body) + len(chunk) > 65536:
-                await SCIMResponse(
-                    {
-                        "schemas": [ERROR_SCHEMA],
-                        "status": "413",
-                        "detail": "SCIM requests may contain at most 64 KiB",
-                    },
-                    status_code=413,
-                )(scope, receive, send)
+                response = SCIMError(
+                    413, "SCIM requests may contain at most 64 KiB"
+                ).response()
+                await response(scope, receive, send)
                 return
             body.extend(chunk)
             if not message.get("more_body", False):
@@ -98,17 +105,20 @@ class SCIMError(Exception):
         self.detail = detail
         self.scim_type = scim_type
 
+    def response(self) -> SCIMResponse:
+        return SCIMResponse(
+            SCIMErrorBody(
+                status=str(self.status), detail=self.detail, scimType=self.scim_type
+            ).model_dump(exclude_none=True),
+            status_code=self.status,
+            headers={"WWW-Authenticate": "Bearer"} if self.status == 401 else None,
+        )
+
 
 def error_response(_request: Request, error: Exception) -> SCIMResponse:
     if not isinstance(error, SCIMError):
         raise error
-    return SCIMResponse(
-        SCIMErrorBody(
-            status=str(error.status), detail=error.detail, scimType=error.scim_type
-        ).model_dump(exclude_none=True),
-        status_code=error.status,
-        headers={"WWW-Authenticate": "Bearer"} if error.status == 401 else None,
-    )
+    return error.response()
 
 
 class SCIMInput(BaseModel):
@@ -118,13 +128,10 @@ class SCIMInput(BaseModel):
         if not isinstance(value, dict):
             return value
         fields = {name.lower(): name for name in cls.model_fields}
-        result: dict[str, object] = {}
-        for name, item in cast(dict[str, object], value).items():
-            canonical = fields.get(name.lower(), name)
-            if canonical in result:
-                raise ValueError("Duplicate SCIM attribute")
-            result[canonical] = item
-        return result
+        return {
+            fields.get(name, name): item
+            for name, item in _attribute_names(cast(dict[str, object], value)).items()
+        }
 
 
 class SCIMUserInput(SCIMInput):
@@ -165,9 +172,10 @@ def patch_changes(body: SCIMPatch) -> ProvisionedAccountUpdate:
                     raise SCIMError(
                         400, "An attribute object is required", "invalidValue"
                     )
-                values.update(
-                    {key.lower(): value for key, value in operation.value.items()}
-                )
+                try:
+                    values.update(_attribute_names(operation.value))
+                except ValueError as exc:
+                    raise SCIMError(400, str(exc), "invalidValue") from exc
             else:
                 values[path] = operation.value
         else:

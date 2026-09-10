@@ -219,6 +219,15 @@ function Latency({ counts }: { counts: ActivityCounts }) {
   // this panel does not overclaim anywhere else.
   const enough = counts.published_reviews >= 20;
   const p95 = enough ? duration(counts.p95_publication_seconds) : null;
+  /** Only worth saying when the tail is actually longer than the middle; a
+   *  multiple of one is the same sentence as the two figures above it. */
+  const ratio =
+    enough &&
+    counts.median_publication_seconds &&
+    counts.p95_publication_seconds
+      ? counts.p95_publication_seconds / counts.median_publication_seconds
+      : null;
+  const spread = ratio && ratio >= 2 ? Math.round(ratio) : null;
   return (
     <VStack gap={4}>
       <Heading level={3}>Request to publication</Heading>
@@ -236,6 +245,11 @@ function Latency({ counts }: { counts: ActivityCounts }) {
           )}
         </MetadataListItem>
       </MetadataList>
+      {spread ? (
+        <Text as="p" color="secondary">
+          {`The slowest one in twenty took about ${spread} times the median.`}
+        </Text>
+      ) : null}
       <Text as="p" color="secondary">
         {`Across ${number.format(counts.published_reviews)} published review${counts.published_reviews === 1 ? "" : "s"}, measured from the request to a result reaching GitHub, including queueing, retries and delivery.`}
         {enough ? "" : " A 95th percentile needs at least 20 to mean anything."}

@@ -75,6 +75,7 @@ export function ConfirmAction({
   done,
   method = "POST",
   danger = false,
+  width,
 }: {
   label: string;
   path: string;
@@ -83,6 +84,9 @@ export function ConfirmAction({
   done?: () => void;
   method?: "POST" | "PUT";
   danger?: boolean;
+  /** Set when the trigger shares a column with another button, so the two
+   *  take the same width instead of each sizing to its own label. */
+  width?: string;
 }) {
   const refresh = useTeamRefresh();
   const [open, setOpen] = useState(false);
@@ -96,13 +100,14 @@ export function ConfirmAction({
   });
   return (
     <VStack gap={3}>
-      {/* The stack stretches its children, which made every confirmation
-          trigger as wide as its table cell. */}
+      {/* Without a width the stack would stretch the trigger to the whole
+          cell, so it is wrapped to size to its label instead. */}
       <HStack gap={3} wrap="wrap" align="center">
         <Button
           label={label}
           variant="secondary"
           type="button"
+          width={width}
           aria-expanded={open}
           onClick={() => {
             setOpen(!open);
@@ -759,6 +764,9 @@ function TeamRepositories({
   const [after, setAfter] = useState(0);
   const [repository, setRepository] = useState("");
   const [destination, setDestination] = useState("");
+  /** The repository a move started from, so the panel names its subject and
+   *  the confirmation applies to it rather than to whichever row is found. */
+  const [moving, setMoving] = useState<TeamRepository | null>(null);
   const [teamSearch, setTeamSearch] = useState("");
   const admin = isAdmin(scope.current.role);
   const query = useQuery({
@@ -831,26 +839,45 @@ function TeamRepositories({
           {
             key: "actions",
             header: "Actions",
-            width: pixel(190),
+            width: pixel(210),
             renderCell: (repo: TeamRepository) => (
               <VStack gap={3}>
-                {destination ? (
+                {moving?.repository_id === repo.repository_id && destination ? (
                   <ConfirmAction
-                    label="Transfer"
+                    label="Confirm move"
                     method="PUT"
                     path={`/api/repository-ownership/${repo.repository_id}`}
                     body={{
                       team_id: Number(destination),
                       expected_team_id: team.id,
                     }}
-                    description={`Transfer ${repo.repository} and its history to ${destinations.data?.items.find((item) => String(item.id) === destination)?.name ?? "the selected team"}. This team will lose access.`}
+                    description={`Move ${repo.repository} and its history to ${destinations.data?.items.find((item) => String(item.id) === destination)?.name ?? "the selected team"}. ${team.name} will lose access.`}
+                    width="100%"
+                    done={() => {
+                      setMoving(null);
+                      setDestination("");
+                    }}
                   />
-                ) : null}
+                ) : moving?.repository_id === repo.repository_id ? (
+                  <Text type="supporting">Choose a destination above</Text>
+                ) : (
+                  <Button
+                    label="Move to another team"
+                    variant="secondary"
+                    width="100%"
+                    onClick={() => {
+                      setDestination("");
+                      setTeamSearch("");
+                      setMoving(repo);
+                    }}
+                  />
+                )}
                 <ConfirmAction
                   label="Remove repository"
                   path={`/api/teams/${team.id}/repositories/${repo.repository_id}/remove`}
                   description={`Disable reviews for ${repo.repository} and remove its team ownership. Stored review history is retained for platform administrators.`}
                   danger
+                  width="100%"
                 />
               </VStack>
             ),
@@ -930,18 +957,26 @@ function TeamRepositories({
       ) : null}
       {admin ? (
         <Collapsible
-          defaultIsOpen={false}
+          isOpen={moving !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setMoving(null);
+              setDestination("");
+            }
+          }}
           trigger={
             <HStack gap={3} wrap="wrap" vAlign="center">
-              Transfer a repository to another team
+              {moving
+                ? `Moving ${moving.repository} to another team`
+                : "Move a repository to another team"}
             </HStack>
           }
         >
           <VStack gap={4}>
-            <Text as="p">
-              Find the destination team, then choose Transfer on a
-              repository below. Existing review history follows repository
-              ownership.
+            <Text as="p" color="secondary">
+              {moving
+                ? `Choose the team that should own ${moving.repository}. Its review history follows the repository.`
+                : "Choose Move on a repository below, then pick the team that should own it. Review history follows the repository."}
             </Text>
 
             <TextInput

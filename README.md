@@ -88,15 +88,29 @@ search and task-based navigation. Key pages:
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
 | Add repository instructions and platform context | [Repository context](docs/REPOSITORY_CONTEXT.md) |
 | Try optional graph context | [Code graph pilot](docs/CODE_GRAPH.md) |
+| Inspect team reviews and manage access, repository requests, audit, and platform policy | [Admin panel](docs/ADMIN_PANEL.md) |
+| Connect an application to scoped reports with an expiring credential | [Application integrations](docs/ADMIN_PANEL.md#application-integrations) |
+| Connect organization sign-in and provision accounts | [OIDC and SCIM](docs/ADMIN_PANEL.md#organization-sign-in-and-scim) |
+| Allow staff to register their own accounts | [Registration allowlist and SMTP](docs/ADMIN_PANEL.md#self-registration) |
+| Follow review usage by team, repository and GitHub user | [Admin and owner usage reports](docs/ADMIN_PANEL.md#usage-by-team-repository-and-github-user) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |
 | Assess trust boundaries | [Security](docs/SECURITY.md) |
 | See capabilities and boundaries | [Capabilities](docs/ROADMAP.md) |
 
 Successful container release workflows publish attested `linux/amd64` and
-`linux/arm64` images, SBOMs, and per-platform vulnerability reports. Compose can
-either build locally or use an immutable release tag through
-`REVIEW_AGENT_IMAGE`; see
+`linux/arm64` images, SBOMs, and per-platform vulnerability reports. Releases
+built from this source pair worker and admin images with the same version and
+source revision, include the frontend dependency inventory, and show the admin
+build version in the console. Compose can build locally or use qualified
+release digests through `REVIEW_AGENT_IMAGE` and `REVIEW_AGENT_ADMIN_IMAGE`; see
 [Deployment](docs/DEPLOYMENT.md#choose-an-image).
+
+The runtime, admin API, and frontend stay in this repository so API and schema
+changes can ship together. `admin/` owns the browser application; its OpenAPI
+and TypeScript types are generated from the Python API. The admin image serves
+the compiled frontend and API on one origin. Completed changes merge into
+`main`; [release qualification](docs/OPERATIONS.md#maintaining-a-release)
+produces the image pair that organizations deploy.
 
 ## What it does
 

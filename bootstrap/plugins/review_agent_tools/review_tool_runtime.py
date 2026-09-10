@@ -172,6 +172,12 @@ def postgres_runtime() -> PostgreSQLRuntime:
             role=PostgreSQLRuntimeRole.REVIEWER,
         )
         candidate.open()
+        from .postgres.deployment_settings import apply_at_startup
+        try:
+            apply_at_startup(candidate, "reviewer")
+        except Exception:
+            candidate.close()
+            raise
         _process_runtime = candidate
         return candidate
 
@@ -289,6 +295,7 @@ def review_run_snapshot(
     pr_number: int,
     phase: review_run_application.RunPhase,
     expected_head_sha: str | None = None,
+    observed_pull: JsonObject | None = None,
 ) -> JsonObject:
     """Adapt the GitHub pull loader and failure-status effect to the run owner."""
     result = load_application_snapshot(
@@ -300,7 +307,13 @@ def review_run_snapshot(
                 run_id=source.run_id,
             ),
             phase=phase,
-            pull_loader=lambda: _load_pull_snapshot(source),
+            # The caller may reuse a pull just read through the authorized gateway.
+            # The run owner still checks live scope and validates the exact subject.
+            pull_loader=lambda: (
+                pull_snapshot(observed_pull)
+                if observed_pull is not None
+                else _load_pull_snapshot(source)
+            ),
             expected_head_sha=expected_head_sha,
         )
     )

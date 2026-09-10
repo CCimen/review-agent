@@ -22,7 +22,9 @@ from ..postgres import (
     feedback as postgres_feedback,
     github_app,
     jobs,
+    model_connections,
     registry,
+    review_runs,
     webhook_deliveries,
 )
 from ..postgres.runtime import PostgreSQLRuntime
@@ -431,6 +433,27 @@ class GitHubAppProcessor:
 
         try:
             with self._postgres.transaction() as connection:
+                request_key = f"github:issue-comment:{authorized.comment_id}"
+                recorded = review_runs.find_request_config(connection, request_key)
+                if recorded is not None:
+                    # Redelivery keeps the admitted route. The admission owner
+                    # still checks the exact repository, PR, commits and subject.
+                    frozen = review_contract.queued_contract(recorded)
+                    contract = review_contract.with_model_route(
+                        contract, provider=frozen.model_provider,
+                        model=frozen.model, effort=frozen.reasoning_effort,
+                    )
+                    route = (
+                        review_contract.queued_model_route(recorded)
+                        if "model_route" in recorded else None
+                    )
+                else:
+                    selected = model_connections.resolve_model(
+                        connection,
+                        provider_repository_id=authorized.provider_repository_id,
+                        installed=contract,
+                    )
+                    contract, route = selected.contract, selected.route
                 github_app.authorize_review_admission(
                     connection,
                     provider_repository_id=authorized.provider_repository_id,
@@ -447,11 +470,11 @@ class GitHubAppProcessor:
                         base_sha=authorized.base_sha,
                         head_sha=authorized.head_sha,
                         policy_revision=self._config.policy_revision,
-                        resolved_config_schema_version=2,
+                        resolved_config_schema_version=3 if route is not None else 2,
                         resolved_config=cast(
-                            JsonObject, review_contract.resolved_config(contract)
+                            JsonObject, review_contract.resolved_config(contract, model_route=route)
                         ),
-                        request_key=f"github:issue-comment:{authorized.comment_id}",
+                        request_key=request_key,
                         trigger_comment_id=authorized.comment_id,
                         trigger_user=authorized.sender_login,
                     ),
@@ -471,6 +494,8 @@ class GitHubAppProcessor:
             raise _Reject("repository_not_authorized") from exc
         except jobs.ReviewQueueFull as exc:
             raise _WaitingForCapacity from exc
+        except model_connections.ModelPolicyUnavailable as exc:
+            raise _Retry("model_connection_unavailable") from exc
         except jobs.ReviewJobBusy as exc:
             raise _Retry("review_admission_busy") from exc
 

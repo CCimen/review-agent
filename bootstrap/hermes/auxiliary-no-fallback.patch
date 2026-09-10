@@ -1,0 +1,102 @@
+--- a/agent/auxiliary_client.py
++++ b/agent/auxiliary_client.py
+@@ -4229,6 +4229,17 @@
+     return normalized
+ 
+ 
++def _auxiliary_fallback_allowed() -> bool:
++    """Honor an explicit ban on switching auxiliary providers or models."""
++    from hermes_cli.config import load_config_readonly
++
++    config = load_config_readonly()
++    allowed = config.get("auxiliary", {}).get("allow_fallback", False)
++    if type(allowed) is not bool:
++        raise ValueError("auxiliary.allow_fallback must be a boolean")
++    return allowed
++
++
+ def _get_provider_chain() -> List[tuple]:
+     """Return the ordered provider detection chain.
+ 
+@@ -4242,6 +4253,8 @@
+     provider *is* openai-codex (see Step 1 of ``_resolve_auto``) or when
+     a caller explicitly requests it with a model.
+     """
++    if not _auxiliary_fallback_allowed():
++        return []
+     return [
+         ("openrouter", _try_openrouter),
+         ("nous", _try_nous),
+@@ -5755,6 +5768,8 @@
+     Returns:
+         (client, model, provider_label) or (None, None, "") if no fallback.
+     """
++    if not _auxiliary_fallback_allowed():
++        return None, None, ""
+     main_provider = (_read_main_provider() or "").strip()
+     main_model = (_read_main_model() or "").strip()
+     if main_provider.lower() == "moa":
+@@ -5923,6 +5938,8 @@
+     Returns:
+         (client, model, provider_label) or (None, None, "") if no fallback.
+     """
++    if not _auxiliary_fallback_allowed():
++        return None, None, ""
+     if not task:
+         return None, None, ""
+ 
+@@ -6081,6 +6098,8 @@
+     both modern ``fallback_providers`` and legacy ``fallback_model`` entries
+     participate in the same order as the main agent.
+     """
++    if not _auxiliary_fallback_allowed():
++        return None, None, ""
+     try:
+         from hermes_cli.config import load_config_readonly
+         from hermes_cli.fallback_config import get_fallback_chain
+@@ -7737,6 +7756,9 @@
+                     return _finalize(
+                         main_provider, rpc_client, rpc_model or vision_model)
+ 
++        if not _auxiliary_fallback_allowed():
++            return None, None, None
++
+         # Fall back through aggregators (uses their dedicated vision model,
+         # not the user's main model) when main provider has no client.
+         for candidate in _VISION_AUTO_PROVIDER_ORDER:
+@@ -9912,7 +9934,7 @@
+             async_mode=False,
+             main_runtime=main_runtime,
+         )
+-        if client is None and resolved_provider != "auto" and not resolved_base_url:
++        if client is None and resolved_provider != "auto" and not resolved_base_url and _auxiliary_fallback_allowed():
+             logger.warning(
+                 "Vision provider %s unavailable, falling back to auto vision backends",
+                 resolved_provider,
+@@ -9968,7 +9990,7 @@
+             # Pass model=None so each provider uses its own default —
+             # resolved_model may be an OpenRouter-format slug that doesn't
+             # work on other providers.
+-            if client is None and not resolved_base_url:
++            if client is None and not resolved_base_url and _auxiliary_fallback_allowed():
+                 logger.info("Auxiliary %s: provider %s unavailable, trying auto-detection chain",
+                             task or "call", resolved_provider)
+                 client, final_model = _get_cached_client(
+@@ -10767,7 +10789,7 @@
+             async_mode=True,
+             main_runtime=main_runtime,
+         )
+-        if client is None and resolved_provider != "auto" and not resolved_base_url:
++        if client is None and resolved_provider != "auto" and not resolved_base_url and _auxiliary_fallback_allowed():
+             logger.warning(
+                 "Vision provider %s unavailable, falling back to auto vision backends",
+                 resolved_provider,
+@@ -10816,7 +10838,7 @@
+                         f"was found. Set the {_explicit.upper()}_API_KEY environment "
+                         f"variable, or switch to a different provider with `hermes model`."
+                     )
+-            if client is None and not resolved_base_url:
++            if client is None and not resolved_base_url and _auxiliary_fallback_allowed():
+                 logger.info("Auxiliary %s: provider %s unavailable, trying auto-detection chain",
+                             task or "call", resolved_provider)
+                 client, final_model = _get_cached_client(

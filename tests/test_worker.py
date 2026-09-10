@@ -26,6 +26,7 @@ from review_agent_tools import review_contract, review_run_application  # noqa: 
 from review_agent_tools.source_control import SameOriginHttpsRedirectHandler  # noqa: E402
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
+from review_agent_tools.worker_telemetry import TokenUsage, parse_usage  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLUnavailable,
@@ -80,6 +81,64 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.server.server_close()
         self.server_thread.join()
 
+    def test_hermes_usage_is_bounded_and_optional(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            skill = Path(directory) / "SKILL.md"
+            skill.write_text("Review the assigned request.")
+            response = Mock()
+            response.__enter__ = Mock(return_value=response)
+            response.__exit__ = Mock(return_value=False)
+            opener = Mock()
+            opener.open.return_value = response
+            client = HermesChatClient(
+                HermesChatSettings(
+                    endpoint="http://127.0.0.1:8642/v1/review-agent/review",
+                    bearer_token="test-token",
+                    skill_path=skill,
+                ),
+                opener=opener,
+            )
+            response.read.return_value = b'{"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}'
+            self.assertEqual(
+                client.review(self._claim(generation=1), timeout=self._timeout()),
+                TokenUsage(12, 3, 15),
+            )
+            response.read.assert_called_once_with(1024 * 1024 + 1)
+            for body in (b"not json", b"{}", b" " * (1024 * 1024 + 1)):
+                response.read.return_value = body
+                self.assertIsNone(
+                    client.review(self._claim(generation=1), timeout=self._timeout())
+                )
+            response.read.side_effect = TimeoutError("optional response body timed out")
+            self.assertIsNone(
+                client.review(self._claim(generation=1), timeout=self._timeout())
+            )
+        for usage in (
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            {"prompt_tokens": True, "completion_tokens": 1, "total_tokens": 2},
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 3},
+        ):
+            self.assertIsNone(parse_usage(json.dumps({"usage": usage}).encode()))
+
+    def test_usage_storage_failure_does_not_change_completed_job(self) -> None:
+        runtime = Mock(spec=PostgreSQLRuntime)
+        connection = Mock()
+        connection.execute.side_effect = PostgreSQLUnavailable("database unavailable")
+        runtime.transaction.side_effect = lambda: nullcontext(connection)
+        client = Mock(spec=HermesChatClient)
+        client.review.return_value = TokenUsage(12, 3, 15)
+        claimed = self._claim(generation=1)
+        worker = ReviewWorker(
+            runtime, client, self._policy(), lease_owner="worker", stop_event=threading.Event()
+        )
+        with (
+            patch.object(jobs, "get_job", return_value=replace(claimed.job, status=jobs.ReviewJobStatus.SUCCEEDED)),
+            patch.object(review_run_application, "fail_claimed_job_in_transaction") as fail,
+            self.assertLogs("review_agent_tools.worker_telemetry", level="WARNING"),
+        ):
+            worker._execute(claimed)
+        fail.assert_not_called()
+
     def test_reclaim_changes_identity_while_each_generation_is_stable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             skill_path = Path(directory) / "SKILL.md"
@@ -91,7 +150,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 HermesChatSettings(
                     endpoint=(
                         f"http://127.0.0.1:{self.server.server_port}"
-                        "/v1/chat/completions"
+                        "/v1/review-agent/review"
                     ),
                     bearer_token="test-token",
                     skill_path=skill_path,
@@ -131,7 +190,9 @@ class WorkerBoundaryTests(unittest.TestCase):
             second_headers["Idempotency-Key"],
             second_headers["X-Hermes-Session-Id"],
         )
-        self.assertNotIn("model", first_body)
+        self.assertEqual(first_body["model"], "gpt-test")
+        self.assertEqual(first_body["provider"], "openai-codex")
+        self.assertEqual(first_body["model_options"], {"reasoning": {"enabled": True, "effort": "high"}})
         self.assertEqual(second_body["stream"], False)
         messages = cast(list[dict[str, Any]], second_body["messages"])
         self.assertEqual(messages[0]["content"], "Follow the review procedure.\n")
@@ -145,7 +206,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 HermesChatSettings(
                     endpoint=(
                         f"http://127.0.0.1:{self.server.server_port}"
-                        "/v1/chat/completions"
+                        "/v1/review-agent/review"
                     ),
                     bearer_token="test-token",
                     skill_path=skill_path,
@@ -166,7 +227,7 @@ class WorkerBoundaryTests(unittest.TestCase):
             skill_path.write_text("Review safely.\n", encoding="utf-8")
             client = HermesChatClient(
                 HermesChatSettings(
-                    endpoint="http://hermes-review:8642/v1/chat/completions",
+                    endpoint="http://hermes-review:8642/v1/review-agent/review",
                     bearer_token="internal-secret",
                     skill_path=skill_path,
                 )
@@ -180,7 +241,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         )
         handler = SameOriginHttpsRedirectHandler()
         request = urllib.request.Request(
-            "http://hermes-review:8642/v1/chat/completions",
+            "http://hermes-review:8642/v1/review-agent/review",
             headers={"Authorization": "Bearer internal-secret"},
         )
         self.assertIsNone(
@@ -190,7 +251,7 @@ class WorkerBoundaryTests(unittest.TestCase):
                 307,
                 "temporary redirect",
                 HTTPMessage(),
-                "http://other-service:8642/v1/chat/completions",
+                "http://other-service:8642/v1/review-agent/review",
             )
         )
 
@@ -721,9 +782,9 @@ class WorkerBoundaryTests(unittest.TestCase):
 
     @staticmethod
     def _contract() -> review_contract.ReviewContract:
-        return review_contract.ReviewContract(
+        contract = review_contract.ReviewContract(
             profile="default-standard",
-            hermes_image="hermes@test",
+            hermes_image="hermes@sha256:" + "a" * 64,
             model_provider="openai-codex",
             model="gpt-test",
             reasoning_effort="high",
@@ -733,6 +794,8 @@ class WorkerBoundaryTests(unittest.TestCase):
             engine_bundle_sha256="3" * 64,
             sha256="4" * 64,
         )
+
+        return review_contract.with_model_route(contract, provider="openai-codex", model="gpt-test", effort="high")
 
 
 class WorkerEntrypointLoggingTests(unittest.TestCase):

@@ -62,6 +62,9 @@ class _FakeRegistry:
     def __init__(self) -> None:
         self.tools: dict[str, dict[str, object]] = {}
 
+    def register_platform_handler(self, platform: str, factory: object) -> None:
+        self.platform_handler = (platform, factory)
+
     def register_tool(
         self,
         *,

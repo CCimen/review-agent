@@ -30,7 +30,13 @@ from ..domain.publication import (
     resolve_rendered_blocks,
 )
 from ..domain.finding import FindingId, suppression_is_active
-from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
+from ..domain.review import (
+    DiffCoverageExample,
+    DiffState,
+    PullRequestId,
+    ReviewRunId,
+    ReviewStatus,
+)
 from ..repository_decision_context import RepositoryDecisionContext
 from . import repository_decisions as postgres_repository_decisions
 from . import decisions as postgres_decisions
@@ -252,8 +258,10 @@ class PreparationCoverage:
     changed_paths_with_source_reads: int
     supporting_context_paths_read: int
     context_ranges_read: int
-    unavailable_paths: tuple[str, ...]
-    truncated_paths: tuple[str, ...]
+    unseen_count: int
+    unavailable_count: int
+    truncated_count: int
+    examples: tuple[DiffCoverageExample, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,11 +463,14 @@ def preparation_context(
     coverage = postgres_coverage.summarize(connection, run_id)
     path_rows = connection.execute(
         """
-        SELECT path, diff_state
+        SELECT path, diff_state, COALESCE(unavailable_reason, ''), change_status
         FROM review_agent.review_run_files
         WHERE review_run_id = %s
-          AND diff_state IN ('unavailable', 'truncated')
-        ORDER BY path LIMIT 20
+          AND is_changed_path
+          AND diff_state IN ('unseen', 'unavailable', 'truncated')
+        ORDER BY CASE diff_state
+            WHEN 'unseen' THEN 0 WHEN 'truncated' THEN 1 ELSE 2 END, path
+        LIMIT 20
         """,
         (run_id,),
     ).fetchall()
@@ -506,7 +517,9 @@ def preparation_context(
     return PublicationPreparationContext(
         run_id=int(run_id),
         reconciliations=postgres_findings.finding_reconciliations(
-            connection, run_id=run_id, finding_ids=finding_ids,
+            connection,
+            run_id=run_id,
+            finding_ids=finding_ids,
         ),
         repository=scope.repository,
         pr_number=scope.pr_number,
@@ -576,11 +589,19 @@ def preparation_context(
             changed_paths_with_source_reads=coverage.changed_paths_with_source_reads,
             supporting_context_paths_read=coverage.supporting_context_paths_read,
             context_ranges_read=coverage.context_ranges_read,
-            unavailable_paths=tuple(
-                str(row[0]) for row in path_rows if str(row[1]) == "unavailable"
-            ),
-            truncated_paths=tuple(
-                str(row[0]) for row in path_rows if str(row[1]) == "truncated"
+            unseen_count=coverage.unseen_paths,
+            unavailable_count=coverage.unavailable_paths,
+            truncated_count=coverage.truncated_paths,
+            examples=tuple(
+                DiffCoverageExample(
+                    path=str(row[0]),
+                    revision=(
+                        scope.base_sha if str(row[3]) == "removed" else scope.head_sha
+                    ),
+                    state=DiffState(str(row[1])),
+                    unavailable_reason=str(row[2]),
+                )
+                for row in path_rows
             ),
         ),
         repository_decisions=postgres_repository_decisions.load_context(
@@ -838,41 +859,6 @@ def get_publication(
     if row is None:
         raise PublicationNotFound("publication does not exist")
     return _stored(connection, row)
-
-
-def queue_health(
-    connection: psycopg.Connection[TupleRow],
-) -> PublicationQueueHealth:
-    """Return set-oriented publication and abandoned-lease counts."""
-    _require_transaction(connection)
-    row = connection.execute(
-        """
-        SELECT
-            count(*) FILTER (
-                WHERE status IN ('generated', 'publish_failed')
-            ),
-            count(*) FILTER (WHERE status = 'posting'),
-            count(*) FILTER (
-                WHERE status = 'posting'
-                  AND delivery_lease_expires_at <= statement_timestamp()
-                  AND delivery_attempt_count < delivery_max_attempts
-            ),
-            count(*) FILTER (
-                WHERE status = 'posting'
-                  AND delivery_lease_expires_at <= statement_timestamp()
-                  AND delivery_attempt_count >= delivery_max_attempts
-            )
-        FROM review_agent.publications
-        """
-    ).fetchone()
-    if row is None or len(row) != 4 or any(type(value) is not int for value in row):
-        raise PublicationStoreError("publication queue health could not be read")
-    return PublicationQueueHealth(
-        pending=int(row[0]),
-        posting=int(row[1]),
-        expired_recoverable=int(row[2]),
-        expired_exhausted=int(row[3]),
-    )
 
 
 def publication_for_supersession(

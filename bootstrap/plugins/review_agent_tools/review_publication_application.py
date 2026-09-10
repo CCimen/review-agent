@@ -963,6 +963,7 @@ def _failure_status_body(run_id: int, head_sha: str, failure_code: str) -> str:
     if failure_code == failure_codes.SNAPSHOT_SUPERSEDED:
         return (
             f"## {REVIEW_COMMENT_TITLE} — review snapshot was superseded\n\n"
+            f"**Requested commit:** `{head_sha}`\n\n"
             "The pull request base or head changed while this review was running, "
             "so no findings from the older snapshot were published.\n\n"
             "If a newer review is not already running, post `/review` as a new "
@@ -976,6 +977,7 @@ def _failure_status_body(run_id: int, head_sha: str, failure_code: str) -> str:
     )
     return (
         f"## {REVIEW_COMMENT_TITLE} — could not be completed\n\n"
+        f"**Requested commit:** `{head_sha}`\n\n"
         "This automated review did not finish, so no findings were published.\n\n"
         f"- Reason: {reason}\n"
         f"- Status code: `{failure_code}`\n\n"

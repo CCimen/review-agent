@@ -38,6 +38,7 @@ from ..domain.review import (
 )
 from . import coverage as postgres_coverage
 from . import decisions as postgres_decisions
+from .team_access import ReadScope, repository_source
 
 
 EXPORT_SCHEMA_VERSION = 17
@@ -421,9 +422,7 @@ def _require_repeatable_read(connection: psycopg.Connection[TupleRow]) -> None:
     _require_transaction(connection)
     isolation = connection.execute("SHOW transaction_isolation").fetchone()
     if isolation != ("repeatable read",):
-        raise ReportingError(
-            "repository export requires a repeatable-read transaction"
-        )
+        raise ReportingError("repository export requires a repeatable-read transaction")
 
 
 def _trusted_sql(value: str) -> sql.SQL:
@@ -516,9 +515,7 @@ def list_findings(
             "AND (decision.decision <> 'intentional_by_design' OR "
             f"{_INTENTIONAL_EVIDENCE_CURRENT_SQL}), false)"
         )
-        parameters.extend(
-            ([item.value for item in SUPPRESSIVE_DECISION_KINDS], now)
-        )
+        parameters.extend(([item.value for item in SUPPRESSIVE_DECISION_KINDS], now))
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     parameters.append(limit)
     with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
@@ -606,9 +603,7 @@ def active_repeat_suppressions(
                 decision_context_hash=candidate.latest.context_hash,
                 current_context_hash=str(row[2]),
                 expires_at=candidate.latest.expires_at,
-                intentional_evidence_current=(
-                    candidate.intentional_evidence_current
-                ),
+                intentional_evidence_current=(candidate.intentional_evidence_current),
                 now=now,
             )
         )
@@ -621,21 +616,35 @@ def finding_detail(
     repository_id: RepositoryId,
     fingerprint: str,
     now: datetime,
+    occurrence_id: FindingOccurrenceId | None = None,
+    decision_limit: int | None = None,
+    decision_before_id: FindingDecisionId | None = None,
 ) -> FindingDetail:
     """Return latest evidence and the complete decision chain for one identity."""
     _require_transaction(connection)
+    select_sql = _FINDING_SELECT
+    parameters: tuple[object, ...] = (repository_id, fingerprint)
+    if occurrence_id is not None:
+        select_sql = select_sql.replace(
+            "WHERE occurrence.finding_id = identity.id",
+            "WHERE occurrence.finding_id = identity.id AND occurrence.id = %s",
+        )
+        parameters = (occurrence_id, *parameters)
     with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
         row = cursor.execute(
-            f"{_FINDING_SELECT} WHERE identity.repository_id = %s "
+            f"{select_sql} WHERE identity.repository_id = %s "
             "AND identity.fingerprint = %s",
-            (repository_id, fingerprint),
+            parameters,
         ).fetchone()
     if row is None:
         raise FindingNotFound("finding is not registered in the repository")
     return FindingDetail(
         finding=_finding(row, now=now),
         decisions=postgres_decisions.decision_history(
-            connection, finding_id=row.id
+            connection,
+            finding_id=row.id,
+            limit=decision_limit,
+            before_id=decision_before_id,
         ),
     )
 
@@ -716,17 +725,20 @@ def decision_target(
 
 def _counts(
     connection: psycopg.Connection[TupleRow],
-    query: str,
+    query: str | sql.SQL | sql.Composed,
     parameters: tuple[object, ...],
 ) -> tuple[CountByValue, ...]:
     with connection.cursor(row_factory=class_row(_CountRow)) as cursor:
-        rows = cursor.execute(_trusted_sql(query), parameters).fetchall()
+        rows = cursor.execute(
+            _trusted_sql(query) if isinstance(query, str) else query, parameters
+        ).fetchall()
     return tuple(CountByValue(value=row.value, count=row.count) for row in rows)
 
 
 def finding_stats(
     connection: psycopg.Connection[TupleRow],
     *,
+    scope: ReadScope | None = None,
     repository: str | None,
     expiring_at: datetime,
     expiring_within_days: int,
@@ -740,11 +752,11 @@ def finding_stats(
     parameters: tuple[object, ...] = () if repository is None else (repository,)
     with connection.cursor(row_factory=class_row(_FindingTotalsRow)) as cursor:
         totals = cursor.execute(
-            f"""
+            sql.SQL(f"""
             WITH scoped_identity AS (
                 SELECT identity.id
                 FROM review_agent.finding_identities AS identity
-                JOIN review_agent.repositories AS repository
+                JOIN {{repositories}} AS repository
                   ON repository.id = identity.repository_id
                 WHERE true {repository_filter}
             ), latest_occurrence AS (
@@ -802,14 +814,14 @@ def finding_stats(
               ON occurrence.finding_id = identity.id
             LEFT JOIN latest_decision AS decision
               ON decision.finding_id = identity.id
-            """,
+            """).format(repositories=repository_source(scope)),
             (*parameters, now, now, expiring_at),
         ).fetchone()
     if totals is None:
         raise ReportingError("finding statistics could not be computed")
-    classification_base = f"""
+    classification_base = sql.SQL(f"""
         FROM review_agent.finding_identities AS identity
-        JOIN review_agent.repositories AS repository
+        JOIN {{repositories}} AS repository
           ON repository.id = identity.repository_id
         JOIN LATERAL (
             SELECT occurrence.* FROM review_agent.finding_occurrences AS occurrence
@@ -817,34 +829,34 @@ def finding_stats(
             ORDER BY occurrence.observed_at DESC, occurrence.id DESC LIMIT 1
         ) AS occurrence ON true
         WHERE true {repository_filter}
-    """
+    """).format(repositories=repository_source(scope))
     severity = _counts(
         connection,
-        "SELECT occurrence.severity AS value, count(*)::integer AS count "
+        sql.SQL("SELECT occurrence.severity AS value, count(*)::integer AS count ")
         + classification_base
-        + " GROUP BY occurrence.severity ORDER BY occurrence.severity",
+        + sql.SQL(" GROUP BY occurrence.severity ORDER BY occurrence.severity"),
         parameters,
     )
     category = _counts(
         connection,
-        "SELECT occurrence.category AS value, count(*)::integer AS count "
+        sql.SQL("SELECT occurrence.category AS value, count(*)::integer AS count ")
         + classification_base
-        + " GROUP BY occurrence.category ORDER BY occurrence.category",
+        + sql.SQL(" GROUP BY occurrence.category ORDER BY occurrence.category"),
         parameters,
     )
     rule = _counts(
         connection,
-        "SELECT identity.rule_id AS value, count(*)::integer AS count "
+        sql.SQL("SELECT identity.rule_id AS value, count(*)::integer AS count ")
         + classification_base
-        + " GROUP BY identity.rule_id ORDER BY count DESC, identity.rule_id",
+        + sql.SQL(" GROUP BY identity.rule_id ORDER BY count DESC, identity.rule_id"),
         parameters,
     )
     decision = _counts(
         connection,
-        f"""
+        sql.SQL(f"""
         SELECT latest.decision AS value, count(*)::integer AS count
         FROM review_agent.finding_identities AS identity
-        JOIN review_agent.repositories AS repository
+        JOIN {{repositories}} AS repository
           ON repository.id = identity.repository_id
         JOIN LATERAL (
             SELECT stored.decision
@@ -854,7 +866,7 @@ def finding_stats(
         ) AS latest ON true
         WHERE true {repository_filter}
         GROUP BY latest.decision ORDER BY latest.decision
-        """,
+        """).format(repositories=repository_source(scope)),
         parameters,
     )
     feedback_filter = (
@@ -862,16 +874,16 @@ def finding_stats(
     )
     feedback = _counts(
         connection,
-        f"""
+        sql.SQL(f"""
         SELECT feedback.category AS value, count(*)::integer AS count
         FROM review_agent.review_quality_feedback AS feedback
         JOIN review_agent.pull_requests AS pull_request
           ON pull_request.id = feedback.pull_request_id
-        JOIN review_agent.repositories AS repository
+        JOIN {{repositories}} AS repository
           ON repository.id = pull_request.repository_id
         {feedback_filter}
         GROUP BY feedback.category ORDER BY feedback.category
-        """,
+        """).format(repositories=repository_source(scope)),
         parameters,
     )
     return FindingStats(
@@ -943,6 +955,7 @@ def list_runs(
     repository: str | None,
     limit: int,
     failed_only: bool,
+    pr_number: int | None = None,
 ) -> tuple[ReviewRunReport, ...]:
     _require_transaction(connection)
     conditions: list[str] = []
@@ -950,6 +963,9 @@ def list_runs(
     if repository is not None:
         conditions.append("lower(repository.full_name) = lower(%s)")
         parameters.append(repository)
+    if pr_number is not None:
+        conditions.append("pull_request.number = %s")
+        parameters.append(pr_number)
     if failed_only:
         # Superseded runs also need operator recovery because they carry a
         # terminal snapshot-superseded failure code.
@@ -995,17 +1011,21 @@ def run_stats(
     stale_before: datetime,
     window_days: int,
     now: datetime,
+    pr_number: int | None = None,
 ) -> RunStats:
     _require_transaction(connection)
-    repository_filter = (
-        "" if repository is None else "AND lower(repository.full_name) = lower(%s)"
-    )
-    parameters: tuple[object, ...] = (
-        (since,) if repository is None else (since, repository)
-    )
+    conditions = ["run.started_at >= %s"]
+    parameters: list[object] = [since]
+    if repository is not None:
+        conditions.append("lower(repository.full_name) = lower(%s)")
+        parameters.append(repository)
+    if pr_number is not None:
+        conditions.append("pull_request.number = %s")
+        parameters.append(pr_number)
+    where = " AND ".join(conditions)
     with connection.cursor(row_factory=class_row(_RunTotalsRow)) as cursor:
         totals = cursor.execute(
-            f"""
+            _trusted_sql(f"""
             SELECT count(*)::integer AS total,
                    count(*) FILTER (
                        WHERE run.status = 'running'
@@ -1026,8 +1046,8 @@ def run_stats(
               ON pull_request.id = run.pull_request_id
             JOIN review_agent.repositories AS repository
               ON repository.id = pull_request.repository_id
-            WHERE run.started_at >= %s {repository_filter}
-            """,
+            WHERE {where}
+            """),
             (stale_before, *parameters),
         ).fetchone()
     if totals is None:
@@ -1041,10 +1061,10 @@ def run_stats(
           ON pull_request.id = run.pull_request_id
         JOIN review_agent.repositories AS repository
           ON repository.id = pull_request.repository_id
-        WHERE run.started_at >= %s {repository_filter}
+        WHERE {where}
         GROUP BY run.status ORDER BY run.status
         """,
-        parameters,
+        tuple(parameters),
     )
     return RunStats(
         repository=repository,
@@ -1257,9 +1277,7 @@ def verification_export_source(
         (run_id,),
     ).fetchone()
     if publication is None:
-        raise VerificationExportUnavailable(
-            "review run has no recorded publication"
-        )
+        raise VerificationExportUnavailable("review run has no recorded publication")
     findings = connection.execute(
         """
         SELECT reference.local_reference, occurrence.id, identity.fingerprint,
@@ -1349,9 +1367,7 @@ def _json_value(value: object) -> JsonValue:
                 raise ReportingError("export JSON object key is not text")
             output[key] = _json_value(item)
         return output
-    if isinstance(value, Sequence) and not isinstance(
-        value, (str, bytes, bytearray)
-    ):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_json_value(item) for item in cast(Sequence[object], value)]
     raise ReportingError(
         f"export query returned unsupported {type(value).__name__} value"
@@ -1365,9 +1381,7 @@ def _bounded_rows(
     parameters: tuple[object, ...],
     row_limit: int,
 ) -> tuple[tuple[JsonObject, ...], bool]:
-    cursor = connection.execute(
-        _trusted_sql(query), (*parameters, row_limit + 1)
-    )
+    cursor = connection.execute(_trusted_sql(query), (*parameters, row_limit + 1))
     names = tuple(column.name for column in cursor.description or ())
     fetched = cursor.fetchall()
     rows: list[JsonObject] = []

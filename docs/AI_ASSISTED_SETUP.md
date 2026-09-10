@@ -53,6 +53,12 @@ The validated installation plan records the remaining non-secret choices. This
 keeps the conversation focused on real owner decisions instead of asking you to
 translate the deployment guide.
 
+For an optional operator UI, also request the [admin panel](ADMIN_PANEL.md).
+Use a qualified release containing both runtime and admin images. The agent can prepare the optional
+Compose service and hostname; the owner enters the first platform-owner password in
+the container terminal. New users receive team membership, and repository
+requests require platform approval. Do not add account passwords to the non-secret plan.
+
 ## Configure only one repository
 
 If Review Agent is already deployed, give a coding agent this shorter assignment:
@@ -207,7 +213,7 @@ GitHub installation scope and Review Agent activation are deliberately separate:
 | --- | --- |
 | Install the App with **All repositories** or **Only select repositories** | GitHub defines where the App may request a token. Reviews remain locked for a new installation. |
 | Run `github-app approve <installation-id>` | The trusted installation may activate an exact repository on its first signed `/review` delivery. Requester authorization still gates the review. |
-| Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named selected repository is enabled. |
+| Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named repository is verified and enabled, with either GitHub installation scope. |
 
 Keep PostgreSQL, Hermes, workers, publishers, and the GitHub gateway private.
 Only the admission route is public. The App private key belongs only in the

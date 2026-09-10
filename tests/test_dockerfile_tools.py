@@ -118,6 +118,9 @@ class DockerfileToolsTests(unittest.TestCase):
                 "PyJWT==2.13.0",
                 "cryptography==50.0.0",
                 "tornado==6.5.8",
+                "aiohttp==3.14.3",
+                "# Patch the HTTP clients inherited from the pinned Hermes image.",
+                "httpx2==2.12.0",
             ],
         )
         self.assertIn(
@@ -143,6 +146,7 @@ class DockerfileToolsTests(unittest.TestCase):
                 "!bootstrap/**",
                 "!tools/",
                 "!tools/review_agent_*.py",
+                "bootstrap/plugins/review_agent_tools/_build.json",
                 "**/__pycache__/",
                 "**/*.py[cod]",
             ],

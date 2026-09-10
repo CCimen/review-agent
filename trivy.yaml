@@ -6,6 +6,7 @@ pkg:
 scan:
   file-patterns:
     - 'pip:requirements-code-graph\.txt'
+    - 'pip:requirements-admin\.txt'
   disable-telemetry: true
   scanners:
     - vuln

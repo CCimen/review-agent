@@ -1,0 +1,1516 @@
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import {
+  MetadataList,
+  MetadataListItem,
+} from "@astryxdesign/core/MetadataList";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { Selector } from "@astryxdesign/core/Selector";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+  pixel,
+  proportional,
+  type TableColumn,
+} from "@astryxdesign/core/Table";
+import { Tab, TabList } from "@astryxdesign/core/TabList";
+import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import type { InputHTMLAttributes } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import type {
+  RepositoryRequestPage,
+  Team,
+  TeamMemberPage,
+  TeamPage,
+  TeamRepositoryPage,
+} from "./api";
+import { read, write } from "./api";
+import type { components } from "./api.generated";
+import { AuditLog } from "./audit";
+import {
+  isAdmin,
+  ScopedLink as Link,
+  ScopedAnchor,
+  useScope,
+} from "./scope";
+import { Empty, Form, Freshness, time, useLiveSearch } from "./ui";
+
+type TeamRole = components["schemas"]["TeamRole"];
+type ModelPolicy = components["schemas"]["TeamModelPolicy"];
+type ModelConnection = components["schemas"]["ModelConnection"];
+type ModelConnectionPage = components["schemas"]["ConnectionPage"];
+
+function useTeamRefresh() {
+  const client = useQueryClient();
+  return () =>
+    Promise.all(
+      [
+        "teams",
+        "team",
+        "team-members",
+        "team-repositories",
+        "repository-requests",
+        "audit",
+        "me",
+        "repositories",
+        "overview",
+      ].map((name) => client.invalidateQueries({ queryKey: [name] })),
+    );
+}
+
+export function ConfirmAction({
+  label,
+  path,
+  body,
+  description,
+  done,
+  method = "POST",
+  danger = false,
+}: {
+  label: string;
+  path: string;
+  body?: Record<string, unknown>;
+  description: string;
+  done?: () => void;
+  method?: "POST" | "PUT";
+  danger?: boolean;
+}) {
+  const refresh = useTeamRefresh();
+  const [open, setOpen] = useState(false);
+  const action = useMutation({
+    mutationFn: () => write(path, method, { ...body, reason: label }),
+    onSuccess: async () => {
+      setOpen(false);
+      await refresh();
+      done?.();
+    },
+  });
+  return (
+    <VStack gap={3}>
+      {/* The stack stretches its children, which made every confirmation
+          trigger as wide as its table cell. */}
+      <HStack gap={3} wrap="wrap" align="center">
+        <Button
+          label={label}
+          variant={danger ? "destructive" : "secondary"}
+          type="button"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+            action.reset();
+          }}
+        />
+      </HStack>
+      {open ? (
+        <Form
+          onSubmit={(event) => {
+            event.preventDefault();
+            action.mutate();
+          }}
+        >
+          <Text as="p">{description}</Text>
+
+          {action.isError ? (
+            <Text as="p" role="alert">
+              {action.error.message}
+            </Text>
+          ) : null}
+          <HStack gap={3} wrap="wrap" vAlign="center">
+            <Button
+              label={action.isPending ? "Saving…" : label}
+              variant="primary"
+              type="submit"
+              isDisabled={action.isPending}
+            />
+            <Button
+              label={"Cancel"}
+              variant="secondary"
+              type="button"
+              isDisabled={action.isPending}
+              onClick={() => setOpen(false)}
+            />
+          </HStack>
+        </Form>
+      ) : null}
+    </VStack>
+  );
+}
+
+function TeamEditor({ team, done }: { team?: Team; done?: () => void }) {
+  const refresh = useTeamRefresh();
+  const [name, setName] = useState(team?.name ?? "");
+  const [description, setDescription] = useState(team?.description ?? "");
+  const save = useMutation({
+    mutationFn: () =>
+      team
+        ? write<Team>(`/api/teams/${team.id}`, "PATCH", {
+            name,
+            description,
+            reason: "Team updated",
+            expected_revision: team.revision,
+          } satisfies components["schemas"]["TeamUpdate"])
+        : write<Team>("/api/teams", "POST", {
+            name,
+            description,
+            reason: "Team created",
+          } satisfies components["schemas"]["NewTeam"]),
+    onSuccess: async () => {
+      await refresh();
+      done?.();
+    },
+  });
+  return (
+    <Form
+      onSubmit={(event) => {
+        event.preventDefault();
+        save.mutate();
+      }}
+    >
+      <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+        <TextInput
+          label={"Team name"}
+          hasAutoFocus={true}
+          isRequired={true}
+          value={name}
+          onChange={(value) => setName(value)}
+          {...({
+            required: true,
+            maxLength: 80,
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
+        />
+
+        <TextInput
+          label={"Description"}
+          value={description}
+          onChange={(value) => setDescription(value)}
+          {...({
+            maxLength: 500,
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
+        />
+      </Grid>
+
+      {save.isError ? (
+        <Text as="p" role="alert">
+          {save.error.message}
+        </Text>
+      ) : null}
+      {save.isSuccess ? (
+        <Text as="p" role="status">
+          Team saved.
+        </Text>
+      ) : null}
+      <HStack gap={3} wrap="wrap" align="center">
+        <Button
+          label={String(
+            save.isPending ? "Saving…" : team ? "Save team" : "Create team",
+          )}
+          variant="primary"
+          type="submit"
+          isDisabled={save.isPending}
+        />
+      </HStack>
+    </Form>
+  );
+}
+
+export function TeamsPage() {
+  const scope = useScope();
+  const [params, setParams] = useSearchParams();
+  const search = params.get("search") ?? "";
+  const [adding, setAdding] = useState(false);
+  const after = params.get("after_id") ?? "0";
+  const requestedRepository = params.get("assign_repository") ?? "";
+  const assignRepository =
+    isAdmin(scope.current.role) &&
+    /^[1-9]\d{0,18}$/.test(requestedRepository)
+      ? requestedRepository
+      : null;
+  const repositoryName =
+    params.get("repository_name") ?? `Repository #${assignRepository}`;
+  // Confirming an assignment cleared the mode and left the page looking as
+  // it did before, with a count in the table as the only evidence it worked.
+  const [assigned, setAssigned] = useState<{
+    repository: string;
+    team: string;
+  } | null>(null);
+  function clearAssignment() {
+    const next = new URLSearchParams(params);
+    next.delete("assign_repository");
+    next.delete("repository_name");
+    setParams(next);
+  }
+  const teamColumns: TableColumn<TeamPage["items"][number]>[] = [
+    {
+      key: "name",
+      header: "Team",
+      width: proportional(2, { minWidth: 220 }),
+      renderCell: (team) => (
+        <VStack gap={1}>
+          <Link to={`/teams/${team.id}?team_id=${team.id}`}>{team.name}</Link>
+          {team.description ? (
+            <Text color="secondary" type="supporting">
+              {team.description}
+            </Text>
+          ) : null}
+        </VStack>
+      ),
+    },
+    {
+      key: "role",
+      header: "Your access",
+      width: pixel(128),
+      renderCell: (team) =>
+        isAdmin(scope.current.role)
+          ? "Platform admin"
+          : team.role === "maintainer"
+            ? "Maintainer"
+            : "Viewer",
+    },
+    {
+      key: "repository_count",
+      header: "Repositories",
+      align: "end",
+      width: pixel(112),
+    },
+    {
+      key: "member_count",
+      header: "Members",
+      align: "end",
+      width: pixel(92),
+    },
+    {
+      key: "pending_requests",
+      header: "Pending requests",
+      align: "end",
+      width: pixel(140),
+      renderCell: (team) =>
+        team.pending_requests ? (
+          <Link to={`/teams/${team.id}?team_id=${team.id}&tab=requests`}>
+            {team.pending_requests}
+          </Link>
+        ) : (
+          "0"
+        ),
+    },
+    ...(assignRepository
+      ? [
+          {
+            key: "assign",
+            header: "Repository assignment",
+            width: pixel(210),
+            renderCell: (team: TeamPage["items"][number]) => (
+              <ConfirmAction
+                label="Assign to this team"
+                method="PUT"
+                path={`/api/repository-ownership/${assignRepository}`}
+                body={{ team_id: team.id, expected_team_id: null }}
+                // The banner above already says what assignment moves, and
+                // this confirmation opens inside a table cell, so it names
+                // the pair being joined rather than restating the rule.
+                description={`Move ${repositoryName} to ${team.name}.`}
+                done={() => {
+                  setAssigned({ repository: repositoryName, team: team.name });
+                  clearAssignment();
+                }}
+              />
+            ),
+          } satisfies TableColumn<TeamPage["items"][number]>,
+        ]
+      : []),
+  ];
+  const { draft, setDraft, flush } = useLiveSearch(search, (value) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set("search", value);
+    else next.delete("search");
+    next.delete("after_id");
+    setParams(next, { replace: true });
+  });
+  const query = useQuery({
+    queryKey: ["teams", "list", search, after, "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<TeamPage>(
+        `/api/teams?${new URLSearchParams({ search, after_id: after })}`,
+        signal,
+      ),
+  });
+  useEffect(() => {
+    document.title = "Review Agent · Teams";
+  }, []);
+  return (
+    <>
+      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+        <VStack gap={3}>
+          <Heading level={1}>Teams</Heading>
+          <Text as="p">
+            {isAdmin(scope.current.role)
+              ? "Platform administration · Manage team membership and repository ownership."
+              : "Your teams, repositories, and access."}
+          </Text>
+        </VStack>
+        {isAdmin(scope.current.role) ? (
+          <Button
+            label={String(adding ? "Close form" : "Create team")}
+            variant={adding ? "secondary" : "primary"}
+            onClick={() => setAdding(!adding)}
+            aria-expanded={adding}
+          />
+        ) : null}
+      </HStack>
+      <TabList
+        aria-label="Team administration"
+        value="/teams"
+        onChange={() => {}}
+        hasDivider
+      >
+        <Tab value="/teams" href="/teams" as={ScopedAnchor} label="Teams" />
+        <Tab
+          value="/repository-requests"
+          href="/repository-requests"
+          as={ScopedAnchor}
+          label="Repository requests"
+        />
+      </TabList>
+      {assigned ? (
+        <Banner
+          status="success"
+          title={`${assigned.repository} now belongs to ${assigned.team}`}
+          description="Its retained review history moved with it."
+          collapsible={false}
+          isDismissable
+          onDismiss={() => setAssigned(null)}
+        />
+      ) : null}
+      {assignRepository ? (
+        <Banner
+          status="info"
+          title={`Assigning ${repositoryName}`}
+          description="Pick its owning team below. This moves the retained review history; GitHub grants and review activation stay as they are."
+          collapsible={false}
+        >
+          {/* On a phone the header keeps an end-aligned action on its own row
+              and squeezes the title into three lines beside it. */}
+          <HStack gap={3} wrap="wrap" align="center">
+            <Button
+              label={"Cancel assignment"}
+              variant="secondary"
+              size="sm"
+              onClick={clearAssignment}
+            />
+          </HStack>
+        </Banner>
+      ) : null}
+      {adding ? (
+        <VStack gap={4} as="section">
+          <Heading level={2}>Create a team</Heading>
+          <TeamEditor done={() => setAdding(false)} />
+        </VStack>
+      ) : null}
+      <TextInput
+        label={"Find a team"}
+        value={draft}
+        onChange={(value) => setDraft(value)}
+        onEnter={flush}
+        startIcon="search"
+        hasClear
+        width={280}
+        {...({
+          maxLength: 80,
+          list: "team-name-options",
+        } satisfies InputHTMLAttributes<HTMLInputElement>)}
+      />
+      {/* Team names are not guessable, so the field offers the ones the search
+          has already found rather than asking the reader to spell one. */}
+      <datalist id="team-name-options">
+        {query.data?.items.map((team) => (
+          <option key={team.id} value={team.name} />
+        ))}
+      </datalist>
+      <Freshness query={query} />
+      {query.data?.items.length ? (
+        <VStack gap={4} tabIndex={0} role="region" aria-label="Teams">
+          <Table
+            aria-label="Teams"
+            data={query.data.items}
+            columns={teamColumns}
+            idKey="id"
+            density="balanced"
+            dividers="rows"
+            hasHover
+            verticalAlign="top"
+          />
+        </VStack>
+      ) : query.data ? (
+        <Empty title={search ? "No matching teams" : "No teams yet"}>
+          {search
+            ? "Try another team name."
+            : isAdmin(scope.current.role)
+              ? "Create a team, add its maintainers, then approve their repository requests."
+              : "Ask an administrator or team maintainer to add your account to a team."}
+        </Empty>
+      ) : null}
+      {query.data && (after !== "0" || query.data.next_after_id) ? (
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label={"First page"}
+            variant="secondary"
+            type="submit"
+            isDisabled={after === "0"}
+            onClick={() => {
+              const next = new URLSearchParams(params);
+              next.delete("after_id");
+              setParams(next);
+            }}
+          />
+          <Text>{query.data.total} teams</Text>
+          <Button
+            label={"Next teams"}
+            variant="secondary"
+            type="submit"
+            isDisabled={!query.data.next_after_id}
+            onClick={() => {
+              const next = new URLSearchParams(params);
+              next.set("after_id", String(query.data?.next_after_id));
+              setParams(next);
+            }}
+          />
+        </HStack>
+      ) : null}
+    </>
+  );
+}
+
+function Members({ team, maintain }: { team: Team; maintain: boolean }) {
+  const scope = useScope();
+  const refresh = useTeamRefresh();
+  const [offset, setOffset] = useState(0);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<TeamRole>("viewer");
+  const query = useQuery({
+    queryKey: ["team-members", team.id, offset, "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<TeamMemberPage>(
+        `/api/teams/${team.id}/members?offset=${offset}`,
+        signal,
+      ),
+  });
+  const save = useMutation({
+    mutationFn: () =>
+      write(`/api/teams/${team.id}/members`, "PUT", {
+        email,
+        role,
+        reason: "Team membership updated",
+      } satisfies components["schemas"]["TeamMemberUpdate"]),
+    onSuccess: async () => {
+      setEmail("");
+      await refresh();
+    },
+  });
+  return (
+    <>
+      <Heading level={2}>Members</Heading>
+      <Text as="p">
+        Viewers can read this team's review activity. Maintainers can also
+        manage members, request repositories, and act on reviews.
+      </Text>
+      {maintain ? (
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              Add or change a member
+            </HStack>
+          }
+        >
+          <VStack gap={4}>
+            <Form
+              onSubmit={(event) => {
+                event.preventDefault();
+                save.mutate();
+              }}
+            >
+              <Grid
+                gap={4}
+                columns={{ minWidth: 240, max: 4, repeat: "fit" }}
+              >
+                <VStack gap={2}>
+                  <TextInput
+                    label={"Account email"}
+                    type="email"
+                    isRequired={true}
+                    value={email}
+                    onChange={(value) => setEmail(value)}
+                    {...({
+                      required: true,
+                      maxLength: 320,
+                    } satisfies InputHTMLAttributes<HTMLInputElement>)}
+                  />
+                  <Text color="secondary">
+                    Use an existing active account.
+                  </Text>
+                </VStack>
+                <Selector
+                  label={"Team role"}
+                  options={[
+                    { value: "viewer", label: "Viewer" },
+                    { value: "maintainer", label: "Maintainer" },
+                  ]}
+                  value={role}
+                  onChange={(value) => setRole(value as TeamRole)}
+                />
+              </Grid>
+
+              {save.isError ? (
+                <Text as="p" role="alert">
+                  {save.error.message}
+                </Text>
+              ) : null}
+              {save.isSuccess ? (
+                <Text as="p" role="status">
+                  Membership saved.
+                </Text>
+              ) : null}
+              <HStack gap={3} wrap="wrap" align="center">
+                <Button
+                  label={String(
+                    save.isPending ? "Saving…" : "Save membership",
+                  )}
+                  variant="primary"
+                  type="submit"
+                  isDisabled={save.isPending}
+                />
+              </HStack>
+            </Form>
+          </VStack>
+        </Collapsible>
+      ) : null}
+      <Freshness query={query} />
+      {query.data?.items.length ? (
+        <VStack
+          gap={4}
+          tabIndex={0}
+          role="region"
+          aria-label="Team members"
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHeaderCell>Account</TableHeaderCell>
+                <TableHeaderCell>Role</TableHeaderCell>
+                <TableHeaderCell>Access</TableHeaderCell>
+                {maintain ? (
+                  <TableHeaderCell>Action</TableHeaderCell>
+                ) : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {query.data.items.map((member) => (
+                <TableRow key={member.user_id}>
+                  <TableHeaderCell scope="row">
+                    {member.email}
+                    {member.user_id === scope.current.id ? (
+                      <Text
+                        color="secondary"
+                        display="block"
+                        type="supporting"
+                      >
+                        You
+                      </Text>
+                    ) : null}
+                  </TableHeaderCell>
+                  <TableCell>
+                    {member.role === "maintainer" ? "Maintainer" : "Viewer"}
+                  </TableCell>
+                  <TableCell>
+                    {member.active ? "Active" : "Account disabled"}
+                  </TableCell>
+                  {maintain ? (
+                    <TableCell>
+                      <ConfirmAction
+                        label="Remove member"
+                        path={`/api/teams/${team.id}/members/${member.user_id}/remove`}
+                        description={`Remove ${member.email} from ${team.name}. Their access through other teams is retained.`}
+                        danger
+                      />
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </VStack>
+      ) : query.data ? (
+        <Empty title="No members yet">
+          {maintain
+            ? "Add an existing account by email. A maintainer can then manage this team."
+            : "A maintainer can add accounts to this team."}
+        </Empty>
+      ) : null}
+      {offset || query.data?.next_offset ? (
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label={"Previous"}
+            variant="secondary"
+            type="submit"
+            isDisabled={!offset}
+            onClick={() => setOffset(Math.max(0, offset - 50))}
+          />
+          <Button
+            label={"Next"}
+            variant="secondary"
+            type="submit"
+            isDisabled={!query.data?.next_offset}
+            onClick={() => setOffset(query.data?.next_offset ?? 0)}
+          />
+        </HStack>
+      ) : null}
+    </>
+  );
+}
+
+function TeamRepositories({
+  team,
+  maintain,
+}: {
+  team: Team;
+  maintain: boolean;
+}) {
+  const scope = useScope();
+  const refresh = useTeamRefresh();
+  const [after, setAfter] = useState(0);
+  const [repository, setRepository] = useState("");
+  const [destination, setDestination] = useState("");
+  const [teamSearch, setTeamSearch] = useState("");
+  const admin = isAdmin(scope.current.role);
+  const query = useQuery({
+    queryKey: ["team-repositories", team.id, after, "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<TeamRepositoryPage>(
+        `/api/teams/${team.id}/repositories?after_id=${after}`,
+        signal,
+      ),
+  });
+  const destinations = useQuery({
+    queryKey: ["teams", "destination", teamSearch, "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<TeamPage>(
+        `/api/teams?limit=20&search=${encodeURIComponent(teamSearch)}`,
+        signal,
+      ),
+    enabled: admin && teamSearch.length >= 2,
+  });
+  const submit = useMutation({
+    mutationFn: () =>
+      write(`/api/teams/${team.id}/repository-requests`, "POST", {
+        repository,
+        reason: "Repository access requested",
+      } satisfies components["schemas"]["RepositorySubmission"]),
+    onSuccess: async () => {
+      setRepository("");
+      await refresh();
+    },
+  });
+  type TeamRepository = TeamRepositoryPage["items"][number];
+  const repositoryColumns: TableColumn<TeamRepository>[] = [
+    {
+      key: "repository",
+      header: "Repository",
+      width: proportional(2, { minWidth: 260 }),
+      renderCell: (repo) => (
+        <VStack gap={1}>
+          <Link
+            to={`/history?repository=${encodeURIComponent(repo.repository)}&team_id=${team.id}`}
+          >
+            {repo.repository}
+          </Link>
+          <Text color="secondary" type="supporting">
+            Assigned {time(repo.assigned_at)}
+          </Text>
+        </VStack>
+      ),
+    },
+    {
+      key: "enabled",
+      header: "Review Agent",
+      width: pixel(120),
+      renderCell: (repo) => (repo.enabled ? "Enabled" : "Disabled"),
+    },
+    {
+      key: "access",
+      header: "GitHub access",
+      width: pixel(140),
+      renderCell: (repo) => repo.access?.replaceAll("_", " ") ?? "Not granted",
+    },
+    {
+      key: "profile",
+      header: "Profile",
+      width: pixel(110),
+      renderCell: (repo) => repo.profile ?? "—",
+    },
+    ...(admin
+      ? [
+          {
+            key: "actions",
+            header: "Actions",
+            width: pixel(190),
+            renderCell: (repo: TeamRepository) => (
+              <VStack gap={3}>
+                {destination ? (
+                  <ConfirmAction
+                    label="Transfer"
+                    method="PUT"
+                    path={`/api/repository-ownership/${repo.repository_id}`}
+                    body={{
+                      team_id: Number(destination),
+                      expected_team_id: team.id,
+                    }}
+                    description={`Transfer ${repo.repository} and its history to ${destinations.data?.items.find((item) => String(item.id) === destination)?.name ?? "the selected team"}. This team will lose access.`}
+                  />
+                ) : null}
+                <ConfirmAction
+                  label="Remove repository"
+                  path={`/api/teams/${team.id}/repositories/${repo.repository_id}/remove`}
+                  description={`Disable reviews for ${repo.repository} and remove its team ownership. Stored review history is retained for platform administrators.`}
+                  danger
+                />
+              </VStack>
+            ),
+          } satisfies TableColumn<TeamRepository>,
+        ]
+      : []),
+  ];
+  return (
+    <>
+      <Heading level={2}>Repositories</Heading>
+      <Text as="p">
+        Each repository belongs to one team. Approval verifies its GitHub
+        App grant before enabling reviews.
+      </Text>
+      {maintain ? (
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              Request a repository
+            </HStack>
+          }
+        >
+          <VStack gap={4}>
+            <Form
+              onSubmit={(event) => {
+                event.preventDefault();
+                submit.mutate();
+              }}
+            >
+              <TextInput
+                label={"GitHub repository"}
+                isRequired={true}
+                placeholder="owner/repository or https://github.com/owner/repository"
+                value={repository}
+                onChange={(value) => setRepository(value)}
+                {...({
+                  required: true,
+                  maxLength: 260,
+                } satisfies InputHTMLAttributes<HTMLInputElement>)}
+              />
+
+              <Text as="p" color="secondary">
+                A platform administrator approves requests. The GitHub App
+                must already have access to the repository.
+              </Text>
+              {submit.isError ? (
+                <Text as="p" role="alert">
+                  {submit.error.message}
+                </Text>
+              ) : null}
+              {submit.isSuccess ? (
+                <Text as="p" role="status">
+                  Request submitted. Follow its status in{" "}
+                  <Link
+                    to={`/teams/${team.id}?tab=requests&team_id=${team.id}`}
+                  >
+                    Repository requests
+                  </Link>
+                  .
+                </Text>
+              ) : null}
+              <HStack gap={3} wrap="wrap" align="center">
+                <Button
+                  label={String(
+                    submit.isPending ? "Submitting…" : "Submit request",
+                  )}
+                  variant="primary"
+                  type="submit"
+                  isDisabled={submit.isPending}
+                />
+              </HStack>
+            </Form>
+          </VStack>
+        </Collapsible>
+      ) : null}
+      {admin ? (
+        <Collapsible
+          defaultIsOpen={false}
+          trigger={
+            <HStack gap={3} wrap="wrap" vAlign="center">
+              Transfer a repository to another team
+            </HStack>
+          }
+        >
+          <VStack gap={4}>
+            <Text as="p">
+              Find the destination team, then choose Transfer on a
+              repository below. Existing review history follows repository
+              ownership.
+            </Text>
+
+            <TextInput
+              label={"Find destination team"}
+              placeholder="Type at least two characters"
+              value={teamSearch}
+              onChange={(value) => {
+                setTeamSearch(value);
+                setDestination("");
+              }}
+              {...({
+                maxLength: 80,
+              } satisfies InputHTMLAttributes<HTMLInputElement>)}
+            />
+
+            {teamSearch.length >= 2 ? (
+              <>
+                <Freshness query={destinations} />
+                <Selector
+                  label={"Destination"}
+                  options={[
+                    { value: "", label: "Choose a team" },
+                    destinations.data?.items
+                      .filter((item) => item.id !== team.id)
+                      .map((item) => ({
+                        value: String(item.id),
+                        label: item.name,
+                      })),
+                  ]
+                    .flat()
+                    .filter((option) => option != null)}
+                  value={destination}
+                  onChange={(value) => setDestination(value)}
+                />
+                {destinations.data?.next_after_id ? (
+                  <Text as="p" color="secondary">
+                    Refine the name to find more teams.
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+          </VStack>
+        </Collapsible>
+      ) : null}
+      <Freshness query={query} />
+      {query.data?.items.length ? (
+        <VStack
+          gap={4}
+          tabIndex={0}
+          role="region"
+          aria-label="Team repositories"
+        >
+          <Table
+            aria-label="Team repositories"
+            data={query.data.items}
+            columns={repositoryColumns}
+            idKey="repository_id"
+            density="balanced"
+            dividers="rows"
+            hasHover
+            verticalAlign="top"
+          />
+        </VStack>
+      ) : query.data ? (
+        <Empty title="No repositories assigned">
+          {maintain
+            ? "Request a repository above. An administrator can then verify access and approve it."
+            : "A team maintainer can request repository access."}
+        </Empty>
+      ) : null}
+      {after || query.data?.next_after_id ? (
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label={"First page"}
+            variant="secondary"
+            type="submit"
+            isDisabled={!after}
+            onClick={() => setAfter(0)}
+          />
+          <Button
+            label={"Next"}
+            variant="secondary"
+            type="submit"
+            isDisabled={!query.data?.next_after_id}
+            onClick={() => setAfter(query.data?.next_after_id ?? 0)}
+          />
+        </HStack>
+      ) : null}
+    </>
+  );
+}
+
+export function RepositoryRequests({
+  team,
+  maintain = false,
+}: {
+  team?: Team;
+  maintain?: boolean;
+}) {
+  const scope = useScope();
+  const [status, setStatus] = useState("pending");
+  const [before, setBefore] = useState<number | null>(null);
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (before) params.set("before_id", String(before));
+  if (team) params.set("team_id", String(team.id));
+  const query = useQuery({
+    queryKey: [
+      "repository-requests",
+      team?.id,
+      status,
+      before,
+      "scoped",
+      scope.key,
+    ],
+    queryFn: ({ signal }) =>
+      read<RepositoryRequestPage>(
+        `/api/repository-requests?${params}`,
+        signal,
+      ),
+  });
+  const admin = isAdmin(scope.current.role);
+  useEffect(() => {
+    if (!team) document.title = "Review Agent · Repository requests";
+  }, [team]);
+  return (
+    <>
+      {!team ? (
+        <>
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <VStack gap={3}>
+              <Heading level={1}>Repository requests</Heading>
+              <Text as="p">
+                {admin
+                  ? "Platform administration · Verify GitHub access and assign repositories to teams."
+                  : "Track repository requests for your teams."}
+              </Text>
+            </VStack>
+            <Link to="/teams">Teams</Link>
+          </HStack>
+        </>
+      ) : (
+        <Heading level={2}>Repository requests</Heading>
+      )}
+      <HStack gap={3} wrap="wrap" align="end">
+        <Selector
+          label={"Status"}
+          options={[
+            { value: "pending", label: "Pending" },
+            { value: "approved", label: "Approved" },
+            { value: "rejected", label: "Rejected" },
+            { value: "withdrawn", label: "Withdrawn" },
+            { value: "", label: "All requests" },
+          ]}
+          value={status}
+          onChange={(value) => {
+            setStatus(value);
+            setBefore(null);
+          }}
+        />
+        <Text>{query.data ? `${query.data.pending} pending` : ""}</Text>
+      </HStack>
+      <Freshness query={query} />
+      {query.data?.items.length ? (
+        <VStack gap={3}>
+          {query.data.items.map((request) => (
+            <VStack as="article" gap={3} key={request.id}>
+              <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                <VStack gap={3}>
+                  <Heading level={3}>{request.repository_name}</Heading>
+                  <Text color="secondary" display="block" type="supporting">
+                    <Link
+                      to={`/teams/${request.team_id}?team_id=${request.team_id}`}
+                    >
+                      {request.team_name}
+                    </Link>{" "}
+                    · Requested {time(request.submitted_at)}
+                  </Text>
+                </VStack>
+                <Text>{request.status}</Text>
+              </HStack>
+              <Text as="p">{request.reason}</Text>
+              {request.decision_reason ? (
+                <Text as="p">
+                  Decision: {request.decision_reason} ·{" "}
+                  {time(request.decided_at)}
+                </Text>
+              ) : null}
+              {request.status === "pending" ? (
+                <HStack
+                  gap={3}
+                  wrap="wrap"
+                  vAlign="center"
+                  hAlign="between"
+                >
+                  {admin ? (
+                    <>
+                      <ConfirmAction
+                        label="Approve repository"
+                        path={`/api/repository-requests/${request.id}/approve`}
+                        description={`Verify the current GitHub App grant, assign ${request.repository_name} to ${request.team_name}, and enable reviews with the deployment's default profile.`}
+                      />
+                      <ConfirmAction
+                        label="Reject request"
+                        path={`/api/repository-requests/${request.id}/reject`}
+                        description="Record why this repository request cannot be approved."
+                      />
+                    </>
+                  ) : null}
+                  {maintain || admin ? (
+                    <ConfirmAction
+                      label="Withdraw request"
+                      path={`/api/repository-requests/${request.id}/withdraw`}
+                      description="Close this pending request. A new request can be submitted later."
+                    />
+                  ) : null}
+                </HStack>
+              ) : null}
+            </VStack>
+          ))}
+        </VStack>
+      ) : query.data ? (
+        <Empty
+          title={
+            status === "pending"
+              ? "No requests waiting"
+              : status
+                ? "No requests with this status"
+                : "No requests yet"
+          }
+        >
+          {status === "pending"
+            ? "Nothing is waiting for approval."
+            : status
+              ? "Choose another status to see earlier requests."
+              : "A team maintainer requests a repository from their team page."}
+        </Empty>
+      ) : null}
+      {before || query.data?.next_before_id ? (
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label={"Latest requests"}
+            variant="secondary"
+            type="submit"
+            isDisabled={!before}
+            onClick={() => setBefore(null)}
+          />
+          <Button
+            label={"Older requests"}
+            variant="secondary"
+            type="submit"
+            isDisabled={!query.data?.next_before_id}
+            onClick={() => setBefore(query.data?.next_before_id ?? null)}
+          />
+        </HStack>
+      ) : null}
+    </>
+  );
+}
+
+function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
+  const scope = useScope();
+  const client = useQueryClient();
+  const [selected, setSelected] = useState<ModelConnection>(
+    policy.connection,
+  );
+  const [after, setAfter] = useState(0);
+  const [route, setRoute] = useState(
+    policy.provider === null
+      ? -1
+      : policy.connection.allowed_routes.findIndex(
+          (choice) =>
+            choice.provider === policy.provider &&
+            choice.model === policy.model,
+        ),
+  );
+  const [effort, setEffort] = useState(policy.reasoning_effort ?? "");
+  const [maxConcurrency, setMaxConcurrency] = useState(
+    policy.max_concurrency,
+  );
+  const admin = isAdmin(scope.current.role);
+  const connections = useQuery({
+    queryKey: [
+      "model-connections",
+      "team-options",
+      policy.team_id,
+      after,
+      "scoped",
+      scope.key,
+    ],
+    queryFn: ({ signal }) =>
+      read<ModelConnectionPage>(
+        `/api/model-connections?team_id=${policy.team_id}&after_id=${after}`,
+        signal,
+      ),
+    enabled: admin,
+  });
+  const choice = route >= 0 ? selected.allowed_routes[route] : undefined;
+  const save = useMutation({
+    mutationFn: () =>
+      write(`/api/teams/${policy.team_id}/model-policy`, "PUT", {
+        connection_id:
+          selected.runtime_key === "shared" ? null : selected.id,
+        provider: choice?.provider ?? null,
+        model: choice?.model ?? null,
+        reasoning_effort: choice ? effort : null,
+        max_concurrency: maxConcurrency,
+        expected_revision: policy.revision,
+        reason: "Team model policy updated",
+      } satisfies components["schemas"]["TeamModelUpdate"]),
+    onSuccess: async () => {
+      await Promise.all(
+        ["team-model-policy", "model-connections", "audit"].map((key) =>
+          client.invalidateQueries({ queryKey: [key] }),
+        ),
+      );
+    },
+  });
+  return (
+    <Form
+      onSubmit={(event) => {
+        event.preventDefault();
+        save.mutate();
+      }}
+    >
+      {admin ? (
+        <>
+          <Freshness query={connections} />
+          <Selector
+            label={"Assigned connection"}
+            options={[
+              !connections.data?.items.some(
+                (connection) => connection.id === selected.id,
+              )
+                ? { value: String(selected.id), label: selected.name }
+                : null,
+              connections.data?.items.map((connection) => ({
+                value: String(connection.id),
+                label:
+                  connection.name +
+                  String(
+                    connection.state !== "enabled"
+                      ? " (paused or unavailable)"
+                      : "",
+                  ),
+              })),
+            ]
+              .flat()
+              .filter((option) => option != null)}
+            value={String(selected.id)}
+            onChange={(value) => {
+              const next = connections.data?.items.find(
+                (connection) => connection.id === Number(value),
+              );
+              if (next) {
+                setSelected(next);
+                setRoute(-1);
+                setEffort("");
+              }
+            }}
+          />
+          {after > 0 || connections.data?.next_after_id ? (
+            <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+              <Button
+                label={"First connections"}
+                variant="secondary"
+                type="button"
+                isDisabled={after === 0}
+                onClick={() => setAfter(0)}
+              />
+              <Button
+                label={"Next connections"}
+                variant="secondary"
+                type="button"
+                isDisabled={!connections.data?.next_after_id}
+                onClick={() =>
+                  setAfter(connections.data?.next_after_id ?? 0)
+                }
+              />
+            </HStack>
+          ) : null}
+        </>
+      ) : null}
+      <Grid gap={4} columns={{ minWidth: 240, max: 4, repeat: "fit" }}>
+        <Selector
+          label={"Model"}
+          options={[
+            { value: String(-1), label: "Inherit deployment defaults" },
+            selected.allowed_routes.map((choice, index) => ({
+              value: String(index),
+              label:
+                String(
+                  choice.provider === "openai-codex"
+                    ? "OpenAI Codex"
+                    : "Anthropic",
+                ) +
+                " " +
+                "·" +
+                choice.model,
+            })),
+          ]
+            .flat()
+            .filter((option) => option != null)}
+          value={String(route)}
+          onChange={(value) => {
+            const index = Number(value);
+            setRoute(index);
+            setEffort(
+              selected.allowed_routes[index]?.reasoning_efforts[0] ?? "",
+            );
+          }}
+        />
+        {choice ? (
+          <Selector
+            label={"Reasoning"}
+            options={[
+              choice.reasoning_efforts.map((effort) => ({
+                value: effort,
+                label: effort,
+              })),
+            ]
+              .flat()
+              .filter((option) => option != null)}
+            isRequired={true}
+            value={effort}
+            onChange={(value) => setEffort(value)}
+          />
+        ) : null}
+      </Grid>
+      {!selected.allowed_routes.length ? (
+        <Text as="p" color="secondary">
+          This connection currently allows deployment defaults only. An
+          administrator can add model choices.
+        </Text>
+      ) : null}
+      {admin ? (
+        <NumberInput
+          isIntegerOnly
+          label={"Maximum concurrent team reviews"}
+          isRequired={true}
+          min={1}
+          max={2147483647}
+          step={1}
+          value={maxConcurrency}
+          onChange={(value) => setMaxConcurrency(value)}
+          {...({
+            required: true,
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
+        />
+      ) : null}
+
+      <Text as="p" color="secondary">
+        Model changes apply to newly admitted reviews. Queued and running
+        reviews keep their original account and model. Capacity limits apply
+        to new claims across all workers and connections; reviews already
+        claimed can finish.
+      </Text>
+      {save.isError ? (
+        <Text as="p" role="alert">
+          {save.error.message}
+        </Text>
+      ) : null}
+      {save.isSuccess ? (
+        <Text as="p" role="status">
+          Team model policy saved.
+        </Text>
+      ) : null}
+      <HStack gap={3} wrap="wrap" align="center">
+        <Button
+          label={String(save.isPending ? "Saving…" : "Save model policy")}
+          variant="primary"
+          type="submit"
+          isDisabled={save.isPending}
+        />
+      </HStack>
+    </Form>
+  );
+}
+
+function TeamModels({ team, maintain }: { team: Team; maintain: boolean }) {
+  const scope = useScope();
+  const query = useQuery({
+    queryKey: ["team-model-policy", team.id, "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<ModelPolicy>(`/api/teams/${team.id}/model-policy`, signal),
+  });
+  const policy = query.data;
+  return (
+    <VStack gap={4} as="section">
+      <Heading level={2}>Model and account</Heading>
+      <Freshness query={query} />
+      {policy ? (
+        <>
+          {/* Written as a row per pair, each label was pushed to one edge of
+              the panel and its value to the other, so reading the pair meant
+              crossing the gap. The design system owns this pairing. */}
+          <MetadataList
+            orientation="horizontal"
+            columns="multi"
+            label={{ position: "top" }}
+          >
+            <MetadataListItem label="Connection">
+              <Link
+                to={`/model-connections/${policy.connection.id}?team_id=${team.id}`}
+              >
+                {policy.connection.name}
+              </Link>{" "}
+              · {policy.connection.team_id ? "Dedicated" : "Shared"}
+            </MetadataListItem>
+            <MetadataListItem label="Model">
+              {policy.effective_provider === "openai-codex"
+                ? "OpenAI Codex"
+                : "Anthropic"}{" "}
+              · {policy.effective_model}
+            </MetadataListItem>
+            <MetadataListItem label="Reasoning">
+              {policy.effective_reasoning_effort}
+            </MetadataListItem>
+            <MetadataListItem label="Team capacity">
+              {policy.max_concurrency} concurrent reviews across connections
+            </MetadataListItem>
+            <MetadataListItem label="Connection capacity">
+              {policy.connection.max_concurrency} concurrent reviews shared by
+              its teams
+            </MetadataListItem>
+            <MetadataListItem label="Source">
+              {policy.provider === null
+                ? "Inherited from deployment defaults"
+                : "Team model policy"}
+            </MetadataListItem>
+          </MetadataList>
+          {policy.connection.state !== "enabled" ? (
+            <Text as="p">
+              This connection is paused or needs attention. Open the
+              connection to check its status.
+            </Text>
+          ) : null}
+          {maintain ? (
+            <Collapsible
+              defaultIsOpen={false}
+              trigger={
+                <HStack gap={3} wrap="wrap" vAlign="center">
+                  Change the team's model policy
+                </HStack>
+              }
+            >
+              <VStack gap={4}>
+                <TeamModelEditor
+                  key={`${policy.revision}:${policy.connection.revision}`}
+                  policy={policy}
+                />
+              </VStack>
+            </Collapsible>
+          ) : null}
+        </>
+      ) : null}
+    </VStack>
+  );
+}
+
+export function TeamDetail() {
+  const scope = useScope();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") ?? "repositories";
+  const query = scope.teamQuery;
+  useEffect(() => {
+    if (query.data) document.title = `Review Agent · ${query.data.name}`;
+  }, [query.data]);
+  const team = query.data;
+  const maintain =
+    isAdmin(scope.current.role) || team?.role === "maintainer";
+  return (
+    <>
+      {team ? (
+        <>
+          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+            <VStack gap={3}>
+              <Heading level={1}>{team.name}</Heading>
+              <Text as="p">
+                {team.description ||
+                  "Team repositories, membership, and access history."}
+              </Text>
+            </VStack>
+            <Link to={`/?team_id=${team.id}`}>View team activity</Link>
+          </HStack>
+          <TabList
+            aria-label="Team views"
+            value={tab}
+            onChange={(value) => {
+              const next = new URLSearchParams(params);
+              next.set("tab", value);
+              next.set("team_id", String(team.id));
+              setParams(next);
+            }}
+            hasDivider
+          >
+            <Tab value="repositories" label="Repositories" />
+            <Tab value="members" label="Members" />
+            <Tab value="models" label="Model and account" />
+            <Tab
+              value="requests"
+              label={`Requests${team.pending_requests ? ` (${team.pending_requests})` : ""}`}
+            />
+            {isAdmin(scope.current.role) ? (
+              <Tab value="audit" label="Audit log" />
+            ) : null}
+          </TabList>
+          {tab === "members" ? (
+            <Members team={team} maintain={maintain} />
+          ) : tab === "models" ? (
+            <TeamModels team={team} maintain={maintain} />
+          ) : tab === "requests" ? (
+            <RepositoryRequests team={team} maintain={maintain} />
+          ) : tab === "audit" && isAdmin(scope.current.role) ? (
+            <AuditLog teamId={team.id} />
+          ) : (
+            <TeamRepositories team={team} maintain={maintain} />
+          )}
+          {isAdmin(scope.current.role) ? (
+            <Collapsible
+              defaultIsOpen={false}
+              trigger={
+                <HStack gap={3} wrap="wrap" vAlign="center">
+                  Edit team details
+                </HStack>
+              }
+            >
+              <VStack gap={4}>
+                <TeamEditor key={team.revision} team={team} />
+              </VStack>
+            </Collapsible>
+          ) : null}
+        </>
+      ) : (
+        <Freshness query={query} />
+      )}
+    </>
+  );
+}

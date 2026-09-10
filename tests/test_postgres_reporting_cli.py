@@ -5,6 +5,8 @@ import os
 import subprocess
 import sys
 import unittest
+from functools import cached_property
+from uuid import uuid4
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +38,7 @@ from review_agent_tools.postgres import (  # noqa: E402
     registry,
     reporting,
     review_runs,
+    webhook_deliveries,
 )
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
@@ -48,6 +51,7 @@ DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 @unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
 class PostgreSQLOperatorReportingTests(unittest.TestCase):
     repository = "example-org/example-repository"
+    provider_repository_id = 930
     head_sha = "a" * 40
 
     def setUp(self) -> None:
@@ -59,16 +63,254 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.runtime.open()
         self.addCleanup(self.runtime.close)
 
+    @cached_property
+    def admin_access(self):
+        from review_agent_tools.postgres.team_access import AccessRequest
+
+        user_id = uuid4()
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "INSERT INTO review_agent.admin_users (id, email, hashed_password, is_superuser, is_platform_owner) VALUES (%s, 'report-test@example.test', 'unused-test-password-hash', true, true)",
+                (user_id,),
+            )
+        return AccessRequest(user_id)
+
     def register_repository(self) -> None:
         with self.runtime.transaction() as connection:
             registry.ensure_repository(
                 connection,
                 registry.RepositoryDefinition(
                     provider="github",
-                    provider_repository_id=930,
+                    provider_repository_id=self.provider_repository_id,
                     full_name=self.repository,
                 ),
             )
+
+    def register_webhook(self) -> webhook_deliveries.WebhookDelivery:
+        with self.runtime.transaction() as connection:
+            result = webhook_deliveries.register_delivery(
+                connection,
+                definition=webhook_deliveries.DeliveryDefinition(
+                    delivery_guid=str(uuid4()),
+                    event="issue_comment",
+                    action="created",
+                    payload_sha256="a" * 64,
+                    provider_installation_id=7001,
+                    provider_repository_id=self.provider_repository_id,
+                    repository_full_name=self.repository,
+                    command_category=webhook_deliveries.CommandCategory.REVIEW,
+                    normalized_schema_version=1,
+                    normalized_payload={"command": "review", "pull_request_number": 12},
+                ),
+                max_attempts=3,
+            )
+        return result.delivery
+
+    def test_queue_inventory_exposes_waiting_webhook_and_missing_consumer(self) -> None:
+        from unittest.mock import Mock
+        from review_agent_tools import operator_setup
+
+        self.register_webhook()
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                """UPDATE review_agent.github_webhook_deliveries
+                   SET received_at = statement_timestamp() - interval '10 minutes',
+                       available_at = statement_timestamp() - interval '5 minutes'"""
+            )
+        self.runtime.readiness()
+        completed = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "review_agent_admin.py"), "queues", "inspect"],
+            cwd=ROOT,
+            env={**os.environ, "REVIEW_AGENT_DATABASE_URL": DSN},
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        inventory = json.loads(completed.stdout)
+        self.assertEqual(inventory["webhooks"]["waiting"], 1)
+        self.assertEqual(inventory["webhooks"]["due"], 1)
+        self.assertEqual(inventory["webhooks"]["live_workers"], 0)
+        self.assertGreaterEqual(inventory["webhooks"]["oldest_due_age_seconds"], 300)
+        report = operator_setup.doctor(
+            {}, runtime=self.runtime, gateway=Mock(), hermes_probe=lambda: True
+        )
+        queue_check = next(check for check in report.checks if check.name == "queues")
+        self.assertEqual(queue_check.status, "error")
+        self.assertIn("webhook", queue_check.detail)
+
+    def test_queue_report_preserves_cooldowns_and_includes_failure_notice_delivery(self) -> None:
+        from unittest.mock import Mock
+        from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
+        from review_agent_tools import operator_setup, review_contract
+        from review_agent_tools.postgres import jobs
+
+        self.register_webhook()
+        with self.runtime.transaction() as connection:
+            leased = webhook_deliveries.claim_next_delivery(
+                connection, lease_owner="queue-test", lease_duration=timedelta(minutes=2)
+            )
+            assert leased is not None
+            webhook_deliveries.finish_delivery(
+                connection, delivery_id=leased.id, lease_owner="queue-test",
+                lease_generation=leased.lease_generation,
+                status=webhook_deliveries.TerminalStatus.REJECTED,
+                actor="queue-test", failure_code="review_permission_denied",
+            )
+        delayed = self.register_webhook()
+        with self.runtime.transaction() as connection:
+            leased = webhook_deliveries.claim_next_delivery(
+                connection, lease_owner="queue-test", lease_duration=timedelta(minutes=2)
+            )
+            assert leased is not None and leased.id == delayed.id
+            webhook_deliveries.retry_or_fail_delivery(
+                connection, delivery_id=leased.id, lease_owner="queue-test",
+                lease_generation=leased.lease_generation, actor="queue-test",
+                failure_code="review_waiting_for_capacity", waiting_for_capacity=True,
+                retry_delay=timedelta(hours=1),
+            )
+        queued = self.start(
+            pr_number=90, request_suffix="quota-wait",
+            resolved_config=review_contract.resolved_config(
+                TEST_REVIEW_CONTRACT,
+                model_route=review_contract.ModelRoute(None, 1, 1, 1),
+            ),
+        )
+        failed = self.start(pr_number=91, request_suffix="failure-notice-wait")
+        reviewed = self.start(pr_number=92, request_suffix="publication-wait")
+        publication = self.prepare_publication(
+            reviewed, self.record_finding(reviewed, findings=()), key_character="e"
+        )
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(
+                connection, review_run_id=queued.run.id, priority=0,
+                max_attempts=3, active_job_limit=10,
+            )
+            review_runs.fail_run(connection, failed.run.id, failure_code="review_failed")
+            connection.execute(
+                """UPDATE review_agent.model_accounts
+                   SET quota_wait_until = statement_timestamp() + interval '1 hour'
+                   WHERE connection_id = 1 AND provider = 'openai-codex'"""
+            )
+            connection.execute(
+                """UPDATE review_agent.publications
+                   SET delivery_available_at = statement_timestamp() + interval '1 hour'
+                   WHERE id = %s""", (publication.id,),
+            )
+            connection.execute(
+                """UPDATE review_agent.review_runs
+                   SET failure_status_delivery_available_at = statement_timestamp() + interval '1 hour'
+                   WHERE id = %s""", (failed.run.id,),
+            )
+        snapshot = operator_application.queue_health(self.runtime)
+        queues = {queue.kind: queue for queue in snapshot.progress}
+        self.assertEqual(snapshot.publication_queue.pending, 2)
+        self.assertEqual(queues["review"].cooldown_waiting, 1)
+        self.assertEqual(queues["review"].next_available_at, queues["review"].cooldown_until)
+        self.assertEqual(queues["webhook"].last_terminal_reason, "review_permission_denied")
+        self.assertEqual(queues["webhook"].capacity_waiting, 1)
+        self.assertIsNotNone(queues["webhook"].last_progress_at)
+        for kind, delayed_count in (("review", 1), ("publisher", 2), ("webhook", 1)):
+            with self.subTest(queue=kind):
+                self.assertEqual(queues[kind].due, 0)
+                self.assertEqual(queues[kind].delayed, delayed_count)
+                self.assertIsNone(queues[kind].oldest_due_at)
+                self.assertGreater(queues[kind].next_available_at, snapshot.generated_at)
+        report = operator_setup.doctor(
+            {}, runtime=self.runtime, gateway=Mock(), hermes_probe=lambda: True
+        )
+        self.assertEqual(next(check for check in report.checks if check.name == "queues").status, "ready")
+
+    def test_review_history_distinguishes_review_retry_and_expired_worker(self) -> None:
+        from review_agent_tools import admin_application, review_contract
+        from review_agent_tools.postgres import jobs
+        from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
+
+        run = self.start(
+            pr_number=93,
+            request_suffix="progress-review",
+            resolved_config=review_contract.resolved_config(
+                TEST_REVIEW_CONTRACT,
+                model_route=review_contract.ModelRoute(None, 1, 1, 1),
+            ),
+        )
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(connection, review_run_id=run.run.id, priority=0,
+                             max_attempts=3, active_job_limit=10)
+            connection.execute(
+                "UPDATE review_agent.review_jobs SET available_at = statement_timestamp() + interval '1 hour' WHERE review_run_id = %s",
+                (run.run.id,),
+            )
+        waiting = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(waiting.item.state, "queued")
+        self.assertGreater(waiting.item.next_attempt_at, datetime.now(timezone.utc))
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_jobs SET available_at = created_at WHERE review_run_id = %s",
+                (run.run.id,),
+            )
+            claim = jobs.claim_next_job(connection, lease_owner="progress-test",
+                                        lease_duration=timedelta(minutes=5),
+                                        priority_aging_interval=timedelta(minutes=5))
+            self.assertIsNotNone(claim)
+        active = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(active.item.state, "running")
+        self.assertIsNone(active.item.next_attempt_at)
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                """UPDATE review_agent.review_jobs
+                   SET created_at = created_at - interval '3 minutes',
+                       started_at = started_at - interval '3 minutes',
+                       last_heartbeat_at = statement_timestamp() - interval '2 minutes',
+                       lease_expires_at = statement_timestamp() - interval '1 minute'
+                   WHERE review_run_id = %s""", (run.run.id,),
+            )
+        expired = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(expired.item.state, "stalled")
+
+    def test_review_history_keeps_publication_retry_and_recovery_in_delivery(self) -> None:
+        from review_agent_tools import admin_application
+
+        run = self.start(pr_number=94, request_suffix="progress-publication")
+        publication = self.prepare_publication(
+            run, self.record_finding(run, findings=()), key_character="f"
+        )
+        with self.runtime.transaction() as connection:
+            claim = publications.claim_publication(connection, publication.id)
+            publications.fail_publication(
+                connection, publication_id=publication.id,
+                posting_started_at=claim.publication.posting_started_at,
+                failure_code="github_rate_limited", retryable=True,
+                retry_delay=timedelta(hours=1),
+            )
+        delayed = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(delayed.item.state, "publishing")
+        self.assertGreater(delayed.item.next_attempt_at, datetime.now(timezone.utc))
+        self.assertEqual(delayed.item.publication_failure_code, "github_rate_limited")
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.publications SET delivery_available_at = generated_at WHERE id = %s",
+                (publication.id,),
+            )
+            publications.claim_publication(connection, publication.id)
+            connection.execute(
+                """UPDATE review_agent.publications
+                   SET delivery_last_heartbeat_at = statement_timestamp() - interval '2 minutes',
+                       delivery_lease_expires_at = statement_timestamp() - interval '1 minute'
+                   WHERE id = %s""", (publication.id,),
+            )
+        expired = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(run.run.id)
+        )
+        self.assertEqual(expired.item.state, "stalled")
+        self.assertIsNone(expired.markdown)
 
     @staticmethod
     def finding(**overrides: object) -> FindingInput:
@@ -106,7 +348,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             self.runtime,
             review_run_application.PostgresRunRequest(
                 provider="github",
-                provider_repository_id=930,
+                provider_repository_id=self.provider_repository_id,
                 repository=self.repository,
                 pr_number=pr_number,
                 base_sha="b" * 40,
@@ -162,7 +404,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
         )
 
-    def publish_run(
+    def prepare_publication(
         self,
         run: review_runs.StartedRun,
         batch: review_finding_application.PostgresFindingBatch,
@@ -213,9 +455,18 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
         )
         with self.runtime.transaction() as connection:
-            prepared = publications.prepare_publication(
+            return publications.prepare_publication(
                 connection, run_id=run.run.id, plan=plan
             )
+
+    def publish_run(
+        self,
+        run: review_runs.StartedRun,
+        batch: review_finding_application.PostgresFindingBatch,
+        *,
+        key_character: str,
+    ) -> publications.Publication:
+        prepared = self.prepare_publication(run, batch, key_character=key_character)
         with self.runtime.transaction() as connection:
             claim = publications.claim_publication(connection, prepared.id)
         assert claim.publication.posting_started_at is not None
@@ -233,13 +484,715 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 publication_id=prepared.id,
                 posting_started_at=claim.publication.posting_started_at,
             )
-            review_runs.advance_phase(
-                connection, run.run.id, ReviewPhase.PUBLISHING
-            )
+            review_runs.advance_phase(connection, run.run.id, ReviewPhase.PUBLISHING)
             review_runs.complete_run(
                 connection, run.run.id, findings_count=len(batch.items)
             )
         return posted
+
+    def test_admin_counts_requests_separately_and_keeps_recovered_failures(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+
+        failed = self.start(pr_number=17, request_suffix="admin-failed")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(
+                connection, failed.run.id, failure_code="review_failed"
+            )
+        for suffix, key in (("first", "d"), ("again", "e")):
+            run = self.start(
+                pr_number=17, request_suffix=f"admin-{suffix}", policy_revision=suffix
+            )
+            batch = self.record_finding(run, findings=())
+            self.publish_run(run, batch, key_character=key)
+        active = self.start(pr_number=18, request_suffix="admin-active")
+        # Current work must remain visible even when it started before the period.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET started_at = started_at - interval '40 days' WHERE id = %s",
+                (active.run.id,),
+            )
+        page = admin_application.repositories(
+            self.runtime, access=self.admin_access, days=7
+        )
+        self.assertEqual(len(page.items), 1)
+        repo = page.items[0]
+        self.assertEqual(
+            (repo.prs_reviewed, repo.published_requests, repo.failed_requests),
+            (1, 2, 1),
+        )
+        self.assertEqual((repo.active_requests, repo.latest_failed_prs), (1, 0))
+        history = admin_application.history(
+            self.runtime,
+            access=self.admin_access,
+            days=7,
+            repository=self.repository,
+            status="failed",
+        )
+        self.assertEqual([item.id for item in history.items], [failed.run.id])
+        self.assertTrue(history.items[0].recovered)
+        self.assertFalse(history.items[0].is_latest)
+        first = admin_application.history(
+            self.runtime, access=self.admin_access, days=7, limit=1
+        )
+        second = admin_application.history(
+            self.runtime,
+            access=self.admin_access,
+            days=7,
+            limit=1,
+            before_id=first.next_cursor,
+        )
+        self.assertNotEqual(first.items[0].id, second.items[0].id)
+        self.assertEqual(first.items[0].coverage.state.value, "incomplete")
+        active_page = admin_application.history(
+            self.runtime, access=self.admin_access, days=7, status="active"
+        )
+        self.assertEqual([item.id for item in active_page.items], [active.run.id])
+
+    def test_admin_totals_cover_matching_rows_beyond_the_page(self) -> None:
+        from review_agent_tools import admin_application
+
+        self.start(pr_number=81, request_suffix="totals-one")
+        self.start(pr_number=82, request_suffix="totals-two")
+        with self.runtime.transaction() as connection:
+            registry.ensure_repository(
+                connection,
+                registry.RepositoryDefinition(
+                    provider="github",
+                    provider_repository_id=931,
+                    full_name="another/repository",
+                ),
+            )
+        page = admin_application.repositories(
+            self.runtime, access=self.admin_access, limit=1
+        )
+        self.assertEqual(page.total, 2)
+        self.assertEqual(page.totals.active_requests, 2)
+        self.assertEqual(page.items[0].active_requests, 0)
+        beyond = admin_application.repositories(
+            self.runtime, access=self.admin_access, limit=1, offset=5
+        )
+        self.assertEqual((beyond.items, beyond.total), ((), 2))
+        filtered = admin_application.repositories(
+            self.runtime, access=self.admin_access, search="example-org"
+        )
+        self.assertEqual(filtered.total, 1)
+        # Keep fixtures away from the exclusive window end across host/DB clocks.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET started_at = %s",
+                (datetime.now(timezone.utc) - timedelta(seconds=2),),
+            )
+        first = admin_application.history(
+            self.runtime, access=self.admin_access, limit=1
+        )
+        second = admin_application.history(
+            self.runtime, access=self.admin_access, limit=1, before_id=first.next_cursor
+        )
+        self.assertEqual((first.total, second.total), (2, 2))
+        self.assertNotEqual(first.items[0].id, second.items[0].id)
+
+    def test_admin_groups_requests_before_pagination_and_preserves_commit_context(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+
+        first = None
+        last = None
+        for index in range(20):
+            run = self.start(
+                pr_number=91,
+                request_suffix=f"group-{index}",
+                head_sha=("a" if index < 19 else "b") * 40,
+            )
+            if first is None:
+                first = run
+            last = run
+            with self.runtime.transaction() as connection:
+                review_runs.fail_run(
+                    connection, run.run.id, failure_code="review_failed"
+                )
+        other = self.start(pr_number=92, request_suffix="group-other")
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET started_at = %s",
+                (datetime.now(timezone.utc) - timedelta(seconds=2),),
+            )
+        first_page = admin_application.pull_requests(
+            self.runtime, access=self.admin_access, limit=1
+        )
+        second_page = admin_application.pull_requests(
+            self.runtime,
+            access=self.admin_access,
+            limit=1,
+            before_id=first_page.next_cursor,
+        )
+        self.assertEqual((first_page.total, second_page.total), (2, 2))
+        self.assertEqual(first_page.items[0].latest.id, other.run.id)
+        group = second_page.items[0]
+        self.assertEqual((group.matching_requests, group.total_requests), (20, 20))
+        assert first is not None and last is not None
+        self.assertEqual(group.latest.id, last.run.id)
+        self.assertEqual(group.latest.previous_head_sha, "a" * 40)
+        self.assertEqual(group.latest.head_sha, "b" * 40)
+        filtered = admin_application.pull_requests(
+            self.runtime, access=self.admin_access, status="failed"
+        )
+        self.assertEqual((filtered.total, filtered.items[0].matching_requests), (1, 20))
+        older = admin_application.history(
+            self.runtime,
+            access=self.admin_access,
+            repository=self.repository,
+            pr_number=91,
+            before_id=int(last.run.id),
+            limit=1,
+        )
+        self.assertEqual(older.items[0].previous_head_sha, older.items[0].head_sha)
+        empty = admin_application.pull_requests(
+            self.runtime, access=self.admin_access, before_id=1
+        )
+        self.assertEqual((empty.items, empty.total), ((), 2))
+
+    def test_admin_usage_and_publication_time_are_independent_of_request_time(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+        from review_agent_tools.postgres import admin_operations, jobs
+        from review_agent_tools.worker_telemetry import TokenUsage, record_usage
+
+        run = self.start(pr_number=84, request_suffix="usage-window")
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(
+                connection,
+                review_run_id=run.run.id,
+                priority=0,
+                max_attempts=3,
+                active_job_limit=10,
+            )
+            job = jobs.claim_next_job(
+                connection,
+                lease_owner="usage-worker",
+                lease_duration=timedelta(minutes=2),
+                priority_aging_interval=timedelta(minutes=15),
+            )
+        assert job is not None
+        for _ in range(2):
+            record_usage(
+                self.runtime,
+                job_id=job.id,
+                generation=job.lease_generation,
+                usage=TokenUsage(12, 3, 15),
+            )
+        publication = self.publish_run(
+            run, self.record_finding(run, findings=()), key_character="f"
+        )
+        with self.runtime.transaction() as connection:
+            row = connection.execute(
+                "SELECT posted_at FROM review_agent.publications WHERE id = %s",
+                (publication.id,),
+            ).fetchone()
+        assert row is not None and row[0] is not None
+        posted_at = row[0]
+        # Bound the report after the recorded event, independent of host/DB clock skew.
+        now = posted_at + timedelta(seconds=1)
+        with self.runtime.transaction() as connection:
+            report = admin_operations.overview(
+                connection, start=posted_at, end=now, now=now
+            )
+            excluded = admin_operations.overview(
+                connection, start=run.run.started_at, end=posted_at, now=now
+            )
+        self.assertEqual(
+            (
+                report.lifetime.requests,
+                report.lifetime.published_reviews,
+                report.lifetime.reviewed_prs,
+            ),
+            (1, 1, 1),
+        )
+        self.assertEqual(
+            (report.window.requests, report.window.published_reviews), (0, 1)
+        )
+        self.assertEqual(excluded.window.published_reviews, 0)
+        self.assertEqual(
+            (
+                report.lifetime.total_tokens,
+                report.reported_attempts,
+                report.started_attempts,
+            ),
+            (15, 1, 1),
+        )
+        self.assertIsNotNone(report.window.median_publication_seconds)
+        history = admin_application.history(
+            self.runtime,
+            access=self.admin_access,
+            start=now - timedelta(days=30),
+            end=now,
+        )
+        self.assertEqual(
+            (
+                history.items[0].usage.reported_attempts,
+                history.items[0].usage.total_tokens,
+            ),
+            (1, 15),
+        )
+        after_request = admin_application.history(
+            self.runtime, access=self.admin_access, start=posted_at, end=now
+        )
+        self.assertEqual((after_request.items, after_request.total), ((), 0))
+        unknown = self.start(pr_number=85, request_suffix="usage-unknown")
+        self.assertIsNone(
+            admin_application.history(
+                self.runtime,
+                access=self.admin_access,
+                start=now - timedelta(days=30),
+                end=unknown.run.started_at + timedelta(seconds=1),
+            )
+            .items[0]
+            .usage.total_tokens
+        )
+        self.assertNotEqual(unknown.run.id, run.run.id)
+
+    def test_admin_usage_attributes_requests_and_all_reported_attempts_without_fanout(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+        from review_agent_tools.postgres import jobs
+        from review_agent_tools.postgres.team_access import AccessRequest
+
+        first_repository = self.repository
+        alice = self.start(pr_number=180, request_suffix="usage-alice")
+        failed = self.start(pr_number=181, request_suffix="usage-alice-failed")
+        self.repository = "other-org/usage-repository"
+        self.provider_repository_id = 931
+        bob = self.start(pr_number=180, request_suffix="usage-bob")
+        unknown = self.start(pr_number=181, request_suffix="usage-unknown-user")
+        team = admin_application.create_team(
+            self.runtime,
+            access=self.admin_access,
+            name="Platform",
+            description="",
+            reason="Usage report fixture",
+        )
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "INSERT INTO review_agent.team_repositories (repository_id, team_id, assigned_by) "
+                "SELECT id, %s, %s FROM review_agent.repositories WHERE full_name = %s",
+                (team.id, self.admin_access.user_id, first_repository),
+            )
+            for run, requester, attempts, token_pairs in (
+                (alice, "Alice", 3, ((12, 3), (20, 5))),
+                (failed, "ALICE", 0, ()),
+                (bob, "bob", 1, ((160, 40),)),
+                (unknown, None, 1, ()),
+            ):
+                connection.execute(
+                    "UPDATE review_agent.review_runs SET trigger_user = %s, started_at = %s WHERE id = %s",
+                    (requester, datetime(2026, 9, 2, tzinfo=timezone.utc), run.run.id),
+                )
+                enqueued = jobs.enqueue_run(
+                    connection,
+                    review_run_id=run.run.id,
+                    priority=0,
+                    max_attempts=3,
+                    active_job_limit=10,
+                )
+                assert isinstance(enqueued, jobs.EnqueuedJob)
+                job = enqueued.job
+                connection.execute(
+                    "UPDATE review_agent.review_jobs SET lease_generation = %s WHERE id = %s",
+                    (attempts, job.id),
+                )
+                for generation, (prompt, completion) in enumerate(token_pairs, start=1):
+                    connection.execute(
+                        "INSERT INTO review_agent.review_attempt_usage "
+                        "(job_id, lease_generation, prompt_tokens, completion_tokens, total_tokens) VALUES (%s, %s, %s, %s, %s)",
+                        (job.id, generation, prompt, completion, prompt + completion),
+                    )
+            review_runs.fail_run(
+                connection, failed.run.id, failure_code="review_failed"
+            )
+        self.publish_run(
+            alice, self.record_finding(alice, findings=()), key_character="7"
+        )
+        start = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        end = datetime(2026, 9, 3, tzinfo=timezone.utc)
+        # Usage arrives after this request period. It still belongs to these requests.
+        for dimension, groups in (("team", 2), ("repository", 2), ("requester", 3)):
+            report = admin_application.usage(
+                self.runtime,
+                access=self.admin_access,
+                start=start,
+                end=end,
+                dimension=dimension,
+            )
+            totals = report.totals
+            self.assertEqual(
+                (
+                    totals.groups,
+                    totals.requests,
+                    totals.published_requests,
+                    totals.failed_requests,
+                ),
+                (groups, 4, 1, 1),
+            )
+            self.assertEqual(
+                (
+                    totals.repository_count,
+                    totals.requester_count,
+                    totals.unknown_requester_requests,
+                ),
+                (2, 2, 1),
+            )
+            self.assertEqual(
+                (
+                    totals.started_attempts,
+                    totals.reported_attempts,
+                    totals.prompt_tokens,
+                    totals.completion_tokens,
+                    totals.total_tokens,
+                ),
+                (5, 3, 192, 48, 240),
+            )
+            self.assertEqual(sum(item.requests for item in report.items), 4)
+            self.assertEqual(sum(item.total_tokens or 0 for item in report.items), 240)
+        ranked = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            dimension="requester",
+            sort="total_tokens",
+            limit=1,
+        )
+        self.assertEqual(
+            (
+                ranked.items[0].requester,
+                ranked.items[0].requests,
+                ranked.totals.requests,
+                ranked.has_more,
+            ),
+            ("bob", 1, 4, True),
+        )
+        last = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            dimension="requester",
+            sort="total_tokens",
+            limit=1,
+            offset=2,
+        )
+        self.assertIsNone(last.items[0].requester)
+        self.assertIsNone(last.items[0].total_tokens)
+        self.assertFalse(last.has_more)
+        scoped = admin_application.usage(
+            self.runtime,
+            access=AccessRequest(self.admin_access.user_id, team.id),
+            start=start,
+            end=end,
+            dimension="requester",
+        )
+        self.assertEqual(
+            [(item.requester, item.requests) for item in scoped.items], [("alice", 2)]
+        )
+        filtered = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            repository=self.repository.upper(),
+            dimension="requester",
+            search="BOB",
+        )
+        self.assertEqual(
+            (
+                filtered.totals.groups,
+                filtered.totals.requests,
+                filtered.items[0].total_tokens,
+            ),
+            (1, 1, 200),
+        )
+        beyond = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            dimension="requester",
+            offset=10,
+        )
+        self.assertEqual(
+            (beyond.items, beyond.totals.requests, beyond.has_more), ((), 4, False)
+        )
+        # Historical usage follows current repository ownership, like console scope.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "INSERT INTO review_agent.team_repositories (repository_id, team_id, assigned_by) "
+                "SELECT id, %s, %s FROM review_agent.repositories WHERE full_name = %s",
+                (team.id, self.admin_access.user_id, self.repository),
+            )
+        transferred = admin_application.usage(
+            self.runtime,
+            access=AccessRequest(self.admin_access.user_id, team.id),
+            start=start,
+            end=end,
+            dimension="team",
+        )
+        self.assertEqual(
+            (transferred.totals.groups, transferred.totals.requests), (1, 4)
+        )
+
+    def test_admin_usage_bounds_request_time_and_rechecks_application_authorization(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+        from review_agent_tools.postgres.team_access import AccessDenied
+
+        run = self.start(pr_number=183, request_suffix="usage-date-boundary")
+        start = run.run.started_at
+        included = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=start + timedelta(days=1),
+            search="%",
+        )
+        self.assertEqual(
+            included.totals.requests, 0
+        )  # Search is literal, not a SQL pattern.
+        included = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=start + timedelta(days=1),
+        )
+        self.assertEqual(included.totals.requests, 1)
+        excluded = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start - timedelta(days=1),
+            end=start,
+        )
+        self.assertEqual(excluded.totals.requests, 0)
+        self.assertIsNone(excluded.totals.total_tokens)
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.admin_users SET is_platform_owner = false, is_superuser = false, is_global_viewer = true WHERE id = %s",
+                (self.admin_access.user_id,),
+            )
+        with self.assertRaises(AccessDenied):
+            admin_application.usage(self.runtime, access=self.admin_access)
+
+    def test_admin_reader_returns_exact_published_snapshot_and_excludes_drafts(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+
+        first = self.start(pr_number=94, request_suffix="reader-published")
+        published = self.publish_run(
+            first, self.record_finding(first, findings=()), key_character="1"
+        )
+        second = self.start(
+            pr_number=94, request_suffix="reader-draft", head_sha="c" * 40
+        )
+        draft = self.prepare_publication(
+            second,
+            self.record_finding(second, findings=(), head_sha="c" * 40),
+            key_character="2",
+        )
+        other = self.start(pr_number=95, request_suffix="reader-other")
+        with self.runtime.transaction() as connection:
+            # Direct URLs must survive the overview's maximum reporting period.
+            connection.execute(
+                "UPDATE review_agent.review_runs SET started_at = started_at - interval '120 days' WHERE id = %s",
+                (first.run.id,),
+            )
+            claim = publications.claim_publication(connection, draft.id)
+            assert claim.publication.posting_started_at is not None
+            publications.acknowledge_part(
+                connection,
+                publication_id=draft.id,
+                part_type=PublicationPartType.SUMMARY,
+                part_number=1,
+                external_id=12345,
+                posting_started_at=claim.publication.posting_started_at,
+            )
+        detail = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(first.run.id)
+        )
+        assert detail is not None
+        self.assertEqual(detail.item.id, first.run.id)
+        self.assertEqual(detail.markdown, "## Review\n\nExact persisted review.\n")
+        self.assertFalse(detail.content_truncated)
+        self.assertEqual(
+            detail.publication_links[0].url,
+            f"https://github.com/{self.repository}/pull/94#issuecomment-{900 + int(first.run.id)}",
+        )
+        self.assertEqual(
+            [item.id for item in detail.requests], [second.run.id, first.run.id]
+        )
+        self.assertFalse(detail.item.is_latest)
+        self.assertNotIn(other.run.id, [item.id for item in detail.requests])
+        pending = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(second.run.id)
+        )
+        assert pending is not None
+        self.assertIsNone(pending.markdown)
+        self.assertEqual(pending.publication_links, ())
+        self.assertIsNone(
+            admin_application.review_detail(
+                self.runtime, access=self.admin_access, run_id=999999
+            )
+        )
+        with self.runtime.transaction() as connection:
+            publications.complete_publication(
+                connection,
+                publication_id=draft.id,
+                posting_started_at=claim.publication.posting_started_at,
+            )
+        historical = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(first.run.id)
+        )
+        assert historical is not None
+        self.assertTrue(historical.item.publication_superseded)
+        self.assertEqual(historical.markdown, detail.markdown)
+        self.assertEqual(historical.publication_links, detail.publication_links)
+        # The reader bounds content without mutating the frozen publication.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.publications SET rendered_markdown = repeat('x', 200001) WHERE id = %s",
+                (published.id,),
+            )
+        bounded = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=int(first.run.id)
+        )
+        assert bounded is not None and bounded.markdown is not None
+        self.assertEqual(len(bounded.markdown), 200000)
+        self.assertTrue(bounded.content_truncated)
+
+    def test_admin_reader_pages_pr_history_without_losing_selected_review(self) -> None:
+        from review_agent_tools import admin_application
+
+        runs: list[review_runs.StartedRun] = []
+        for index in range(22):
+            run = self.start(pr_number=96, request_suffix=f"reader-page-{index}")
+            runs.append(run)
+            with self.runtime.transaction() as connection:
+                review_runs.fail_run(
+                    connection, run.run.id, failure_code="review_failed"
+                )
+        self.start(pr_number=97, request_suffix="reader-page-other")
+        selected = int(runs[0].run.id)
+        first = admin_application.review_detail(
+            self.runtime, access=self.admin_access, run_id=selected
+        )
+        assert first is not None
+        self.assertEqual(len(first.requests), 20)
+        self.assertEqual(first.item.id, selected)
+        second = admin_application.review_detail(
+            self.runtime,
+            access=self.admin_access,
+            run_id=selected,
+            before_id=first.next_cursor,
+        )
+        assert second is not None
+        self.assertEqual(
+            [item.id for item in second.requests], [runs[1].run.id, runs[0].run.id]
+        )
+        self.assertEqual(second.item.id, selected)
+        self.assertIsNone(second.next_cursor)
+        self.assertTrue(
+            all(item.pr_number == 96 for item in (*first.requests, *second.requests))
+        )
+
+    def test_worker_presence_expires_and_events_remain_bounded(self) -> None:
+        import threading
+        from review_agent_tools.postgres import admin_operations, jobs
+        from review_agent_tools.worker_telemetry import WorkerTelemetry
+
+        run = self.start(pr_number=86, request_suffix="worker-presence")
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(
+                connection,
+                review_run_id=run.run.id,
+                priority=0,
+                max_attempts=3,
+                active_job_limit=10,
+            )
+            job = jobs.claim_next_job(
+                connection,
+                lease_owner="presence-worker",
+                lease_duration=timedelta(minutes=2),
+                priority_aging_interval=timedelta(minutes=15),
+            )
+        assert job is not None
+        stop = threading.Event()
+        with WorkerTelemetry(
+            self.runtime,
+            kind="review",
+            lease_owner="presence-worker",
+            capacity=4,
+            stop_event=stop,
+        ) as telemetry:
+            telemetry.event("review_started", run_id=run.run.id, job_id=job.id)
+            with self.runtime.transaction() as connection:
+                current = admin_operations.operations(
+                    connection, now=datetime.now(timezone.utc)
+                )
+                self.assertEqual(
+                    (
+                        current.workers[0].state,
+                        current.workers[0].capacity,
+                        current.workers[0].active_leases,
+                    ),
+                    ("running", 4, 1),
+                )
+                self.assertEqual(
+                    next(queue for queue in current.queues if queue.kind == "review").live_workers,
+                    1,
+                )
+                connection.execute(
+                    "UPDATE review_agent.worker_instances SET last_seen_at = statement_timestamp() - interval '91 seconds' WHERE id = %s",
+                    (telemetry.id,),
+                )
+                stale = admin_operations.operations(
+                    connection, now=datetime.now(timezone.utc)
+                )
+                self.assertEqual(stale.workers[0].state, "unresponsive")
+                self.assertEqual(
+                    next(queue for queue in stale.queues if queue.kind == "review").live_workers,
+                    0,
+                )
+                connection.execute(
+                    "INSERT INTO review_agent.worker_events (worker_id, event) SELECT %s, 'review_started' FROM generate_series(1, 1001)",
+                    (telemetry.id,),
+                )
+            telemetry.event("review_returned", run_id=run.run.id, job_id=job.id)
+            with self.runtime.transaction() as connection:
+                count = connection.execute(
+                    "SELECT count(*) FROM review_agent.worker_events WHERE worker_id = %s",
+                    (telemetry.id,),
+                ).fetchone()
+                self.assertEqual(count, (1000,))
+                page = admin_operations.events(
+                    connection, worker_id=telemetry.id, before_id=None, limit=1
+                )
+                self.assertEqual(page.items[0].event, "review_returned")
+                self.assertIsNotNone(page.next_cursor)
+            telemetry.refresh("draining")
+        with self.runtime.transaction() as connection:
+            final = admin_operations.operations(
+                connection, now=datetime.now(timezone.utc)
+            )
+        self.assertEqual(final.workers[0].state, "stopped")
+        with self.runtime.transaction() as connection:
+            count = connection.execute(
+                "SELECT count(*) FROM review_agent.worker_events WHERE worker_id = %s",
+                (telemetry.id,),
+            ).fetchone()
+        self.assertEqual(count, (1000,))
 
     def test_live_context_filters_before_limit_and_resolves_repeat_suppression(
         self,
@@ -276,8 +1229,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
 
         unrelated = tuple(
-            self.finding(path=f"src/unrelated_{index:03d}.py")
-            for index in range(200)
+            self.finding(path=f"src/unrelated_{index:03d}.py") for index in range(200)
         )
         self.record_finding(
             self.start(
@@ -448,12 +1400,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(len(decisions), 1)
 
         with self.runtime.transaction() as connection:
-            scope = reporting.repository_scope(
-                connection, repository=self.repository
-            )
-            with self.assertRaisesRegex(
-                reporting.ReportingError, "repeatable-read"
-            ):
+            scope = reporting.repository_scope(connection, repository=self.repository)
+            with self.assertRaisesRegex(reporting.ReportingError, "repeatable-read"):
                 reporting.export_repository(
                     connection,
                     scope=scope,
@@ -534,15 +1482,18 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         for attempt in range(3):
             with self.runtime.transaction() as connection:
                 claim = review_runs.claim_failure_status(
-                    connection, run_id=started.run.id,
+                    connection,
+                    run_id=started.run.id,
                     lease_owner=f"failed-publisher-{attempt}",
                     lease_duration=timedelta(minutes=1),
                 )
                 review_runs.retry_failure_status(
-                    connection, run_id=started.run.id,
+                    connection,
+                    run_id=started.run.id,
                     lease_owner=f"failed-publisher-{attempt}",
                     lease_generation=claim.target.delivery_lease_generation,
-                    failure_code="github_unreachable", retry_delay=timedelta(0),
+                    failure_code="github_unreachable",
+                    retry_delay=timedelta(0),
                 )
 
         listed = operator_application.list_runs(
@@ -563,7 +1514,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             pr_number=43,
             older_than_minutes=60,
         )
-        self.assertEqual(tuple(item.run_id for item in queued.targets), (started.run.id,))
+        self.assertEqual(
+            tuple(item.run_id for item in queued.targets), (started.run.id,)
+        )
         with self.runtime.transaction() as connection:
             recovered = review_runs.claim_failure_status(
                 connection,
@@ -578,9 +1531,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         first = self.start(pr_number=46, request_suffix="4251")
         first_batch = self.record_finding(first)
         with self.runtime.transaction() as connection:
-            review_runs.fail_run(
-                connection, first.run.id, failure_code="test_terminal"
-            )
+            review_runs.fail_run(connection, first.run.id, failure_code="test_terminal")
         second = self.start(pr_number=47, request_suffix="4252")
         second_batch = self.record_finding(second)
         fingerprint = first_batch.items[0].fingerprint
@@ -597,9 +1548,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
             now=datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
         )
-        self.assertEqual(
-            latest.occurrence_id, second_batch.items[0].occurrence_id
-        )
+        self.assertEqual(latest.occurrence_id, second_batch.items[0].occurrence_id)
 
         local = operator_application.decide_finding(
             self.runtime,
@@ -733,6 +1682,29 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 now=now,
             )
 
+    def test_runs_cli_applies_pr_filter_to_listing_and_statistics(self) -> None:
+        wanted = self.start(pr_number=12, request_suffix="filtered-run")
+        self.start(pr_number=2, request_suffix="unrelated-run")
+        for extra in ([], ["--stats"]):
+            with self.subTest(options=extra):
+                completed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(ROOT / "tools" / "review_agent_memory.py"),
+                        "runs", "--repo", self.repository, "--pr", "12", *extra,
+                    ],
+                    cwd=ROOT,
+                    env={**os.environ, "REVIEW_AGENT_DATABASE_URL": DSN},
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                result = json.loads(completed.stdout)
+                if extra:
+                    self.assertEqual(result["total"], 1)
+                else:
+                    self.assertEqual([row["id"] for row in result], [wanted.run.id])
+
     def test_quality_cli_renders_json_and_markdown_without_accuracy_claims(
         self,
     ) -> None:
@@ -810,9 +1782,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             state=DiffState.UNAVAILABLE,
             unavailable_reason="patch_unavailable",
         )
-        first_publication = self.publish_run(
-            first, first_batch, key_character="5"
-        )
+        first_publication = self.publish_run(first, first_batch, key_character="5")
         operator_application.decide_finding(
             self.runtime,
             operator_application.OperatorDecisionRequest(
@@ -862,9 +1832,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             paths=tuple(item.path for item in second_findings),
             state=DiffState.COMPLETE,
         )
-        second_publication = self.publish_run(
-            second, second_batch, key_character="6"
-        )
+        second_publication = self.publish_run(second, second_batch, key_character="6")
         operator_application.decide_finding(
             self.runtime,
             operator_application.OperatorDecisionRequest(
@@ -974,10 +1942,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            tuple(
-                (item.value, item.count)
-                for item in report.coverage_failure_codes
-            ),
+            tuple((item.value, item.count) for item in report.coverage_failure_codes),
             (("patch_unavailable", 1),),
         )
         self.assertEqual(len(report.cohorts), 2)
@@ -1064,9 +2029,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 publication_id=prepared.id,
                 posting_started_at=claim.publication.posting_started_at,
             )
-            review_runs.advance_phase(
-                connection, run.run.id, ReviewPhase.PUBLISHING
-            )
+            review_runs.advance_phase(connection, run.run.id, ReviewPhase.PUBLISHING)
             review_runs.complete_run(connection, run.run.id, findings_count=1)
 
         listed = operator_application.list_publications(

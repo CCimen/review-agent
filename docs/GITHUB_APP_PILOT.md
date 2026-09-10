@@ -177,9 +177,10 @@ docker compose exec review-github-gateway \
   --actor "github:<operator>"
 ```
 
-This command is limited to **Only select repositories** installations. It
-reconciles the selected inventory and enables only the named repository for the
-deployed profile.
+This command works with both GitHub installation scopes. It verifies a token
+restricted to the named repository and enables that repository for the deployed
+profile. It does not enumerate or remove other repositories. The console exposes
+the same operation under **Repositories → Access management → Add repository**.
 
 ### Return to explicit mode
 
@@ -268,7 +269,7 @@ explicit mode, rerun `github-app onboard` for the named repository.
 | Webhook returns `401` | GitHub and the deployment use different webhook secrets. |
 | `installation_approval_failed` | Verify the installation ID, App key, active status, and four permissions above. |
 | A public installation cannot review | Expected: an operator must approve that installation first. |
-| `repository_onboarding_failed` | Explicit onboarding requires an **Only select repositories** installation that includes the named repository. |
+| `repository_onboarding_failed` | Explicit onboarding requires an active installation that grants access to the named repository and the required review permissions. |
 | `repository_not_authorized` | Confirm the installation is approved for automatic activation or explicitly onboard the repository. |
 | `sender_not_authorized` | The commenter needs current `write` or `admin` permission. |
 | `fork_source_not_supported` | Test with a branch in the selected base repository. |

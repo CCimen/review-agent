@@ -1,0 +1,93 @@
+/* Keep Astryx's reset below its component and theme layers. */
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
+@import "@fontsource/figtree/latin-400.css";
+@import "@fontsource/figtree/latin-500.css";
+@import "@fontsource/figtree/latin-600.css";
+@import "@fontsource/figtree/latin-700.css";
+
+/* The segmented control draws its track as a translucent white overlay, so on
+   an elevated surface the composited background rises to about #3c3c3c and the
+   theme's secondary text lands at 4.11:1 — under the 4.5:1 that Astryx's own
+   accessibility notes require for an unselected segment label. Mixing the
+   secondary tone toward the primary one keeps the label visibly quieter than
+   the selected segment while clearing the ratio, and stays derived from theme
+   tokens rather than a hardcoded grey. Remove when upstream raises the tone. */
+.astryx-segmented-control-item:not([data-selected]),
+.astryx-segmented-control-item:not([data-selected]) span {
+  color: color-mix(
+    in srgb,
+    var(--color-text-secondary) 55%,
+    var(--color-text-primary)
+  );
+}
+
+/* The neutral theme has no hue to spend, so `accent` resolves to the same tone
+   as body text and a link inside a sentence is left with no cue at all. An
+   underline is the one signal that survives a greyscale palette, and WCAG 1.4.1
+   requires something other than colour. Astryx offers hasUnderline per link;
+   setting it here keeps every link consistent rather than depending on whether
+   a call site remembered the prop. Side navigation and tabs draw their own
+   selection and are not Link, so they are unaffected. */
+.astryx-link {
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.18em;
+}
+
+/* The neutral theme maps every accent role onto the neutral ramp, which is its
+   point: nothing competes with the content. In a console that is almost all
+   content, it also leaves interactive text with no colour of its own, and the
+   underline above is doing that work alone.
+
+   These three roles are remapped onto a hue the theme already generates, so no
+   new palette enters the project and light and dark stay paired through
+   light-dark(), the same form the theme emits. Teal rather than blue: the
+   theme spends blue on work in progress (a running review's status dot, the
+   information banner, the progress bar), and an operator reads this console
+   beside a GitHub tab whose links are already blue. Reserving a hue that
+   neither of those uses keeps "you can click this" and "this is running"
+   apart. Status hues are untouched.
+
+   Stops: teal light 40 and dark 65. As text they measure 6.18:1 on the page
+   and 5.47:1 on the body tint in light, 5.87:1 on a surface in dark; as a fill
+   they carry the theme's existing --color-on-accent at 6.18:1 and 7.33:1.
+
+   The selector matches the theme's own scope root rather than :root, because
+   the app mounts a second [data-astryx-theme] inside the document and its
+   token block would otherwise sit closer to the content than an html-level
+   declaration and win by proximity. */
+[data-astryx-theme] {
+  --color-accent: light-dark(#006e60, #4fb1a0);
+  --color-text-accent: light-dark(#006e60, #4fb1a0);
+  --color-icon-accent: light-dark(#006e60, #4fb1a0);
+}
+
+/* Selection, the caret and the scrollbars are drawn by the browser and belong
+   to no design system until a project claims them. */
+::selection {
+  background-color: light-dark(#c1eee4, #2f4e48);
+  color: var(--color-text-primary);
+}
+
+:root {
+  caret-color: var(--color-accent);
+  scrollbar-color: var(--color-border-emphasized) transparent;
+}
+
+/* The console refreshes every ten seconds. With proportional figures a count
+   changes width as it changes value, so a column of numbers shifts under the
+   reader on every tick. */
+.astryx-table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A banner paints its text in its own status hue, but only the informational
+   one also remaps the accent, so a link inside a warning sat in the console's
+   accent teal on an amber surface at 3.48:1. Inside a banner the link takes
+   the banner's foreground; the underline above still marks it as a link. */
+.astryx-banner .astryx-link,
+.astryx-banner .astryx-link .astryx-text {
+  color: var(--color-text-primary);
+}

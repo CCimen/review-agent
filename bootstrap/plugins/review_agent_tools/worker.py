@@ -7,10 +7,12 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import timedelta
 from http import HTTPStatus
+from http.client import HTTPException
 import json
 import logging
 import os
 from pathlib import Path
+import re
 import socket
 import threading
 import time
@@ -22,10 +24,11 @@ import psycopg
 
 from . import failure_codes, review_contract, review_run_application
 from .domain.review import JsonObject
+from .hermes_control import MANAGED_REVIEW_PATH
 from .postgres import jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
 from .source_control import SameOriginHttpsRedirectHandler
-
+from .worker_telemetry import TokenUsage, WorkerTelemetry, parse_usage, record_usage
 
 logger = logging.getLogger(__name__)
 _TRANSIENT_DATABASE_ERRORS = (
@@ -61,6 +64,7 @@ class WorkerPolicy:
     recovery_batch_size: int
     priority_aging_interval: timedelta
     concurrency: int = 1
+    runtime_key: str = "shared"
 
     def __post_init__(self) -> None:
         positive_durations = {
@@ -83,6 +87,8 @@ class WorkerPolicy:
             raise WorkerConfigurationError("recovery_batch_size must be positive")
         if isinstance(self.concurrency, bool) or self.concurrency < 1:
             raise WorkerConfigurationError("concurrency must be positive")
+        if re.fullmatch(r"[a-z][a-z0-9-]{0,62}", self.runtime_key) is None:
+            raise WorkerConfigurationError("model connection must be a valid runtime key")
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,8 +99,14 @@ class HermesChatSettings:
 
     def __post_init__(self) -> None:
         parsed = parse.urlsplit(self.endpoint)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise WorkerConfigurationError("Hermes endpoint must be an HTTP URL")
+        if (
+            parsed.scheme not in {"http", "https"} or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or parsed.path != MANAGED_REVIEW_PATH or parsed.query or parsed.fragment
+        ):
+            raise WorkerConfigurationError(
+                f"Hermes endpoint must be an HTTP URL ending in {MANAGED_REVIEW_PATH}"
+            )
         if not self.bearer_token.strip():
             raise WorkerConfigurationError("Hermes bearer token is required")
         if not self.skill_path.is_file():
@@ -131,11 +143,14 @@ class HermesChatClient:
             SameOriginHttpsRedirectHandler()
         )
 
-    def review(self, claimed: ClaimedReview, *, timeout: timedelta) -> None:
+    def review(
+        self, claimed: ClaimedReview, *, timeout: timedelta
+    ) -> TokenUsage | None:
         session = jobs.WorkerLeaseSession(
             job_id=claimed.job.id,
             lease_generation=claimed.job.lease_generation,
         )
+        contract = review_contract.queued_contract(claimed.resolved_config)
         payload = json.dumps(
             {
                 "messages": [
@@ -153,6 +168,12 @@ class HermesChatClient:
                     },
                 ],
                 "stream": False,
+                "provider": contract.model_provider,
+                "model": contract.model,
+                "model_options": {"reasoning": {
+                    "enabled": contract.reasoning_effort != "none",
+                    "effort": contract.reasoning_effort,
+                }},
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -171,11 +192,14 @@ class HermesChatClient:
             },
         )
         try:
-            # Durable PostgreSQL state, not optional assistant prose, proves
-            # whether the review completed. Close the response without
-            # buffering an otherwise unbounded body.
-            with self._opener.open(call, timeout=timeout.total_seconds()):
-                pass
+            # PostgreSQL remains authoritative for completion. Optional usage is
+            # bounded; malformed or unreadable telemetry cannot undo publication.
+            with self._opener.open(call, timeout=timeout.total_seconds()) as response:
+                try:
+                    body = response.read(1024 * 1024 + 1)
+                except (OSError, ValueError, HTTPException):
+                    return None
+                return parse_usage(body) if len(body) <= 1024 * 1024 else None
         except error.HTTPError as exc:
             retryable = (
                 exc.code
@@ -207,11 +231,13 @@ class ReviewWorker:
         *,
         lease_owner: str,
         stop_event: threading.Event,
+        telemetry: WorkerTelemetry | None = None,
     ) -> None:
         owner = lease_owner.strip()
         if not owner:
             raise WorkerConfigurationError("lease_owner is required")
         self._runtime = runtime
+        self._telemetry = telemetry
         self._client = client
         self._policy = policy
         self._lease_owner = owner
@@ -336,6 +362,7 @@ class ReviewWorker:
                 lease_owner=self._lease_owner,
                 lease_duration=self._policy.lease_duration,
                 priority_aging_interval=self._policy.priority_aging_interval,
+                runtime_key=self._policy.runtime_key,
             )
             if job is None:
                 return None
@@ -399,7 +426,7 @@ class ReviewWorker:
             self._stop.set()
             return
         try:
-            review_contract.require_matching_resolved_config(
+            review_contract.require_matching_execution_contract(
                 claimed.resolved_config, installed_contract
             )
         except review_contract.ReviewContractError as exc:
@@ -429,13 +456,33 @@ class ReviewWorker:
         )
         heartbeat.start()
         failure: HermesRequestError | None = None
+        usage: TokenUsage | None = None
+        if self._telemetry is not None:
+            self._telemetry.event(
+                "review_started",
+                run_id=claimed.job.review_run_id,
+                job_id=claimed.job.id,
+            )
         try:
-            self._client.review(claimed, timeout=self._policy.request_timeout)
+            usage = self._client.review(claimed, timeout=self._policy.request_timeout)
         except HermesRequestError as exc:
             failure = exc
         finally:
             heartbeat_stop.set()
             heartbeat.join()
+            if usage is not None:
+                record_usage(
+                    self._runtime,
+                    job_id=claimed.job.id,
+                    generation=claimed.job.lease_generation,
+                    usage=usage,
+                )
+            if self._telemetry is not None:
+                self._telemetry.event(
+                    "review_returned" if usage is not None else "usage_unavailable",
+                    run_id=claimed.job.review_run_id,
+                    job_id=claimed.job.id,
+                )
 
         if lease_lost.is_set():
             logger.info("Review job %s lost its lease", claimed.job.id)

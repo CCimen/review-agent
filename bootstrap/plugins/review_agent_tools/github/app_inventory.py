@@ -43,6 +43,59 @@ class InstallationInventory:
 class InstallationMetadata:
     definition: github_app.InstallationDefinition
     status: github_app.InstallationStatus
+    settings_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryInventory:
+    installation: InstallationMetadata
+    repository: github_app.InstallationRepositoryDefinition
+
+
+def _settings_url(metadata: object) -> str | None:
+    raw = _object(metadata, "installation metadata").get("html_url")
+    if not isinstance(raw, str) or len(raw) > 500:
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+    except ValueError:
+        return None
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "github.com"
+        or parsed.query
+        or parsed.fragment
+        or not parsed.path.startswith(("/settings/installations/", "/organizations/"))
+    ):
+        return None
+    return raw
+
+
+def read_repository_inventory(
+    authenticator: GitHubAppAuthenticator, *, repository: str
+) -> RepositoryInventory:
+    """Verify one named repository without enumerating its installation."""
+    full_name = resolve_repository(repository)
+    encoded = urllib.parse.quote(full_name, safe="/")
+    payload = authenticator.app_json(f"/repos/{encoded}/installation")
+    installation_id = _positive(
+        _object(payload, "installation").get("id"), "installation id"
+    )
+    definition, status = _definition(payload, installation_id)
+    token = authenticator.installation_token(
+        installation_id,
+        repositories=(full_name.split("/", 1)[1],),
+        permissions={"metadata": "read"},
+    )
+    resolved = _repository(authenticator.installation_json(f"/repos/{encoded}", token))
+    if resolved.full_name.casefold() != full_name.casefold():
+        raise GitHubAppInventoryPermanent(
+            "GitHub returned a different repository identity"
+        )
+    return RepositoryInventory(
+        installation=InstallationMetadata(definition, status, _settings_url(payload)),
+        repository=resolved,
+    )
 
 
 def installation_id_for_repository(
@@ -270,4 +323,6 @@ def read_installation_metadata(
         f"/app/installations/{provider_installation_id}", now=now
     )
     definition, status = _definition(payload, provider_installation_id)
-    return InstallationMetadata(definition=definition, status=status)
+    return InstallationMetadata(
+        definition=definition, status=status, settings_url=_settings_url(payload)
+    )

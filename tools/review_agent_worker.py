@@ -28,12 +28,15 @@ def _load_package() -> None:
 
 _load_package()
 
+from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
+
 from review_agent_tools import review_contract  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
 from review_agent_tools.worker import (  # noqa: E402
     HermesChatClient,
     HermesChatSettings,
@@ -79,6 +82,7 @@ def _policy() -> WorkerPolicy:
             "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS", "900"
         ),
         concurrency=_positive_integer("REVIEW_AGENT_WORKER_CONCURRENCY", "4"),
+        runtime_key=os.environ.get("REVIEW_AGENT_MODEL_CONNECTION", "shared"),
     )
 
 
@@ -87,7 +91,7 @@ def _chat_settings() -> HermesChatSettings:
     return HermesChatSettings(
         endpoint=os.environ.get(
             "REVIEW_AGENT_HERMES_CHAT_URL",
-            "http://127.0.0.1:8642/v1/chat/completions",
+            "http://127.0.0.1:8642/v1/review-agent/review",
         ).strip(),
         bearer_token=os.environ.get("API_SERVER_KEY", "").strip(),
         skill_path=Path(
@@ -117,6 +121,12 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, request_stop)
 
     configured = ReviewAgentSettings.from_environment()
+    with_settings = PostgreSQLRuntime(configured.postgres_database_url, role=PostgreSQLRuntimeRole.OPERATOR)
+    with_settings.open()
+    try:
+        apply_at_startup(with_settings, "worker")
+    finally:
+        with_settings.close()
     policy = _policy()
     chat_settings = _chat_settings()
     try:
@@ -131,14 +141,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     runtime.open()
     try:
-        worker = ReviewWorker(
+        with WorkerTelemetry(
             runtime,
-            HermesChatClient(chat_settings),
-            policy,
+            kind="review",
             lease_owner=lease_owner,
+            capacity=policy.concurrency,
             stop_event=stop,
-        )
-        worker.run(once=args.once)
+        ) as telemetry:
+            worker = ReviewWorker(
+                runtime,
+                HermesChatClient(chat_settings),
+                policy,
+                lease_owner=lease_owner,
+                stop_event=stop,
+                telemetry=telemetry,
+            )
+            worker.run(once=args.once)
         return 0
     finally:
         runtime.close()

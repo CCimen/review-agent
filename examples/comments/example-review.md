@@ -3,7 +3,7 @@ sidebar_label: Example review
 slug: /example-review
 title: Example review
 status: current
-last_verified: 2026-08-21
+last_verified: 2026-09-09
 ---
 
 # Example review
@@ -13,13 +13,20 @@ last_verified: 2026-08-21
 
 ## AI code & security review
 
+**Reviewed commit:** [`a1b2c3d4e5f6`](https://github.com/example-org/example-repository/commit/a1b2c3d4e5f678901234567890abcdef12345678)
+
 There is 1 current finding: 1 Medium (P2).
+
+**Diff coverage:** Complete diffs were available for all 2 changed files.
+
+<details>
+<summary>Coverage details</summary>
 
 Scope: base-to-head diff, including stacked and off-title changes; unchanged files are supporting evidence only.
 
-<sub>Review context: textual diff content was available for all 2 registered
-changed paths. Additional source context was read from 1 changed path and 1
-supporting file.</sub>
+Additional source context was read from 1 changed file and 1 supporting file.
+
+</details>
 
 ### F1 · Medium (P2): Retry delay uses milliseconds as seconds
 [`src/jobs/retry.py:87`](https://github.com/example-org/example-repository/blob/a1b2c3d4e5f678901234567890abcdef12345678/src/jobs/retry.py#L87) · correctness

@@ -38,12 +38,15 @@ from review_agent_tools.github.gateway_client import (  # noqa: E402
 from review_agent_tools.github.publication import GitHubIssueCommentGateway  # noqa: E402
 from review_agent_tools.postgres import (  # noqa: E402
     github_app,
+    deployment_settings,
+    review_runs,
     jobs,
     registry,
     webhook_deliveries,
 )
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
+from review_agent_tools.deployment_settings import DeploymentSettings  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 from review_agent_tools.source_control import (  # noqa: E402
     GitHubReadClient,
@@ -227,7 +230,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.feedback_github = _FeedbackGitHub()
         self.contract = review_contract.ReviewContract(
             profile="default-standard",
-            hermes_image="hermes@test",
+            hermes_image="hermes@sha256:" + "a" * 64,
             model_provider="openai-codex",
             model="gpt-test",
             reasoning_effort="high",
@@ -237,6 +240,8 @@ class GitHubAppProcessorTests(unittest.TestCase):
             engine_bundle_sha256="3" * 64,
             sha256="4" * 64,
         )
+
+        self.contract = review_contract.with_model_route(self.contract, provider="openai-codex", model="gpt-test", effort="high")
 
     def processor(
         self,
@@ -710,6 +715,28 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(counts, (1, 1))
         self.assertEqual(repository_name, ("CCimen/review-agent",))
 
+    def test_new_model_policy_does_not_change_an_admitted_or_redelivered_review(self) -> None:
+        self.enable_repository()
+        self.register("issue_comment", self.review_payload())
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            first = self.processor().process_next(lease_owner="worker-1")
+            assert first is not None and first.run_id is not None
+            with self.runtime.transaction() as connection:
+                frozen = review_runs.find_request_config(connection, "github:issue-comment:6001")
+                deployment_settings.save(connection, settings=DeploymentSettings(model="next-model"), expected_revision=0, actor="admin:test", reason="select a new model")
+            self.register("issue_comment", self.review_payload())
+            repeated = self.processor().process_next(lease_owner="worker-2")
+            self.assertEqual(repeated.run_id if repeated else None, first.run_id)
+            payload = self.review_payload()
+            payload["comment"] = {"id": 6002, "body": "/review", "author_association": "MEMBER"}
+            self.register("issue_comment", payload)
+            newest = self.processor().process_next(lease_owner="worker-3")
+            self.assertNotEqual(newest.run_id if newest else None, first.run_id)
+            with self.runtime.transaction() as connection:
+                self.assertEqual(review_runs.find_request_config(connection, "github:issue-comment:6001"), frozen)
+                selected = review_runs.find_request_config(connection, "github:issue-comment:6002")
+            self.assertEqual(review_contract.queued_contract(selected).model, "next-model")
+
     def test_review_admission_expires_after_its_deadline(self) -> None:
         self.enable_repository()
         expired_id = self.register("issue_comment", self.review_payload())
@@ -726,6 +753,106 @@ class GitHubAppProcessorTests(unittest.TestCase):
             expired_delivery = webhook_deliveries.get_delivery(connection, expired_id)
         self.assertIsNone(expired_delivery.normalized_payload)
         self.assertIsNotNone(expired_delivery.processed_at)
+
+    def test_team_account_route_is_frozen_and_only_its_worker_can_claim(self) -> None:
+        self.enable_repository()
+        with self.runtime.transaction() as connection:
+            actor_id = uuid4()
+            connection.execute(
+                "INSERT INTO review_agent.admin_users (id, email, hashed_password) VALUES (%s, 'routing@example.com', 'disabled-test-login')",
+                (actor_id,),
+            )
+            team_id = connection.execute(
+                "INSERT INTO review_agent.teams (name) VALUES ('Payments') RETURNING id"
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT INTO review_agent.team_repositories (team_id, repository_id, assigned_by) "
+                "SELECT %s, id, %s FROM review_agent.repositories WHERE provider_repository_id = 9001",
+                (team_id, actor_id),
+            )
+            model_connection_id = connection.execute(
+                "INSERT INTO review_agent.model_connections (runtime_key, name, team_id, state) "
+                "VALUES ('payments', 'Payments account', %s, 'enabled') RETURNING id",
+                (team_id,),
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT INTO review_agent.model_accounts (connection_id, provider, revision, identity_sha256) "
+                "VALUES (%s, 'openai-codex', 7, %s)",
+                (model_connection_id, "a" * 64),
+            )
+            connection.execute(
+                "INSERT INTO review_agent.team_model_policies (team_id, connection_id, provider, model, reasoning_effort) "
+                "VALUES (%s, %s, 'openai-codex', 'team-model', 'high')",
+                (team_id, model_connection_id),
+            )
+        self.register("issue_comment", self.review_payload())
+        with patch.object(
+            app_processor.review_contract,
+            "load_packaged_contract",
+            return_value=self.contract,
+        ):
+            first = self.processor().process_next(lease_owner="webhook-1")
+            self.assertIsNotNone(first.run_id if first else None)
+            with self.runtime.transaction() as connection:
+                frozen = review_runs.find_request_config(
+                    connection, "github:issue-comment:6001"
+                )
+                self.assertEqual(frozen["model_route"]["team_id"], team_id)
+                self.assertEqual(
+                    frozen["model_route"]["connection_id"], model_connection_id
+                )
+                self.assertEqual(frozen["model_route"]["account_revision"], 7)
+                self.assertEqual(
+                    review_contract.queued_contract(frozen).model, "team-model"
+                )
+                connection.execute(
+                    "UPDATE review_agent.team_model_policies SET connection_id = NULL, model = 'later-model', revision = revision + 1 WHERE team_id = %s",
+                    (team_id,),
+                )
+                shared_claim = jobs.claim_next_job(
+                    connection,
+                    lease_owner="shared-worker",
+                    lease_duration=timedelta(minutes=2),
+                    priority_aging_interval=timedelta(minutes=15),
+                )
+                self.assertIsNone(shared_claim)
+                connection.execute(
+                    "UPDATE review_agent.model_connections SET state = 'disabled' WHERE id = %s",
+                    (model_connection_id,),
+                )
+            self.register("issue_comment", self.review_payload())
+            repeated = self.processor().process_next(lease_owner="webhook-2")
+            self.assertEqual(repeated.run_id if repeated else None, first.run_id)
+            with self.runtime.transaction() as connection:
+                self.assertEqual(
+                    review_runs.find_request_config(
+                        connection, "github:issue-comment:6001"
+                    ),
+                    frozen,
+                )
+                self.assertIsNone(
+                    jobs.claim_next_job(
+                        connection,
+                        lease_owner="team-worker",
+                        lease_duration=timedelta(minutes=2),
+                        priority_aging_interval=timedelta(minutes=15),
+                        runtime_key="payments",
+                    )
+                )
+                connection.execute(
+                    "UPDATE review_agent.model_connections SET state = 'enabled' WHERE id = %s",
+                    (model_connection_id,),
+                )
+                claimed = jobs.claim_next_job(
+                    connection,
+                    lease_owner="team-worker",
+                    lease_duration=timedelta(minutes=2),
+                    priority_aging_interval=timedelta(minutes=15),
+                    runtime_key="payments",
+                )
+                self.assertEqual(
+                    claimed.review_run_id if claimed else None, first.run_id
+                )
 
     def test_admission_lock_failures_exhaust_the_attempt_budget(self) -> None:
         self.enable_repository()

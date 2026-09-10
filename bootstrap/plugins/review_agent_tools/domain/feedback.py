@@ -87,6 +87,20 @@ def resolve_repository(value: str) -> str:
     return repository
 
 
+
+def resolve_github_repository(value: str) -> str:
+    repository = value.strip()
+    if "://" in repository:
+        parsed = urlsplit(repository)
+        if parsed.scheme != "https" or parsed.netloc != "github.com" or parsed.query or parsed.fragment:
+            raise FeedbackDomainError("Use owner/name or an HTTPS GitHub repository URL")
+        repository = parsed.path.strip("/")
+    normalized = resolve_repository(repository)
+    if len(normalized) > 200:
+        raise FeedbackDomainError("Repository name exceeds 200 characters")
+    return normalized
+
+
 def resolve_positive_int(value: object, *, field: str) -> int:
     if type(value) is not int or value < 1:
         raise FeedbackDomainError(f"{field} must be a positive integer")

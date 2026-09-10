@@ -33,6 +33,20 @@ RUN uv venv --python /opt/hermes/.venv/bin/python /opt/review-agent-code-graph \
     && chown 10000:10000 /var/lib/review-agent-code-graph
 
 COPY --chown=hermes:hermes bootstrap/ /opt/review-agent-bootstrap/
+ARG REVIEW_AGENT_VERSION=development
+ARG REVIEW_AGENT_REVISION=unknown
+LABEL org.opencontainers.image.version=$REVIEW_AGENT_VERSION \
+      org.opencontainers.image.revision=$REVIEW_AGENT_REVISION
+# Keep inference and quota reads bound to the selected account. Check upstream
+# source before applying the pinned changes to its existing owners.
+RUN printf '%s\n' \
+        'de28c68a86491988e8098f9fd021e99c95e866f3782ba48893f561d33f4f24a3  /opt/hermes/agent/auxiliary_client.py' \
+        'fa9c24dc37a90261be038909c19d6715c0d6a843e001a71a4d9053d7b63ec88d  /opt/hermes/agent/account_usage.py' \
+        | sha256sum -c - \
+    && git -C /opt/hermes apply --check /opt/review-agent-bootstrap/hermes/auxiliary-no-fallback.patch \
+    && git -C /opt/hermes apply /opt/review-agent-bootstrap/hermes/auxiliary-no-fallback.patch \
+    && git -C /opt/hermes apply --unidiff-zero --check /opt/review-agent-bootstrap/hermes/account-usage.patch \
+    && git -C /opt/hermes apply --unidiff-zero /opt/review-agent-bootstrap/hermes/account-usage.patch
 # Offline operator helpers imported by review-agent-memory. The webhook agent
 # cannot reach them because file, terminal, and code execution are disabled.
 COPY --chown=root:root tools/review_agent_*.py /usr/local/bin/

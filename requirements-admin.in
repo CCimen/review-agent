@@ -1,0 +1,6 @@
+-r requirements.txt
+fastapi
+uvicorn
+fastapi-users[sqlalchemy]==15.0.5
+authlib==1.8.0
+joserfc==1.7.5

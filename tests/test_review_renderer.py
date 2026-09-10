@@ -5,10 +5,7 @@ import unittest
 from pathlib import Path
 
 PLUGIN = (
-    Path(__file__).resolve().parents[1]
-    / "bootstrap"
-    / "plugins"
-    / "review_agent_tools"
+    Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "review_agent_tools"
 )
 sys.path.insert(0, str(PLUGIN))
 
@@ -17,6 +14,82 @@ import memory_validation  # noqa: E402
 
 
 class ReviewRendererTests(unittest.TestCase):
+    def test_review_header_identifies_the_exact_commit_without_findings(self) -> None:
+        rendered = review_renderer.render_review_markdown(
+            repository="example/repository", pr_number=12, head_sha="a" * 40,
+            findings=[], closed=[], still_present=[], partially_resolved=[],
+            new_refs=[], not_checked_refs=[], coverage=self.coverage(),
+        )
+        visible = rendered.split("<!--", 1)[0]
+        self.assertIn("**Reviewed commit:**", visible)
+        self.assertIn("https://github.com/example/repository/commit/" + "a" * 40, visible)
+
+    def test_partial_review_keeps_the_result_visible_and_details_collapsed(
+        self,
+    ) -> None:
+        rendered = review_renderer.render_review_markdown(
+            repository="example/repository",
+            pr_number=12,
+            head_sha="a" * 40,
+            findings=[],
+            closed=[
+                {
+                    "local_reference": "F1",
+                    "fingerprint": "b" * 64,
+                    "observation_id": 1,
+                    "context_hash": "c" * 64,
+                    "verdict": "resolved",
+                    "title": "Previous finding",
+                    "evidence": "The updated guard now rejects the invalid request.",
+                }
+            ],
+            still_present=[],
+            partially_resolved=[],
+            new_refs=[],
+            not_checked_refs=[],
+            feedback_enabled=True,
+            coverage=self.coverage(
+                state="incomplete",
+                changed_paths_with_diff=2,
+                unavailable=1,
+                examples=(
+                    review_renderer.DiffCoverageExample(
+                        path="private/module.py",
+                        revision="a" * 40,
+                        state=review_renderer.DiffState.UNAVAILABLE,
+                        unavailable_reason="patch_unavailable",
+                    ),
+                ),
+            ),
+            repository_decisions={
+                "status": "not_configured",
+                "failure_code": None,
+                "base_sha": "b" * 40,
+                "snapshot_hash": "",
+                "decision_ids": [],
+            },
+            review_number=2,
+            previous_review_number=1,
+        )
+        visible = rendered.split("<details>", 1)[0]
+        self.assertNotIn("private/module.py", visible)
+        self.assertNotIn("The updated guard", visible)
+        self.assertNotIn("Scope:", visible)
+        self.assertIn("No current findings confirmed", visible)
+        self.assertIn("F1 resolved", visible)
+        self.assertIn("Partial coverage", visible)
+        self.assertIn("2 of 3 changed files", visible)
+        self.assertEqual(rendered.count("Findings may be missing."), 1)
+        self.assertIn("<summary>Coverage details</summary>", rendered)
+        self.assertIn(
+            "<summary>Closed since the previous review (1)</summary>", rendered
+        )
+        self.assertIn("The updated guard", rendered)
+        self.assertIn("https://github.com/example/repository/blob/", rendered)
+        self.assertNotIn("Repository decisions: not configured", rendered)
+        self.assertIn("decision_status=not_configured", rendered)
+        self.assertNotIn("Restore the missing review context", rendered)
+
     def coverage(self, **overrides):
         value = {
             "state": "complete",
@@ -32,11 +105,25 @@ class ReviewRendererTests(unittest.TestCase):
             "changed_file_registration_complete": True,
             "unavailable": 0,
             "diff_truncated": 0,
+            "diff_unseen": 0,
             "coverage_hash": "sha256:abc",
-            "unavailable_paths": [],
-            "truncated_paths": [],
+            "examples": (),
         }
         value.update(overrides)
+        if "diff_exposed" not in overrides:
+            value["diff_exposed"] = value["changed_paths_with_diff"]
+        if "changed_files_registered" not in overrides:
+            value["changed_files_registered"] = value["changed_paths"]
+        if "changed_files_reported" not in overrides:
+            value["changed_files_reported"] = value["changed_paths"]
+        if "diff_unseen" not in overrides:
+            value["diff_unseen"] = max(
+                0,
+                value["changed_paths"]
+                - value["changed_paths_with_diff"]
+                - value["diff_truncated"]
+                - value["unavailable"],
+            )
         return value
 
     def finding(self, **overrides):
@@ -101,17 +188,16 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "textual diff content was available for all 1 registered changed path",
+            "Complete diffs were available for all 1 changed file",
             line,
         )
-        self.assertIn(
-            "Additional source context was read from 1 changed path "
-            "and 1 supporting file",
-            line,
-        )
+        self.assertNotIn("Additional source context", line)
+        self.assertNotIn("inspected", line)
         self.assertNotIn("This review is not a clean result", line)
 
-    def test_scope_contract_is_visible_for_every_coverage_state(self) -> None:
+    def test_scope_contract_is_available_in_details_for_every_coverage_state(
+        self,
+    ) -> None:
         scope_lead = "Scope: base-to-head diff"
         coverage_states = (
             None,
@@ -126,26 +212,30 @@ class ReviewRendererTests(unittest.TestCase):
 
         for coverage in coverage_states:
             with self.subTest(state=None if coverage is None else coverage["state"]):
-                rendered = review_renderer.coverage_summary_line(coverage)
+                rendered = review_renderer.coverage_details(
+                    "example/repository", coverage, None
+                )
 
-                self.assertTrue(rendered.startswith(scope_lead))
+                self.assertTrue(rendered.startswith("<details>"))
+                self.assertIn(scope_lead, rendered)
+                if coverage is None or coverage["state"] == "unknown":
+                    summary = review_renderer.coverage_summary_line(coverage)
+                    self.assertIn("Coverage unknown", summary)
+                    self.assertIn("Findings may be missing", summary)
                 self.assertIn("stacked and off-title changes", rendered)
                 self.assertIn(
                     "unchanged files are supporting evidence only.",
                     rendered,
                 )
 
-    def test_complete_coverage_line_omits_empty_source_context_sentence(self) -> None:
-        line = review_renderer.coverage_summary_line(
+    def test_complete_coverage_details_omit_empty_source_context_sentence(self) -> None:
+        line = review_renderer.coverage_details(
+            "example/repository",
             self.coverage(
                 changed_paths_with_source_reads=0,
                 supporting_context_paths_read=0,
-            )
-        )
-
-        self.assertIn(
-            "textual diff content was available for all 3 registered changed paths",
-            line,
+            ),
+            None,
         )
         self.assertNotIn("Additional source context", line)
         self.assertNotIn("0 changed paths", line)
@@ -176,39 +266,42 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("decision_status=loaded", rendered)
         self.assertIn("decision_snapshot_hash=sha256:" + "c" * 64, rendered)
 
-    def test_complete_coverage_line_omits_zero_source_context_counts(self) -> None:
-        line = review_renderer.coverage_summary_line(
+    def test_complete_coverage_details_omit_zero_source_context_counts(self) -> None:
+        line = review_renderer.coverage_details(
+            "example/repository",
             self.coverage(
                 changed_paths_with_source_reads=1,
                 supporting_context_paths_read=0,
-            )
+            ),
+            None,
         )
 
         self.assertIn(
-            "Additional source context was read from 1 changed path.",
+            "Additional source context was read from 1 changed file.",
             line,
         )
         self.assertNotIn("0 supporting files", line)
 
-    def test_incomplete_coverage_line_does_not_create_supporting_context_noise(self) -> None:
+    def test_incomplete_coverage_line_does_not_create_supporting_context_noise(
+        self,
+    ) -> None:
         line = review_renderer.coverage_summary_line(
             self.coverage(
                 state="incomplete",
                 changed_paths_with_diff=2,
                 changed_paths_with_source_reads=1,
                 unavailable=1,
-                unavailable_paths=["frontend/app/routes/page.svelte"],
             )
         )
 
-        self.assertIn("Review incomplete", line)
+        self.assertIn("Partial coverage", line)
         self.assertIn(
-            "textual diff content was inspected for 2 of 3 registered changed paths",
+            "Complete diffs were available for 2 of 3 changed files",
             line,
         )
-        self.assertIn("Additional source context was read from 1 changed path", line)
+        self.assertNotIn("Additional source context", line)
         self.assertIn("Findings may be missing", line)
-        self.assertIn("finding-free result is inconclusive", line)
+        self.assertNotIn("inspected", line)
         self.assertNotIn("large PR", line)
         self.assertNotIn("risk-ranked", line)
         self.assertNotIn("supporting context skipped", line.lower())
@@ -442,7 +535,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "Before rerunning, restore the missing review context and recheck F2 and F3.",
+            "Before rerunning, inspect the changes with incomplete diff coverage and recheck F2 and F3.",
             tip,
         )
 
@@ -467,8 +560,8 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("Prior references not rechecked: F2, F3.", rendered)
         self.assertIn("they are not actionable findings in this brief", rendered)
         self.assertIn(
-            "**Next:** Address the current findings, restore the missing review "
-            "context, and recheck F2 and F3.",
+            "**Next:** Address the current findings, inspect the changes with "
+            "incomplete diff coverage, and recheck F2 and F3.",
             rendered,
         )
 
@@ -497,7 +590,7 @@ class ReviewRendererTests(unittest.TestCase):
 
         self.assertNotIn("I did not identify any current in-scope findings", rendered)
         self.assertIn("prior findings were not rechecked", rendered)
-        self.assertIn("review context was incomplete", rendered)
+        self.assertIn("Partial coverage", rendered)
         self.assertIn("#### Previous findings not rechecked", rendered)
         self.assertIn("Their status is unknown", rendered)
         self.assertNotIn("<summary>Previous findings not rechecked", rendered)
@@ -520,7 +613,7 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "**Next:** Restore the missing review context, then post `/review` again.",
+            "**Next:** Inspect the remaining changes locally. Post `/review` again to request another review.",
             rendered,
         )
         self.assertNotIn("recheck the prior findings", rendered)

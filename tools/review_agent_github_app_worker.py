@@ -27,6 +27,8 @@ def _load_package() -> None:
 
 _load_package()
 
+from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
+
 from review_agent_tools.github.app_processor import (  # noqa: E402
     GitHubAppProcessor,
     ProcessorConfig,
@@ -49,6 +51,7 @@ from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntimeRole,
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
 
 
 def _positive_integer(name: str, default: str | None = None) -> int:
@@ -139,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         worker_concurrency=1,
     )
     runtime.open()
+    apply_at_startup(runtime, "admission")
     try:
         processor = GitHubAppProcessor(
             postgres=runtime,
@@ -168,13 +172,21 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             ),
         )
-        GitHubAppWorker(
+        lease_owner = default_github_app_worker_name()
+        with WorkerTelemetry(
             runtime,
-            processor,
-            policy,
-            lease_owner=default_github_app_worker_name(),
+            kind="webhook",
+            lease_owner=lease_owner,
+            capacity=1,
             stop_event=stop,
-        ).run(once=args.once)
+        ):
+            GitHubAppWorker(
+                runtime,
+                processor,
+                policy,
+                lease_owner=lease_owner,
+                stop_event=stop,
+            ).run(once=args.once)
         return 0
     finally:
         runtime.close()

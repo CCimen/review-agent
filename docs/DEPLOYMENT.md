@@ -4,7 +4,7 @@ slug: /deployment
 title: Deploy Review Agent
 description: Create GitHub credentials and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift.
 status: current
-last_verified: 2026-09-06
+last_verified: 2026-09-10
 ---
 
 import Tabs from '@theme/Tabs';
@@ -13,7 +13,8 @@ import TabItem from '@theme/TabItem';
 # Deploy Review Agent
 
 > **TL;DR**: Choose a released image or build locally, provide PostgreSQL and a
-> least-privilege GitHub App, then expose only the admission endpoint. Tune
+> least-privilege GitHub App, then expose the admission endpoint. The optional
+> [admin panel](ADMIN_PANEL.md) uses a separate authenticated hostname. Tune
 > bounded worker concurrency before adding replicas. Queue limits protect shared
 > compute and do not limit PR size.
 
@@ -24,6 +25,11 @@ import TabItem from '@theme/TabItem';
 One box represents one worker type, not one replica. Scale review workers and
 publishers independently. Expose admission on port `8644`. Keep the GitHub
 gateway, Hermes `8642`, and PostgreSQL off the shared proxy network.
+
+The optional [admin panel](ADMIN_PANEL.md) adds a separate image and an authenticated service
+on port `8090` in the same deployment. It provides repository statistics, review
+history, team access, and platform administration. Use its documented image,
+migration, and account-creation requirements.
 
 The GitHub App receives review commands directly. The private gateway uses its
 key for bounded source and publication operations; Hermes and the publisher do
@@ -58,20 +64,43 @@ reuse a webhook secret as a GitHub token or database password.
 ## Choose an image
 
 For local development, keep `REVIEW_AGENT_IMAGE=review-agent:local` and start
-Compose with `--build`. Each published release also creates one attested
-`linux/amd64` and `linux/arm64` image in GitHub Container Registry. Production
-deployments must use the manifest digest from the release's
-`IMAGE-DIGESTS.txt`, not a tag:
+Compose with `--build`. A qualified release supplies two images for
+`linux/amd64` and `linux/arm64`:
+
+| Image | Contents | Used by |
+| --- | --- | --- |
+| `review-agent` | Hermes and the Review Agent runtime | Initialization jobs, admission, gateway, workers, and publisher |
+| `review-agent-admin` | Admin API and compiled browser application | Optional operator console |
+
+Both images come from one source commit and release version. Their image
+digests differ. The admin image serves the frontend and API together; it has
+no Node.js runtime. Keep the source checkout, Compose files, and migration image
+on the same release as the services.
+
+Wait for **Publish container image** to succeed, then use the manifest
+references from that release's `IMAGE-DIGESTS.txt`:
 
 ```bash
 export REVIEW_AGENT_IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
 docker compose pull
 ```
 
-Prereleases receive only their exact version tag. Stable releases also update
-`latest`; production deployments should still pin the digest. Pin PostgreSQL as
-well. For a Compose deployment, resolve the selected PostgreSQL tag once and
-store the resulting repository digest as `POSTGRES_IMAGE`:
+Set `REVIEW_AGENT_ADMIN_IMAGE` to the admin manifest reference from that same
+file when installing the console. Every release publishes only its exact
+version tag, after both images pass qualification. Production deployments pin
+digests because a rebuild can change image contents without changing source.
+The registry cannot update two tags atomically; a single available tag does
+not establish that the release workflow has completed.
+
+The examples use the upstream `ghcr.io/ccimen/review-agent` package. Fork
+maintainers publish under `ghcr.io/<owner>/<repository>` and
+`ghcr.io/<owner>/<repository>-admin`, in lowercase. The workflow derives these
+names from its own GitHub repository. Organizations using upstream releases
+can keep the upstream image references with their own GitHub App, database,
+hostnames, and secrets.
+
+Pin PostgreSQL as well. For a Compose deployment, resolve the selected
+PostgreSQL tag once and store the resulting repository digest as `POSTGRES_IMAGE`:
 
 ```bash
 docker pull postgres:17-alpine
@@ -83,14 +112,15 @@ printf 'Review Agent: %s\nPostgreSQL: %s\n' \
   "$REVIEW_AGENT_IMAGE" "$POSTGRES_IMAGE"
 ```
 
-Record both exact references with the deployment. The OpenShift template uses
+Record all selected image references with the deployment. The OpenShift template uses
 an external database, so its operator must pin and record that database image
 separately. Do not combine a PostgreSQL major-version change with a Review Agent
 upgrade.
 
 GitHub creates the first package as private even for a public repository. After
-the first release, open **Packages > review-agent > Package settings > Change
-visibility** to make anonymous pulls available. Public visibility cannot be
+the first release, check the visibility and repository access of both packages.
+Open **Packages > package name > Package settings > Change visibility** to
+make anonymous pulls available. Public visibility cannot be
 reversed. See GitHub's guides to
 [publishing container images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)
 and [package visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
@@ -201,11 +231,12 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 
    :::warning[Keep private services off the proxy]
    Do not route `hermes-review`, `review-worker`, `review-publisher`,
-   `review-github-gateway`, or `review-postgres`. Only admission belongs on the
-   ingress network.
+   `review-github-gateway`, or `review-postgres`. Admission and the optional
+   authenticated admin panel are the only services on the ingress network.
    :::
    In Dokploy **Advanced > Networks**, detach every service except
-   `review-admission` from `dokploy-network`. Leave **Enable Isolated
+   `review-admission` and an explicitly enabled `review-admin` from
+   `dokploy-network`. Leave **Enable Isolated
    Deployment** off; Dokploy deprecated that option, and `compose.yaml` already
    declares the private database, runtime, egress, and GitHub-control networks.
 5. Connect the selected provider and restart Hermes:
@@ -319,6 +350,15 @@ Before an upgrade, make a tested PostgreSQL backup as described in
 and candidate Review Agent digests and the exact PostgreSQL digest. Keep the
 current PostgreSQL image during an application upgrade unless the database has
 its own reviewed maintenance plan.
+
+If the admin panel is installed, record both its current and candidate
+`REVIEW_AGENT_ADMIN_IMAGE` digests alongside `REVIEW_AGENT_IMAGE`. Select both
+from one qualified release's `IMAGE-DIGESTS.txt`; their release tag and source
+revision must match. Preserve `compose.admin.yaml` in Compose commands, stop
+`review-admin` before migration, and start it with the matching worker services.
+Follow the [admin service procedure](ADMIN_PANEL.md#add-the-service) for the
+overlay, hostname, and post-upgrade version check. The platform examples below
+cover the main services.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
@@ -450,6 +490,13 @@ complete observations and leaves older truncated observations incomplete until
 the diff is read again. Keep the added columns when recovering; no data removal
 or reverse migration is needed. The previous coverage queries remain compatible,
 but an image rollback still requires the release-specific checks below.
+
+The current admin API requires schema 27. Schema 22 introduced team access and
+separate owner/admin roles in the console.
+Earlier console images do not enforce these boundaries and treat new team members
+as global viewers. Do not roll back the console image alone after this upgrade;
+use a forward fix or coordinated image and database recovery. Database-ahead
+readiness alone does not prove that an older image preserves access policy.
 
 Roll back only to the exact prior Review Agent digest named in the release
 record. That record must include the post-migration schema version and a receipt

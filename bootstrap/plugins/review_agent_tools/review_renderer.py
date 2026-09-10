@@ -13,6 +13,7 @@ try:
         PUBLICATION_RENDERED_BLOCK_KINDS,
         PublicationRenderedBlockKind,
     )
+    from .domain.review import DiffCoverageExample, DiffState
     from .feedback_contract import feedback_templates
     from .memory_validation import (
         FINDING_TEXT_LIMITS,
@@ -32,6 +33,7 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
         PUBLICATION_RENDERED_BLOCK_KINDS,
         PublicationRenderedBlockKind,
     )
+    from domain.review import DiffCoverageExample, DiffState  # type: ignore[no-redef]
     from feedback_contract import feedback_templates
     from memory_validation import (
         FINDING_TEXT_LIMITS,
@@ -97,9 +99,9 @@ class ReviewCoverageSummary(TypedDict):
     changed_file_registration_complete: bool
     unavailable: int
     diff_truncated: int
+    diff_unseen: int
     coverage_hash: str
-    unavailable_paths: list[str]
-    truncated_paths: list[str]
+    examples: tuple[DiffCoverageExample, ...]
 
 
 class RepositoryDecisionSummary(TypedDict):
@@ -127,6 +129,8 @@ class RenderedReview:
 
 _BLOCK_KINDS = PUBLICATION_RENDERED_BLOCK_KINDS
 _FIX_BRIEF_FINDINGS_PER_BLOCK = 10
+# URL encoding can expand a bounded Git path substantially.
+_COVERAGE_EXAMPLES_MAX_BYTES = 8_000
 _ACTIVE_URL_SCHEME_RE = re.compile(r"(?i)\b(https?|ftp)://")
 _ACTIVE_WWW_RE = re.compile(r"(?i)\bwww\.")
 _MARKDOWN_PUNCTUATION_RE = re.compile(r"([*_\[\]()#!|>~])")
@@ -225,11 +229,16 @@ def inline_code(value: Any, *, maximum: int = 800) -> str:
     return f"`{safe_text(value, maximum=maximum)}`"
 
 
-def source_link(repository: str, head_sha: str, path: str, line: int) -> str:
+def source_link(
+    repository: str, head_sha: str, path: str, line: int | None = None
+) -> str:
     repository_part = urllib.parse.quote(repository, safe="/")
     path_part = urllib.parse.quote(path, safe="/")
-    label = safe_source_label(f"{path}:{line}", maximum=520)
-    return f"[`{label}`](https://github.com/{repository_part}/blob/{head_sha}/{path_part}#L{line})"
+    label = safe_source_label(
+        f"{path}:{line}" if line is not None else path, maximum=520
+    )
+    anchor = f"#L{line}" if line is not None else ""
+    return f"[`{label}`](https://github.com/{repository_part}/blob/{head_sha}/{path_part}{anchor})"
 
 
 def pull_files_link(repository: str, pr_number: int) -> str:
@@ -245,7 +254,7 @@ def severity_label(severity: str) -> str:
 
 def severity_summary(findings: Sequence[PublishedFinding]) -> str:
     if not findings:
-        return "I did not identify any current in-scope findings in this review."
+        return "No current findings confirmed."
     total = len(findings)
     counts = {severity: 0 for severity in SEVERITY_ORDER}
     for item in findings:
@@ -261,7 +270,9 @@ def severity_summary(findings: Sequence[PublishedFinding]) -> str:
         return f"There {verb} {total} current {noun}: {parts[0]}."
     if len(parts) == 2:
         return f"There are {total} current findings: {parts[0]} and {parts[1]}."
-    return f"There are {total} current findings: {', '.join(parts[:-1])}, and {parts[-1]}."
+    return (
+        f"There are {total} current findings: {', '.join(parts[:-1])}, and {parts[-1]}."
+    )
 
 
 def joined_refs(items: Sequence[str]) -> str:
@@ -307,21 +318,14 @@ def lifecycle_summary(
     new_refs: Sequence[str],
     not_checked_refs: Sequence[str],
     returned_refs: Sequence[str] = (),
-    coverage_state: str = "complete",
     previous_review_number: int | None = None,
     previous_head_sha: str = "",
 ) -> str:
     current_summary = severity_summary(findings)
     if not findings:
-        reasons: list[str] = []
         if not_checked_refs:
-            reasons.append("prior findings were not rechecked, so their status is unknown")
-        if coverage_state != "complete":
-            reasons.append("review context was incomplete, so findings may be missing")
-        if reasons:
-            current_summary = (
-                "No current findings were confirmed in this run; "
-                f"{joined_labels(reasons)}."
+            current_summary += (
+                " Some prior findings were not rechecked; their status is unknown."
             )
 
     if not (
@@ -362,10 +366,13 @@ def lifecycle_summary(
                 )
             )
         if grouped["reconciled"]:
-            clauses.append(ref_clause(
-                [item["local_reference"] for item in grouped["reconciled"]],
-                "reconciled as duplicates", "reconciled as duplicates",
-            ))
+            clauses.append(
+                ref_clause(
+                    [item["local_reference"] for item in grouped["reconciled"]],
+                    "reconciled as duplicates",
+                    "reconciled as duplicates",
+                )
+            )
     if still_present:
         clauses.append(ref_clause(still_present, "still present", "still present"))
     if partially_resolved:
@@ -384,45 +391,75 @@ def lifecycle_summary(
         source = f"Review {previous_review_number}"
         if previous_head_sha:
             source = f"{source} at `{previous_head_sha[:8]}`"
-        return f"**Compared with {source}:** {detail}\n\n{current_summary}"
-    return f"**Since the previous review:** {detail}\n\n{current_summary}"
+        return f"{current_summary}\n\n**Compared with {source}:** {detail}"
+    return f"{current_summary}\n\n**Since the previous review:** {detail}"
 
 
 def coverage_summary_line(coverage: ReviewCoverageSummary | None) -> str:
-    scope_context = (
-        "Scope: base-to-head diff, including stacked and off-title changes; "
-        "unchanged files are supporting evidence only."
-    )
-    if coverage is None:
+    if coverage is None or coverage["state"] == "unknown":
         return (
-            f"{scope_context}\n\n"
-            "**Review incomplete:** no run-scoped coverage ledger was available. "
-            "Findings may be missing; a finding-free result is inconclusive."
-        )
-    if coverage["state"] == "unknown":
-        return (
-            f"{scope_context}\n\n"
-            "**Review incomplete:** no changed-path coverage ledger was registered "
-            "for this run. Findings may be missing; a finding-free result is "
-            "inconclusive."
+            "**Coverage unknown:** Complete changed-file coverage could not be "
+            "established. Findings may be missing."
         )
     if coverage["state"] == "complete":
-        changed_paths = count_label(
-            coverage["changed_paths"],
-            "registered changed path",
-            "registered changed paths",
-        )
-        line = (
-            f"<sub>Review context: textual diff content was available for all "
-            f"{changed_paths}."
-        )
+        files = count_label(coverage["changed_paths"], "changed file", "changed files")
+        return f"**Diff coverage:** Complete diffs were available for all {files}."
+    reported = coverage["changed_files_reported"]
+    total = reported if reported is not None else coverage["changed_paths"]
+    return (
+        "**Partial coverage:** Complete diffs were available for "
+        f"{coverage['changed_paths_with_diff']} of {total} changed files. "
+        "Findings may be missing."
+    )
+
+
+def coverage_details(
+    repository: str,
+    coverage: ReviewCoverageSummary | None,
+    repository_decisions: RepositoryDecisionSummary | None,
+    *,
+    max_bytes: int | None = None,
+) -> str:
+    lines = [
+        "<details>",
+        "<summary>Coverage details</summary>",
+        "",
+        (
+            "Scope: base-to-head diff, including stacked and off-title changes; "
+            "unchanged files are supporting evidence only."
+        ),
+    ]
+    closing: list[str] = []
+    decision_line = repository_decision_summary_line(repository_decisions)
+    if decision_line:
+        closing.extend(["", decision_line])
+    closing.extend(["", "</details>"])
+    if coverage is not None:
+        reported = coverage["changed_files_reported"]
+        if reported is not None and not coverage["changed_file_registration_complete"]:
+            lines.extend(
+                [
+                    "",
+                    f"Changed-file inventory: {coverage['changed_files_registered']} "
+                    f"of {reported} files registered. The inventory is incomplete.",
+                ]
+            )
+        if coverage["state"] == "incomplete":
+            lines.extend(
+                [
+                    "",
+                    f"**Incomplete diffs:** {coverage['diff_unseen']} not fetched · "
+                    f"{coverage['diff_truncated']} partially fetched · "
+                    f"{coverage['unavailable']} unavailable.",
+                ]
+            )
         source_reads: list[str] = []
         if coverage["changed_paths_with_source_reads"]:
             source_reads.append(
                 count_label(
                     coverage["changed_paths_with_source_reads"],
-                    "changed path",
-                    "changed paths",
+                    "changed file",
+                    "changed files",
                 )
             )
         if coverage["supporting_context_paths_read"]:
@@ -434,45 +471,63 @@ def coverage_summary_line(coverage: ReviewCoverageSummary | None) -> str:
                 )
             )
         if source_reads:
-            line += (
-                f" Additional source context was read from "
-                f"{joined_labels(source_reads)}."
+            lines.extend(
+                [
+                    "",
+                    f"Additional source context was read from {joined_labels(source_reads)}.",
+                ]
             )
-        return f"{scope_context}\n\n{line}</sub>"
-    representative = coverage["unavailable_paths"] or coverage["truncated_paths"]
-    suffix = ""
-    if representative:
-        suffix = " Representative paths: " + ", ".join(
-            safe_text(path, maximum=120) for path in representative
-        ) + "."
-    registration_suffix = ""
-    reported = coverage["changed_files_reported"]
-    if reported is not None and not coverage["changed_file_registration_complete"]:
-        registration_suffix = (
-            f" GitHub reported {reported} changed paths, but only "
-            f"{coverage['changed_files_registered']} were registered."
+        examples: list[str] = []
+        example_bytes = 0
+        incomplete = (
+            coverage["diff_unseen"]
+            + coverage["diff_truncated"]
+            + coverage["unavailable"]
         )
-    source_context = ""
-    if coverage["changed_paths_with_source_reads"]:
-        source_read_label = count_label(
-            coverage["changed_paths_with_source_reads"],
-            "changed path",
-            "changed paths",
-        )
-        source_context = (
-            " Additional source context was read from "
-            f"{source_read_label}."
-        )
-    return (
-        f"{scope_context}\n\n"
-        f"**Review incomplete:** textual diff content was inspected for "
-        f"{coverage['changed_paths_with_diff']} of "
-        f"{coverage['changed_paths']} registered changed paths; "
-        f"{coverage['unavailable']} unavailable and "
-        f"{coverage['diff_truncated']} truncated.{source_context}"
-        f"{registration_suffix}{suffix} Findings may be missing; a finding-free "
-        "result is inconclusive."
-    )
+        examples_label = f"of {incomplete} registered files with incomplete diffs:"
+        example_budget = _COVERAGE_EXAMPLES_MAX_BYTES
+        if max_bytes is not None:
+            fixed_lines = [
+                *lines,
+                "",
+                f"Showing {len(coverage['examples'])} {examples_label}",
+                "",
+                *closing,
+            ]
+            example_budget = min(
+                example_budget,
+                max_bytes - len("\n".join(fixed_lines).encode("utf-8")),
+            )
+        for example in coverage["examples"]:
+            if example.state == DiffState.UNSEEN:
+                reason = "Diff not fetched."
+            elif example.state == DiffState.TRUNCATED:
+                reason = "Diff only partially fetched."
+            elif example.unavailable_reason == "patch_unavailable":
+                reason = "GitHub did not provide a text patch."
+            elif example.unavailable_reason == (
+                "the registered path was absent from GitHub's changed-file patches"
+            ):
+                reason = "Absent from GitHub's changed-file patches."
+            else:
+                reason = safe_text(example.unavailable_reason, maximum=80)
+            line = f"- {source_link(repository, example.revision, example.path)} — {reason}"
+            size = len(line.encode("utf-8")) + 1
+            if example_bytes + size > example_budget:
+                break
+            examples.append(line)
+            example_bytes += size
+        if examples:
+            lines.extend(
+                [
+                    "",
+                    f"Showing {len(examples)} {examples_label}",
+                    "",
+                    *examples,
+                ]
+            )
+    lines.extend(closing)
+    return "\n".join(lines)
 
 
 def repository_decision_summary_line(
@@ -493,7 +548,7 @@ def repository_decision_summary_line(
             f"`{summary['base_sha'][:8]}`.</sub>"
         )
     if summary["status"] == "not_configured":
-        return "<sub>Repository decisions: not configured for this repository.</sub>"
+        return ""
     reason = safe_text(summary["failure_code"] or "unknown", maximum=80)
     return (
         f"<sub>Repository decisions: {safe_text(summary['status'], maximum=40)} "
@@ -580,7 +635,7 @@ def render_suggestion_tip(
     ]
     remaining_actions: list[str] = []
     if review_incomplete:
-        remaining_actions.append("restore the missing review context")
+        remaining_actions.append("inspect the changes with incomplete diff coverage")
     if not_checked_refs:
         remaining_actions.append(f"recheck {joined_refs(not_checked_refs)}")
     if remaining_actions:
@@ -749,7 +804,7 @@ def render_fix_brief_blocks(
     if blocks:
         actions = ["Address the current findings"]
         if review_incomplete:
-            actions.append("restore the missing review context")
+            actions.append("inspect the changes with incomplete diff coverage")
         if not_checked_refs:
             actions.append(f"recheck {joined_refs(not_checked_refs)}")
         context_action = f" {joined_labels(actions)}."
@@ -821,6 +876,15 @@ def render_feedback_help(findings: Sequence[PublishedFinding]) -> str:
     return "\n".join(lines)
 
 
+def review_heading(review_number: int | None) -> str:
+    heading = f"## {REVIEW_COMMENT_TITLE}"
+    return (
+        f"{heading} · Review {review_number}"
+        if review_number is not None
+        else heading
+    )
+
+
 def render_review(
     *,
     repository: str,
@@ -840,13 +904,17 @@ def render_review(
     review_number: int | None = None,
     previous_review_number: int | None = None,
     previous_head_sha: str = "",
+    max_header_bytes: int | None = None,
 ) -> RenderedReview:
     current = ordered_findings(findings)
-    heading = f"## {REVIEW_COMMENT_TITLE}"
-    if review_number is not None:
-        heading = f"{heading} · Review {review_number}"
     header_lines = [
-        heading,
+        review_heading(review_number),
+        "",
+        (
+            f"**Reviewed commit:** [{inline_code(head_sha[:12])}]"
+            f"(https://github.com/{urllib.parse.quote(repository, safe='/')}/commit/"
+            f"{urllib.parse.quote(head_sha, safe='')})"
+        ),
         "",
         lifecycle_summary(
             findings=current,
@@ -856,7 +924,6 @@ def render_review(
             new_refs=new_refs,
             not_checked_refs=not_checked_refs,
             returned_refs=returned_refs,
-            coverage_state=(coverage["state"] if coverage is not None else "unknown"),
             previous_review_number=previous_review_number,
             previous_head_sha=previous_head_sha,
         ),
@@ -864,25 +931,45 @@ def render_review(
     coverage_line = coverage_summary_line(coverage)
     if coverage_line:
         header_lines.extend(["", coverage_line])
-    decision_line = repository_decision_summary_line(repository_decisions)
-    if decision_line:
-        header_lines.extend(["", decision_line])
     if not current and (
         not_checked_refs or coverage is None or coverage["state"] != "complete"
     ):
         next_actions: list[str] = []
-        if coverage is None or coverage["state"] != "complete":
-            next_actions.append("Restore the missing review context")
+        if coverage is None or coverage["state"] == "unknown":
+            next_actions.append(
+                "Review the changes locally, or ask the Review Agent operator to check this run."
+            )
+        elif coverage["unavailable"]:
+            next_actions.append(
+                "Inspect the remaining changes locally. "
+                "Rerunning alone may leave the same unavailable diffs."
+            )
+        elif coverage["state"] == "incomplete":
+            next_actions.append("Inspect the remaining changes locally.")
         if not_checked_refs:
-            next_actions.append(f"recheck {joined_refs(not_checked_refs)}")
-        header_lines.extend(
-            [
-                "",
-                (
-                    f"**Next:** {joined_labels(next_actions)}, then post `/review` again."
-                ),
-            ]
-        )
+            next_actions.append(
+                f"Recheck {joined_refs(not_checked_refs)}, then post `/review` again."
+            )
+        elif (
+            coverage is not None
+            and coverage["state"] == "incomplete"
+            and not coverage["unavailable"]
+        ):
+            next_actions.append("Post `/review` again to request another review.")
+        header_lines.extend(["", f"**Next:** {' '.join(next_actions)}"])
+    details_budget = (
+        max_header_bytes - len("\n".join(header_lines).encode("utf-8")) - 2
+        if max_header_bytes is not None
+        else None
+    )
+    header_lines.extend(
+        [
+            "",
+            coverage_details(
+                repository, coverage, repository_decisions, max_bytes=details_budget
+            ),
+        ]
+    )
     blocks: list[ReviewBlock] = []
     blocks.append(
         ReviewBlock(
@@ -930,10 +1017,15 @@ def render_review(
         blocks.append(ReviewBlock(kind="suggestion_help", markdown=suggestion_help))
 
     if closed:
-        closed_lines = [
-            "#### Closed or reconciled findings"
+        closed_label = (
+            "Closed or reconciled findings"
             if any(item["verdict"] == "reconciled" for item in closed)
-            else "#### Closed since the previous review",
+            else "Closed since the previous review"
+        )
+        closed_lines = [
+            "<details>",
+            f"<summary>{closed_label} ({len(closed)})</summary>",
+            "",
         ]
         for item in closed:
             title = safe_text(item.get("title", ""), maximum=180)
@@ -949,6 +1041,7 @@ def render_review(
             if evidence:
                 line += f" ({evidence})"
             closed_lines.append(line)
+        closed_lines.extend(["", "</details>"])
         blocks.append(
             ReviewBlock(kind="closed_history", markdown="\n".join(closed_lines))
         )
@@ -1007,6 +1100,7 @@ def render_review(
                 f"changed_file_registration_complete={coverage['changed_file_registration_complete']}",
                 f"unavailable={coverage['unavailable']}",
                 f"diff_truncated={coverage['diff_truncated']}",
+                f"diff_unseen={coverage['diff_unseen']}",
                 f"coverage_hash={coverage['coverage_hash']}",
             ]
         )

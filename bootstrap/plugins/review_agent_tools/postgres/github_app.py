@@ -556,9 +556,7 @@ def get_repository_access(
             (_positive(repository_id, "repository_id"),),
         ).fetchone()
     if row is None:
-        raise GitHubAppRepositoryNotFound(
-            "GitHub App repository access was not found"
-        )
+        raise GitHubAppRepositoryNotFound("GitHub App repository access was not found")
     return _access(row)
 
 
@@ -580,9 +578,7 @@ def get_repository_access_by_provider_id(
             (_positive(provider_repository_id, "provider_repository_id"),),
         ).fetchone()
     if row is None:
-        raise GitHubAppRepositoryNotFound(
-            "GitHub App repository access was not found"
-        )
+        raise GitHubAppRepositoryNotFound("GitHub App repository access was not found")
     return _access(row)
 
 
@@ -605,9 +601,7 @@ def get_repository_access_by_full_name(
             (resolved_name,),
         ).fetchone()
     if row is None:
-        raise GitHubAppRepositoryNotFound(
-            "GitHub App repository access was not found"
-        )
+        raise GitHubAppRepositoryNotFound("GitHub App repository access was not found")
     return _access(row)
 
 
@@ -856,9 +850,7 @@ def _lock_repository_access(
             (_positive(repository_id, "repository_id"),),
         ).fetchone()
     if row is None:
-        raise GitHubAppRepositoryNotFound(
-            "GitHub App repository access was not found"
-        )
+        raise GitHubAppRepositoryNotFound("GitHub App repository access was not found")
     return _access(row)
 
 
@@ -900,9 +892,7 @@ def grant_repository_access(
 ) -> RepositoryAccessState:
     """Make one installation repository available without enabling reviews."""
     _require_transaction(connection)
-    installation = _lock_installation(
-        connection, installation_id, exclusive=False
-    )
+    installation = _lock_installation(connection, installation_id, exclusive=False)
     if installation.status is InstallationStatus.DELETED:
         raise GitHubAppStateError("installation is deleted")
     access_state = (
@@ -1022,6 +1012,14 @@ def enable_repository(
         raise GitHubAppStateError("repository access is not available")
     updated_by = _text(actor, "actor", 120)
     update_reason = _text(reason, "reason", 500)
+    normalized_profile = _profile(profile_key)
+    if (
+        current.enabled
+        and not current.automatic_activation_blocked
+        and current.profile_key == normalized_profile
+        and current.trigger_mode is trigger_mode
+    ):
+        return current
     connection.execute(
         """
         UPDATE review_agent.github_app_repository_access
@@ -1038,7 +1036,7 @@ def enable_repository(
         """,
         (
             trigger_mode.value,
-            _profile(profile_key),
+            normalized_profile,
             updated_by,
             update_reason,
             repository_id,
@@ -1573,3 +1571,128 @@ def list_repository_access_events(
             (_positive(repository_id, "repository_id"),),
         ).fetchall()
     return tuple(_event(row) for row in rows)
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryAccessObservation:
+    provider_repository_id: int | None
+    version: str | None
+    repository_version: str | None
+
+
+def observe_repository_access(
+    connection: psycopg.Connection[TupleRow], *, repository: str
+) -> RepositoryAccessObservation:
+    """Capture the committed local grant before a network verification starts."""
+    row = connection.execute(
+        """SELECT repository.provider_repository_id, access.xmin::text, repository.xmin::text
+        FROM review_agent.repositories repository
+        LEFT JOIN review_agent.github_app_repository_access access ON access.repository_id = repository.id
+        WHERE repository.provider = 'github' AND lower(repository.full_name) = lower(%s)""",
+        (repository,),
+    ).fetchone()
+    return (
+        RepositoryAccessObservation(row[0], row[1], row[2])
+        if row
+        else RepositoryAccessObservation(None, None, None)
+    )
+
+
+def accept_verified_repository(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    definition: InstallationDefinition,
+    status: InstallationStatus,
+    repository: InstallationRepositoryDefinition,
+    observation: RepositoryAccessObservation,
+    profile: str,
+    actor: str,
+    reason: str,
+) -> tuple[GitHubAppInstallation, RepositoryAccessState]:
+    """Apply a verified grant without overwriting concurrent local revocation."""
+    if status is not InstallationStatus.ACTIVE:
+        raise GitHubAppStateError("GitHub App installation is not active")
+    if (
+        definition.contents_permission is not PermissionLevel.READ
+        or definition.issues_permission is not PermissionLevel.WRITE
+        or definition.pull_requests_permission is not PermissionLevel.WRITE
+    ):
+        raise GitHubAppStateError(
+            "GitHub App installation is missing required permissions"
+        )
+    try:
+        installation = get_installation_by_provider_id(
+            connection, definition.provider_installation_id, for_update=True
+        )
+    except GitHubAppInstallationNotFound:
+        installation = sync_installation(connection, definition)
+    if installation.status is not InstallationStatus.ACTIVE:
+        raise GitHubAppStateError(
+            "Synchronize the unavailable GitHub App installation before approving"
+        )
+    if (
+        installation.contents_permission is not PermissionLevel.READ
+        or installation.issues_permission is not PermissionLevel.WRITE
+        or installation.pull_requests_permission is not PermissionLevel.WRITE
+    ):
+        raise GitHubAppStateError("Synchronize GitHub App permissions before approving")
+    catalog = connection.execute(
+        "SELECT id, xmin::text FROM review_agent.repositories WHERE provider = 'github' AND provider_repository_id = %s FOR UPDATE",
+        (repository.provider_repository_id,),
+    ).fetchone()
+    if (catalog[1] if catalog else None) != observation.repository_version:
+        raise GitHubAppStateError(
+            "Repository identity changed during verification. Refresh and try again"
+        )
+    if catalog is None:
+        registry.ensure_repository(
+            connection,
+            registry.RepositoryDefinition(
+                provider="github",
+                provider_repository_id=repository.provider_repository_id,
+                full_name=repository.full_name,
+            ),
+        )
+    row = connection.execute(
+        """SELECT access.xmin::text, access.access_state, access.installation_id
+        FROM review_agent.github_app_repository_access access
+        JOIN review_agent.repositories repository ON repository.id = access.repository_id
+        WHERE repository.provider = 'github' AND repository.provider_repository_id = %s
+        FOR UPDATE OF access""",
+        (repository.provider_repository_id,),
+    ).fetchone()
+    if (row[0] if row else None) != observation.version or (
+        observation.provider_repository_id is not None
+        and observation.provider_repository_id != repository.provider_repository_id
+    ):
+        raise GitHubAppStateError(
+            "Repository access changed during verification. Refresh and try again"
+        )
+    if row is not None and (
+        row[1] != RepositoryAccess.AVAILABLE.value or row[2] != installation.id
+    ):
+        raise GitHubAppStateError(
+            "Synchronize the unavailable repository grant before approving"
+        )
+    current = grant_repository_access(
+        connection,
+        installation_id=installation.id,
+        provider_repository_id=repository.provider_repository_id,
+        full_name=repository.full_name,
+        actor=actor,
+        reason=reason,
+        trigger_mode=TriggerMode.MANUAL,
+    )
+    if current.installation_id != installation.id:
+        raise GitHubAppStateError(
+            "Repository belongs to another GitHub App installation"
+        )
+    state = enable_repository(
+        connection,
+        repository_id=current.repository_id,
+        profile_key=profile,
+        trigger_mode=TriggerMode.MANUAL,
+        actor=actor,
+        reason=reason,
+    )
+    return installation, state

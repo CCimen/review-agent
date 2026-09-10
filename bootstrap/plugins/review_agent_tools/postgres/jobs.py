@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 import re
-from typing import TypeAlias
+from typing import TypeAlias, cast
+from uuid import UUID
 
 import psycopg
 from psycopg import errors
@@ -15,6 +16,8 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
 from .. import failure_codes
+from ..model_quota import MANUAL_REFRESH_SECONDS, QuotaCheck
+from ..review_contract import SHARED_CONNECTION_ID
 from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
 
 
@@ -322,38 +325,6 @@ def list_jobs(
     return tuple(reports)
 
 
-def queue_health(
-    connection: psycopg.Connection[TupleRow],
-) -> ReviewQueueHealth:
-    """Return set-oriented queue and abandoned-lease counts for operator checks."""
-    _require_transaction(connection)
-    row = connection.execute(
-        """
-        SELECT
-            count(*) FILTER (
-                WHERE status IN ('queued', 'leased', 'awaiting_publication')
-            ),
-            count(*) FILTER (WHERE status = 'queued'),
-            count(*) FILTER (WHERE status = 'leased'),
-            count(*) FILTER (
-                WHERE status = 'leased'
-                  AND lease_expires_at <= statement_timestamp()
-            ),
-            count(*) FILTER (WHERE status = 'dead_letter')
-        FROM review_agent.review_jobs
-        """
-    ).fetchone()
-    if row is None or len(row) != 5 or any(type(value) is not int for value in row):
-        raise ReviewJobError("review queue health could not be read")
-    return ReviewQueueHealth(
-        active=int(row[0]),
-        queued=int(row[1]),
-        leased=int(row[2]),
-        expired_leases=int(row[3]),
-        dead_letters=int(row[4]),
-    )
-
-
 def retry_queued_job(
     connection: psycopg.Connection[TupleRow], *, job_id: int
 ) -> ReviewJob:
@@ -516,6 +487,7 @@ def claim_next_job(
     lease_owner: str,
     lease_duration: timedelta,
     priority_aging_interval: timedelta,
+    runtime_key: str = "shared",
 ) -> ReviewJob | None:
     """Claim one ready job with a short, fenced ``SKIP LOCKED`` update."""
     _require_transaction(connection)
@@ -527,20 +499,38 @@ def claim_next_job(
     if priority_aging_interval <= timedelta(0):
         raise ReviewJobError("priority_aging_interval must be positive")
 
+    # Claims across runtimes share team limits. Hold this only through the short
+    # claim transaction; provider calls and lease heartbeats never acquire it.
+    # The runtime's lock timeout bounds contention. Read occupancy in the next
+    # statement so a waiting claimer sees the previous transaction's reservation.
+    connection.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended('review-agent:dispatch-capacity', 0))"
+    )
     with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
         row = cursor.execute(
             """
-            WITH leased_repositories AS MATERIALIZED (
-                SELECT DISTINCT active_pull_request.repository_id
-                FROM review_agent.review_jobs AS active_job
-                JOIN review_agent.review_runs AS active_run
-                  ON active_run.id = active_job.review_run_id
-                JOIN review_agent.pull_requests AS active_pull_request
-                  ON active_pull_request.id = active_run.pull_request_id
-                WHERE active_job.status = 'leased'
+            WITH occupied_jobs AS MATERIALIZED (
+                SELECT id FROM review_agent.review_jobs WHERE status = 'leased'
+                UNION
+                SELECT job_id FROM review_agent.model_executions WHERE finished_at IS NULL
+            ),
+            occupancy AS MATERIALIZED (
+                SELECT pull_request.repository_id, subject.model_connection_id, subject.admission_team_id
+                FROM occupied_jobs occupied
+                JOIN review_agent.review_jobs job ON job.id = occupied.id
+                JOIN review_agent.review_runs run ON run.id = job.review_run_id
+                JOIN review_agent.pull_requests pull_request ON pull_request.id = run.pull_request_id
+                JOIN review_agent.review_subjects subject ON subject.id = run.review_subject_id
+            ),
+            connection_usage AS MATERIALIZED (
+                SELECT model_connection_id, count(*) AS active FROM occupancy GROUP BY model_connection_id
+            ),
+            team_usage AS MATERIALIZED (
+                SELECT admission_team_id, count(*) AS active FROM occupancy
+                WHERE admission_team_id IS NOT NULL GROUP BY admission_team_id
             ),
             candidate AS MATERIALIZED (
-                SELECT job.id
+                SELECT job.id, subject.admission_team_id
                 FROM review_agent.review_jobs AS job
                 JOIN review_agent.review_runs AS run
                   ON run.id = job.review_run_id
@@ -548,20 +538,47 @@ def claim_next_job(
                   ON pull_request.id = run.pull_request_id
                 JOIN review_agent.repositories AS repository
                   ON repository.id = pull_request.repository_id
-                LEFT JOIN leased_repositories AS leased_repository
-                  ON leased_repository.repository_id = repository.id
+                JOIN review_agent.review_subjects AS subject
+                  ON subject.id = run.review_subject_id
+                JOIN review_agent.model_connections AS model_connection
+                  ON model_connection.id = subject.model_connection_id
+                LEFT JOIN review_agent.model_accounts AS model_account
+                  ON model_account.connection_id = model_connection.id
+                 AND model_account.provider = subject.model_provider
+                LEFT JOIN connection_usage ON connection_usage.model_connection_id = model_connection.id
+                LEFT JOIN team_usage ON team_usage.admission_team_id = subject.admission_team_id
+                LEFT JOIN review_agent.team_model_policies policy ON policy.team_id = subject.admission_team_id
+                LEFT JOIN review_agent.review_dispatch_turns turn ON turn.team_id = subject.admission_team_id
                 WHERE job.status = 'queued'
                   AND job.available_at <= statement_timestamp()
                   AND job.attempt_count < job.max_attempts
                   AND run.status = 'running'
-                  AND leased_repository.repository_id IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM occupancy WHERE occupancy.repository_id = repository.id)
+                  AND model_connection.runtime_key = %s
+                  AND model_connection.state = 'enabled'
+                  AND (model_account.quota_wait_until IS NULL
+                       OR model_account.quota_wait_until <= statement_timestamp())
+                  AND COALESCE(connection_usage.active, 0) < model_connection.max_concurrency
+                  AND (subject.admission_team_id IS NULL
+                       OR COALESCE(team_usage.active, 0) < COALESCE(policy.max_concurrency, 4))
+                  -- Retained requests without a model contract must still reach
+                  -- the worker's terminal validation instead of being stranded.
+                  AND (subject.model_provider IS NULL
+                       OR model_account.revision = subject.model_account_revision)
                 ORDER BY
+                    -- A single scalar lookup keeps normal team joins hashable.
+                    CASE WHEN subject.admission_team_id IS NULL
+                        THEN (SELECT last_claimed_at FROM review_agent.review_dispatch_turns WHERE team_id IS NULL)
+                        ELSE turn.last_claimed_at END NULLS FIRST,
+                    subject.admission_team_id NULLS FIRST,
                     job.available_at - (%s * job.priority),
                     job.available_at,
                     job.id
                 FOR UPDATE OF repository SKIP LOCKED
+                FOR SHARE OF model_connection SKIP LOCKED
                 LIMIT 1
-            )
+            ),
+            claimed AS (
             UPDATE review_agent.review_jobs AS job
             SET status = 'leased',
                 attempt_count = job.attempt_count + 1,
@@ -574,10 +591,172 @@ def claim_next_job(
             FROM candidate
             WHERE job.id = candidate.id AND job.status = 'queued'
             RETURNING job.*
+            ),
+            advance_turn AS (
+                INSERT INTO review_agent.review_dispatch_turns (team_id, last_claimed_at)
+                SELECT candidate.admission_team_id, statement_timestamp()
+                FROM candidate JOIN claimed ON claimed.id = candidate.id
+                ON CONFLICT (team_id) DO UPDATE SET last_claimed_at = EXCLUDED.last_claimed_at
+            )
+            SELECT * FROM claimed
             """,
-            (priority_aging_interval, owner, lease_duration),
+            (runtime_key, priority_aging_interval, owner, lease_duration),
         ).fetchone()
     return _job(row) if row is not None else None
+
+
+def begin_model_execution(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    session: WorkerLeaseSession,
+    runtime_key: str,
+    runtime_instance: UUID,
+    provider: str,
+    model: str,
+    reasoning_effort: str,
+    identity_sha256: str,
+    quota: QuotaCheck | None,
+) -> dict[str, object] | None:
+    """Fence native Hermes activation against reconnect and stale worker leases.
+
+    Called by the Hermes plugin before entering the upstream chat handler. The
+    connection row serializes activation with account lifecycle changes; a
+    worker lease expiring never removes the resulting execution reservation.
+    """
+    _require_transaction(connection)
+    if re.fullmatch(r"[0-9a-f]{64}", identity_sha256) is None:
+        raise ReviewJobError("Provider account identity is unavailable")
+    managed = connection.execute(
+        "SELECT id, state FROM review_agent.model_connections WHERE runtime_key = %s FOR UPDATE",
+        (runtime_key,),
+    ).fetchone()
+    if managed is None or managed[1] not in {"enabled", "disabled"}:
+        raise ReviewJobError("Model connection is not enabled")
+    row = connection.execute(
+        """SELECT job.review_run_id, subject.model_account_revision,
+                  subject.resolved_config, account.revision, account.identity_sha256, job.lease_owner,
+                  account.quota_observed_at, account.quota_wait_until
+           FROM review_agent.review_jobs job
+           JOIN review_agent.review_runs run ON run.id = job.review_run_id
+           JOIN review_agent.review_subjects subject ON subject.id = run.review_subject_id
+           JOIN review_agent.model_accounts account
+             ON account.connection_id = subject.model_connection_id AND account.provider = subject.model_provider
+           WHERE job.id = %s AND job.lease_generation = %s AND job.status = 'leased'
+             AND job.lease_expires_at > statement_timestamp() AND run.status = 'running'
+             AND subject.model_connection_id = %s AND subject.model_provider = %s
+             AND subject.resolved_config #>> '{review_contract,model}' = %s
+             AND subject.resolved_config #>> '{review_contract,reasoning_effort}' = %s""",
+        (
+            session.job_id,
+            session.lease_generation,
+            managed[0],
+            provider,
+            model,
+            reasoning_effort,
+        ),
+    ).fetchone()
+    if row is None:
+        raise ReviewJobError(
+            "Worker lease or admitted model assignment is no longer current"
+        )
+    if row[1] != row[3] or (row[4] is not None and row[4] != identity_sha256):
+        raise ReviewJobError("Provider account changed after this review was admitted")
+    if (
+        connection.execute(
+            "SELECT 1 FROM review_agent.model_executions WHERE job_id = %s AND (finished_at IS NULL OR lease_generation = %s) LIMIT 1",
+            (session.job_id, session.lease_generation),
+        ).fetchone()
+        is not None
+    ):
+        raise ReviewJobError("The previous Hermes execution has not finished")
+    if managed[1] == "disabled":
+        # A pause can win after claim but before native activation. Preserve the
+        # exact assignment without spending an inference attempt in that race.
+        requeue_unstarted_job(
+            connection,
+            job_id=session.job_id,
+            lease_owner=row[5],
+            lease_generation=session.lease_generation,
+        )
+        return None
+    if row[4] is None:
+        if managed[0] != SHARED_CONNECTION_ID or row[3] != 1:
+            raise ReviewJobError(
+                "Provider account must be verified before enabling the connection"
+            )
+        # The migration's first shared account represents the already configured
+        # deployment. Bind it once; subsequent changes require explicit reconnect.
+        connection.execute(
+            "UPDATE review_agent.model_accounts SET identity_sha256 = %s, observed_at = statement_timestamp() WHERE connection_id = %s AND provider = %s",
+            (identity_sha256, managed[0], provider),
+        )
+    waiting = row[7]
+    if quota is not None and (row[6] is None or quota.observed_at >= row[6]):
+        waiting = None if quota.allowed else quota.retry_at
+        connection.execute(
+            """UPDATE review_agent.model_accounts SET quota_observed_at = %s, quota_wait_until = %s
+               WHERE connection_id = %s AND provider = %s""",
+            (quota.observed_at, waiting, managed[0], provider),
+        )
+    if waiting is not None:
+        # A passed estimate permits another quota check, never presumed recovery.
+        # Keep one account deadline instead of rewriting all of its queued jobs.
+        connection.execute(
+            """UPDATE review_agent.model_accounts
+               SET quota_wait_until = GREATEST(quota_wait_until, statement_timestamp() + %s)
+               WHERE connection_id = %s AND provider = %s""",
+            (timedelta(seconds=MANUAL_REFRESH_SECONDS), managed[0], provider),
+        )
+        requeue_unstarted_job(
+            connection,
+            job_id=session.job_id,
+            lease_owner=row[5],
+            lease_generation=session.lease_generation,
+        )
+        return None
+    inserted = connection.execute(
+        """INSERT INTO review_agent.model_executions
+               (job_id, lease_generation, connection_id, provider, account_revision, runtime_instance)
+           VALUES (%s, %s, %s, %s, %s, %s)
+           ON CONFLICT (job_id, lease_generation) DO NOTHING RETURNING job_id""",
+        (
+            session.job_id,
+            session.lease_generation,
+            managed[0],
+            provider,
+            row[3],
+            runtime_instance,
+        ),
+    ).fetchone()
+    if inserted is None:
+        raise ReviewJobError("This worker execution was already dispatched")
+    return cast(dict[str, object], row[2])
+
+
+def finish_model_execution(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    session: WorkerLeaseSession,
+    runtime_instance: UUID,
+) -> None:
+    """Release only after the native Hermes handler has finished its response."""
+    connection.execute(
+        """UPDATE review_agent.model_executions SET finished_at = statement_timestamp()
+           WHERE job_id = %s AND lease_generation = %s AND runtime_instance = %s
+             AND finished_at IS NULL""",
+        (session.job_id, session.lease_generation, runtime_instance),
+    )
+
+
+def active_model_executions(
+    connection: psycopg.Connection[TupleRow], *, connection_id: int
+) -> int:
+    row = connection.execute(
+        "SELECT count(*) FROM review_agent.model_executions WHERE connection_id = %s AND finished_at IS NULL",
+        (connection_id,),
+    ).fetchone()
+    assert row is not None
+    return int(row[0])
 
 
 def heartbeat_job(

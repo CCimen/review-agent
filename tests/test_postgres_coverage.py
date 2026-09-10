@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import tempfile
 import sys
@@ -10,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from threading import Barrier, Event
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import psycopg
 
@@ -37,7 +40,11 @@ from review_agent_tools.postgres import coverage as postgres_coverage  # noqa: E
 from review_agent_tools.postgres import review_runs as postgres_review_runs  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools import review_run_application  # noqa: E402
+from review_agent_tools import (  # noqa: E402
+    review_run_application,
+    review_source_tools,
+    review_tool_runtime,
+)
 from review_agent_tools.diff_render import assemble_rendered_diff  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 
@@ -167,6 +174,77 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.assertEqual(complete.changed_files_reported, 2)
         self.assertEqual(complete.changed_files_registered, 2)
         self.assertTrue(complete.registration_complete)
+
+    def test_diff_page_reads_one_snapshot_and_stops_when_the_head_changes(self) -> None:
+        run_id = self.start_run()
+        review_run_application.register_postgres_changed_files(
+            self.runtime,
+            run_id=run_id,
+            files=(self.changed_file("src/a.py"),),
+            changed_files_reported=1,
+            registration_complete=True,
+        )
+        with self.runtime.transaction() as connection:
+            postgres_review_runs.advance_phase(
+                connection, run_id, ReviewPhase.FETCHING_PR
+            )
+        client = Mock()
+        pull = {
+            "base": {"sha": "b" * 40},
+            "head": {"sha": "a" * 40},
+            "changed_files": 1,
+        }
+        client.get_review_pull.return_value = SimpleNamespace(
+            repository="team/coverage",
+            pr_number=21,
+            payload=pull,
+        )
+        diff = "diff --git a/src/a.py b/src/a.py\n--- a/src/a.py\n+++ b/src/a.py\n@@ -1 +1 @@\n-old\n+new\n"
+        client.get_review_diff.return_value = SimpleNamespace(
+            state="ok",
+            body=diff.encode(),
+            truncated=False,
+        )
+        source = SimpleNamespace(
+            run_id=int(run_id),
+            client=client,
+            lease=SimpleNamespace(job_id=7, lease_generation=1),
+        )
+        with (
+            patch.object(
+                review_source_tools, "gateway_source_session", return_value=source
+            ),
+            patch.object(
+                review_source_tools, "postgres_runtime", return_value=self.runtime
+            ),
+            patch.object(
+                review_tool_runtime, "postgres_runtime", return_value=self.runtime
+            ),
+        ):
+            first = json.loads(
+                review_source_tools.pr_diff.__wrapped__(
+                    {"run_id": run_id, "path": "src/a.py"}
+                )
+            )
+            self.assertEqual(first["diff"], diff)
+            self.assertEqual(client.get_review_pull.call_count, 1)
+            coverage = review_run_application.summarize_postgres_coverage(
+                self.runtime, run_id
+            )
+            self.assertEqual(coverage.state, CoverageState.COMPLETE)
+
+            pull["head"] = {"sha": "c" * 40}
+            second = json.loads(
+                review_source_tools.pr_diff.__wrapped__(
+                    {"run_id": run_id, "path": "src/a.py"}
+                )
+            )
+        self.assertEqual(second["status"], "superseded")
+        self.assertEqual(client.get_review_pull.call_count, 2)
+        self.assertEqual(client.get_review_diff.call_count, 1)
+        with self.runtime.transaction() as connection:
+            run = postgres_review_runs.get_run(connection, run_id)
+        self.assertEqual(run.failure_code, "snapshot_superseded")
 
     def test_live_inventory_persists_classifications_and_returns_summary(self) -> None:
         run_id = self.start_run()
@@ -458,12 +536,14 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 runner.apply_migrations(connection, directory=previous)
                 with connection.transaction():
-                    admitted = review_run_application.admit_postgres_review_in_transaction(
-                        connection,
-                        self.request(),
-                        priority=1,
-                        max_attempts=3,
-                        active_job_limit=10,
+                    admitted = (
+                        review_run_application.admit_postgres_review_in_transaction(
+                            connection,
+                            self.request(),
+                            priority=1,
+                            max_attempts=3,
+                            active_job_limit=10,
+                        )
                     )
                     run_id = admitted.run.run.id
                     postgres_coverage.insert_changed_files(
@@ -489,7 +569,10 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                         )
                     before = postgres_coverage.summarize(connection, run_id)
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), (15, 16))
+                self.assertEqual(
+                    runner.apply_migrations(connection),
+                (15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28),
+                )
                 self.assertTrue(
                     runner.inspect_migrations(
                         connection, directory=previous
@@ -513,7 +596,9 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                             run_id=run_id,
                             page=DiffPage(path, "a" * 64, 50, 100, 100),
                         )
-                    self.assertEqual(postgres_coverage.summarize(connection, run_id), before)
+                    self.assertEqual(
+                        postgres_coverage.summarize(connection, run_id), before
+                    )
 
     def test_coverage_write_lock_orders_before_supersession(self) -> None:
         run_id = self.start_run()

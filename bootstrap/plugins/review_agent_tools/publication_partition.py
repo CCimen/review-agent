@@ -117,6 +117,22 @@ def _with_part_heading(
     return replacement + body[len(heading) :] if body.startswith(heading) else body
 
 
+def publication_content_budget(
+    heading: str,
+    *,
+    max_comment_bytes: int,
+    publication_key: str = "sha256:" + "0" * 64,
+) -> int:
+    """Reserve framing; the fixed-size key permits budgeting before body hashing."""
+    reserved = publication_body_size(
+        _continuation_prefix(heading, 9999, 9999)
+        + "\n\n<!-- "
+        + _part_marker(publication_key, 9999, 9999)
+        + " -->\n"
+    )
+    return max_comment_bytes - reserved
+
+
 def split_publication_body(
     body: str,
     *,
@@ -132,13 +148,11 @@ def split_publication_body(
         return [PublicationPart(part_number=1, body=single_body)]
 
     heading = _publication_heading(body)
-    reserved = publication_body_size(
-        _continuation_prefix(heading, 9999, 9999)
-        + "\n\n<!-- "
-        + _part_marker(publication_key, 9999, 9999)
-        + " -->\n"
+    content_budget = publication_content_budget(
+        heading,
+        max_comment_bytes=max_comment_bytes,
+        publication_key=publication_key,
     )
-    content_budget = max_comment_bytes - reserved
     if content_budget < 200:
         raise PublicationDomainError("body_too_large")
 
@@ -196,11 +210,15 @@ def _truncate_block_to_budget(block: str, max_bytes: int) -> tuple[str, bool]:
     if publication_body_size(block) <= max_bytes:
         return block, False
     suffix = "\n\n[truncated]\n\n"
-    available = max_bytes - publication_body_size(suffix)
+    # A shortened disclosure must not absorb the outer historical comment.
+    closing = "\n</details>" * block.count("<details>")
+    available = max_bytes - publication_body_size(suffix + closing)
     if available < 100:
         return "", True
     encoded = block.encode("utf-8")[:available]
-    return encoded.decode("utf-8", errors="ignore").rstrip() + suffix, True
+    retained = encoded.decode("utf-8", errors="ignore").rstrip()
+    open_details = max(0, retained.count("<details>") - retained.count("</details>"))
+    return retained + "\n</details>" * open_details + suffix, True
 
 
 def _fit_historical_chunks(
@@ -317,5 +335,4 @@ def extra_superseded_body(
         "PR timeline.\n\n"
         f"<!-- {_part_marker(publication['publication_key'], part_number, total_parts)} -->\n"
     )
-
 

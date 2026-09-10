@@ -116,7 +116,8 @@ worker replicas × (worker concurrency + 1)
 + Hermes replicas × 4
 + publisher replicas × 2
 + feedback replicas × 4
-+ one connection per concurrent operator command
++ operator command processes × 4 (normally one connection in use)
++ console replicas × 6 (four application connections and two authentication connections)
 ```
 
 Pools open connections on demand. Keep the configured maximum below the
@@ -307,6 +308,9 @@ Durable history is preserved unless this table explicitly says otherwise:
 | `repositories`, `pull_requests`, `review_subjects`, `review_runs`, `review_jobs`, `review_run_files`, `review_file_reads`, `review_decision_snapshots` | Repository owner | Preserve review identity, coverage, lifecycle, and decision context. |
 | `finding_identities`, `finding_occurrences`, `finding_suggestions`, `finding_decisions`, `intentional_design_evidence`, `decision_audit`, `pull_request_finding_references` | Repository owner | Preserve finding history and explicit human decisions. |
 | `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
+| `admin_users`, `admin_sessions` | Deployment owner | Preserve admin-panel accounts and revocable login sessions; treat backups as credential-bearing data. |
+| `teams`, `team_members`, `team_repositories`, `repository_requests` | Deployment owner | Preserve team access, repository ownership and request decisions. |
+| `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage, and idempotency receipts. |
 | `coach_runs`, `coach_candidates`, `coach_intervention_outcomes`, `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | Quality owner | Preserve private coaching and verification evidence; unavailable to the live reviewer. |
 
@@ -326,6 +330,32 @@ whether more rows remain. Take and verify a backup, then repeat the same command
 with `--apply`. Each apply transaction locks and deletes only one oldest-first
 batch. Concurrent apply commands serialize on that ordering, so `more` remains
 truthful; active deliveries and every other table are untouched.
+
+Before enabling scheduled application reports, choose a retention window for
+their read receipts and a cleanup cadence. Every successful report read appends
+an event and updates the audit indexes. Review Agent does not choose a retention
+period or delete these events automatically.
+
+Preview one batch using the approved cutoff:
+
+```bash
+review-agent-admin database prune-integration-reads \
+  --before 2026-01-01T00:00:00Z \
+  --limit 100 \
+  --actor "operator:alice" \
+  --reason "approved application read retention window"
+```
+
+This command uses the same preview/apply workflow and batch cap. Its JSON receipt
+identifies `integration_reads` and reports `oldest_recorded_at`. Only successful
+`integration_read` events recorded by an integration before the cutoff are
+eligible. Credential creation and revocation, failed reads, human audit events,
+and newer receipts are preserved. Keep any required export or verified backup
+before applying cleanup with `--apply`. Save the resulting CLI receipt with the
+deployment's maintenance records; it is the evidence of each pruning operation.
+Each invocation deletes at most one batch; `more: true` means another batch
+remains. Schedule repeated bounded invocations through the deployment's existing
+maintenance tooling after approving that policy.
 
 ## Connect The Model Provider
 
@@ -430,12 +460,52 @@ decisions remain governance actions.
 
 ## Runbook
 
+Follow live review progress in the console's **Activity** view or open a request
+from **Pull requests**. Progress shows the recorded phase, scheduled retry or
+quota check, and **Waiting for recovery** when a worker lease expires. It does
+not estimate a completion percentage. Published results with incomplete or
+unknown coverage are labeled **Incomplete**; their finding count is not a clean
+result. Every request identifies its exact commit.
+
+The **Health** view shows due-work ages, capacity and quota waits, live worker
+totals, and recent progress for each queue. Worker totals include instances beyond
+the displayed process list. Retained failures remain visible as history without
+marking an otherwise clear queue as currently failed.
+
+GitHub receives the final result or failure notice, with the reviewed or requested
+commit visible. Waiting and active progress stay in the console. These reports
+do not change GitHub checks or merge requirements.
+
 Inspect active queue work:
 
 ```bash
 review-agent-admin queues inspect
 review-agent-admin jobs list --limit 100
 ```
+
+`queues inspect` reports webhook intake, review jobs and publication delivery
+from the same reader used by the console. The existing `reviews` and
+`publications` count keys remain available. Publication counts include final
+review comments and pending failure notices.
+
+| Signal | Meaning |
+| --- | --- |
+| `waiting`, `due`, `delayed` | Waiting work, split by whether its scheduled availability has arrived. Due work may still need a scheduler slot. |
+| `oldest_due_age_seconds` | Time since the oldest waiting item became due, excluding its scheduled delay. |
+| `oldest_waiting_age_seconds` | Total waiting age; for publications, this measures delivery lag since generation. |
+| `next_available_at` | The next scheduled retry or cooldown expiry that makes delayed work due. |
+| `live_workers`, `worker_capacity` | Recently reporting worker instances and their advertised capacity, using the returned `worker_stale_after_seconds` threshold. |
+| `leased`, `expired_leases` | Claimed work and the subset whose lease expired. |
+| `capacity_waiting` | Webhook requests deferred by the last admission capacity check. |
+| `cooldown_waiting`, `cooldown_until` | Review jobs waiting for model-account quota and the next recorded quota deadline. GitHub retry deadlines are included in `next_available_at`. |
+| `last_progress_at`, `last_heartbeat_at` | The latest persisted start/completion and the latest heartbeat of leased work. A heartbeat proves liveness, not completion. |
+| `last_terminal_reason`, `last_terminal_at` | The latest terminal reason and its timestamp, including rejected webhook requests. |
+
+`doctor` reports expired leases, review-capacity exhaustion, and work that has
+been due for at least 90 seconds with neither a live worker nor a current lease.
+Scheduled retries and quota waits do not trigger the missing-worker check.
+Idle queues have zero waiting and leased counts and null wait ages; retained
+failure history remains visible.
 
 Release a delayed queued retry or cancel its active run:
 
@@ -455,6 +525,8 @@ Inspect recent runs:
 ```bash
 review-agent-memory runs --repo <org>/<repo> --limit 10
 review-agent-memory runs --repo <org>/<repo> --stats
+review-agent-memory runs --repo <org>/<repo> --pr <number> --limit 10
+review-agent-memory runs --repo <org>/<repo> --pr <number> --stats
 ```
 
 Inspect publication state:
@@ -712,10 +784,62 @@ or repository text, so scrub them before committing or sharing.
 
 ## Updating And Validation
 
+### Maintaining a release
+
+The runtime and console belong to one repository. Keep API changes, the
+generated OpenAPI and TypeScript contracts, migrations, and their consumers in
+the same reviewed change. Merge completed features into `main` after the
+required CI check passes. A maintained release branch may receive reviewed
+backports; it must pass the same release checks. Deployments select a qualified
+release rather than following a development branch.
+
+1. Choose an unused SemVer tag for the reviewed commit. Update `REVISION` in
+   `scripts/generate_llms_docs.py` and the versioned image example in
+   `docs/REPOSITORY_CONTEXT.md`, regenerate the onboarding documents, and
+   commit the version and any changed operator guidance together. Use a
+   prerelease tag while qualifying a release candidate.
+2. Create the Git tag at that exact commit and publish its GitHub Release.
+   **Publish container image** verifies the tag, documentation version, and
+   complete CI suite. It builds both images once, pushes them by digest, then
+   smoke-tests and scans those exact images. It attaches checksummed, attested
+   inventories and vulnerability evidence before publishing the version tags.
+3. Wait for the entire workflow to succeed. Download `IMAGE-DIGESTS.txt` and
+   `SOURCE-SHA.txt`, and retain both image references with the deployment
+   record. Registry attestation proves an image's origin; workflow success
+   establishes that the release passed qualification.
+4. The documentation workflow builds from `main`. The version-bump merge can
+   fail its release-evidence gate while qualification is pending. A successful
+   image workflow automatically retries documentation publication. If needed,
+   run **Publish documentation** manually from `main` after qualification.
+   Backports leave `main`'s current documentation version unchanged.
+5. Upgrade through the platform's [deployment procedure](DEPLOYMENT.md#upgrade-and-roll-back-production).
+   Preserve secrets, environment settings, persistent storage, and network
+   configuration. Updating an image reference does not require replacing the
+   environment with a fresh example file.
+
+If a scan or image smoke fails, version-tag promotion does not run. Inspect the
+failed job and its retained reports. A transient registry or evidence-upload
+failure can be retried with **Re-run failed jobs**, preserving the already
+built digests. If promotion stops after one tag, retry the failed promotion
+job; consumers must wait for both. A source fix needs a new reviewed commit
+and release tag. Do not move an existing Git tag or treat a fresh build as the
+same deployment artifact. See [backup and recovery](#backup-and-recovery)
+before reverting images across a schema or authorization change.
+
+### Runtime dependencies
+
 `HERMES_IMAGE` is pinned to the Hermes v2026.8.31 release tag and its immutable
 multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency
 bump. Never replace this with the moving `latest` or `main` tag.
+
+The admin image and PostgreSQL CI checks use Python 3.14.7.
+The pinned Hermes image supplies Python 3.13.5 and its installed package requires
+Python below 3.14. The main and graph environments therefore retain that
+supported interpreter. The bundle CI check uses Python 3.13.5 to cover that
+runtime while PostgreSQL/admin contracts run on 3.14.7. Recheck the upstream
+constraint when changing Hermes; upgrading the independent admin runtime does
+not replace Hermes's interpreter.
 
 The Review Agent image applies security updates available from the pinned
 base's Debian release at build time and replaces its `uv` binary from a second

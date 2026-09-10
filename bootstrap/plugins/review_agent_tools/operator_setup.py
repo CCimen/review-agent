@@ -451,6 +451,35 @@ def _validate_queues(
     publication_queue = snapshot.publication_queue
     if publication_queue.expired_recoverable or publication_queue.expired_exhausted:
         raise ValueError("publication queue requires operator recovery")
+    for progress in snapshot.progress:
+        if progress.expired_leases:
+            raise ValueError(f"{progress.kind} queue has expired leases")
+        if (
+            progress.oldest_due_at is not None
+            and progress.live_workers == 0
+            and progress.leased == 0
+            and (snapshot.generated_at - progress.oldest_due_at).total_seconds()
+            >= snapshot.stale_after_seconds
+        ):
+            raise ValueError(
+                f"{progress.kind} queue has due work with no live worker evidence; inspect queues and worker processes"
+            )
+
+
+def _queue_check(
+    snapshot: operator_application.DeploymentHealth, active_job_limit: int
+) -> OperatorCheck:
+    try:
+        _validate_queues(snapshot, active_job_limit)
+    except (OperatorCapacityUnavailable, ValueError) as error:
+        return _error("queues", str(error))
+    dead_letter_noun = "record" if snapshot.review_queue.dead_letters == 1 else "records"
+    return _ready(
+        "queues",
+        f"Review queue has {snapshot.review_queue.active}/{active_job_limit} active jobs, "
+        f"{snapshot.review_queue.dead_letters} dead-letter {dead_letter_noun}; "
+        "webhook, review and publication queues have no expired or unattended due work",
+    )
 
 
 def doctor(
@@ -530,8 +559,6 @@ def doctor(
             for name in ("installations", "repositories", "queues")
         )
     else:
-        dead_letter_count = snapshot.review_queue.dead_letters
-        dead_letter_noun = "record" if dead_letter_count == 1 else "records"
         checks.extend(
             (
                 _live_check(
@@ -549,17 +576,7 @@ def doctor(
                     "No repository is ready for this deployment profile",
                     lambda: _validate_repositories(snapshot),
                 ),
-                _live_check(
-                    "queues",
-                    (
-                        f"Review queue has {snapshot.review_queue.active}/"
-                        f"{settings.active_job_limit} active jobs, "
-                        f"{dead_letter_count} dead-letter {dead_letter_noun}, "
-                        "and no expired work"
-                    ),
-                    "Review or publication queues need recovery or capacity",
-                    lambda: _validate_queues(snapshot, settings.active_job_limit),
-                ),
+                _queue_check(snapshot, settings.active_job_limit),
             )
         )
     return PreflightReport(

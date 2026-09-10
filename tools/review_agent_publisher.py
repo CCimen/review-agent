@@ -27,6 +27,8 @@ def _load_package() -> None:
 
 _load_package()
 
+from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
+
 from review_agent_tools.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
@@ -39,6 +41,7 @@ from review_agent_tools.publisher import (  # noqa: E402
     default_publisher_name,
 )
 from review_agent_tools.settings import ReviewAgentSettings  # noqa: E402
+from review_agent_tools.postgres.deployment_settings import apply_at_startup  # noqa: E402
 
 
 def _seconds(name: str, default: str) -> timedelta:
@@ -52,10 +55,13 @@ def _seconds(name: str, default: str) -> timedelta:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--once", action="store_true", help="claim at most one publication")
+    parser.add_argument(
+        "--once", action="store_true", help="claim at most one publication"
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(
-        level=logging.INFO, stream=sys.stdout,
+        level=logging.INFO,
+        stream=sys.stdout,
         format="%(levelname)s %(name)s %(message)s",
     )
     stop = threading.Event()
@@ -67,28 +73,37 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGINT, request_stop)
 
     configured = ReviewAgentSettings.from_environment()
-    policy = PublisherPolicy(
-        lease_duration=_seconds("REVIEW_AGENT_PUBLICATION_LEASE_SECONDS", "120"),
-        heartbeat_interval=_seconds(
-            "REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS", "30"
-        ),
-        retry_delay=_seconds("REVIEW_AGENT_PUBLICATION_RETRY_SECONDS", "30"),
-        poll_interval=_seconds("REVIEW_AGENT_PUBLICATION_POLL_SECONDS", "2"),
-        max_comment_bytes=configured.publish_max_bytes,
-    )
     runtime = PostgreSQLRuntime(
         configured.postgres_database_url,
         role=PostgreSQLRuntimeRole.WORKER,
     )
     runtime.open()
     try:
-        PublicationWorker(
+        apply_at_startup(runtime, "publisher")
+        policy = PublisherPolicy(
+            lease_duration=_seconds("REVIEW_AGENT_PUBLICATION_LEASE_SECONDS", "120"),
+            heartbeat_interval=_seconds(
+                "REVIEW_AGENT_PUBLICATION_HEARTBEAT_SECONDS", "30"
+            ),
+            retry_delay=_seconds("REVIEW_AGENT_PUBLICATION_RETRY_SECONDS", "30"),
+            poll_interval=_seconds("REVIEW_AGENT_PUBLICATION_POLL_SECONDS", "2"),
+            max_comment_bytes=configured.publish_max_bytes,
+        )
+        lease_owner = default_publisher_name()
+        with WorkerTelemetry(
             runtime,
-            ReviewGitHubGatewayClient(configured.github_gateway_url),
-            policy,
-            lease_owner=default_publisher_name(),
+            kind="publisher",
+            lease_owner=lease_owner,
+            capacity=1,
             stop_event=stop,
-        ).run(once=args.once)
+        ):
+            PublicationWorker(
+                runtime,
+                ReviewGitHubGatewayClient(configured.github_gateway_url),
+                policy,
+                lease_owner=lease_owner,
+                stop_event=stop,
+            ).run(once=args.once)
         return 0
     finally:
         runtime.close()

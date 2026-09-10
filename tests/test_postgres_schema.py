@@ -70,6 +70,12 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
         qualified = ", ".join(f"review_agent.{table}" for table in tables)
         if qualified:
             psql(f"TRUNCATE TABLE {qualified} RESTART IDENTITY CASCADE;")
+        psql("""
+            INSERT INTO review_agent.model_connections (runtime_key, name, state)
+            VALUES ('shared', 'Shared connection', 'enabled');
+            INSERT INTO review_agent.model_accounts (connection_id, provider)
+            VALUES (1, 'openai-codex'), (1, 'anthropic');
+        """)
 
     def assert_rejected(self, sql: str, constraint: str) -> None:
         result = psql(sql, check=False)

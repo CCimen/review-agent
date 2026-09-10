@@ -83,6 +83,7 @@ class GitHubAppIdentity:
     owner_login: str
     permissions: tuple[tuple[str, str], ...]
     events: tuple[str, ...]
+    owner_type: Literal["User", "Organization"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +179,58 @@ class GitHubAppAuthenticator:
         """Read one App-authenticated GitHub JSON resource."""
         return self._request_json(path, credential=self._app_jwt(now))
 
+    def app_identity(self) -> GitHubAppIdentity:
+        """Return current bounded App metadata with App JWT authentication."""
+        result = self.app_json("/app")
+        if not isinstance(result, Mapping):
+            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
+        metadata = cast(Mapping[str, object], result)
+        provider_app_id = metadata.get("id")
+        slug = metadata.get("slug")
+        raw_owner = metadata.get("owner")
+        raw_permissions = metadata.get("permissions")
+        raw_events = metadata.get("events")
+        if not isinstance(raw_owner, Mapping):
+            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
+        owner = cast(Mapping[object, object], raw_owner)
+        owner_login = owner.get("login")
+        if (
+            type(provider_app_id) is not int
+            or provider_app_id < 1
+            or not isinstance(slug, str)
+            or not slug
+            or slug != slug.strip()
+            or not isinstance(owner_login, str)
+            or not owner_login
+            or owner_login != owner_login.strip()
+            or not isinstance(raw_permissions, Mapping)
+            or not isinstance(raw_events, (list, tuple))
+        ):
+            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
+        permission_mapping = cast(Mapping[object, object], raw_permissions)
+        event_values = cast(Sequence[object], raw_events)
+        if any(
+            not isinstance(name, str) or not isinstance(level, str)
+            for name, level in permission_mapping.items()
+        ) or any(not isinstance(event, str) or not event for event in event_values):
+            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
+        permissions = tuple(sorted(cast(Mapping[str, str], permission_mapping).items()))
+        events = tuple(cast(Sequence[str], event_values))
+        if len(set(events)) != len(events):
+            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
+        return GitHubAppIdentity(
+            provider_app_id=provider_app_id,
+            slug=slug,
+            owner_login=owner_login,
+            permissions=permissions,
+            events=events,
+            owner_type=(
+                cast(Literal["User", "Organization"], owner["type"])
+                if owner.get("type") in ("User", "Organization")
+                else None
+            ),
+        )
+
     def installation_json(self, path: str, token: InstallationToken) -> object:
         """Read one installation-authenticated GitHub JSON resource."""
         return self._request_json(path, credential=token.value)
@@ -187,6 +240,7 @@ class GitHubAppAuthenticator:
         provider_installation_id: int,
         *,
         repository_ids: Sequence[int] | None = None,
+        repositories: Sequence[str] | None = None,
         permissions: Mapping[str, str] | None = None,
         now: datetime | None = None,
     ) -> InstallationToken:
@@ -197,6 +251,21 @@ class GitHubAppAuthenticator:
         if isinstance(provider_installation_id, bool) or provider_installation_id < 1:
             raise ValueError("provider_installation_id must be positive")
         payload: dict[str, object] = {}
+        if repositories is not None:
+            names = tuple(repositories)
+            if (
+                repository_ids is not None
+                or not names
+                or len(names) > 500
+                or any(
+                    not name or len(name) > 100 or "/" in name or name != name.strip()
+                    for name in names
+                )
+            ):
+                raise ValueError(
+                    "repositories must contain repository names and cannot be combined with repository_ids"
+                )
+            payload["repositories"] = names
         if repository_ids is not None:
             normalized_ids = tuple(repository_ids)
             if not normalized_ids or any(
@@ -258,9 +327,10 @@ class GitHubAppAuthenticator:
             unexpected_permissions = set(normalized_permissions).difference(
                 expected_permissions, {"metadata"}
             )
-            if unexpected_permissions or normalized_permissions.get(
-                "metadata", "read"
-            ) != "read":
+            if (
+                unexpected_permissions
+                or normalized_permissions.get("metadata", "read") != "read"
+            ):
                 raise GitHubAppTokenPermanent(
                     "GitHub installation token permissions exceeded the requested scope"
                 )
@@ -388,53 +458,7 @@ class GitHubAppTokenService:
         self._opener = self._authenticator.opener
 
     def app_identity(self) -> GitHubAppIdentity:
-        """Return current bounded App metadata with App JWT authentication."""
-        result = self._authenticator.app_json("/app")
-        if not isinstance(result, Mapping):
-            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
-        metadata = cast(Mapping[str, object], result)
-        provider_app_id = metadata.get("id")
-        slug = metadata.get("slug")
-        raw_owner = metadata.get("owner")
-        raw_permissions = metadata.get("permissions")
-        raw_events = metadata.get("events")
-        if not isinstance(raw_owner, Mapping):
-            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
-        owner = cast(Mapping[object, object], raw_owner)
-        owner_login = owner.get("login")
-        if (
-            type(provider_app_id) is not int
-            or provider_app_id < 1
-            or not isinstance(slug, str)
-            or not slug
-            or slug != slug.strip()
-            or not isinstance(owner_login, str)
-            or not owner_login
-            or owner_login != owner_login.strip()
-            or not isinstance(raw_permissions, Mapping)
-            or not isinstance(raw_events, (list, tuple))
-        ):
-            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
-        permission_mapping = cast(Mapping[object, object], raw_permissions)
-        event_values = cast(Sequence[object], raw_events)
-        if any(
-            not isinstance(name, str) or not isinstance(level, str)
-            for name, level in permission_mapping.items()
-        ) or any(not isinstance(event, str) or not event for event in event_values):
-            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
-        permissions = tuple(
-            sorted(cast(Mapping[str, str], permission_mapping).items())
-        )
-        events = tuple(cast(Sequence[str], event_values))
-        if len(set(events)) != len(events):
-            raise GitHubAppTokenPermanent("GitHub App metadata was invalid")
-        return GitHubAppIdentity(
-            provider_app_id=provider_app_id,
-            slug=slug,
-            owner_login=owner_login,
-            permissions=permissions,
-            events=events,
-        )
+        return self._authenticator.app_identity()
 
     def app_bot_login(self) -> str:
         """Return the stable bot login derived with App JWT authentication."""

@@ -7,6 +7,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 image=$1
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 docker run --rm --entrypoint sh "$image" -c \
     'command -v curl >/dev/null && command -v uv >/dev/null && \
@@ -27,6 +28,14 @@ done
 docker run --rm \
     --entrypoint /usr/local/bin/review-agent-hermes-contract \
     "$image"
+
+for check in test_hermes_auxiliary.py test_hermes_account_usage.py
+do
+    docker run --rm --network none \
+        --mount "type=bind,source=$ROOT/tests/$check,target=/tmp/$check,readonly" \
+        --entrypoint /opt/hermes/.venv/bin/python \
+        "$image" "/tmp/$check" -q
+done
 
 docker run --rm --user 12345:0 \
     --tmpfs /opt/data:rw,mode=0770,uid=12345,gid=0 \

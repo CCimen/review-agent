@@ -16,6 +16,7 @@ from psycopg.rows import TupleRow, class_row
 from .. import failure_codes
 from ..domain.review import (
     FailureStatusDelivery,
+    JsonObject,
     PullRequestId,
     ReviewPhase,
     ReviewRunId,
@@ -265,6 +266,18 @@ def _by_request_key(
             (request_key,),
         ).fetchone()
     return _run(row) if row is not None else None
+
+
+def find_request_config(
+    connection: psycopg.Connection[TupleRow], request_key: str
+) -> JsonObject | None:
+    """Read the frozen configuration for an already admitted request key."""
+    row = connection.execute(
+        "SELECT subject.resolved_config FROM review_agent.review_runs AS run "
+        "JOIN review_agent.review_subjects AS subject ON subject.id = run.review_subject_id "
+        "WHERE run.request_key = %s", (_request_key(request_key),),
+    ).fetchone()
+    return cast(JsonObject, row[0]) if row else None
 
 
 def _active_run(

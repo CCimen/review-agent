@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 from typing import cast
 import unittest
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,9 +65,7 @@ class _Authenticator:
         self.token_requests.append((provider_installation_id, permissions))
         return self.token
 
-    def installation_json(
-        self, path: str, token: app_auth.InstallationToken
-    ) -> object:
+    def installation_json(self, path: str, token: app_auth.InstallationToken) -> object:
         self.assert_token(token)
         self.installation_paths.append(path)
         page = len(self.installation_paths)
@@ -91,6 +89,45 @@ class _Authenticator:
 
 
 class GitHubAppInventoryTests(unittest.TestCase):
+    def test_named_repository_uses_an_exact_token_in_either_installation_scope(
+        self,
+    ) -> None:
+        for selection in ("all", "selected"):
+            with self.subTest(selection=selection):
+                authenticator = Mock(spec=app_auth.GitHubAppAuthenticator)
+                authenticator.app_json.return_value = _Authenticator(
+                    selection=selection
+                ).app_json("metadata")
+                authenticator.installation_json.return_value = {
+                    "id": 9001,
+                    "full_name": "CCimen/review-agent",
+                }
+                snapshot = app_inventory.read_repository_inventory(
+                    authenticator, repository="CCimen/review-agent"
+                )
+                self.assertEqual(snapshot.repository.full_name, "CCimen/review-agent")
+                self.assertEqual(
+                    snapshot.installation.definition.repository_selection.value,
+                    selection,
+                )
+                authenticator.installation_token.assert_called_once_with(
+                    7001,
+                    repositories=("review-agent",),
+                    permissions={"metadata": "read"},
+                )
+                self.assertEqual(
+                    authenticator.installation_json.call_args.args[0],
+                    "/repos/CCimen/review-agent",
+                )
+                authenticator.installation_json.return_value = {
+                    "id": 9001,
+                    "full_name": "another/repository",
+                }
+                with self.assertRaises(app_inventory.GitHubAppInventoryPermanent):
+                    app_inventory.read_repository_inventory(
+                        authenticator, repository="CCimen/review-agent"
+                    )
+
     def test_resolves_installation_id_from_repository_name(self) -> None:
         authenticator = _Authenticator(total=1)
 
@@ -108,9 +145,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
 
     def test_rejects_invalid_repository_installation_identity(self) -> None:
         class InvalidAuthenticator(_Authenticator):
-            def app_json(
-                self, path: str, *, now: datetime | None = None
-            ) -> object:
+            def app_json(self, path: str, *, now: datetime | None = None) -> object:
                 self.app_paths.append(path)
                 return {"id": False}
 
@@ -196,6 +231,7 @@ class GitHubAppInventoryTests(unittest.TestCase):
             (101, app_inventory.GitHubAppInventoryPermanent),
         ):
             with self.subTest(total=total):
+
                 class IncompleteAuthenticator(_Authenticator):
                     def installation_json(
                         self, path: str, token: app_auth.InstallationToken
@@ -298,33 +334,52 @@ class GitHubAppInventoryTests(unittest.TestCase):
             ),
         )
 
-    def test_onboard_enables_named_repository_from_the_selected_installation(self) -> None:
-        reconciliation = Mock(installation=Mock(id=7))
-        current = Mock(installation_id=7, repository_id=11)
-        enabled = Mock()
+    def test_onboard_verifies_outside_database_and_applies_observed_grant(
+        self,
+    ) -> None:
+        definition = github_app.InstallationDefinition(
+            provider_installation_id=7001,
+            account_id=8001,
+            account_login="CCimen",
+            account_type=github_app.AccountType.USER,
+            repository_selection=github_app.RepositorySelection.ALL,
+            contents_permission=github_app.PermissionLevel.READ,
+            issues_permission=github_app.PermissionLevel.WRITE,
+            pull_requests_permission=github_app.PermissionLevel.WRITE,
+        )
+        inventory = app_inventory.RepositoryInventory(
+            app_inventory.InstallationMetadata(
+                definition, github_app.InstallationStatus.ACTIVE
+            ),
+            github_app.InstallationRepositoryDefinition(9001, "CCimen/review-agent"),
+        )
+        events: list[str] = []
 
         class Runtime:
             @contextmanager
             def transaction(self):
+                events.append("database")
                 yield object()
 
+        def read_inventory(*_args: object, **_kwargs: object):
+            events.append("provider")
+            return inventory
+
+        observation = github_app.RepositoryAccessObservation(None, None, None)
+        installed = Mock(id=7)
+        enabled = Mock(repository_id=11)
         with (
             patch.object(
-                app_inventory,
-                "installation_id_for_repository",
-                return_value=7001,
-            ) as resolve_installation,
+                app_inventory, "read_repository_inventory", side_effect=read_inventory
+            ),
             patch.object(
-                operator_application,
-                "sync_github_app_installation",
-                return_value=reconciliation,
-            ) as sync,
+                github_app, "observe_repository_access", return_value=observation
+            ),
             patch.object(
                 github_app,
-                "get_repository_access_by_full_name",
-                return_value=current,
-            ) as get_access,
-            patch.object(github_app, "enable_repository", return_value=enabled) as enable,
+                "accept_verified_repository",
+                return_value=(installed, enabled),
+            ) as accept,
         ):
             result = operator_application.onboard_github_app_repository(
                 cast(PostgreSQLRuntime, Runtime()),
@@ -334,65 +389,12 @@ class GitHubAppInventoryTests(unittest.TestCase):
                 actor="github:CCimen",
                 reason="approved repository onboarding",
             )
-
-        self.assertIs(result.reconciliation, reconciliation)
-        self.assertIs(result.access, enabled)
-        resolve_installation.assert_called_once_with(
-            ANY,
-            repository="CCimen/review-agent",
-        )
-        sync.assert_called_once_with(
-            ANY,
-            ANY,
-            provider_installation_id=7001,
-            actor="github:CCimen",
-            reason="approved repository onboarding",
-        )
-        get_access.assert_called_once_with(ANY, "CCimen/review-agent")
-        enable.assert_called_once_with(
-            ANY,
-            repository_id=11,
-            profile_key="default-standard",
-            trigger_mode=github_app.TriggerMode.MANUAL,
-            actor="github:CCimen",
-            reason="approved repository onboarding",
-        )
-
-    def test_onboard_refuses_a_repository_from_another_installation(self) -> None:
-        reconciliation = Mock(installation=Mock(id=7))
-        current = Mock(installation_id=8)
-
-        class Runtime:
-            @contextmanager
-            def transaction(self):
-                yield object()
-
-        with (
-            patch.object(
-                app_inventory,
-                "installation_id_for_repository",
-                return_value=7001,
-            ),
-            patch.object(
-                operator_application,
-                "sync_github_app_installation",
-                return_value=reconciliation,
-            ),
-            patch.object(
-                github_app,
-                "get_repository_access_by_full_name",
-                return_value=current,
-            ),
-            self.assertRaises(operator_application.OperatorInputError),
-        ):
-            operator_application.onboard_github_app_repository(
-                cast(PostgreSQLRuntime, Runtime()),
-                cast(app_auth.GitHubAppAuthenticator, object()),
-                repository="CCimen/review-agent",
-                profile="default-standard",
-                actor="github:CCimen",
-                reason="approved repository onboarding",
-            )
+        self.assertEqual(events, ["database", "provider", "database"])
+        self.assertEqual(result.access, enabled)
+        self.assertEqual(result.reconciliation.repositories_seen, 1)
+        self.assertEqual(accept.call_args.kwargs["observation"], observation)
+        self.assertEqual(accept.call_args.kwargs["repository"], inventory.repository)
+        self.assertEqual(accept.call_args.kwargs["definition"], definition)
 
     def test_cli_requires_sync_identity_before_loading_runtime(self) -> None:
         stderr = io.StringIO()
@@ -465,7 +467,12 @@ class GitHubAppInventoryTests(unittest.TestCase):
             side_effect = outcome if isinstance(outcome, Exception) else None
             return_value = None if side_effect is not None else outcome
             with (
-                patch.object(admin_cli, "_runtime", side_effect=open_error or None, return_value=runtime),
+                patch.object(
+                    admin_cli,
+                    "_runtime",
+                    side_effect=open_error or None,
+                    return_value=runtime,
+                ),
                 patch.object(
                     admin_cli.operator_setup,
                     "github_app_authenticator",

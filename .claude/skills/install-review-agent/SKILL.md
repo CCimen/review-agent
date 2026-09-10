@@ -97,7 +97,18 @@ Read only the material needed for the requested platform:
 - `docs/REPOSITORY_CONTEXT.md` for optional repository-owned instructions,
   technical context, and typed decisions;
 - `docs/OPERATIONS.md` for updates, recovery, and backup checks;
+- `docs/ADMIN_PANEL.md` when the owner requests the optional statistics and
+  account-management panel; match both image versions and have the owner enter
+  the first password in the container terminal, never the installation plan;
 - `docs/SECURITY.md` for credential and network boundaries.
+
+For a release deployment, require a successful **Publish container image**
+workflow and use `IMAGE-DIGESTS.txt` from that release. When installing the
+console, select its admin manifest and the runtime manifest from the same file;
+they share one release and source revision but have different digests. Keep
+Compose files and migrations on that release. Preserve the current environment,
+secret references, storage, and networks when changing image references. Fork
+maintainers use their own lowercase GHCR repository and its `-admin` package.
 
 Prepare the source checkout once:
 

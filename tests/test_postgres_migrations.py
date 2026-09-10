@@ -37,7 +37,36 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
         with psycopg.connect(DSN) as connection:
             self.assertEqual(
                 runner.apply_migrations(connection),
-                (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+                (
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    12,
+                    13,
+                    14,
+                    15,
+                    16,
+                    17,
+                    18,
+                    19,
+                    20,
+                    21,
+                    22,
+                    23,
+                    24,
+                    25,
+                    26,
+                    27,
+                    28,
+                ),
             )
             self.assertEqual(runner.apply_migrations(connection), ())
             rows = connection.execute(
@@ -88,6 +117,18 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     (14, "014_github_app_repository_activation.sql"),
                     (15, "015_diff_page_coverage.sql"),
                     (16, "016_finding_root_cause_groups.sql"),
+                    (17, "017_admin_accounts.sql"),
+                    (18, "018_admin_operations.sql"),
+                    (19, "019_admin_run_actions.sql"),
+                    (20, "020_deployment_settings.sql"),
+                    (21, "021_settings_service_owners.sql"),
+                    (22, "022_team_access.sql"),
+                    (23, "023_audit_search.sql"),
+                    (24, "024_model_connections.sql"),
+                    (25, "025_model_capacity.sql"),
+                    (26, "026_integrations.sql"),
+                    (27, "027_console_identity.sql"),
+                    (28, "028_console_registration.sql"),
                 )
             ],
         )
@@ -215,7 +256,10 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                 )
 
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), (14, 15, 16))
+                self.assertEqual(
+                    runner.apply_migrations(connection),
+                    (14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28),
+                )
                 classified = connection.execute(
                     """
                     SELECT repository.provider_repository_id,
@@ -245,9 +289,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     actor="github-app:review-delivery",
                     reason="verified exact repository access",
                 )
-                with self.assertRaises(
-                    github_app.GitHubAppRepositoryUnauthorized
-                ):
+                with self.assertRaises(github_app.GitHubAppRepositoryUnauthorized):
                     github_app.enable_automatic_repository(
                         connection,
                         provider_installation_id=7001,
@@ -284,7 +326,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (16,))
+        self.assertEqual(count, (28,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

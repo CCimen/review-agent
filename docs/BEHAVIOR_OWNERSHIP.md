@@ -34,7 +34,7 @@ conditionals or copying policy into runtime code.
 | Identity, tone, and evidence posture | `bootstrap/profiles/default-standard/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
 | Review rules and visible contract | `bootstrap/profiles/default-standard/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
 | Review procedure and tool sequence | `bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
-| Provider, model, and reasoning effort | Deployment environment rendered into `bootstrap/config.yaml` | The inference route, model, or review depth changes. |
+| Provider, model, and reasoning effort | Deployment environment; the console source candidate can save a policy used at admission | The inference route, model, or review depth changes. |
 | Toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
 | Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |
 | Durable job execution | `review_agent_tools.worker` and `review_agent_tools.postgres.jobs` | Claim, heartbeat, retry, or exact-run continuation behavior changes. |
@@ -44,6 +44,11 @@ conditionals or copying policy into runtime code.
 | Immutable repository guidance | `review_agent_tools.repository_guidance_context` and `review_guidance_snapshots` | Exact-base loading, bounds, degradation, hashing, or run provenance changes. |
 | Repository decision format and matching | `.review-agent/decisions.toml`, typed ADR headers, and `review_agent_tools.domain.repository_decisions` | A repository maps an accepted invariant to different paths or the shared typed contract changes. |
 | Immutable decision evidence | `review_agent_tools.repository_decision_context` and `review_decision_snapshots` | Loading, degradation, hashing, or run provenance changes. |
+
+The [console source candidate](ADMIN_PANEL.md) records each admitted request's
+model route in its immutable review contract. Saved route changes affect new
+requests. The installed receipt still owns the profile, engine, configuration,
+image, and result budget; operational settings load at service startup.
 
 ## Selecting a deployment profile
 

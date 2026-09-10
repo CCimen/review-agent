@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -88,8 +89,19 @@ class PythonBundleWorkflowTests(unittest.TestCase):
     def test_pages_publishes_only_a_qualified_documented_release(self):
         document = workflow(DOCS_WORKFLOW)
         self.assertEqual(mapping(document["permissions"]), {"contents": "read"})
+        release_event = mapping(mapping(document["on"])["workflow_run"])
+        self.assertEqual(["Publish container image"], release_event["workflows"])
+        self.assertEqual(["completed"], release_event["types"])
         jobs = mapping(document["jobs"])
         build = mapping(jobs["build"])
+        self.assertEqual(
+            "${{ github.event_name != 'workflow_run' || "
+            "github.event.workflow_run.conclusion == 'success' }}",
+            build["if"],
+        )
+        checkout = mapping(named_step(build, "Check out repository")["with"])
+        self.assertEqual("refs/heads/main", checkout["ref"])
+        self.assertEqual("false", checkout["persist-credentials"])
         gate = named_step(build, "Confirm documented release is qualified")
         self.assertEqual("${{ github.token }}", mapping(gate["env"])["GH_TOKEN"])
         self.assertEqual("${{ github.repository }}", mapping(gate["env"])["GH_REPO"])
@@ -137,7 +149,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         for action in external_actions:
             self.assertRegex(action, r"^[^@\s]+@[0-9a-f]{40}$")
 
-        self.assertIn("python-version: '3.11'", source)
+        self.assertIn("python-version: '3.14.7'", source)
+        self.assertIn("python-version: '3.13.5'", source)
         checkout_entries = [
             entry
             for entry in action_entries
@@ -186,6 +199,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("./scripts/check_postgres_schema.sh", source)
         self.assertIn("docker build --tag review-agent:ci .", source)
         self.assertIn("bash ./scripts/check_image.sh review-agent:ci", source)
+        self.assertIn("sh ./scripts/check_admin_image.sh review-agent-admin:ci", source)
         image_check = IMAGE_CHECK.read_text(encoding="utf-8")
         for runtime_contract in (
             "review-agent-admission",
@@ -240,6 +254,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertNotIn("--critical-exceptions", enforce_command)
         for manifest in (
             "requirements.txt",
+            "requirements-admin.txt",
+            "admin/package-lock.json",
             "install/package-lock.json",
             "website/package-lock.json",
         ):
@@ -256,13 +272,27 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertEqual("/dev/null", policy["ignorefile"])
         self.assertNotIn("list-all-pkgs", policy)
         self.assertEqual(["vuln"], mapping(policy["scan"])["scanners"])
+        pip_patterns = [
+            pattern.removeprefix("pip:")
+            for pattern in cast(list[str], mapping(policy["scan"])["file-patterns"])
+            if pattern.startswith("pip:")
+        ]
+        for manifest in ("requirements-admin.txt", "requirements-code-graph.txt"):
+            self.assertTrue(
+                any(re.search(pattern, manifest) for pattern in pip_patterns),
+                f"Trivy must discover {manifest}",
+            )
         self.assertEqual(True, mapping(policy["pkg"])["include-dev-deps"])
         self.assertEqual(False, mapping(policy["vulnerability"])["ignore-unfixed"])
 
     def test_fast_quality_tools_are_pinned_and_cover_production_entrypoints(self):
         self.assertEqual(
             DEVELOPMENT_REQUIREMENTS.read_text(encoding="utf-8"),
-            "ruff==0.14.4\n",
+            "ruff==0.14.4\ntypes-authlib==1.8.0.20260907\n",
+        )
+        self.assertIn(
+            "httpx2==2.12.0",
+            (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines(),
         )
         ruff = mapping(tomllib.loads(RUFF_CONFIG.read_text(encoding="utf-8")))
         self.assertEqual("py311", ruff["target-version"])
@@ -360,7 +390,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             job = mapping(value)
             job_permissions = mapping(job["permissions"]) if "permissions" in job else {}
             if any(level == "write" for level in job_permissions.values()):
-                self.assertIn(job_id, {"publish", "sbom"})
+                self.assertIn(job_id, {"publish", "sbom", "promote"})
 
         self.assertIn("source_sha: ${{ steps.source.outputs.sha }}", source)
         self.assertIn("python3 scripts/validate_release_tag.py", source)
@@ -432,16 +462,179 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         self.assertIn("platforms: linux/amd64,linux/arm64", source)
         self.assertIn("type=raw,value=${{ github.event.release.tag_name }}", source)
-        self.assertIn(
-            "type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}",
-            source,
-        )
+        self.assertNotIn("value=latest", source)
         self.assertIn("password: ${{ secrets.GITHUB_TOKEN }}", source)
         self.assertIn("provenance: mode=max", source)
         self.assertIn("sbom: true", source)
+        for step_name in ("Build and publish image", "Build and publish admin image"):
+            arguments = str(mapping(named_step(publish, step_name)["with"])["build-args"])
+            self.assertIn("REVIEW_AGENT_VERSION=${{ github.event.release.tag_name }}", arguments)
+            self.assertIn("REVIEW_AGENT_REVISION=${{ needs.verify.outputs.source_sha }}", arguments)
         self.assertIn("subject-name: ${{ env.IMAGE_NAME }}", source)
         self.assertIn("subject-digest: ${{ steps.push.outputs.digest }}", source)
         self.assertIn("push-to-registry: true", source)
+
+    def test_release_tags_wait_for_qualified_image_pair(self):
+        jobs = mapping(workflow(RELEASE_WORKFLOW)["jobs"])
+        publish = mapping(jobs["publish"])
+        for name, image in (
+            ("Build and publish image", "${{ env.IMAGE_NAME }}"),
+            ("Build and publish admin image", "${{ env.IMAGE_NAME }}-admin"),
+        ):
+            inputs = mapping(named_step(publish, name)["with"])
+            self.assertNotIn("tags", inputs)
+            self.assertEqual(
+                f"type=image,name={image},push-by-digest=true,name-canonical=true,push=true",
+                inputs["outputs"],
+            )
+        promote = mapping(jobs["promote"])
+        self.assertEqual({"verify", "publish", "sbom"}, needs(promote))
+        self.assertNotIn("if", promote)
+        self.assertEqual(
+            {"contents": "read", "packages": "write"},
+            mapping(promote["permissions"]),
+        )
+        step = named_step(promote, "Publish qualified version tags")
+        environment = mapping(step["env"])
+        self.assertEqual(
+            "${{ needs.publish.outputs.image_digest }}", environment["IMAGE_DIGEST"]
+        )
+        self.assertEqual(
+            "${{ needs.publish.outputs.admin_image_digest }}",
+            environment["ADMIN_IMAGE_DIGEST"],
+        )
+        step_names = [str(mapping(item).get("name")) for item in sequence(promote["steps"])]
+        self.assertLess(
+            step_names.index("Confirm release tag still targets verified source"),
+            step_names.index("Publish qualified version tags"),
+        )
+
+    def test_release_promotion_preserves_digests_and_stops_on_registry_mismatch(self):
+        job = mapping(mapping(workflow(RELEASE_WORKFLOW)["jobs"])["promote"])
+        command = str(named_step(job, "Publish qualified version tags")["run"])
+        runtime_digest = "sha256:" + "a" * 64
+        admin_digest = "sha256:" + "b" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            docker = temporary / "docker"
+            docker.write_text(
+                textwrap.dedent("""\
+                    #!/usr/bin/env python3
+                    import json, os, sys
+                    from pathlib import Path
+                    if sys.argv[1:4] == ["buildx", "imagetools", "create"]:
+                        with Path("published.jsonl").open("a") as output:
+                            output.write(json.dumps(sys.argv[4:]) + "\\n")
+                    elif sys.argv[1:4] == ["buildx", "imagetools", "inspect"]:
+                        name = "ADMIN_IMAGE_DIGEST" if "-admin:" in sys.argv[-1] else "IMAGE_DIGEST"
+                        print(os.environ.get("REGISTRY_DIGEST", os.environ[name]))
+                    else:
+                        sys.exit(2)
+                    """),
+                encoding="utf-8",
+            )
+            docker.chmod(0o755)
+            environment = {
+                **os.environ,
+                "PATH": f"{temporary}:{os.environ['PATH']}",
+                "GITHUB_REPOSITORY": "Example/Review-Agent",
+                "RELEASE_TAG": "v1.2.3-rc.1",
+                "IMAGE_DIGEST": runtime_digest,
+                "ADMIN_IMAGE_DIGEST": admin_digest,
+            }
+            for mismatch in (False, True):
+                with self.subTest(registry_mismatch=mismatch):
+                    if mismatch:
+                        environment["REGISTRY_DIGEST"] = "sha256:" + "c" * 64
+                    result = subprocess.run(
+                        ["bash", "-c", f"set -euo pipefail\n{command}"],
+                        cwd=temporary, env=environment, capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, not mismatch, result.stderr)
+                    receipts = temporary / "published.jsonl"
+                    images = [("ghcr.io/example/review-agent", runtime_digest)]
+                    if not mismatch:
+                        images.append(("ghcr.io/example/review-agent-admin", admin_digest))
+                    self.assertEqual(
+                        [json.loads(line) for line in receipts.read_text().splitlines()],
+                        [["--tag", f"{image}:v1.2.3-rc.1", f"{image}@{digest}"] for image, digest in images],
+                    )
+                    receipts.unlink()
+
+    def test_build_metadata_and_frontend_inventory_preserve_release_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            build = temporary / "build.json"
+            revision = "a" * 40
+            command = [
+                sys.executable,
+                str(ROOT / "scripts/write_build_info.py"),
+                str(build),
+                "--version",
+                "v1.2.3",
+                "--revision",
+                revision,
+            ]
+            subprocess.run(command, check=True, capture_output=True)
+            self.assertEqual(
+                json.loads(build.read_bytes()),
+                {"version": "v1.2.3", "revision": revision},
+            )
+            rejected = subprocess.run([*command[:-1], "unknown"], capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+
+            lock = temporary / "package-lock.json"
+            lock.write_text(
+                json.dumps(
+                    {
+                        "packages": {
+                            "": {"dependencies": {"react": "19.2.8"}},
+                            "node_modules/react": {"version": "19.2.8"},
+                        }
+                    }
+                )
+            )
+            native = temporary / "native.json"
+            inventory = {
+                "bomFormat": "CycloneDX",
+                "specVersion": "1.5",
+                "metadata": {},
+                "components": [{"name": "react", "version": "19.2.8"}],
+            }
+            native.write_text(json.dumps(inventory))
+            output = temporary / "release.json"
+            command = [
+                sys.executable,
+                str(ROOT / "scripts/prepare_frontend_sbom.py"),
+                str(native),
+                str(lock),
+                str(output),
+                "--version",
+                "v1.2.3",
+                "--revision",
+                revision,
+                "--image",
+                "example/admin@sha256:" + "b" * 64,
+                "--platform",
+                "linux/amd64",
+            ]
+            subprocess.run(command, check=True, capture_output=True)
+            released = json.loads(output.read_bytes())
+            properties = {
+                item["name"]: item["value"]
+                for item in released["metadata"]["properties"]
+            }
+            self.assertEqual(properties["review-agent:source-revision"], revision)
+            self.assertEqual(
+                properties["review-agent:package-lock-sha256"],
+                hashlib.sha256(lock.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(released["components"], inventory["components"])
+            inventory["components"] = []
+            native.write_text(json.dumps(inventory))
+            rejected = subprocess.run(command, capture_output=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn(b"missing react@19.2.8", rejected.stderr)
 
     def test_release_tag_validator_enforces_semver_prerelease_identifiers(self):
         for tag in (
@@ -638,6 +831,17 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "review-agent-python-runtime-v1.2.3-linux-amd64.cyclonedx.json",
             "vulnerability-linux-amd64.json",
             "vulnerability-linux-arm64.json",
+            "review-agent-admin-v1.2.3-linux-amd64.cyclonedx.json",
+            "review-agent-admin-v1.2.3-linux-amd64.spdx.json",
+            "review-agent-admin-v1.2.3-linux-amd64.table.txt",
+            "review-agent-admin-v1.2.3-linux-arm64.cyclonedx.json",
+            "review-agent-admin-v1.2.3-linux-arm64.spdx.json",
+            "review-agent-admin-v1.2.3-linux-arm64.table.txt",
+            "review-agent-admin-python-runtime-v1.2.3-linux-amd64.cyclonedx.json",
+            "review-agent-admin-frontend-v1.2.3-linux-amd64.cyclonedx.json",
+            "review-agent-admin-frontend-v1.2.3-linux-arm64.cyclonedx.json",
+            "vulnerability-admin-linux-amd64.json",
+            "vulnerability-admin-linux-arm64.json",
         ]
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
@@ -656,6 +860,9 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     review-agent manifest {image_name}:{release_tag} {image_name}@{manifest_digest}
                     review-agent linux/amd64 {image_name}:{release_tag} {image_name}@{amd64_digest}
                     review-agent linux/arm64 {image_name}:{release_tag} {image_name}@{arm64_digest}
+                    review-agent-admin manifest {image_name}-admin:{release_tag} {image_name}-admin@sha256:{'f' * 64}
+                    review-agent-admin linux/amd64 {image_name}-admin:{release_tag} {image_name}-admin@{amd64_digest}
+                    review-agent-admin linux/arm64 {image_name}-admin:{release_tag} {image_name}-admin@{arm64_digest}
                     """
                 ),
                 encoding="utf-8",
@@ -678,6 +885,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             environment.update(
                 {
                     "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,
                     "GITHUB_REPOSITORY": "example/review-agent",
                     "RELEASE_TAG": release_tag,
                     "SOURCE_SHA": expected_source,
@@ -831,6 +1039,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                         ),
                         encoding="utf-8",
                     )
+                for platform in ("amd64", "arm64"):
+                    (reports / f"vulnerability-admin-linux-{platform}.json").write_text(
+                        json.dumps({"Results": [{"Target": "Python", "Vulnerabilities": []}]}),
+                        encoding="utf-8",
+                    )
                 completed = subprocess.run(
                     ["bash", "-e", "-c", str(step["run"])],
                     cwd=temporary,
@@ -838,6 +1051,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                         **os.environ,
                         "AMD64_SCAN_OUTCOME": "success",
                         "ARM64_SCAN_OUTCOME": "success",
+                        "ADMIN_AMD64_SCAN_OUTCOME": "success",
+                        "ADMIN_ARM64_SCAN_OUTCOME": "success",
                     },
                     capture_output=True,
                     text=True,
@@ -879,6 +1094,9 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     review-agent manifest ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@sha256:{'c' * 64}
                     review-agent linux/amd64 ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@{amd64_digest}
                     review-agent linux/arm64 ghcr.io/example/review-agent:v1.2.3 ghcr.io/example/review-agent@{arm64_digest}
+                    review-agent-admin manifest ghcr.io/example/review-agent-admin:v1.2.3 ghcr.io/example/review-agent-admin@sha256:{'f' * 64}
+                    review-agent-admin linux/amd64 ghcr.io/example/review-agent-admin:v1.2.3 ghcr.io/example/review-agent-admin@{amd64_digest}
+                    review-agent-admin linux/arm64 ghcr.io/example/review-agent-admin:v1.2.3 ghcr.io/example/review-agent-admin@{arm64_digest}
                     """
                 ),
                 encoding="utf-8",
@@ -904,6 +1122,8 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 [
                     "AMD64_IMAGE=ghcr.io/example/review-agent@" + amd64_digest,
                     "ARM64_IMAGE=ghcr.io/example/review-agent@" + arm64_digest,
+                    "ADMIN_AMD64_IMAGE=ghcr.io/example/review-agent-admin@" + amd64_digest,
+                    "ADMIN_ARM64_IMAGE=ghcr.io/example/review-agent-admin@" + arm64_digest,
                 ],
                 github_environment.read_text(encoding="utf-8").splitlines(),
             )
@@ -918,6 +1138,16 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 "Scan linux/arm64 image vulnerabilities",
                 "${{ env.ARM64_IMAGE }}",
                 "vulnerability-reports/vulnerability-linux-arm64.json",
+            ),
+            (
+                "Scan linux/amd64 admin image vulnerabilities",
+                "${{ env.ADMIN_AMD64_IMAGE }}",
+                "vulnerability-reports/vulnerability-admin-linux-amd64.json",
+            ),
+            (
+                "Scan linux/arm64 admin image vulnerabilities",
+                "${{ env.ADMIN_ARM64_IMAGE }}",
+                "vulnerability-reports/vulnerability-admin-linux-arm64.json",
             ),
         )
         for name, image_ref, report in scans:
@@ -943,7 +1173,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         enforce = named_step(evidence_job, "Enforce image vulnerability policy")
         self.assertEqual("${{ always() }}", enforce["if"])
         self.assertEqual(
-            {"AMD64_SCAN_OUTCOME", "ARM64_SCAN_OUTCOME"},
+            {"AMD64_SCAN_OUTCOME", "ARM64_SCAN_OUTCOME", "ADMIN_AMD64_SCAN_OUTCOME", "ADMIN_ARM64_SCAN_OUTCOME"},
             set(mapping(enforce["env"])),
         )
         enforce_command = str(enforce["run"])
@@ -980,6 +1210,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             'bash ./scripts/check_image.sh "$AMD64_IMAGE"',
             str(smoke["run"]),
         )
+        admin_smoke = named_step(evidence_job, "Smoke exact linux/amd64 admin image")
+        self.assertEqual(
+            'sh ./scripts/check_admin_image.sh "$ADMIN_AMD64_IMAGE"',
+            str(admin_smoke["run"]),
+        )
 
         self.assertLess(
             step_names.index("Generate release inventories"),
@@ -991,6 +1226,10 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         self.assertLess(
             step_names.index("Smoke exact linux/amd64 release image"),
+            step_names.index("Scan linux/amd64 image vulnerabilities"),
+        )
+        self.assertLess(
+            step_names.index("Smoke exact linux/amd64 admin image"),
             step_names.index("Scan linux/amd64 image vulnerabilities"),
         )
         self.assertLess(
@@ -1038,9 +1277,23 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                         handle.write(json.dumps(["docker", *arguments]) + "\\n")
 
                     if arguments[:3] == ["buildx", "imagetools", "inspect"]:
+                        if arguments[-2:] == ["--format", "{{json .Image}}"]:
+                            manifest = json.loads(os.environ["RAW_MANIFEST"])
+                            expected = {
+                                os.environ[key].split("@")[0] + "@" + image["digest"]
+                                for key in ("EXPECTED_MANIFEST_REF", "EXPECTED_ADMIN_MANIFEST_REF")
+                                for image in manifest["manifests"]
+                            }
+                            if arguments[3] not in expected:
+                                raise SystemExit("config was not selected by immutable platform digest")
+                            print(json.dumps({"config": {"Labels": {
+                                "org.opencontainers.image.revision": os.environ.get("REGISTRY_SOURCE_SHA", os.environ["SOURCE_SHA"]),
+                                "org.opencontainers.image.version": "v1.2.3"
+                            }}}))
+                            raise SystemExit(0)
                         if arguments[-1] != "--raw":
                             raise SystemExit("only the immutable raw manifest may be read")
-                        if arguments[3] != os.environ["EXPECTED_MANIFEST_REF"]:
+                        if arguments[3] not in (os.environ["EXPECTED_MANIFEST_REF"], os.environ["EXPECTED_ADMIN_MANIFEST_REF"]):
                             raise SystemExit("manifest was not selected by immutable digest")
                         print(os.environ["RAW_MANIFEST"])
                         raise SystemExit(0)
@@ -1051,7 +1304,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                             for index, value in enumerate(arguments)
                             if arguments[index - 1] == "-v" and value.endswith(":/out")
                         )
-                        output_name = Path(arguments[-1]).name
+                        output_name = Path(arguments[-2]).name
                         target = Path(output_mount) / output_name
                         target.write_text(
                             json.dumps(
@@ -1063,6 +1316,33 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                             ),
                             encoding="utf-8",
                         )
+                        raise SystemExit(0)
+
+                    if arguments[0] in ("pull", "rm"):
+                        raise SystemExit(0)
+                    if arguments[0] == "create":
+                        print("release-evidence-container")
+                        raise SystemExit(0)
+                    if arguments[0] == "cp":
+                        import hashlib
+                        target = Path(arguments[2])
+                        source = arguments[1]
+                        if source.endswith("/_build.json"):
+                            value = {"version": "v1.2.3", "revision": os.environ.get("IMAGE_SOURCE_SHA", os.environ["SOURCE_SHA"])}
+                            target.write_text(json.dumps(value))
+                        else:
+                            lock_bytes = Path(os.environ["FRONTEND_LOCK"]).read_bytes()
+                            if source.endswith("/frontend-lock.sha256"):
+                                digest = os.environ.get("IMAGE_LOCK_SHA", hashlib.sha256(lock_bytes).hexdigest())
+                                target.write_text(digest + "  package-lock.json\\n")
+                            elif source.endswith("/frontend.cyclonedx.json"):
+                                lock = json.loads(lock_bytes)["packages"]
+                                target.write_text(json.dumps({"bomFormat": "CycloneDX", "specVersion": "1.5", "metadata": {}, "components": [
+                                    {"name": name, "version": lock["node_modules/" + name]["version"]}
+                                    for name in lock[""]["dependencies"]
+                                ]}))
+                            else:
+                                raise SystemExit("unexpected container file")
                         raise SystemExit(0)
 
                     raise SystemExit("unexpected docker command")
@@ -1113,8 +1393,12 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             environment.update(
                 {
                     "CALLS_LOG": str(calls),
+                    "SOURCE_SHA": "a" * 40,
+                    "FRONTEND_LOCK": str(ROOT / "admin/package-lock.json"),
                     "CYCLONEDX_SPEC_VERSION": "1.7",
                     "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,
+                    "EXPECTED_ADMIN_MANIFEST_REF": "ghcr.io/example/review-agent-admin@sha256:" + "f" * 64,
                     "EXPECTED_MANIFEST_REF": (
                         f"ghcr.io/example/review-agent@{manifest_digest}"
                     ),
@@ -1129,6 +1413,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     "ghcr.io/example/review-agent",
                     "v1.2.3",
                     str(output),
+                    "ghcr.io/example/review-agent-admin",
                 ],
                 check=False,
                 capture_output=True,
@@ -1153,10 +1438,17 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 recorded_calls[0],
             )
             syft_sources = [call[1] for call in recorded_calls if call[0] == "syft"]
+            created_images = [call[-1] for call in recorded_calls if call[:2] == ["docker", "create"]]
+            self.assertEqual(created_images, [
+                f"ghcr.io/example/review-agent-admin@{amd64_digest}",
+                f"ghcr.io/example/review-agent-admin@{arm64_digest}",
+            ])
             self.assertEqual(
                 [
                     f"registry:ghcr.io/example/review-agent@{amd64_digest}",
                     f"registry:ghcr.io/example/review-agent@{arm64_digest}",
+                    f"registry:ghcr.io/example/review-agent-admin@{amd64_digest}",
+                    f"registry:ghcr.io/example/review-agent-admin@{arm64_digest}",
                 ],
                 syft_sources,
             )
@@ -1164,12 +1456,12 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 call for call in recorded_calls if call[:2] == ["docker", "run"]
             )
             self.assertEqual(
-                f"ghcr.io/example/review-agent@{amd64_digest}", runtime_call[-3]
+                f"ghcr.io/example/review-agent@{amd64_digest}", runtime_call[-4]
             )
             checksums = (output / "SBOM-SHA256SUMS.txt").read_text(
                 encoding="utf-8"
             )
-            self.assertEqual(8, len(checksums.splitlines()))
+            self.assertEqual(17, len(checksums.splitlines()))
             checksum_check = subprocess.run(
                 ["sha256sum", "--check", "SBOM-SHA256SUMS.txt"],
                 cwd=output,
@@ -1178,6 +1470,23 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(0, checksum_check.returncode, checksum_check.stderr)
+
+            for key, value, message in (
+                ("IMAGE_SOURCE_SHA", "b" * 40, "build metadata does not match"),
+                ("IMAGE_LOCK_SHA", "f" * 64, "frontend lockfile does not match"),
+                ("REGISTRY_SOURCE_SHA", "b" * 40, "registry labels do not match"),
+            ):
+                with self.subTest(key=key):
+                    rejected = subprocess.run(
+                        [str(RELEASE_SBOM), "ghcr.io/example/review-agent", "v1.2.3",
+                         str(temporary / key), "ghcr.io/example/review-agent-admin"],
+                        capture_output=True, text=True, env={**environment, key: value},
+                    )
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertIn(message, rejected.stderr)
+                    if key != "REGISTRY_SOURCE_SHA":
+                        last_call = json.loads(calls.read_text().splitlines()[-1])
+                        self.assertEqual(last_call, ["docker", "rm", "--volumes", "release-evidence-container"])
 
     def test_release_sbom_requires_one_digest_for_each_platform(self):
         manifest_digest = "sha256:" + "c" * 64
@@ -1207,8 +1516,10 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 {
                     "CYCLONEDX_SPEC_VERSION": "1.7",
                     "EXPECTED_IMAGE_DIGEST": manifest_digest,
+                    "EXPECTED_ADMIN_IMAGE_DIGEST": "sha256:" + "f" * 64,
                     "PATH": f"{temporary}{os.pathsep}{environment['PATH']}",
                     "RAW_MANIFEST": json.dumps(base_manifest),
+                    "SOURCE_SHA": "a" * 40,
                     "SYFT_CMD": str(syft),
                 }
             )
@@ -1218,6 +1529,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                     "ghcr.io/example/review-agent",
                     "v1.2.3",
                     str(temporary / "output"),
+                    "ghcr.io/example/review-agent-admin",
                 ],
                 check=False,
                 capture_output=True,

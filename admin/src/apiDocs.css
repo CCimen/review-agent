@@ -1,0 +1,29 @@
+body {
+  margin: 0;
+  background: #fff;
+  color: #15171c;
+  font-family: "IBM Plex Sans", sans-serif;
+}
+.api-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 32px;
+  padding: 18px max(20px, calc((100vw - 1460px) / 2));
+  border-bottom: 1px solid #d8dde3;
+  font-size: 14px;
+}
+.api-header a {
+  color: #005595;
+  text-underline-offset: 3px;
+}
+.api-header span {
+  color: #58616c;
+}
+.api-header a:focus-visible {
+  outline: 2px solid #005595;
+  outline-offset: 4px;
+}
+.swagger-ui .info .title {
+  font-family: "IBM Plex Sans", sans-serif;
+}

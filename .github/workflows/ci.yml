@@ -30,11 +30,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
-          python-version: '3.11'
+          python-version: '3.13.5'
           cache: pip
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
+            requirements-admin.txt
 
       - name: Set up Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
@@ -42,13 +43,16 @@ jobs:
           node-version: '24'
 
       - name: Install Python dependencies
-        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt --requirement requirements-dev.txt
+        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt --requirement requirements-dev.txt --requirement requirements-admin.txt
 
       - name: Install Pyright
         run: npm install --global pyright@1.1.408
 
       - name: Validate Python bundle
         run: ./scripts/check_bundle.sh
+
+      - name: Validate admin frontend and generated API contract
+        run: sh ./scripts/check_admin.sh
 
   postgres-contract:
     name: PostgreSQL contract
@@ -64,12 +68,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
-          python-version: '3.11'
+          python-version: '3.14.7'
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-admin.txt
+            requirements-dev.txt
 
       - name: Install Python dependencies
-        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt
+        run: python3 -m pip install --disable-pip-version-check --requirement requirements.txt --requirement requirements-admin.txt --requirement requirements-dev.txt
 
       - name: Validate PostgreSQL contract
         run: ./scripts/check_postgres_schema.sh
@@ -90,6 +97,10 @@ jobs:
           docker compose --env-file .env.example config --quiet
           docker build --tag review-agent:ci .
           bash ./scripts/check_image.sh review-agent:ci
+          REVIEW_AGENT_ADMIN_PUBLIC_URL=https://admin.example.test \
+            docker compose --env-file .env.example -f compose.yaml -f compose.admin.yaml config --quiet
+          docker build --file admin/Dockerfile --tag review-agent-admin:ci .
+          sh ./scripts/check_admin_image.sh review-agent-admin:ci
 
   dependency-scan:
     name: Dependency vulnerabilities
@@ -131,6 +142,8 @@ jobs:
           python3 scripts/check_trivy_report.py \
             --require-target "requirements.txt" \
             --require-target "requirements-code-graph.txt" \
+            --require-target "requirements-admin.txt" \
+            --require-target "admin/package-lock.json" \
             --require-target "install/package-lock.json" \
             --require-target "website/package-lock.json" \
             dependency-vulnerabilities.json

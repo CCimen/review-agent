@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import datetime
 import json
 import os
@@ -88,19 +89,23 @@ def _parser() -> argparse.ArgumentParser:
         ("ready", "Verify PostgreSQL and migration readiness."),
     ):
         database_commands.add_parser(command, help=help_text)
-    prune_deliveries = database_commands.add_parser(
-        "prune-webhook-deliveries",
-        help="Preview or delete one bounded batch of old terminal webhook receipts.",
-    )
-    prune_deliveries.add_argument("--before", type=_timestamp_argument, required=True)
-    prune_deliveries.add_argument("--limit", type=_positive_argument, required=True)
-    prune_deliveries.add_argument("--actor", required=True)
-    prune_deliveries.add_argument("--reason", required=True)
-    prune_deliveries.add_argument(
-        "--apply",
-        action="store_true",
-        help="Delete the previewed class of rows; omission is a dry run.",
-    )
+    for name, receipt_class in (
+        ("prune-webhook-deliveries", "terminal webhook"),
+        ("prune-integration-reads", "successful integration read"),
+    ):
+        prune = database_commands.add_parser(
+            name,
+            help=f"Preview or delete one bounded batch of old {receipt_class} receipts.",
+        )
+        prune.add_argument("--before", type=_timestamp_argument, required=True)
+        prune.add_argument("--limit", type=_positive_argument, required=True)
+        prune.add_argument("--actor", required=True)
+        prune.add_argument("--reason", required=True)
+        prune.add_argument(
+            "--apply",
+            action="store_true",
+            help="Delete the previewed class of rows; omission is a dry run.",
+        )
 
     job_parser = commands.add_parser("jobs", help="Inspect or recover review jobs.")
     job_commands = job_parser.add_subparsers(dest="job_command", required=True)
@@ -393,21 +398,41 @@ def _repository_inventory(
 
 def _queue_inventory(runtime: PostgreSQLRuntime) -> int:
     snapshot = operator_application.queue_health(runtime)
+    progress: dict[str, dict[str, object]] = {}
+    for queue in snapshot.progress:
+        values: dict[str, object] = {
+            key: value.isoformat() if isinstance(value, datetime) else value
+            for key, value in asdict(queue).items()
+        }
+        values["oldest_due_age_seconds"] = (
+            max(0.0, (snapshot.generated_at - queue.oldest_due_at).total_seconds())
+            if queue.oldest_due_at is not None else None
+        )
+        values["oldest_waiting_age_seconds"] = (
+            max(0.0, (snapshot.generated_at - queue.oldest_waiting_at).total_seconds())
+            if queue.oldest_waiting_at is not None else None
+        )
+        progress[queue.kind] = values
     _json(
         {
+            "generated_at": snapshot.generated_at.isoformat(),
+            "worker_stale_after_seconds": snapshot.stale_after_seconds,
             "publications": {
+                **progress["publisher"],
                 "expired_exhausted": snapshot.publication_queue.expired_exhausted,
                 "expired_recoverable": snapshot.publication_queue.expired_recoverable,
                 "pending": snapshot.publication_queue.pending,
                 "posting": snapshot.publication_queue.posting,
             },
             "reviews": {
+                **progress["review"],
                 "active": snapshot.review_queue.active,
                 "dead_letters": snapshot.review_queue.dead_letters,
                 "expired_leases": snapshot.review_queue.expired_leases,
                 "leased": snapshot.review_queue.leased,
                 "queued": snapshot.review_queue.queued,
             },
+            "webhooks": progress["webhook"],
         }
     )
     return 0
@@ -519,7 +544,7 @@ def _repository_change(args: argparse.Namespace) -> int:
 
 
 def _database_command(args: argparse.Namespace) -> int:
-    if args.database_command == "prune-webhook-deliveries":
+    if args.database_command in ("prune-webhook-deliveries", "prune-integration-reads"):
         return _database_retention_command(args)
     if args.database_command == "prepare":
         return _database_prepare_command()
@@ -603,6 +628,11 @@ def _database_prepare_command() -> int:
 
 
 def _database_retention_command(args: argparse.Namespace) -> int:
+    target = (
+        "integration_reads"
+        if args.database_command == "prune-integration-reads"
+        else "terminal_webhook_deliveries"
+    )
     try:
         limit = _page_limit(args.limit)
         runtime = _runtime()
@@ -613,8 +643,9 @@ def _database_retention_command(args: argparse.Namespace) -> int:
         _json_error(code="database_unavailable", retryable=True)
         return os.EX_TEMPFAIL
     try:
-        receipt = operator_application.prune_webhook_delivery_history(
+        receipt = operator_application.prune_receipt_history(
             runtime,
+            target=target,
             before=args.before,
             limit=limit,
             apply=args.apply,
@@ -634,6 +665,9 @@ def _database_retention_command(args: argparse.Namespace) -> int:
         runtime.close()
 
     result = receipt.result
+    oldest_field = (
+        "oldest_recorded_at" if target == "integration_reads" else "oldest_processed_at"
+    )
     _json(
         {
             "actor": receipt.actor,
@@ -643,13 +677,13 @@ def _database_retention_command(args: argparse.Namespace) -> int:
             "limit": result.limit,
             "matched": result.matched,
             "more": result.more,
-            "oldest_processed_at": (
-                result.oldest_processed_at.isoformat()
-                if result.oldest_processed_at is not None
+            oldest_field: (
+                result.oldest_timestamp.isoformat()
+                if result.oldest_timestamp is not None
                 else None
             ),
             "reason": receipt.reason,
-            "target": "terminal_webhook_deliveries",
+            "target": target,
         }
     )
     return 0

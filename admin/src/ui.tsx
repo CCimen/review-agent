@@ -9,7 +9,7 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { ComponentProps, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { APIError } from "./api";
 
@@ -40,18 +40,65 @@ export function Form({ children, onSubmit, ...props }: ComponentProps<"form">) {
   );
 }
 
+/** A filter that applies as the reader types, rather than waiting for a button
+ *  they have to find. The URL stays the source of truth, so the field keeps a
+ *  local draft until typing settles; `apply` should replace the history entry
+ *  so one search does not fill the back button with every keystroke.
+ *
+ *  The draft follows the URL when it changes elsewhere — a link, the back
+ *  button — but not when it changes because this field just applied, which
+ *  would strip a space the reader had typed in the meantime. */
+export function useLiveSearch(
+  current: string,
+  apply: (value: string) => void,
+  delay = 250,
+) {
+  const [draft, setDraft] = useState(current);
+  const latest = useRef(apply);
+  latest.current = apply;
+  const applied = useRef(current);
+  useEffect(() => {
+    if (current === applied.current) return;
+    applied.current = current;
+    setDraft(current);
+  }, [current]);
+  useEffect(() => {
+    const value = draft.trim();
+    if (value === current) return;
+    const timer = setTimeout(() => {
+      applied.current = value;
+      latest.current(value);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [draft, current, delay]);
+  return {
+    draft,
+    setDraft,
+    /** Apply now, for a reader who presses Enter rather than waiting. */
+    flush: () => {
+      const value = draft.trim();
+      if (value === current) return;
+      applied.current = value;
+      apply(value);
+    },
+  };
+}
+
 export function useFilters() {
   const [params, setParams] = useSearchParams();
   const days = [7, 30, 90].includes(Number(params.get("days")))
     ? Number(params.get("days"))
     : 30;
-  const update = (values: Record<string, string>) => {
+  const update = (
+    values: Record<string, string>,
+    options?: { replace?: boolean },
+  ) => {
     const next = new URLSearchParams(params);
     next.delete("before_id");
     next.delete("offset");
     for (const [key, value] of Object.entries(values))
       value ? next.set(key, value) : next.delete(key);
-    setParams(next);
+    setParams(next, options);
   };
   return { params, days, update };
 }

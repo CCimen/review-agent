@@ -47,7 +47,7 @@ import {
   ScopedAnchor,
   useScope,
 } from "./scope";
-import { Empty, Form, Freshness, time } from "./ui";
+import { Empty, Form, Freshness, time, useLiveSearch } from "./ui";
 
 type TeamRole = components["schemas"]["TeamRole"];
 type ModelPolicy = components["schemas"]["TeamModelPolicy"];
@@ -231,7 +231,6 @@ export function TeamsPage() {
   const scope = useScope();
   const [params, setParams] = useSearchParams();
   const search = params.get("search") ?? "";
-  const [draft, setDraft] = useState(search);
   const [adding, setAdding] = useState(false);
   const after = params.get("after_id") ?? "0";
   const requestedRepository = params.get("assign_repository") ?? "";
@@ -333,6 +332,13 @@ export function TeamsPage() {
         ]
       : []),
   ];
+  const { draft, setDraft, flush } = useLiveSearch(search, (value) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set("search", value);
+    else next.delete("search");
+    next.delete("after_id");
+    setParams(next, { replace: true });
+  });
   const query = useQuery({
     queryKey: ["teams", "list", search, after, "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -413,32 +419,26 @@ export function TeamsPage() {
           <TeamEditor done={() => setAdding(false)} />
         </VStack>
       ) : null}
-      <HStack
-        gap={3}
-        wrap="wrap"
-        vAlign="center"
-        as="form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const next = new URLSearchParams(params);
-          next.set("search", draft.trim());
-          next.delete("after_id");
-          setParams(next);
-        }}
-      >
-        <TextInput
-          label={"Find a team"}
-          value={draft}
-          onChange={(value) => setDraft(value)}
-          hasClear
-          width={280}
-          {...({
-            maxLength: 80,
-          } satisfies InputHTMLAttributes<HTMLInputElement>)}
-        />
-
-        <Button label={"Search"} variant="secondary" type="submit" />
-      </HStack>
+      <TextInput
+        label={"Find a team"}
+        value={draft}
+        onChange={(value) => setDraft(value)}
+        onEnter={flush}
+        startIcon="search"
+        hasClear
+        width={280}
+        {...({
+          maxLength: 80,
+          list: "team-name-options",
+        } satisfies InputHTMLAttributes<HTMLInputElement>)}
+      />
+      {/* Team names are not guessable, so the field offers the ones the search
+          has already found rather than asking the reader to spell one. */}
+      <datalist id="team-name-options">
+        {query.data?.items.map((team) => (
+          <option key={team.id} value={team.name} />
+        ))}
+      </datalist>
       <Freshness query={query} />
       {query.data?.items.length ? (
         <VStack gap={4} tabIndex={0} role="region" aria-label="Teams">

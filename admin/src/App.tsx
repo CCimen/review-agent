@@ -16,7 +16,7 @@ import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { FormEvent, InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes } from "react";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { Account, RepositoryPage } from "./api";
@@ -24,7 +24,6 @@ import { APIError, read, write } from "./api";
 import { AuditLog } from "./audit";
 import { ScopedLink as Link, ScopeProvider, isAdmin, useScope } from "./scope";
 import { RepositoryRequests, TeamDetail, TeamsPage } from "./teams";
-import { Form } from "./ui";
 
 import { Access, RepositoryTabs } from "./access";
 import { Login, MyAccount, Users } from "./accounts";
@@ -44,6 +43,7 @@ import {
   number,
   time,
   useFilters,
+  useLiveSearch,
 } from "./ui";
 
 const ModelConnectionPage = lazy(() =>
@@ -67,10 +67,9 @@ function Repositories({ current }: { current: Account }) {
   const { params, days, update } = useFilters();
   const search = params.get("search") ?? "";
   const offset = Math.max(0, Number(params.get("offset")) || 0);
-  const [draft, setDraft] = useState(search);
-  useEffect(() => {
-    setDraft(search);
-  }, [search]);
+  const { draft, setDraft, flush } = useLiveSearch(search, (value) =>
+    update({ search: value }, { replace: true }),
+  );
   useEffect(() => {
     document.title = "Review Agent · Repositories";
   }, []);
@@ -89,10 +88,6 @@ function Repositories({ current }: { current: Account }) {
       ),
   });
   const totals = query.data?.totals;
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    update({ search: draft.trim() });
-  }
   function historyURL(repository: string, status = "all") {
     return `/history?${new URLSearchParams({ repository, days: String(days), status })}`;
   }
@@ -202,25 +197,29 @@ function Repositories({ current }: { current: Account }) {
         <Link to={`/history?days=${days}`}>View all reviews</Link>
       </HStack>
       <RepositoryTabs role={current.role} />
-      <Form onSubmit={submit}>
-        <HStack gap={3} wrap="wrap" vAlign="end">
-          <TextInput
-            label={"Find a repository"}
-            id="repo-search"
-            hasClear
-            width={280}
-            placeholder="owner/repository"
-            value={draft}
-            onChange={(value) => setDraft(value)}
-            {...({
-              maxLength: 200,
-            } satisfies InputHTMLAttributes<HTMLInputElement>)}
-          />
-
-          <Period days={days} change={(value) => update({ days: value })} />
-          <Button label="Search" type="submit" />
-        </HStack>
-      </Form>
+      <HStack gap={4} wrap="wrap" align="end">
+        <TextInput
+          label={"Find a repository"}
+          id="repo-search"
+          startIcon="search"
+          hasClear
+          width={280}
+          placeholder="owner/repository"
+          value={draft}
+          onChange={(value) => setDraft(value)}
+          onEnter={flush}
+          {...({
+            maxLength: 200,
+            list: "repository-name-options",
+          } satisfies InputHTMLAttributes<HTMLInputElement>)}
+        />
+        <datalist id="repository-name-options">
+          {query.data?.items.map((repo) => (
+            <option key={repo.repository} value={repo.repository} />
+          ))}
+        </datalist>
+        <Period days={days} change={(value) => update({ days: value })} />
+      </HStack>
       <Freshness query={query} />
       {/* With nothing matching, six zeroes and a sentence explaining what
           they would have counted say less than the empty state below. */}

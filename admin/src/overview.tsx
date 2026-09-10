@@ -63,6 +63,13 @@ function dailySeries(
   return days;
 }
 
+/** The plot area starts below the top edge so the peak figure printed above
+ *  the chart lines up with a rule the bars actually reach. The gap is a share
+ *  of each column, because the chart is stretched to the width it is given and
+ *  a fixed gap would widen with it. */
+const PEAK_Y = 16;
+const BAR_GAP = 0.11;
+
 function Trend({
   days,
   window,
@@ -86,7 +93,7 @@ function Trend({
     <VStack gap={3}>
       <HStack gap={3} wrap="wrap" hAlign="between">
         <Heading level={3}>Published reviews per day</Heading>
-        <Text type="supporting">{`${number.format(active)} of ${number.format(days.length)} days`}</Text>
+        <Text type="supporting">{`Published on ${number.format(active)} of ${number.format(days.length)} days`}</Text>
       </HStack>
       <VStack gap={1}>
         <Text type="supporting" aria-hidden="true">
@@ -100,20 +107,46 @@ function Trend({
           aria-hidden="true"
           onMouseLeave={() => setHovered(null)}
         >
+          {/* The busiest day reaches this line rather than the top edge, so
+              the figure printed above the chart has something to sit on. */}
+          <line
+            x1={0}
+            y1={PEAK_Y}
+            x2={600}
+            y2={PEAK_Y}
+            stroke="var(--color-border-emphasized)"
+            strokeDasharray="2 4"
+            vectorEffect="non-scaling-stroke"
+          />
           {days.map((entry, index) => {
+            const slot = 600 / days.length;
             const height = peak.published_reviews
-              ? (entry.published_reviews / peak.published_reviews) * 160
+              ? (entry.published_reviews / peak.published_reviews) *
+                (160 - PEAK_Y)
               : 0;
             return (
-              <rect
-                key={entry.date}
-                x={(index * 600) / days.length}
-                y={160 - height}
-                width={Math.max(1, 600 / days.length - 2)}
-                height={height}
-                fill="var(--color-data-categorical-blue)"
-                onMouseEnter={() => setHovered(entry.date)}
-              />
+              <g key={entry.date} onMouseEnter={() => setHovered(entry.date)}>
+                {/* A full-height target, so a quiet day and a one-review day
+                    are as easy to point at as the busiest one. */}
+                <rect
+                  x={index * slot}
+                  y={0}
+                  width={slot}
+                  height={160}
+                  fill={
+                    hovered === entry.date
+                      ? "var(--color-overlay-hover)"
+                      : "transparent"
+                  }
+                />
+                <rect
+                  x={index * slot + slot * BAR_GAP}
+                  y={160 - height}
+                  width={Math.max(1, slot * (1 - BAR_GAP * 2))}
+                  height={height}
+                  fill="var(--color-accent)"
+                />
+              </g>
             );
           })}
           <line
@@ -121,7 +154,8 @@ function Trend({
             y1={160}
             x2={600}
             y2={160}
-            stroke="var(--color-border)"
+            stroke="var(--color-border-emphasized)"
+            vectorEffect="non-scaling-stroke"
           />
         </svg>
         <HStack hAlign="between" aria-hidden="true">

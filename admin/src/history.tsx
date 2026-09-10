@@ -20,7 +20,7 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import {
   useLocation,
   useNavigate,
@@ -44,12 +44,12 @@ import {
   duration,
   Empty,
   failureSentence,
-  Form,
   Freshness,
   number,
   Period,
   time,
   useFilters,
+  useLiveSearch,
 } from "./ui";
 const ReviewMarkdown = lazy(() =>
   import("./reviewMarkdown").then((module) => ({
@@ -630,7 +630,10 @@ export function History() {
   const { params, days, update } = useFilters();
   const repository = params.get("repository") ?? "";
   const status = params.get("status") ?? "all";
-  const [prDraft, setPrDraft] = useState(params.get("pr_number") ?? "");
+  const { draft: prDraft, setDraft: setPrDraft } = useLiveSearch(
+    params.get("pr_number") ?? "",
+    (value) => update({ pr_number: value }, { replace: true }),
+  );
   const filtered =
     status !== "all" ||
     params.has("repository") ||
@@ -648,9 +651,6 @@ export function History() {
   useEffect(() => {
     document.title = `Review Agent · ${repository || "Review history"}`;
   }, [repository]);
-  useEffect(() => {
-    setPrDraft(params.get("pr_number") ?? "");
-  }, [params]);
   const query = useQuery({
     queryKey: ["pull-requests", queryParams.toString(), "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -689,35 +689,25 @@ export function History() {
           onChange={(value) => update({ status: value })}
         />
         <Period days={days} change={(value) => update({ days: value })} />
-        <Form
-          onSubmit={(event) => {
-            event.preventDefault();
-            update({ pr_number: prDraft });
-          }}
-        >
-          <HStack gap={3} vAlign="end">
-            <NumberInput
-              isIntegerOnly
-              label={"PR number"}
-              id="pr-filter"
-              min={1}
-              hasClear
-              placeholder="All PRs"
-              value={prDraft ? Number(prDraft) : null}
-              onChange={(value) =>
-                setPrDraft(value === null ? "" : String(value))
-              }
-            />
-
-            <Button label={"Filter"} variant="secondary" type="submit" />
-          </HStack>
-        </Form>
-        <Button
-          label={"Reset filters"}
-          variant="ghost"
-          type="button"
-          onClick={() => update({ status: "all", pr_number: "", days: "30" })}
+        {/* The state and period selectors applied on change while the number
+            beside them waited for a button. It applies as it is typed now. */}
+        <NumberInput
+          isIntegerOnly
+          label={"PR number"}
+          id="pr-filter"
+          min={1}
+          hasClear
+          placeholder="All PRs"
+          value={prDraft ? Number(prDraft) : null}
+          onChange={(value) => setPrDraft(value === null ? "" : String(value))}
         />
+        {filtered ? (
+          <Button
+            label={"Reset filters"}
+            variant="ghost"
+            onClick={() => update({ status: "", pr_number: "", days: "" })}
+          />
+        ) : null}
       </HStack>
       {status === "active" && (
         <Text as="p">

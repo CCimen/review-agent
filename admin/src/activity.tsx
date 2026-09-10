@@ -19,7 +19,7 @@ import { Heading, Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useQuery } from "@tanstack/react-query";
 import type { InputHTMLAttributes } from "react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import type { HistoryItem, HistoryPage, Overview } from "./api";
 import { read } from "./api";
@@ -27,7 +27,6 @@ import { ReviewProgress, reviewStateLabel } from "./reviewProgress";
 import { ScopedLink as Link, ScopedAnchor, useScope } from "./scope";
 import {
   Empty,
-  Form,
   Freshness,
   Period,
   Stat,
@@ -36,6 +35,7 @@ import {
   since,
   time,
   useFilters,
+  useLiveSearch,
 } from "./ui";
 
 export function ActivityTabs() {
@@ -74,8 +74,17 @@ export function ActivityPage() {
   const scope = useScope();
   const { params, days, update } = useFilters();
   const status = params.get("status") ?? "all";
-  const [repository, setRepository] = useState(params.get("repository") ?? "");
-  const [pr, setPr] = useState(params.get("pr_number") ?? "");
+  const {
+    draft: repository,
+    setDraft: setRepository,
+    flush: flushRepository,
+  } = useLiveSearch(params.get("repository") ?? "", (value) =>
+    update({ repository: value }, { replace: true }),
+  );
+  const { draft: pr, setDraft: setPr } = useLiveSearch(
+    params.get("pr_number") ?? "",
+    (value) => update({ pr_number: value }, { replace: true }),
+  );
   const queryParams = new URLSearchParams({
     days: String(days),
     status,
@@ -88,10 +97,6 @@ export function ActivityPage() {
   useEffect(() => {
     document.title = "Review Agent · Activity";
   }, []);
-  useEffect(() => {
-    setRepository(params.get("repository") ?? "");
-    setPr(params.get("pr_number") ?? "");
-  }, [params]);
   const filtered =
     status !== "all" ||
     params.has("repository") ||
@@ -244,7 +249,12 @@ export function ActivityPage() {
       </Grid>
       <Freshness query={overview} quiet />
       <VStack gap={4}>
-        <HStack gap={4} justify="between" align="end" wrap="wrap">
+        {/* One filter bar. The state segments already applied on click while
+            the two fields waited for a button, so half the row answered and
+            half did not; they all apply as they are set now. Left aligned,
+            because pushing the groups to opposite edges opened a gap the
+            width of the console between controls that filter one list. */}
+        <HStack gap={4} align="end" wrap="wrap">
           <SegmentedControl
             label="Filter request state"
             value={status}
@@ -261,52 +271,50 @@ export function ActivityPage() {
               <SegmentedControlItem key={value} value={value} label={label} />
             ))}
           </SegmentedControl>
-          <Form
-            onSubmit={(event) => {
-              event.preventDefault();
-              update({ repository: repository.trim(), pr_number: pr });
-            }}
-          >
-            <HStack gap={3} align="end" wrap="wrap">
-              <TextInput
-                label={"Repository"}
-                id="activity-repo"
-                isOptional
-                hasClear
-                width={260}
-                placeholder="owner/repository"
-                value={repository}
-                onChange={(value) => setRepository(value)}
-                {...({
-                  maxLength: 200,
-                } satisfies InputHTMLAttributes<HTMLInputElement>)}
-              />
-
-              <NumberInput
-                isIntegerOnly
-                label={"PR number"}
-                id="activity-pr"
-                min={1}
-                hasClear
-                placeholder="Any"
-                value={pr ? Number(pr) : null}
-                onChange={(value) => setPr(value === null ? "" : String(value))}
-              />
-
-              <Button label="Filter" type="submit" />
-              {filtered ? (
-                <Button
-                  label="Clear filters"
-                  variant="ghost"
-                  onClick={() =>
-                    // The state segments are filters too, so the control
-                    // that offers to clear filters clears them as well.
-                    update({ status: "", repository: "", pr_number: "" })
-                  }
-                />
-              ) : null}
-            </HStack>
-          </Form>
+          <TextInput
+            label={"Repository"}
+            id="activity-repo"
+            isOptional
+            startIcon="search"
+            hasClear
+            width={260}
+            placeholder="owner/repository"
+            value={repository}
+            onChange={(value) => setRepository(value)}
+            onEnter={flushRepository}
+            {...({
+              maxLength: 200,
+              list: "activity-repository-options",
+            } satisfies InputHTMLAttributes<HTMLInputElement>)}
+          />
+          <datalist id="activity-repository-options">
+            {[...new Set(query.data?.items.map((item) => item.repository))].map(
+              (name) => (
+                <option key={name} value={name} />
+              ),
+            )}
+          </datalist>
+          <NumberInput
+            isIntegerOnly
+            label={"PR number"}
+            id="activity-pr"
+            min={1}
+            hasClear
+            placeholder="Any"
+            value={pr ? Number(pr) : null}
+            onChange={(value) => setPr(value === null ? "" : String(value))}
+          />
+          {filtered ? (
+            <Button
+              label="Clear filters"
+              variant="ghost"
+              onClick={() =>
+                // The state segments are filters too, so the control that
+                // offers to clear filters clears them as well.
+                update({ status: "", repository: "", pr_number: "" })
+              }
+            />
+          ) : null}
         </HStack>
         <Freshness query={query} />
         {query.data &&

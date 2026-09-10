@@ -102,6 +102,17 @@ export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [sent, setSent] = useState(false);
+  /* Both ask a question about how this deployment is configured, not about
+     anything that changes while someone looks at the sign-in card. Under the
+     console's defaults they inherited a five second staleness and a ten
+     second refetch, so a deployment offering neither re-asked for both, and
+     was answered 404 for both, for as long as the page stayed open. */
+  const capability = {
+    staleTime: Infinity,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    retry: false,
+  } as const;
   const registration = useQuery({
     queryKey: ["registration-availability"],
     queryFn: ({ signal }) =>
@@ -109,11 +120,13 @@ export function Login() {
         "/api/auth/registration",
         signal,
       ),
+    ...capability,
   });
   const provider = useQuery({
     queryKey: ["identity-provider"],
     queryFn: ({ signal }) =>
       read<IdentityProvider>("/api/auth/oidc/provider", signal),
+    ...capability,
   });
   const sso = useMutation({
     mutationFn: () =>

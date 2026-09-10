@@ -3,6 +3,10 @@ import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
+import {
+  MetadataList,
+  MetadataListItem,
+} from "@astryxdesign/core/MetadataList";
 import { Link as AstryxLink } from "@astryxdesign/core/Link";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import {
@@ -142,9 +146,15 @@ function pullRequestColumns(filters: string): TableColumn<PullRequestGroup>[] {
 }
 
 function ReviewOutcome({ item }: { item: HistoryItem }) {
+  const superseded = item.publication_superseded || item.state === "superseded";
   return (
     <>
-      {item.failure_code && (
+      {/* A superseded request did not fail in any way an operator can act on:
+          a newer request already replaced it. Reporting it as a failure, and
+          then giving the recovery steps for one, sends the reader looking for
+          a cause that is not there. The status beside this already names the
+          state, and the reader below says which request to open instead. */}
+      {item.failure_code && !superseded && (
         <VStack gap={3}>
           <strong>
             {item.recovered
@@ -185,12 +195,6 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
             A published result may leave changes unreviewed.
           </Text>
         )}
-      {(item.publication_superseded || item.state === "superseded") && (
-        <Text as="p">
-          This review has been superseded. Select a later request to inspect
-          more recent recorded results.
-        </Text>
-      )}
     </>
   );
 }
@@ -526,102 +530,61 @@ function RunDetails({ item }: { item: HistoryItem }) {
       )
     : null;
   return (
-    <VStack gap={3}>
-      <VStack as="dl" gap={2}>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Review request</Text>
-          </dt>
-          <dd>
-            <Copy value={String(item.id)} label="request ID">
-              #{item.id}
-            </Copy>
-          </dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Phase</Text>
-          </dt>
-          <dd>{item.phase.replaceAll("_", " ")}</dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Head commit</Text>
-          </dt>
-          <dd>
-            <Copy value={item.head_sha} label="head commit SHA">
-              <Code>{item.head_sha.slice(0, 12)}</Code>
-            </Copy>
-          </dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Base commit</Text>
-          </dt>
-          <dd>
-            <Copy value={item.base_sha} label="base commit SHA">
-              <Code>{item.base_sha.slice(0, 12)}</Code>
-            </Copy>
-          </dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Started</Text>
-          </dt>
-          <dd>{time(item.started_at)}</dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Last heartbeat</Text>
-          </dt>
-          <dd>{time(item.last_heartbeat_at)}</dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Finished</Text>
-          </dt>
-          <dd>
-            {time(item.completed_at)}
-            {elapsed === null
-              ? ""
-              : elapsed === 0
-                ? " · under a second"
-                : ` · ${duration(elapsed)}`}
-          </dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Worker attempts</Text>
-          </dt>
-          <dd>
-            {item.max_attempts === null
-              ? "No durable job recorded"
-              : `${item.attempt_count} of ${item.max_attempts}`}
-          </dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Changed-file coverage</Text>
-          </dt>
-          <dd>
-            {item.coverage.changed_paths_with_complete_diff} complete diffs of{" "}
-            {item.coverage.changed_files_reported ?? "an unknown number of"}{" "}
-            {item.coverage.changed_files_reported === 1 ? "file" : "files"}
-          </dd>
-        </HStack>
-        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-          <dt>
-            <Text color="secondary">Inventory</Text>
-          </dt>
-          <dd>
-            {item.coverage.registration_complete ? "Complete" : "Incomplete"} ·{" "}
-            {item.coverage.changed_files_registered}{" "}
-            {item.coverage.changed_files_registered === 1 ? "file" : "files"}{" "}
-            registered
-          </dd>
-        </HStack>
-      </VStack>
-    </VStack>
+    /* Eleven pairs written as a row each pushed every label to one edge of
+       the reader and its value to the other. The design system places a label
+       above its value and lays the pairs out in columns. */
+    <MetadataList
+      orientation="horizontal"
+      columns="multi"
+      label={{ position: "top" }}
+    >
+      <MetadataListItem label="Review request">
+        <Copy value={String(item.id)} label="request ID">
+          #{item.id}
+        </Copy>
+      </MetadataListItem>
+      <MetadataListItem label="Phase">
+        {item.phase.replaceAll("_", " ")}
+      </MetadataListItem>
+      <MetadataListItem label="Head commit">
+        <Copy value={item.head_sha} label="head commit SHA">
+          <Code>{item.head_sha.slice(0, 12)}</Code>
+        </Copy>
+      </MetadataListItem>
+      <MetadataListItem label="Base commit">
+        <Copy value={item.base_sha} label="base commit SHA">
+          <Code>{item.base_sha.slice(0, 12)}</Code>
+        </Copy>
+      </MetadataListItem>
+      <MetadataListItem label="Started">{time(item.started_at)}</MetadataListItem>
+      <MetadataListItem label="Last heartbeat">
+        {time(item.last_heartbeat_at)}
+      </MetadataListItem>
+      <MetadataListItem label="Finished">
+        {time(item.completed_at)}
+        {elapsed === null
+          ? ""
+          : elapsed === 0
+            ? " · under a second"
+            : ` · ${duration(elapsed)}`}
+      </MetadataListItem>
+      <MetadataListItem label="Worker attempts">
+        {item.max_attempts === null
+          ? "No durable job recorded"
+          : `${item.attempt_count} of ${item.max_attempts}`}
+      </MetadataListItem>
+      <MetadataListItem label="Changed-file coverage">
+        {item.coverage.changed_paths_with_complete_diff} complete diffs of{" "}
+        {item.coverage.changed_files_reported ?? "an unknown number of"}{" "}
+        {item.coverage.changed_files_reported === 1 ? "file" : "files"}
+      </MetadataListItem>
+      <MetadataListItem label="Inventory">
+        {item.coverage.registration_complete ? "Complete" : "Incomplete"} ·{" "}
+        {item.coverage.changed_files_registered}{" "}
+        {item.coverage.changed_files_registered === 1 ? "file" : "files"}{" "}
+        registered
+      </MetadataListItem>
+    </MetadataList>
   );
 }
 

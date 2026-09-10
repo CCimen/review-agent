@@ -12,6 +12,9 @@ import {
   TableHeader,
   TableHeaderCell,
   TableRow,
+  pixel,
+  proportional,
+  type TableColumn,
 } from "@astryxdesign/core/Table";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Heading, Text } from "@astryxdesign/core/Text";
@@ -202,14 +205,16 @@ function TeamEditor({ team, done }: { team?: Team; done?: () => void }) {
           Team saved.
         </Text>
       ) : null}
-      <Button
-        label={String(
-          save.isPending ? "Saving…" : team ? "Save team" : "Create team",
-        )}
-        variant="primary"
-        type="submit"
-        isDisabled={save.isPending}
-      />
+      <HStack gap={3} wrap="wrap" align="center">
+        <Button
+          label={String(
+            save.isPending ? "Saving…" : team ? "Save team" : "Create team",
+          )}
+          variant="primary"
+          type="submit"
+          isDisabled={save.isPending}
+        />
+      </HStack>
     </Form>
   );
 }
@@ -229,12 +234,97 @@ export function TeamsPage() {
       : null;
   const repositoryName =
     params.get("repository_name") ?? `Repository #${assignRepository}`;
+  // Confirming an assignment cleared the mode and left the page looking as
+  // it did before, with a count in the table as the only evidence it worked.
+  const [assigned, setAssigned] = useState<{
+    repository: string;
+    team: string;
+  } | null>(null);
   function clearAssignment() {
     const next = new URLSearchParams(params);
     next.delete("assign_repository");
     next.delete("repository_name");
     setParams(next);
   }
+  const teamColumns: TableColumn<TeamPage["items"][number]>[] = [
+    {
+      key: "name",
+      header: "Team",
+      width: proportional(2, { minWidth: 220 }),
+      renderCell: (team) => (
+        <VStack gap={1}>
+          <Link to={`/teams/${team.id}?team_id=${team.id}`}>{team.name}</Link>
+          {team.description ? (
+            <Text color="secondary" type="supporting">
+              {team.description}
+            </Text>
+          ) : null}
+        </VStack>
+      ),
+    },
+    {
+      key: "role",
+      header: "Your access",
+      width: pixel(128),
+      renderCell: (team) =>
+        isAdmin(scope.current.role)
+          ? "Platform admin"
+          : team.role === "maintainer"
+            ? "Maintainer"
+            : "Viewer",
+    },
+    {
+      key: "repository_count",
+      header: "Repositories",
+      align: "end",
+      width: pixel(112),
+    },
+    {
+      key: "member_count",
+      header: "Members",
+      align: "end",
+      width: pixel(92),
+    },
+    {
+      key: "pending_requests",
+      header: "Pending requests",
+      align: "end",
+      width: pixel(140),
+      renderCell: (team) =>
+        team.pending_requests ? (
+          <Link to={`/teams/${team.id}?team_id=${team.id}&tab=requests`}>
+            {team.pending_requests}
+          </Link>
+        ) : (
+          "0"
+        ),
+    },
+    ...(assignRepository
+      ? [
+          {
+            key: "assign",
+            header: "Repository assignment",
+            width: pixel(210),
+            renderCell: (team: TeamPage["items"][number]) => (
+              <ConfirmAction
+                label="Assign to this team"
+                method="PUT"
+                path={`/api/repository-ownership/${assignRepository}`}
+                body={{ team_id: team.id, expected_team_id: null }}
+                // The banner above already says what assignment moves, and
+                // this confirmation opens inside a table cell, so it names
+                // the pair being joined rather than restating the rule.
+                description={`Move ${repositoryName} to ${team.name}.`}
+                done={() => {
+                  setAssigned({ repository: repositoryName, team: team.name });
+                  clearAssignment();
+                }}
+              />
+            ),
+          } satisfies TableColumn<TeamPage["items"][number]>,
+        ]
+      : []),
+  ];
   const query = useQuery({
     queryKey: ["teams", "list", search, after, "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -260,8 +350,7 @@ export function TeamsPage() {
         {isAdmin(scope.current.role) ? (
           <Button
             label={String(adding ? "Close form" : "Create team")}
-            variant="primary"
-            type="submit"
+            variant={adding ? "secondary" : "primary"}
             onClick={() => setAdding(!adding)}
             aria-expanded={adding}
           />
@@ -281,6 +370,16 @@ export function TeamsPage() {
           label="Repository requests"
         />
       </TabList>
+      {assigned ? (
+        <Banner
+          status="success"
+          title={`${assigned.repository} now belongs to ${assigned.team}`}
+          description="Its retained review history moved with it."
+          collapsible={false}
+          isDismissable
+          onDismiss={() => setAssigned(null)}
+        />
+      ) : null}
       {assignRepository ? (
         <Banner
           status="info"
@@ -332,72 +431,16 @@ export function TeamsPage() {
       <Freshness query={query} />
       {query.data?.items.length ? (
         <VStack gap={4} tabIndex={0} role="region" aria-label="Teams">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Team</TableHeaderCell>
-                <TableHeaderCell>Your access</TableHeaderCell>
-                <TableHeaderCell>Repositories</TableHeaderCell>
-                <TableHeaderCell>Members</TableHeaderCell>
-                <TableHeaderCell>Pending requests</TableHeaderCell>
-                {assignRepository ? (
-                  <TableHeaderCell>Repository assignment</TableHeaderCell>
-                ) : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {query.data.items.map((team) => (
-                <TableRow key={team.id}>
-                  <TableHeaderCell scope="row">
-                    <Link to={`/teams/${team.id}?team_id=${team.id}`}>
-                      {team.name}
-                    </Link>
-                    {team.description ? (
-                      <Text
-                        color="secondary"
-                        display="block"
-                        type="supporting"
-                      >
-                        {team.description}
-                      </Text>
-                    ) : null}
-                  </TableHeaderCell>
-                  <TableCell>
-                    {isAdmin(scope.current.role)
-                      ? "Platform admin"
-                      : team.role === "maintainer"
-                        ? "Maintainer"
-                        : "Viewer"}
-                  </TableCell>
-                  <TableCell>{team.repository_count}</TableCell>
-                  <TableCell>{team.member_count}</TableCell>
-                  <TableCell>
-                    {team.pending_requests ? (
-                      <Link
-                        to={`/teams/${team.id}?team_id=${team.id}&tab=requests`}
-                      >
-                        {team.pending_requests}
-                      </Link>
-                    ) : (
-                      "0"
-                    )}
-                  </TableCell>
-                  {assignRepository ? (
-                    <TableCell>
-                      <ConfirmAction
-                        label="Assign to this team"
-                        method="PUT"
-                        path={`/api/repository-ownership/${assignRepository}`}
-                        body={{ team_id: team.id, expected_team_id: null }}
-                        description={`Assign ${repositoryName} and its retained review history to ${team.name}.`}
-                        done={clearAssignment}
-                      />
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <Table
+            aria-label="Teams"
+            data={query.data.items}
+            columns={teamColumns}
+            idKey="id"
+            density="balanced"
+            dividers="rows"
+            hasHover
+            verticalAlign="top"
+          />
         </VStack>
       ) : query.data ? (
         <Empty title={search ? "No matching teams" : "No teams yet"}>
@@ -722,14 +765,16 @@ function TeamRepositories({
                   .
                 </Text>
               ) : null}
-              <Button
-                label={String(
-                  submit.isPending ? "Submitting…" : "Submit request",
-                )}
-                variant="primary"
-                type="submit"
-                isDisabled={submit.isPending}
-              />
+              <HStack gap={3} wrap="wrap" align="center">
+                <Button
+                  label={String(
+                    submit.isPending ? "Submitting…" : "Submit request",
+                  )}
+                  variant="primary"
+                  type="submit"
+                  isDisabled={submit.isPending}
+                />
+              </HStack>
             </Form>
           </VStack>
         </Collapsible>

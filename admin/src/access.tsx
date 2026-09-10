@@ -619,18 +619,20 @@ function RepositoryRow({
                     {mutation.error.message}
                   </Text>
                 )}
-                <Button
-                  label={String(
-                    mutation.isPending
-                      ? "Saving…"
-                      : repository.enabled
-                        ? "Confirm disable"
-                        : "Confirm enable",
-                  )}
-                  variant="primary"
-                  type="submit"
-                  isDisabled={mutation.isPending}
-                />
+                <HStack gap={3} wrap="wrap" align="center">
+                  <Button
+                    label={String(
+                      mutation.isPending
+                        ? "Saving…"
+                        : repository.enabled
+                          ? "Confirm disable"
+                          : "Confirm enable",
+                    )}
+                    variant="primary"
+                    type="submit"
+                    isDisabled={mutation.isPending}
+                  />
+                </HStack>
               </Form>
             </VStack>
           </Collapsible>

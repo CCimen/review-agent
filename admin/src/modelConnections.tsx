@@ -424,8 +424,7 @@ export function ModelConnectionsPage() {
         {scope.current.role === "owner" ? (
           <Button
             label={String(adding ? "Close form" : "Add connection")}
-            variant="primary"
-            type="submit"
+            variant={adding ? "secondary" : "primary"}
             onClick={() => setAdding(!adding)}
             aria-expanded={adding}
           />
@@ -672,19 +671,21 @@ function ConnectionLogin({
             start.mutate();
           }}
         >
-          <Button
-            label={String(
-              start.isPending ? "Starting login…" : "Connect OpenAI Codex",
-            )}
-            variant="primary"
-            type="submit"
-            isDisabled={
-              start.isPending ||
-              !!connection.queued_jobs ||
-              !!connection.leased_jobs ||
-              !!connection.active_executions
-            }
-          />
+          <HStack gap={3} wrap="wrap" align="center">
+            <Button
+              label={String(
+                start.isPending ? "Starting login…" : "Connect OpenAI Codex",
+              )}
+              variant="primary"
+              type="submit"
+              isDisabled={
+                start.isPending ||
+                !!connection.queued_jobs ||
+                !!connection.leased_jobs ||
+                !!connection.active_executions
+              }
+            />
+          </HStack>
         </Form>
       ) : null}
     </VStack>

@@ -462,8 +462,7 @@ export function Users({ current }: { current: Account }) {
         </VStack>
         <Button
           label={String(adding ? "Cancel adding user" : "Add user")}
-          variant="primary"
-          type="submit"
+          variant={adding ? "secondary" : "primary"}
           ref={addButton}
           aria-expanded={adding}
           aria-controls="add-user"

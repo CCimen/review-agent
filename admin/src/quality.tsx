@@ -195,12 +195,14 @@ function FeedbackRow({
                       : "Triage failed."}
                   </Text>
                 ) : null}
-                <Button
-                  label={"Confirm triage"}
-                  variant="primary"
-                  type="submit"
-                  isDisabled={mutation.isPending}
-                />
+                <HStack gap={3} wrap="wrap" align="center">
+                  <Button
+                    label={"Confirm triage"}
+                    variant="primary"
+                    type="submit"
+                    isDisabled={mutation.isPending}
+                  />
+                </HStack>
               </Form>
             </VStack>
           </Collapsible>
@@ -715,12 +717,14 @@ export function FindingPage() {
                           : "Decision failed."}
                       </Text>
                     ) : null}
-                    <Button
-                      label={"Confirm decision"}
-                      variant="primary"
-                      isDisabled={mutation.isPending}
-                      type="submit"
-                    />
+                    <HStack gap={3} wrap="wrap" align="center">
+                      <Button
+                        label={"Confirm decision"}
+                        variant="primary"
+                        isDisabled={mutation.isPending}
+                        type="submit"
+                      />
+                    </HStack>
                   </Form>
                 ) : null}
               </VStack>

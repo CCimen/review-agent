@@ -323,6 +323,11 @@ export function OverviewPage() {
       read<Overview>(scope.path(`/api/overview?days=${days}`), signal),
   });
   const data = query.data;
+  /** A deployment younger than the reporting period holds every record inside
+   *  it, which makes the lifetime totals a copy of the ones above them. */
+  const lifetimeInsideWindow =
+    data?.retained_since != null &&
+    Date.parse(data.retained_since) >= Date.parse(data.window_start);
   const series = data
     ? dailySeries(
         data.daily_publications,
@@ -451,29 +456,39 @@ export function OverviewPage() {
           <Section
             title="Lifetime"
             description={
-              data.retained_since
-                ? `Every retained record since ${time(data.retained_since)}. Activity from before this installation, or from deleted records, is not included.`
-                : "No review requests are retained yet."
+              !data.retained_since
+                ? "No review requests are retained yet."
+                : lifetimeInsideWindow
+                  ? `Records begin ${time(data.retained_since)}, inside the period above, so every figure there already covers everything retained.`
+                  : `Every retained record since ${time(data.retained_since)}. Activity from before this installation, or from deleted records, is not included.`
             }
           >
-            <Activity counts={data.lifetime} />
-            <MetadataList
-              orientation="horizontal"
-              columns="multi"
-              label={{ position: "top" }}
-            >
-              <MetadataListItem label="Median publication">
-                {duration(data.lifetime.median_publication_seconds) ?? "—"}
-              </MetadataListItem>
-              <MetadataListItem label="95th percentile">
-                {duration(data.lifetime.p95_publication_seconds) ?? "—"}
-              </MetadataListItem>
-              <MetadataListItem label="Total tokens">
-                {data.lifetime.total_tokens === null
-                  ? "Not recorded"
-                  : number.format(data.lifetime.total_tokens)}
-              </MetadataListItem>
-            </MetadataList>
+            {/* On a deployment younger than the reporting period every
+                retained record already sits inside it, so this section
+                repeated the four figures and three pairs printed above,
+                to the digit. It says so instead. */}
+            {lifetimeInsideWindow ? null : (
+              <>
+                <Activity counts={data.lifetime} />
+                <MetadataList
+                  orientation="horizontal"
+                  columns="multi"
+                  label={{ position: "top" }}
+                >
+                  <MetadataListItem label="Median publication">
+                    {duration(data.lifetime.median_publication_seconds) ?? "—"}
+                  </MetadataListItem>
+                  <MetadataListItem label="95th percentile">
+                    {duration(data.lifetime.p95_publication_seconds) ?? "—"}
+                  </MetadataListItem>
+                  <MetadataListItem label="Total tokens">
+                    {data.lifetime.total_tokens === null
+                      ? "Not recorded"
+                      : number.format(data.lifetime.total_tokens)}
+                  </MetadataListItem>
+                </MetadataList>
+              </>
+            )}
             {/* Before any attempt has run, "0 of 0 reported token usage" and
                 the reasons a figure might be missing describe nothing. */}
             {data.started_attempts > 0 ? (

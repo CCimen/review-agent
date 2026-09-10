@@ -185,6 +185,37 @@ with a retry control. Repository tiles aggregate all repositories matching the
 search, including rows on other pages. Account tiles cover all accounts; the
 email and role filters currently apply to the displayed account page.
 
+### Usage by team, repository and GitHub user
+
+Owners and admins can open **Administration → Usage** to rank retained review
+requests by team, repository or the GitHub login that requested them. Select a
+7-, 30- or 90-day period, search within the grouping, and rank by requests,
+recorded tokens or published reviews. Team links open their repositories;
+repository links open their requesting users while preserving team and period.
+Use **Refresh** to update the report. It does not poll in the background.
+
+The period selects requests by their start time, with an inclusive start and
+exclusive end. Each accepted request counts once; retries increase attempts and
+reported tokens. Ignored triggers and duplicate webhook deliveries do not add
+requests. Published and failed counts reflect the current outcome of those
+requests. Tokens include all reported attempts for them, including reports
+received after the period ended. This differs from Statistics, whose publication
+and token totals use the time of each event.
+
+Totals cover all matching groups before pagination. Repository and known-user
+counts are distinct within that scope, so they must not be summed across groups.
+Missing token records remain unknown. Compare reported and started attempts to
+assess token coverage; recorded tokens include retries and cannot establish
+billed cost. Requests without a saved GitHub login remain in an explicit unknown
+group and do not increase the known-user count.
+
+Team attribution follows current repository ownership, so transferring a
+repository also moves its retained historical usage. GitHub logins are grouped
+without case distinctions; a renamed account can appear under multiple logins.
+These are the GitHub requesters, separate from console accounts. Retention limits
+the available history. Global viewers and team members cannot read this report,
+including team maintainers; application integration credentials do not grant it.
+
 ## Reporting and operations API
 
 The source candidate exposes the following authenticated endpoints. Open
@@ -197,6 +228,7 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | --- | --- | --- |
 | `GET /api/version` | Signed-in users | Baked release version and full source revision; the console footer shows the version and short revision. |
 | `GET /api/overview` | Team reader or global role | Lifetime and selected-period totals, UTC daily publications, publication latency, recent failure reasons, and reporting review workers and capacity. |
+| `GET /api/usage` | Owner or admin | Grouped request usage and totals, token reporting coverage, current publication/failure counts, and distinct repository/requester counts. Supports `team_id`, `repository`, `days` or timezone-aware `start`/`end`, `dimension=team\|repository\|requester`, `sort=requests\|total_tokens\|published_requests`, literal `search`, `limit` and `offset`. |
 | `GET /api/repositories` | Team reader or global role | Paginated repositories, `total` matching repositories, and aggregate `totals` across every matching repository. |
 | `GET /api/pull-requests` | Team reader or global role | Paginated PR groups, total matching PRs, matching and lifetime request counts, and the latest matching request. |
 | `GET /api/history` | Team reader or global role | Paginated requests, `total` matching requests before the cursor is applied, per-request token usage, and recorded account quota waits. |
@@ -298,7 +330,7 @@ change a review's durable outcome. Earlier reviews are not backfilled. Codex
 subscription billing, remaining quota, and monetary cost cannot be inferred from
 these token counts.
 
-List limits are 1–100. Repository and account offsets are bounded at 10,000;
+List limits are 1–100. Repository, usage and account offsets are bounded at 10,000;
 history and events use descending ID cursors. PR groups use the ID of their
 latest matching request, with totals calculated before the cursor is applied.
 The review reader bounds its body at 200,000 characters and its GitHub links at

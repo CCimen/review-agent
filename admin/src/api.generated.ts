@@ -538,6 +538,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Usage
+         * @description Usage for owners and admins, grouped by team, repository or GitHub login.
+         *
+         *     The period selects retained requests by start time. Outcomes and all
+         *     reported attempt tokens reflect the current snapshot, including retries
+         *     and later reports. Teams follow current repository ownership. Null token
+         *     totals mean no usage was reported; reported/started attempts show coverage.
+         */
+        get: operations["usage_api_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/operations": {
         parameters: {
             query?: never;
@@ -4091,6 +4116,101 @@ export interface components {
          * @enum {string}
          */
         TriggerMode: "manual" | "automatic";
+        /** UsageReport */
+        UsageReport: {
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /**
+             * Dimension
+             * @enum {string}
+             */
+            dimension: "team" | "repository" | "requester";
+            /**
+             * Sort
+             * @enum {string}
+             */
+            sort: "requests" | "total_tokens" | "published_requests";
+            totals: components["schemas"]["UsageTotals"];
+            /** Items */
+            items: components["schemas"]["UsageRow"][];
+            /** Has More */
+            has_more: boolean;
+        };
+        /** UsageRow */
+        UsageRow: {
+            /** Started Attempts */
+            started_attempts: number;
+            /** Reported Attempts */
+            reported_attempts: number;
+            /** Prompt Tokens */
+            prompt_tokens: number | null;
+            /** Completion Tokens */
+            completion_tokens: number | null;
+            /** Total Tokens */
+            total_tokens: number | null;
+            /** Requests */
+            requests: number;
+            /** Published Requests */
+            published_requests: number;
+            /** Failed Requests */
+            failed_requests: number;
+            /** Repository Count */
+            repository_count: number;
+            /** Requester Count */
+            requester_count: number;
+            /** Unknown Requester Requests */
+            unknown_requester_requests: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Team Id */
+            team_id: number | null;
+            /** Repository */
+            repository: string | null;
+            /** Requester */
+            requester: string | null;
+        };
+        /** UsageTotals */
+        UsageTotals: {
+            /** Started Attempts */
+            started_attempts: number;
+            /** Reported Attempts */
+            reported_attempts: number;
+            /** Prompt Tokens */
+            prompt_tokens: number | null;
+            /** Completion Tokens */
+            completion_tokens: number | null;
+            /** Total Tokens */
+            total_tokens: number | null;
+            /** Requests */
+            requests: number;
+            /** Published Requests */
+            published_requests: number;
+            /** Failed Requests */
+            failed_requests: number;
+            /** Repository Count */
+            repository_count: number;
+            /** Requester Count */
+            requester_count: number;
+            /** Unknown Requester Requests */
+            unknown_requester_requests: number;
+            /** Groups */
+            groups: number;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -5435,6 +5555,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Overview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    usage_api_usage_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                start?: string | null;
+                end?: string | null;
+                dimension?: "team" | "repository" | "requester";
+                sort?: "requests" | "total_tokens" | "published_requests";
+                repository?: string | null;
+                search?: string;
+                offset?: number;
+                limit?: number;
+                team_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageReport"];
                 };
             };
             /** @description Validation Error */

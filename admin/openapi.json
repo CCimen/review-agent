@@ -2083,6 +2083,189 @@
         }
       }
     },
+    "/api/usage": {
+      "get": {
+        "summary": "Usage",
+        "description": "Usage for owners and admins, grouped by team, repository or GitHub login.\n\nThe period selects retained requests by start time. Outcomes and all\nreported attempt tokens reflect the current snapshot, including retries\nand later reports. Teams follow current repository ownership. Null token\ntotals mean no usage was reported; reported/started attempts show coverage.",
+        "operationId": "usage_api_usage_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "name": "dimension",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "team",
+                "repository",
+                "requester"
+              ],
+              "type": "string",
+              "default": "repository",
+              "title": "Dimension"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "requests",
+                "total_tokens",
+                "published_requests"
+              ],
+              "type": "string",
+              "default": "requests",
+              "title": "Sort"
+            }
+          },
+          {
+            "name": "repository",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Repository"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "default": "",
+              "title": "Search"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/operations": {
       "get": {
         "summary": "Operations",
@@ -14322,6 +14505,288 @@
           "automatic"
         ],
         "title": "TriggerMode"
+      },
+      "UsageReport": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "team",
+              "repository",
+              "requester"
+            ],
+            "title": "Dimension"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "requests",
+              "total_tokens",
+              "published_requests"
+            ],
+            "title": "Sort"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotals"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UsageRow"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window_start",
+          "window_end",
+          "dimension",
+          "sort",
+          "totals",
+          "items",
+          "has_more"
+        ],
+        "title": "UsageReport"
+      },
+      "UsageRow": {
+        "properties": {
+          "started_attempts": {
+            "type": "integer",
+            "title": "Started Attempts"
+          },
+          "reported_attempts": {
+            "type": "integer",
+            "title": "Reported Attempts"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "published_requests": {
+            "type": "integer",
+            "title": "Published Requests"
+          },
+          "failed_requests": {
+            "type": "integer",
+            "title": "Failed Requests"
+          },
+          "repository_count": {
+            "type": "integer",
+            "title": "Repository Count"
+          },
+          "requester_count": {
+            "type": "integer",
+            "title": "Requester Count"
+          },
+          "unknown_requester_requests": {
+            "type": "integer",
+            "title": "Unknown Requester Requests"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
+          },
+          "requester": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requester"
+          }
+        },
+        "type": "object",
+        "required": [
+          "started_attempts",
+          "reported_attempts",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "requests",
+          "published_requests",
+          "failed_requests",
+          "repository_count",
+          "requester_count",
+          "unknown_requester_requests",
+          "key",
+          "label",
+          "team_id",
+          "repository",
+          "requester"
+        ],
+        "title": "UsageRow"
+      },
+      "UsageTotals": {
+        "properties": {
+          "started_attempts": {
+            "type": "integer",
+            "title": "Started Attempts"
+          },
+          "reported_attempts": {
+            "type": "integer",
+            "title": "Reported Attempts"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "published_requests": {
+            "type": "integer",
+            "title": "Published Requests"
+          },
+          "failed_requests": {
+            "type": "integer",
+            "title": "Failed Requests"
+          },
+          "repository_count": {
+            "type": "integer",
+            "title": "Repository Count"
+          },
+          "requester_count": {
+            "type": "integer",
+            "title": "Requester Count"
+          },
+          "unknown_requester_requests": {
+            "type": "integer",
+            "title": "Unknown Requester Requests"
+          },
+          "groups": {
+            "type": "integer",
+            "title": "Groups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "started_attempts",
+          "reported_attempts",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "requests",
+          "published_requests",
+          "failed_requests",
+          "repository_count",
+          "requester_count",
+          "unknown_requester_requests",
+          "groups"
+        ],
+        "title": "UsageTotals"
       },
       "ValidationError": {
         "properties": {

@@ -754,6 +754,237 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertNotEqual(unknown.run.id, run.run.id)
 
+    def test_admin_usage_attributes_requests_and_all_reported_attempts_without_fanout(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+        from review_agent_tools.postgres import jobs
+        from review_agent_tools.postgres.team_access import AccessRequest
+
+        first_repository = self.repository
+        alice = self.start(pr_number=180, request_suffix="usage-alice")
+        failed = self.start(pr_number=181, request_suffix="usage-alice-failed")
+        self.repository = "other-org/usage-repository"
+        self.provider_repository_id = 931
+        bob = self.start(pr_number=180, request_suffix="usage-bob")
+        unknown = self.start(pr_number=181, request_suffix="usage-unknown-user")
+        team = admin_application.create_team(
+            self.runtime,
+            access=self.admin_access,
+            name="Platform",
+            description="",
+            reason="Usage report fixture",
+        )
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "INSERT INTO review_agent.team_repositories (repository_id, team_id, assigned_by) "
+                "SELECT id, %s, %s FROM review_agent.repositories WHERE full_name = %s",
+                (team.id, self.admin_access.user_id, first_repository),
+            )
+            for run, requester, attempts, token_pairs in (
+                (alice, "Alice", 3, ((12, 3), (20, 5))),
+                (failed, "ALICE", 0, ()),
+                (bob, "bob", 1, ((160, 40),)),
+                (unknown, None, 1, ()),
+            ):
+                connection.execute(
+                    "UPDATE review_agent.review_runs SET trigger_user = %s, started_at = %s WHERE id = %s",
+                    (requester, datetime(2026, 9, 2, tzinfo=timezone.utc), run.run.id),
+                )
+                enqueued = jobs.enqueue_run(
+                    connection,
+                    review_run_id=run.run.id,
+                    priority=0,
+                    max_attempts=3,
+                    active_job_limit=10,
+                )
+                assert isinstance(enqueued, jobs.EnqueuedJob)
+                job = enqueued.job
+                connection.execute(
+                    "UPDATE review_agent.review_jobs SET lease_generation = %s WHERE id = %s",
+                    (attempts, job.id),
+                )
+                for generation, (prompt, completion) in enumerate(token_pairs, start=1):
+                    connection.execute(
+                        "INSERT INTO review_agent.review_attempt_usage "
+                        "(job_id, lease_generation, prompt_tokens, completion_tokens, total_tokens) VALUES (%s, %s, %s, %s, %s)",
+                        (job.id, generation, prompt, completion, prompt + completion),
+                    )
+            review_runs.fail_run(
+                connection, failed.run.id, failure_code="review_failed"
+            )
+        self.publish_run(
+            alice, self.record_finding(alice, findings=()), key_character="7"
+        )
+        start = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        end = datetime(2026, 9, 3, tzinfo=timezone.utc)
+        # Usage arrives after this request period. It still belongs to these requests.
+        for dimension, groups in (("team", 2), ("repository", 2), ("requester", 3)):
+            report = admin_application.usage(
+                self.runtime,
+                access=self.admin_access,
+                start=start,
+                end=end,
+                dimension=dimension,
+            )
+            totals = report.totals
+            self.assertEqual(
+                (
+                    totals.groups,
+                    totals.requests,
+                    totals.published_requests,
+                    totals.failed_requests,
+                ),
+                (groups, 4, 1, 1),
+            )
+            self.assertEqual(
+                (
+                    totals.repository_count,
+                    totals.requester_count,
+                    totals.unknown_requester_requests,
+                ),
+                (2, 2, 1),
+            )
+            self.assertEqual(
+                (
+                    totals.started_attempts,
+                    totals.reported_attempts,
+                    totals.prompt_tokens,
+                    totals.completion_tokens,
+                    totals.total_tokens,
+                ),
+                (5, 3, 192, 48, 240),
+            )
+            self.assertEqual(sum(item.requests for item in report.items), 4)
+            self.assertEqual(sum(item.total_tokens or 0 for item in report.items), 240)
+        ranked = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            dimension="requester",
+            sort="total_tokens",
+            limit=1,
+        )
+        self.assertEqual(
+            (
+                ranked.items[0].requester,
+                ranked.items[0].requests,
+                ranked.totals.requests,
+                ranked.has_more,
+            ),
+            ("bob", 1, 4, True),
+        )
+        last = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            dimension="requester",
+            sort="total_tokens",
+            limit=1,
+            offset=2,
+        )
+        self.assertIsNone(last.items[0].requester)
+        self.assertIsNone(last.items[0].total_tokens)
+        self.assertFalse(last.has_more)
+        scoped = admin_application.usage(
+            self.runtime,
+            access=AccessRequest(self.admin_access.user_id, team.id),
+            start=start,
+            end=end,
+            dimension="requester",
+        )
+        self.assertEqual(
+            [(item.requester, item.requests) for item in scoped.items], [("alice", 2)]
+        )
+        filtered = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            repository=self.repository.upper(),
+            dimension="requester",
+            search="BOB",
+        )
+        self.assertEqual(
+            (
+                filtered.totals.groups,
+                filtered.totals.requests,
+                filtered.items[0].total_tokens,
+            ),
+            (1, 1, 200),
+        )
+        beyond = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            dimension="requester",
+            offset=10,
+        )
+        self.assertEqual(
+            (beyond.items, beyond.totals.requests, beyond.has_more), ((), 4, False)
+        )
+        # Historical usage follows current repository ownership, like console scope.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "INSERT INTO review_agent.team_repositories (repository_id, team_id, assigned_by) "
+                "SELECT id, %s, %s FROM review_agent.repositories WHERE full_name = %s",
+                (team.id, self.admin_access.user_id, self.repository),
+            )
+        transferred = admin_application.usage(
+            self.runtime,
+            access=AccessRequest(self.admin_access.user_id, team.id),
+            start=start,
+            end=end,
+            dimension="team",
+        )
+        self.assertEqual(
+            (transferred.totals.groups, transferred.totals.requests), (1, 4)
+        )
+
+    def test_admin_usage_bounds_request_time_and_rechecks_application_authorization(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+        from review_agent_tools.postgres.team_access import AccessDenied
+
+        run = self.start(pr_number=183, request_suffix="usage-date-boundary")
+        start = run.run.started_at
+        included = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=start + timedelta(days=1),
+            search="%",
+        )
+        self.assertEqual(
+            included.totals.requests, 0
+        )  # Search is literal, not a SQL pattern.
+        included = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=start + timedelta(days=1),
+        )
+        self.assertEqual(included.totals.requests, 1)
+        excluded = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start - timedelta(days=1),
+            end=start,
+        )
+        self.assertEqual(excluded.totals.requests, 0)
+        self.assertIsNone(excluded.totals.total_tokens)
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.admin_users SET is_platform_owner = false, is_superuser = false, is_global_viewer = true WHERE id = %s",
+                (self.admin_access.user_id,),
+            )
+        with self.assertRaises(AccessDenied):
+            admin_application.usage(self.runtime, access=self.admin_access)
+
     def test_admin_reader_returns_exact_published_snapshot_and_excludes_drafts(
         self,
     ) -> None:

@@ -78,7 +78,8 @@ export function ScopedLink({
 /** Adapt Astryx's anchor contract to the router while retaining viewing context. */
 export function ScopedAnchor({ href = "/", ...props }: ComponentProps<"a">) {
   const { search } = useLocation();
-  return <Link to={contextualTo(href, search)} {...props} />;
+  // Astryx supplies a `to` alongside `href`; the scoped destination owns it.
+  return <Link {...props} to={contextualTo(href, search)} />;
 }
 
 export function ScopeProvider({

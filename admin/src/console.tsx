@@ -24,6 +24,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  ChartColumn,
   BookOpen,
   Bot,
   Cable,
@@ -67,6 +68,13 @@ const sections = [
     group: "Workspace",
   },
   { path: "/teams", label: "Teams", icon: Users, group: "Workspace" },
+  {
+    path: "/usage",
+    label: "Usage",
+    icon: ChartColumn,
+    group: "Administration",
+    admin: true,
+  },
   {
     path: "/model-connections",
     label: "Model connections",

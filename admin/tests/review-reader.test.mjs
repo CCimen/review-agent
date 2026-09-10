@@ -24,6 +24,7 @@ let AuditJSON;
 let ConnectionQuota;
 let IntegrationsPage;
 let OperationsPage;
+let UsagePage;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -55,6 +56,7 @@ before(async () => {
   ({ ConnectionQuota } = await server.ssrLoadModule("/src/modelQuota.tsx"));
   ({ IntegrationsPage } = await server.ssrLoadModule("/src/integrations.tsx"));
   ({ OperationsPage } = await server.ssrLoadModule("/src/operations.tsx"));
+  ({ UsagePage } = await server.ssrLoadModule("/src/usage.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -83,7 +85,7 @@ const render = (markdown) =>
     }),
   );
 
-const renderConsolePage = (component, cache, entry = "/") => {
+const renderConsolePage = (component, cache, entry = "/", role = "owner") => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
@@ -99,13 +101,79 @@ const renderConsolePage = (component, cache, entry = "/") => {
       createElement(
         MemoryRouter,
         { initialEntries: [entry] },
-        createElement(ScopeProvider, { current: account() }, component),
+        createElement(ScopeProvider, { current: account(role) }, component),
       ),
     ),
   );
   client.clear();
   return html;
 };
+
+const usage = {
+  generated_at: "2026-09-10T10:00:00Z",
+  window_start: "2026-09-03T10:00:00Z",
+  window_end: "2026-09-10T10:00:00Z",
+  dimension: "repository", sort: "requests", has_more: false,
+  totals: {
+    groups: 26, requests: 100, published_requests: 80, failed_requests: 5,
+    repository_count: 26, requester_count: 14, unknown_requester_requests: 2,
+    started_attempts: 150, reported_attempts: 100,
+    prompt_tokens: 1000, completion_tokens: 250, total_tokens: 1250,
+  },
+  items: [{
+    key: "repository:26", label: "example/api", team_id: null,
+    repository: "example/api", requester: null,
+    requests: 1, published_requests: 0, failed_requests: 0,
+    repository_count: 1, requester_count: 0, unknown_requester_requests: 1,
+    started_attempts: 1, reported_attempts: 0,
+    prompt_tokens: null, completion_tokens: null, total_tokens: null,
+  }],
+};
+
+test("admin usage keeps totals across pages, unknown tokens and repository drilldown", () => {
+  const params = "days=7&dimension=repository&sort=requests&search=&offset=25&limit=25";
+  for (const role of ["owner", "admin"]) {
+    const html = renderConsolePage(createElement(UsagePage), [
+      [scopedKey(["usage", params], role), usage],
+    ], "/usage?days=7&offset=25", role);
+    assert.match(html, /Tokens reported for 100 of 150 started attempts/);
+    assert.match(html, /2 requests have no recorded user/);
+    assert.match(html, /Not recorded/);
+    assert.match(html, /0 of 1 attempts/);
+    assert.match(html, /26–26 of 26 repositories/);
+    assert.match(html, /aria-rowcount="26"/);
+    assert.match(html, /aria-rowindex="26"/);
+    assert.match(elements(html, "a").join("\n"), /href="\/usage\?dimension=requester&amp;repository=example%2Fapi&amp;days=7"/);
+    assert.match(html, /role="tablist"/);
+    assert.match(html, /aria-controls="usage-panel-requester"/);
+    assert.match(button(html, "Next"), /disabled/);
+    assert.doesNotMatch(button(html, "Previous"), / disabled/);
+  }
+});
+
+test("usage hides cached private data from global viewers and distinguishes loading from empty", () => {
+  const params = "days=30&dimension=repository&sort=requests&search=&offset=0&limit=25";
+  const denied = renderConsolePage(createElement(UsagePage), [
+    [scopedKey(["usage", params], "viewer"), usage],
+  ], "/usage", "viewer");
+  assert.doesNotMatch(denied, /example\/api|Recorded tokens|Known GitHub users/);
+  const pending = renderConsolePage(createElement(UsagePage), [], "/usage");
+  assert.match(pending, /Recorded tokens, loading/);
+  assert.doesNotMatch(pending, /Not recorded|No matching usage/);
+  const empty = renderConsolePage(createElement(UsagePage), [
+    [scopedKey(["usage", params], "owner"), {
+      ...usage, items: [], totals: {
+        groups: 0, requests: 0, published_requests: 0, failed_requests: 0,
+        repository_count: 0, requester_count: 0, unknown_requester_requests: 0,
+        started_attempts: 0, reported_attempts: 0,
+        prompt_tokens: null, completion_tokens: null, total_tokens: null,
+      },
+    }],
+  ], "/usage");
+  assert.match(empty, /No matching usage/);
+  assert.ok(button(empty, "Reset filters"));
+  assert.doesNotMatch(empty, /Tokens reported for/);
+});
 
 test("queue health uses all worker reports and explains capacity waits with a truncated worker list", () => {
   const html = renderConsolePage(createElement(OperationsPage), [[

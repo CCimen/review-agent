@@ -34,6 +34,7 @@ import { OperationsPage } from "./operations";
 import { OverviewPage } from "./overview";
 import { FindingPage, QualityPage } from "./quality";
 import { SettingsPage } from "./settings";
+import { UsagePage } from "./usage";
 import {
   Empty,
   Freshness,
@@ -446,6 +447,7 @@ function Application({
               />
               <Route path="/" element={<ActivityPage />} />
               <Route path="/overview" element={<OverviewPage />} />
+              <Route path="/usage" element={<UsagePage />} />
               <Route
                 path="/repositories"
                 element={<Repositories current={current} />}

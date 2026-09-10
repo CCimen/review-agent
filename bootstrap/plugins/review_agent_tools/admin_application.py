@@ -22,6 +22,7 @@ from .domain.review import ReviewRunId
 from .postgres import (
     admin_operations,
     admin_reporting,
+    admin_usage,
     admin_quality,
     admin_run_actions,
     quality_reporting,
@@ -419,6 +420,48 @@ def overview(
     ) as (connection, scope):
         return admin_operations.overview(
             connection, scope=scope, start=window_start, end=window_end, now=now
+        )
+
+
+def usage(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    days: int = 30,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    dimension: admin_usage.UsageDimension = "repository",
+    sort: admin_usage.UsageSort = "requests",
+    repository: str | None = None,
+    search: str = "",
+    offset: int = 0,
+    limit: int = 25,
+) -> admin_usage.UsageReport:
+    _bounds(days=days, limit=limit)
+    if dimension not in ("team", "repository", "requester") or sort not in (
+        "requests",
+        "total_tokens",
+        "published_requests",
+    ):
+        raise ValueError("Unknown usage grouping or sort")
+    if not 0 <= offset <= 10000 or len(search) > 200:
+        raise ValueError("Usage filter exceeds its bounds")
+    normalized = resolve_repository(repository) if repository else None
+    window_start, window_end, now = report_window(days=days, start=start, end=end)
+    with _transaction(runtime, access) as (connection, scope):
+        team_access.require_admin(scope)
+        return admin_usage.usage(
+            connection,
+            scope=scope,
+            start=window_start,
+            end=window_end,
+            now=now,
+            dimension=dimension,
+            sort=sort,
+            repository=normalized,
+            search=search.strip(),
+            offset=offset,
+            limit=limit,
         )
 
 

@@ -81,6 +81,7 @@ class AdminAPITests(unittest.TestCase):
             "/api/history/1",
             "/api/pull-requests",
             "/api/overview",
+            "/api/usage",
             "/api/operations",
             "/api/operations/events",
             "/api/users",
@@ -152,6 +153,7 @@ class AdminAPITests(unittest.TestCase):
         self.assertEqual(self.client.get("/history/1").status_code, 200)
         self.assertEqual(self.client.get("/api/pull-requests").status_code, 200)
         self.assertEqual(self.client.get("/api/overview").status_code, 200)
+        self.assertEqual(self.client.get("/api/usage").status_code, 403)
         self.assertEqual(self.client.get("/api/operations").status_code, 403)
         self.assertEqual(self.client.get("/api/operations/events").status_code, 403)
         self.assertEqual(self.client.get("/api/users").status_code, 403)
@@ -210,6 +212,51 @@ class AdminAPITests(unittest.TestCase):
             self.assertEqual(
                 self.client.get(f"/api/overview?{query}").status_code, 422, query
             )
+
+    def test_usage_requires_current_platform_admin_access_and_bounded_filters(
+        self,
+    ) -> None:
+        self.login()
+        response = self.client.get("/api/usage")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertEqual(response.json()["items"], [])
+        self.assertEqual(response.json()["totals"]["requests"], 0)
+        self.assertIsNone(response.json()["totals"]["total_tokens"])
+        for query in (
+            "dimension=invalid",
+            "sort=invalid",
+            "limit=101",
+            "offset=10001",
+            "repository=invalid",
+            "search=" + "x" * 201,
+            "start=2026-01-01T00:00:00Z",
+            "start=2026-01-01T00:00:00&end=2026-02-01T00:00:00Z",
+            "start=2025-01-01T00:00:00Z&end=2026-09-01T00:00:00Z",
+        ):
+            self.assertEqual(
+                self.client.get(f"/api/usage?{query}").status_code, 422, query
+            )
+        created = self.client.post(
+            "/api/users",
+            json={
+                "email": "usage-admin@example.com",
+                "password": PASSWORD,
+                "role": "admin",
+            },
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        self.login("usage-admin@example.com")
+        self.assertEqual(
+            self.client.get("/api/usage?dimension=requester").status_code, 200
+        )
+        # A session created while privileged must not retain access after demotion.
+        with psycopg.connect(DSN) as connection:
+            connection.execute(
+                "UPDATE review_agent.admin_users SET is_superuser = false WHERE id = %s",
+                (created.json()["id"],),
+            )
+        self.assertEqual(self.client.get("/api/usage").status_code, 403)
 
     def test_disabling_or_resetting_account_revokes_sessions_and_preserves_last_admin(
         self,

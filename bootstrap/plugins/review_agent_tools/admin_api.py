@@ -49,7 +49,7 @@ from .admin_auth import AdminAuth
 from .admin_email import email_cipher
 from .admin_identity_config import IdentitySettings
 from .build_info import BuildInfo, read_build_info
-from .postgres import admin_operations, admin_reporting
+from .postgres import admin_operations, admin_reporting, admin_usage
 from .postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
 from .postgres.teams import TeamConflict
 from .postgres.model_connections import ConnectionConflict
@@ -239,6 +239,42 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    def usage(
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+        days: Days = 30,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        dimension: admin_usage.UsageDimension = "repository",
+        sort: admin_usage.UsageSort = "requests",
+        repository: Repository = None,
+        search: Annotated[str, Query(max_length=200)] = "",
+        offset: Annotated[int, Query(ge=0, le=10000)] = 0,
+        limit: Limit = 25,
+    ) -> admin_usage.UsageReport:
+        """Usage for owners and admins, grouped by team, repository or GitHub login.
+
+        The period selects retained requests by start time. Outcomes and all
+        reported attempt tokens reflect the current snapshot, including retries
+        and later reports. Teams follow current repository ownership. Null token
+        totals mean no usage was reported; reported/started attempts show coverage.
+        """
+        try:
+            return admin_application.usage(
+                runtime,
+                access=access,
+                days=days,
+                start=start,
+                end=end,
+                dimension=dimension,
+                sort=sort,
+                repository=repository,
+                search=search,
+                offset=offset,
+                limit=limit,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     def operations(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
     ) -> admin_operations.Operations:
@@ -346,6 +382,12 @@ def create_app(
     router.add_api_route("/api/pull-requests", pull_requests, methods=["GET"])
     router.add_api_route("/api/overview", overview, methods=["GET"])
     router.add_api_route(
+        "/api/usage",
+        usage,
+        methods=["GET"],
+        dependencies=[Depends(auth.current_admin)],
+    )
+    router.add_api_route(
         "/api/operations",
         operations,
         methods=["GET"],
@@ -370,6 +412,7 @@ def create_app(
         "/history/{run_id}", index, methods=["GET"], include_in_schema=False
     )
     app.add_api_route("/overview", index, methods=["GET"], include_in_schema=False)
+    app.add_api_route("/usage", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/operations", index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/users", index, methods=["GET"], include_in_schema=False)
     for path in (

@@ -54,6 +54,14 @@ logic on the server. Newly issued application credentials are shown once and
 kept out of shared caches and browser storage. Build the generated API contract with the backend when
 changing a public boundary.
 
+Administration's Usage page is restricted to owners and admins. Reuse the
+workspace team scope and reporting period, with tabs for teams, repositories,
+and GitHub requesters. Rank and paginate on the server; summary figures cover
+all matching rows. Keep token reporting coverage next to the totals and show
+missing tokens as unknown. Requests select the period; current outcomes and all
+reported attempts belong to those requests. Team and repository links retain
+the viewing context. Usage refreshes on demand rather than polling.
+
 Keep bounded page content aligned with the start of the console body on wide
 screens. Operational settings pair section descriptions with one column of controls,
 stacking on narrow screens. Advanced controls remain progressively disclosed. Label GitHub's repository scope separately from Review

@@ -289,6 +289,20 @@ export function QualityPage() {
             <Stat
               label="Published findings"
               value={data.published_findings}
+              hint={`Across ${number.format(data.completed_reviews)} completed reviews`}
+            />
+            <Stat
+              label="Reviews seeing every file"
+              value={data.complete_coverage_reviews}
+              hint={
+                data.completed_reviews
+                  ? `of ${number.format(data.completed_reviews)} completed · the rest read part of the change`
+                  : "No review completed in this period"
+              }
+              attention={
+                data.completed_reviews > 0 &&
+                data.complete_coverage_reviews < data.completed_reviews
+              }
             />
             <Stat
               label="Reported false positives"

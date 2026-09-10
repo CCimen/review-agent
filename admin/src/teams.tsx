@@ -3,6 +3,10 @@ import { Button } from "@astryxdesign/core/Button";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
+import {
+  MetadataList,
+  MetadataListItem,
+} from "@astryxdesign/core/MetadataList";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import {
@@ -97,16 +101,20 @@ export function ConfirmAction({
   });
   return (
     <VStack gap={3}>
-      <Button
-        label={label}
-        variant={danger ? "destructive" : "secondary"}
-        type="button"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-          action.reset();
-        }}
-      />
+      {/* The stack stretches its children, which made every confirmation
+          trigger as wide as its table cell. */}
+      <HStack gap={3} wrap="wrap" align="center">
+        <Button
+          label={label}
+          variant={danger ? "destructive" : "secondary"}
+          type="button"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+            action.reset();
+          }}
+        />
+      </HStack>
       {open ? (
         <Form
           onSubmit={(event) => {
@@ -572,14 +580,16 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                   Membership saved.
                 </Text>
               ) : null}
-              <Button
-                label={String(
-                  save.isPending ? "Saving…" : "Save membership",
-                )}
-                variant="primary"
-                type="submit"
-                isDisabled={save.isPending}
-              />
+              <HStack gap={3} wrap="wrap" align="center">
+                <Button
+                  label={String(
+                    save.isPending ? "Saving…" : "Save membership",
+                  )}
+                  variant="primary"
+                  type="submit"
+                  isDisabled={save.isPending}
+                />
+              </HStack>
             </Form>
           </VStack>
         </Collapsible>
@@ -710,6 +720,75 @@ function TeamRepositories({
       await refresh();
     },
   });
+  type TeamRepository = TeamRepositoryPage["items"][number];
+  const repositoryColumns: TableColumn<TeamRepository>[] = [
+    {
+      key: "repository",
+      header: "Repository",
+      width: proportional(2, { minWidth: 260 }),
+      renderCell: (repo) => (
+        <VStack gap={1}>
+          <Link
+            to={`/history?repository=${encodeURIComponent(repo.repository)}&team_id=${team.id}`}
+          >
+            {repo.repository}
+          </Link>
+          <Text color="secondary" type="supporting">
+            Assigned {time(repo.assigned_at)}
+          </Text>
+        </VStack>
+      ),
+    },
+    {
+      key: "enabled",
+      header: "Review Agent",
+      width: pixel(120),
+      renderCell: (repo) => (repo.enabled ? "Enabled" : "Disabled"),
+    },
+    {
+      key: "access",
+      header: "GitHub access",
+      width: pixel(140),
+      renderCell: (repo) => repo.access?.replaceAll("_", " ") ?? "Not granted",
+    },
+    {
+      key: "profile",
+      header: "Profile",
+      width: pixel(110),
+      renderCell: (repo) => repo.profile ?? "—",
+    },
+    ...(admin
+      ? [
+          {
+            key: "actions",
+            header: "Actions",
+            width: pixel(190),
+            renderCell: (repo: TeamRepository) => (
+              <VStack gap={3}>
+                {destination ? (
+                  <ConfirmAction
+                    label="Transfer"
+                    method="PUT"
+                    path={`/api/repository-ownership/${repo.repository_id}`}
+                    body={{
+                      team_id: Number(destination),
+                      expected_team_id: team.id,
+                    }}
+                    description={`Transfer ${repo.repository} and its history to ${destinations.data?.items.find((item) => String(item.id) === destination)?.name ?? "the selected team"}. This team will lose access.`}
+                  />
+                ) : null}
+                <ConfirmAction
+                  label="Remove repository"
+                  path={`/api/teams/${team.id}/repositories/${repo.repository_id}/remove`}
+                  description={`Disable reviews for ${repo.repository} and remove its team ownership. Stored review history is retained for platform administrators.`}
+                  danger
+                />
+              </VStack>
+            ),
+          } satisfies TableColumn<TeamRepository>,
+        ]
+      : []),
+  ];
   return (
     <>
       <Heading level={2}>Repositories</Heading>
@@ -845,66 +924,16 @@ function TeamRepositories({
           role="region"
           aria-label="Team repositories"
         >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Repository</TableHeaderCell>
-                <TableHeaderCell>Review Agent</TableHeaderCell>
-                <TableHeaderCell>GitHub access</TableHeaderCell>
-                <TableHeaderCell>Profile</TableHeaderCell>
-                {admin ? <TableHeaderCell>Actions</TableHeaderCell> : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {query.data.items.map((repo) => (
-                <TableRow key={repo.repository_id}>
-                  <TableHeaderCell scope="row">
-                    <Link
-                      to={`/history?repository=${encodeURIComponent(repo.repository)}&team_id=${team.id}`}
-                    >
-                      {repo.repository}
-                    </Link>
-                    <Text
-                      color="secondary"
-                      display="block"
-                      type="supporting"
-                    >
-                      Assigned {time(repo.assigned_at)}
-                    </Text>
-                  </TableHeaderCell>
-                  <TableCell>
-                    {repo.enabled ? "Enabled" : "Disabled"}
-                  </TableCell>
-                  <TableCell>
-                    {repo.access?.replaceAll("_", " ") ?? "Not granted"}
-                  </TableCell>
-                  <TableCell>{repo.profile ?? "—"}</TableCell>
-                  {admin ? (
-                    <TableCell>
-                      {destination ? (
-                        <ConfirmAction
-                          label="Transfer"
-                          method="PUT"
-                          path={`/api/repository-ownership/${repo.repository_id}`}
-                          body={{
-                            team_id: Number(destination),
-                            expected_team_id: team.id,
-                          }}
-                          description={`Transfer ${repo.repository} and its history to ${destinations.data?.items.find((item) => String(item.id) === destination)?.name ?? "the selected team"}. This team will lose access.`}
-                        />
-                      ) : null}
-                      <ConfirmAction
-                        label="Remove repository"
-                        path={`/api/teams/${team.id}/repositories/${repo.repository_id}/remove`}
-                        description={`Disable reviews for ${repo.repository} and remove its team ownership. Stored review history is retained for platform administrators.`}
-                        danger
-                      />
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <Table
+            aria-label="Team repositories"
+            data={query.data.items}
+            columns={repositoryColumns}
+            idKey="repository_id"
+            density="balanced"
+            dividers="rows"
+            hasHover
+            verticalAlign="top"
+          />
         </VStack>
       ) : query.data ? (
         <Empty title="No repositories assigned">
@@ -987,7 +1016,7 @@ export function RepositoryRequests({
       ) : (
         <Heading level={2}>Repository requests</Heading>
       )}
-      <HStack gap={3} wrap="wrap" vAlign="center">
+      <HStack gap={3} wrap="wrap" align="end">
         <Selector
           label={"Status"}
           options={[
@@ -1065,10 +1094,20 @@ export function RepositoryRequests({
           ))}
         </VStack>
       ) : query.data ? (
-        <Empty title="No requests in this view">
+        <Empty
+          title={
+            status === "pending"
+              ? "No requests waiting"
+              : status
+                ? "No requests with this status"
+                : "No requests yet"
+          }
+        >
           {status === "pending"
-            ? "There are no repository requests waiting for approval."
-            : "Choose another status to see earlier requests."}
+            ? "Nothing is waiting for approval."
+            : status
+              ? "Choose another status to see earlier requests."
+              : "A team maintainer requests a repository from their team page."}
         </Empty>
       ) : null}
       {before || query.data?.next_before_id ? (
@@ -1300,12 +1339,14 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
           Team model policy saved.
         </Text>
       ) : null}
-      <Button
-        label={String(save.isPending ? "Saving…" : "Save model policy")}
-        variant="primary"
-        type="submit"
-        isDisabled={save.isPending}
-      />
+      <HStack gap={3} wrap="wrap" align="center">
+        <Button
+          label={String(save.isPending ? "Saving…" : "Save model policy")}
+          variant="primary"
+          type="submit"
+          isDisabled={save.isPending}
+        />
+      </HStack>
     </Form>
   );
 }
@@ -1324,66 +1365,44 @@ function TeamModels({ team, maintain }: { team: Team; maintain: boolean }) {
       <Freshness query={query} />
       {policy ? (
         <>
-          <VStack as="dl" gap={2}>
-            <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-              <dt>
-                <Text color="secondary">Connection</Text>
-              </dt>
-              <dd>
-                <Link
-                  to={`/model-connections/${policy.connection.id}?team_id=${team.id}`}
-                >
-                  {policy.connection.name}
-                </Link>{" "}
-                · {policy.connection.team_id ? "Dedicated" : "Shared"}
-              </dd>
-            </HStack>
-            <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-              <dt>
-                <Text color="secondary">Model</Text>
-              </dt>
-              <dd>
-                {policy.effective_provider === "openai-codex"
-                  ? "OpenAI Codex"
-                  : "Anthropic"}{" "}
-                · {policy.effective_model}
-              </dd>
-            </HStack>
-            <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-              <dt>
-                <Text color="secondary">Reasoning</Text>
-              </dt>
-              <dd>{policy.effective_reasoning_effort}</dd>
-            </HStack>
-            <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-              <dt>
-                <Text color="secondary">Team capacity</Text>
-              </dt>
-              <dd>
-                {policy.max_concurrency} concurrent reviews across
-                connections
-              </dd>
-            </HStack>
-            <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-              <dt>
-                <Text color="secondary">Connection capacity</Text>
-              </dt>
-              <dd>
-                {policy.connection.max_concurrency} concurrent reviews
-                shared by its teams
-              </dd>
-            </HStack>
-            <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-              <dt>
-                <Text color="secondary">Source</Text>
-              </dt>
-              <dd>
-                {policy.provider === null
-                  ? "Inherited from deployment defaults"
-                  : "Team model policy"}
-              </dd>
-            </HStack>
-          </VStack>
+          {/* Written as a row per pair, each label was pushed to one edge of
+              the panel and its value to the other, so reading the pair meant
+              crossing the gap. The design system owns this pairing. */}
+          <MetadataList
+            orientation="horizontal"
+            columns="multi"
+            label={{ position: "top" }}
+          >
+            <MetadataListItem label="Connection">
+              <Link
+                to={`/model-connections/${policy.connection.id}?team_id=${team.id}`}
+              >
+                {policy.connection.name}
+              </Link>{" "}
+              · {policy.connection.team_id ? "Dedicated" : "Shared"}
+            </MetadataListItem>
+            <MetadataListItem label="Model">
+              {policy.effective_provider === "openai-codex"
+                ? "OpenAI Codex"
+                : "Anthropic"}{" "}
+              · {policy.effective_model}
+            </MetadataListItem>
+            <MetadataListItem label="Reasoning">
+              {policy.effective_reasoning_effort}
+            </MetadataListItem>
+            <MetadataListItem label="Team capacity">
+              {policy.max_concurrency} concurrent reviews across connections
+            </MetadataListItem>
+            <MetadataListItem label="Connection capacity">
+              {policy.connection.max_concurrency} concurrent reviews shared by
+              its teams
+            </MetadataListItem>
+            <MetadataListItem label="Source">
+              {policy.provider === null
+                ? "Inherited from deployment defaults"
+                : "Team model policy"}
+            </MetadataListItem>
+          </MetadataList>
           {policy.connection.state !== "enabled" ? (
             <Text as="p">
               This connection is paused or needs attention. Open the
@@ -1426,7 +1445,6 @@ export function TeamDetail() {
     isAdmin(scope.current.role) || team?.role === "maintainer";
   return (
     <>
-      <Freshness query={query} />
       {team ? (
         <>
           <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -1487,7 +1505,9 @@ export function TeamDetail() {
             </Collapsible>
           ) : null}
         </>
-      ) : null}
+      ) : (
+        <Freshness query={query} />
+      )}
     </>
   );
 }

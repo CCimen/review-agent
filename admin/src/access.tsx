@@ -507,21 +507,23 @@ function AddRepository({
                 Reviews enabled for {add.data.repository}.
               </Text>
             )}
-            <Button
-              label={String(
-                add.isPending
-                  ? "Verifying repository…"
-                  : "Verify and enable reviews",
-              )}
-              variant="primary"
-              type="submit"
-              isDisabled={
-                !configured ||
-                add.isPending ||
-                !repository.trim() ||
-                !profile.trim()
-              }
-            />
+            <HStack gap={3} wrap="wrap" align="center">
+              <Button
+                label={String(
+                  add.isPending
+                    ? "Verifying repository…"
+                    : "Verify and enable reviews",
+                )}
+                variant="primary"
+                type="submit"
+                isDisabled={
+                  !configured ||
+                  add.isPending ||
+                  !repository.trim() ||
+                  !profile.trim()
+                }
+              />
+            </HStack>
           </Form>
         </VStack>
       </VStack>

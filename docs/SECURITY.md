@@ -145,6 +145,13 @@ Recheck overrides when updating a parent dependency; a forced older major can
 break a newer parent. Regenerate the lockfile, run the affected build, and scan
 the resolved dependencies before removing or changing an override.
 
+The main runtime's `requirements.txt` also pins `httpx2` 2.12.0, which selects
+the matching `httpcore2` release over the versions inherited from Hermes.
+This addresses [WebSocket TLS through SOCKS proxies](https://github.com/pydantic/httpx2/security/advisories/GHSA-7mj9-2mp8-4m2p)
+and [unbounded response decompression](https://github.com/pydantic/httpx2/security/advisories/GHSA-8xx6-hgc6-gc2m).
+Reassess this pin when updating the Hermes base, using the built image's
+dependency inventory, compatibility checks and vulnerability report.
+
 The write-authorized evidence job appends the generated summary to the release
 notes only after the exact platform scans pass and the attested evidence files
 are attached. A release image is not qualified for deployment until this job

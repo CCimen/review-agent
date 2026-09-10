@@ -119,6 +119,8 @@ class DockerfileToolsTests(unittest.TestCase):
                 "cryptography==50.0.0",
                 "tornado==6.5.8",
                 "aiohttp==3.14.3",
+                "# Patch the HTTP clients inherited from the pinned Hermes image.",
+                "httpx2==2.12.0",
             ],
         )
         self.assertIn(

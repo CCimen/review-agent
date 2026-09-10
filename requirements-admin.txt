@@ -63,7 +63,7 @@ h11==0.16.0
 httpcore2==2.12.0 ; sys_platform != 'emscripten'
     # via httpx2
 httpx2==2.12.0
-    # via -r requirements-admin.in
+    # via -r requirements.txt
 httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscripten'
     # via httpx2
 idna==3.19

@@ -159,20 +159,27 @@ test("usage hides cached private data from global viewers and distinguishes load
   assert.doesNotMatch(denied, /example\/api|Recorded tokens|Known GitHub users/);
   const pending = renderConsolePage(createElement(UsagePage), [], "/usage");
   assert.match(pending, /Recorded tokens, loading/);
-  assert.doesNotMatch(pending, /Not recorded|No matching usage/);
+  assert.doesNotMatch(pending, /Not recorded|No matching usage|Nothing recorded yet/);
+  const emptyReport = {
+    ...usage, items: [], totals: {
+      groups: 0, requests: 0, published_requests: 0, failed_requests: 0,
+      repository_count: 0, requester_count: 0, unknown_requester_requests: 0,
+      started_attempts: 0, reported_attempts: 0,
+      prompt_tokens: null, completion_tokens: null, total_tokens: null,
+    },
+  };
   const empty = renderConsolePage(createElement(UsagePage), [
-    [scopedKey(["usage", params], "owner"), {
-      ...usage, items: [], totals: {
-        groups: 0, requests: 0, published_requests: 0, failed_requests: 0,
-        repository_count: 0, requester_count: 0, unknown_requester_requests: 0,
-        started_attempts: 0, reported_attempts: 0,
-        prompt_tokens: null, completion_tokens: null, total_tokens: null,
-      },
-    }],
+    [scopedKey(["usage", params], "owner"), emptyReport],
   ], "/usage");
-  assert.match(empty, /No matching usage/);
-  assert.ok(button(empty, "Reset filters"));
+  assert.match(empty, /Nothing recorded yet/);
+  assert.equal(button(empty, "Reset filters"), "");
   assert.doesNotMatch(empty, /Tokens reported for/);
+  const filteredParams = params.replace("search=&", "search=missing&");
+  const filtered = renderConsolePage(createElement(UsagePage), [
+    [scopedKey(["usage", filteredParams], "owner"), emptyReport],
+  ], "/usage?search=missing");
+  assert.match(filtered, /No matching usage/);
+  assert.ok(button(filtered, "Reset filters"));
 });
 
 test("queue health uses all worker reports and explains capacity waits with a truncated worker list", () => {

@@ -52,7 +52,7 @@ import {
   roleLabels,
   useScope,
 } from "./scope";
-import { number, time } from "./ui";
+import { number } from "./ui";
 
 const sections = [
   { path: "/", label: "Activity", icon: Activity, group: "Workspace" },
@@ -431,25 +431,13 @@ export function ConsoleLayout({
             <AstryxLink href="/api/docs" target="_blank" rel="noreferrer">
               API reference
             </AstryxLink>
-            <Text type="supporting">
-              Active requests{" "}
-              {overview.data
-                ? number.format(overview.data.active_requests)
-                : "—"}
-            </Text>
-            <Text type="supporting">
-              Repositories{" "}
-              {overview.data
-                ? number.format(overview.data.repository_count)
-                : "—"}
-            </Text>
-            <Text type="supporting">
-              {overview.isError
-                ? "Connection interrupted"
-                : overview.data
-                  ? `Updated ${time(new Date(overview.dataUpdatedAt).toISOString())}`
-                  : "Connecting…"}
-            </Text>
+            {/* The two counts and a timestamp that used to close this row
+                belonged to other pages: the active request count is already
+                the badge on Activity, the repository count is a figure on
+                Repositories, and every page states the freshness of the data
+                it is actually showing. At the foot of a team's member list
+                they described nothing on screen. What remains identifies the
+                deployment, which is what a footer is for. */}
           </HStack>
         </Section>
       </AppShell>

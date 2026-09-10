@@ -11,11 +11,6 @@ import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import {
   Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
   pixel,
   proportional,
   type TableColumn,
@@ -527,6 +522,9 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
   const [offset, setOffset] = useState(0);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<TeamRole>("viewer");
+  /** Null until someone touches the disclosure, so it can open itself for a
+   *  team with nobody in it and close once the list has something to show. */
+  const [addOpen, setAddOpen] = useState<boolean | null>(null);
   const query = useQuery({
     queryKey: ["team-members", team.id, offset, "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -535,6 +533,69 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
         signal,
       ),
   });
+  const memberColumns: TableColumn<TeamMemberPage["items"][number]>[] = [
+    {
+      key: "email",
+      header: "Account",
+      width: proportional(2, { minWidth: 240 }),
+      renderCell: (member) => (
+        <VStack gap={1}>
+          <Text>{member.email}</Text>
+          {member.user_id === scope.current.id ? (
+            <Text color="secondary" type="supporting">
+              You
+            </Text>
+          ) : null}
+        </VStack>
+      ),
+    },
+    {
+      key: "role",
+      header: "Role",
+      width: pixel(150),
+      renderCell: (member) =>
+        maintain ? (
+          <Button
+            label={member.role === "maintainer" ? "Maintainer" : "Viewer"}
+            variant="ghost"
+            tooltip={`Change ${member.email}'s role`}
+            onClick={() => {
+              setEmail(member.email);
+              setRole(member.role);
+              setAddOpen(true);
+            }}
+          />
+        ) : member.role === "maintainer" ? (
+          "Maintainer"
+        ) : (
+          "Viewer"
+        ),
+    },
+    {
+      key: "active",
+      header: "Access",
+      width: pixel(150),
+      renderCell: (member) =>
+        member.active ? "Active" : "Account disabled",
+    },
+    ...(maintain
+      ? [
+          {
+            key: "actions",
+            header: "Action",
+            width: pixel(160),
+            renderCell: (member: TeamMemberPage["items"][number]) => (
+              <ConfirmAction
+                label="Remove member"
+                path={`/api/teams/${team.id}/members/${member.user_id}/remove`}
+                description={`Remove ${member.email} from ${team.name}. Their access through other teams is retained.`}
+                danger
+              />
+            ),
+          } satisfies TableColumn<TeamMemberPage["items"][number]>,
+        ]
+      : []),
+  ];
   const save = useMutation({
     mutationFn: () =>
       write(`/api/teams/${team.id}/members`, "PUT", {
@@ -556,7 +617,8 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
       </Text>
       {maintain ? (
         <Collapsible
-          defaultIsOpen={false}
+          isOpen={addOpen ?? query.data?.items.length === 0}
+          onOpenChange={setAddOpen}
           trigger={
             <HStack gap={3} wrap="wrap" vAlign="center">
               Add or change a member
@@ -587,7 +649,19 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
                     } satisfies InputHTMLAttributes<HTMLInputElement>)}
                   />
                   <Text color="secondary">
-                    Use an existing active account.
+                    The account must already exist and be active.{" "}
+                    {isAdmin(scope.current.role) ? (
+                      <>
+                        Create one under <Link to="/users">Users</Link>, then
+                        add it here. Entering an existing member's address
+                        changes their role.
+                      </>
+                    ) : (
+                      <>
+                        An administrator creates accounts. Entering an existing
+                        member's address changes their role.
+                      </>
+                    )}
                   </Text>
                 </VStack>
                 <Selector
@@ -633,52 +707,16 @@ function Members({ team, maintain }: { team: Team; maintain: boolean }) {
           role="region"
           aria-label="Team members"
         >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Account</TableHeaderCell>
-                <TableHeaderCell>Role</TableHeaderCell>
-                <TableHeaderCell>Access</TableHeaderCell>
-                {maintain ? (
-                  <TableHeaderCell>Action</TableHeaderCell>
-                ) : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {query.data.items.map((member) => (
-                <TableRow key={member.user_id}>
-                  <TableHeaderCell scope="row">
-                    {member.email}
-                    {member.user_id === scope.current.id ? (
-                      <Text
-                        color="secondary"
-                        display="block"
-                        type="supporting"
-                      >
-                        You
-                      </Text>
-                    ) : null}
-                  </TableHeaderCell>
-                  <TableCell>
-                    {member.role === "maintainer" ? "Maintainer" : "Viewer"}
-                  </TableCell>
-                  <TableCell>
-                    {member.active ? "Active" : "Account disabled"}
-                  </TableCell>
-                  {maintain ? (
-                    <TableCell>
-                      <ConfirmAction
-                        label="Remove member"
-                        path={`/api/teams/${team.id}/members/${member.user_id}/remove`}
-                        description={`Remove ${member.email} from ${team.name}. Their access through other teams is retained.`}
-                        danger
-                      />
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <Table
+            aria-label="Team members"
+            data={query.data.items}
+            columns={memberColumns}
+            idKey="user_id"
+            density="balanced"
+            dividers="rows"
+            hasHover
+            verticalAlign="top"
+          />
         </VStack>
       ) : query.data ? (
         <Empty title="No members yet">
@@ -829,7 +867,8 @@ function TeamRepositories({
       </Text>
       {maintain ? (
         <Collapsible
-          defaultIsOpen={false}
+          key={query.data ? (query.data.items.length ? "listed" : "empty") : "loading"}
+          defaultIsOpen={query.data?.items.length === 0}
           trigger={
             <HStack gap={3} wrap="wrap" vAlign="center">
               Request a repository
@@ -1481,6 +1520,7 @@ export function TeamDetail() {
   const scope = useScope();
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") ?? "repositories";
+  const [editing, setEditing] = useState(false);
   const query = scope.teamQuery;
   useEffect(() => {
     if (query.data) document.title = `Review Agent · ${query.data.name}`;
@@ -1515,7 +1555,22 @@ export function TeamDetail() {
                 href={`/overview?team_id=${team.id}`}
                 as={ScopedAnchor}
               />
+              {isAdmin(scope.current.role) ? (
+                <Button
+                  label={editing ? "Close details" : "Edit details"}
+                  variant={editing ? "secondary" : "ghost"}
+                  aria-expanded={editing}
+                  onClick={() => setEditing(!editing)}
+                />
+              ) : null}
             </HStack>
+            {editing && isAdmin(scope.current.role) ? (
+              <TeamEditor
+                key={team.revision}
+                team={team}
+                done={() => setEditing(false)}
+              />
+            ) : null}
           </VStack>
           <TabList
             aria-label="Team views"
@@ -1550,20 +1605,6 @@ export function TeamDetail() {
           ) : (
             <TeamRepositories team={team} maintain={maintain} />
           )}
-          {isAdmin(scope.current.role) ? (
-            <Collapsible
-              defaultIsOpen={false}
-              trigger={
-                <HStack gap={3} wrap="wrap" vAlign="center">
-                  Edit team details
-                </HStack>
-              }
-            >
-              <VStack gap={4}>
-                <TeamEditor key={team.revision} team={team} />
-              </VStack>
-            </Collapsible>
-          ) : null}
         </>
       ) : (
         <Freshness query={query} />

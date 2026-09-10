@@ -36,7 +36,13 @@ import type {
   OIDCStart,
 } from "./api";
 import { APIError, login, read, write } from "./api";
-import { isAdmin, roleLabels, ScopedAnchor, useScope } from "./scope";
+import {
+  isAdmin,
+  roleLabels,
+  ScopedAnchor,
+  ScopedLink as Link,
+  useScope,
+} from "./scope";
 import { Empty, Stat } from "./ui";
 import { RegistrationAccess } from "./registration";
 import type { components } from "./api.generated";
@@ -478,9 +484,10 @@ export function Users({ current }: { current: Account }) {
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
         <VStack gap={3}>
           <Heading level={1}>Users &amp; roles</Heading>
-          <Text as="p">
-            Platform administration · Manage accounts and platform roles.
-            Team roles are assigned in Teams.
+          <Text as="p" color="secondary">
+            Platform administration · Manage accounts and platform roles. An
+            account belongs to a team from that team's page, not from here:
+            open <Link to="/teams">Teams</Link> and add the account by email.
           </Text>
         </VStack>
         <Button

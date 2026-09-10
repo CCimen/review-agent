@@ -32,6 +32,7 @@ import {
   FolderGit2,
   GitPullRequest,
   HeartPulse,
+  LogOut,
   Moon,
   Search,
   Settings,
@@ -344,6 +345,7 @@ export function ConsoleLayout({
               <Button
                 label="Search"
                 icon={<Search {...iconProps} />}
+                isIconOnly={isNarrow}
                 variant="ghost"
                 onClick={openPalette}
                 tooltip="Search pages and repositories (⌘K / Ctrl+K)"
@@ -357,14 +359,19 @@ export function ConsoleLayout({
                     <Sun {...iconProps} />
                   )
                 }
+                isIconOnly={isNarrow}
                 variant="ghost"
                 onClick={toggleTheme}
+                tooltip={theme === "light" ? "Dark theme" : "Light theme"}
               />
               <Button
                 label={signingOut ? "Signing out…" : "Sign out"}
+                icon={<LogOut {...iconProps} />}
+                isIconOnly={isNarrow}
                 variant="ghost"
                 isDisabled={signingOut}
                 onClick={logout}
+                tooltip="Sign out"
               />
             </HStack>
           </HStack>

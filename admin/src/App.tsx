@@ -22,7 +22,13 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { Account, RepositoryPage } from "./api";
 import { APIError, read, write } from "./api";
 import { AuditLog } from "./audit";
-import { ScopedLink as Link, ScopeProvider, isAdmin, useScope } from "./scope";
+import {
+  ScopedLink as Link,
+  ScopedAnchor,
+  ScopeProvider,
+  isAdmin,
+  useScope,
+} from "./scope";
 import { RepositoryRequests, TeamDetail, TeamsPage } from "./teams";
 
 import { Access, RepositoryTabs } from "./access";
@@ -188,15 +194,23 @@ function Repositories({ current }: { current: Account }) {
   ];
   return (
     <>
-      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-        <VStack gap={3}>
-          <Heading level={1}>Repositories &amp; access</Heading>
-          <Text as="p">
-            Review activity across your registered repositories.
-          </Text>
-        </VStack>
-        <Link to={`/history?days=${days}`}>View all reviews</Link>
-      </HStack>
+      <VStack gap={3}>
+        <Heading level={1}>Repositories &amp; access</Heading>
+        <Text as="p" color="secondary">
+          Review activity across your registered repositories.
+        </Text>
+        {/* The same treatment the team page gives its reporting links: a
+            labelled action near the title rather than a bare link pinned to
+            the far edge of a header the width of the screen. */}
+        <HStack gap={3} wrap="wrap" align="center">
+          <Button
+            label="View all reviews"
+            variant="secondary"
+            href={`/history?days=${days}`}
+            as={ScopedAnchor}
+          />
+        </HStack>
+      </VStack>
       <RepositoryTabs role={current.role} />
       <HStack gap={4} wrap="wrap" align="end">
         <TextInput

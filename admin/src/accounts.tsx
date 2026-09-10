@@ -35,7 +35,7 @@ import type {
   AccountIdentity,
   OIDCStart,
 } from "./api";
-import { login, read, write } from "./api";
+import { APIError, login, read, write } from "./api";
 import { isAdmin, roleLabels, ScopedAnchor, useScope } from "./scope";
 import { Empty, Stat } from "./ui";
 import { RegistrationAccess } from "./registration";
@@ -72,6 +72,16 @@ export function SettingsTabs() {
         label="Integrations"
       />
     </TabList>
+  );
+}
+
+/** A check that failed for a reason other than the capability being absent.
+ *  Both optional sign-in endpoints answer 404 when the deployment does not
+ *  offer them, which is a configuration, not a fault. */
+function checkFailed(query: { isError: boolean; error: Error | null }) {
+  return (
+    query.isError &&
+    !(query.error instanceof APIError && query.error.status === 404)
   );
 }
 
@@ -337,7 +347,7 @@ export function Login() {
                     )}
                   </VStack>
                 )}
-              {provider.isError && (
+              {checkFailed(provider) && (
                 <VStack gap={2}>
                   <Text role="alert" color="secondary">
                     Could not check organization sign-in.
@@ -350,7 +360,7 @@ export function Login() {
                   />
                 </VStack>
               )}
-              {registration.isError && (
+              {checkFailed(registration) && (
                 <VStack gap={2}>
                   <Text role="alert" color="secondary">
                     Could not check whether registration is open.

@@ -27,7 +27,7 @@ import type { Account } from "./api";
 import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { ScopedAnchor, isAdmin } from "./scope";
-import { Form, Freshness, time } from "./ui";
+import { Empty, Form, Freshness, time } from "./ui";
 
 export function RepositoryTabs({ role }: { role: Account["role"] }) {
   const { pathname } = useLocation();
@@ -384,7 +384,7 @@ function InstallationPanel({
                   label={String(
                     sync.isPending ? "Syncing…" : "Sync repositories",
                   )}
-                  variant="primary"
+                  variant="secondary"
                   isDisabled={
                     pending ||
                     !configured ||
@@ -726,12 +726,15 @@ export function Access() {
               ))}
             </VStack>
           ) : (
-            <Text as="p">No GitHub App installations found.</Text>
+            <Empty title="No installations">
+              Install the Review Agent GitHub App on an organisation or
+              account to see it here.
+            </Empty>
           )}
           <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
             <Button
               label={"Previous installations"}
-              variant="primary"
+              variant="secondary"
               type="button"
               isDisabled={installationCursors.length === 1}
               onClick={() =>
@@ -740,7 +743,7 @@ export function Access() {
             />
             <Button
               label={"Next installations"}
-              variant="primary"
+              variant="secondary"
               type="button"
               isDisabled={installations.data.next_after_id === null}
               onClick={() => {
@@ -794,12 +797,15 @@ export function Access() {
               </Table>
             </VStack>
           ) : (
-            <Text as="p">No repositories found.</Text>
+            <Empty title="No repositories">
+              This installation grants no repository access yet. Grant it in
+              GitHub, then sync.
+            </Empty>
           )}
           <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
             <Button
               label={"Previous repositories"}
-              variant="primary"
+              variant="secondary"
               type="button"
               isDisabled={repositoryCursors.length === 1}
               onClick={() =>
@@ -808,7 +814,7 @@ export function Access() {
             />
             <Button
               label={"Next repositories"}
-              variant="primary"
+              variant="secondary"
               type="button"
               isDisabled={repositories.data.next_after_id === null}
               onClick={() => {

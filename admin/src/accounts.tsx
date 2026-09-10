@@ -12,6 +12,7 @@ import { Form } from "./ui";
 // Login layout adapted from Astryx's Login Card template.
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 import { Banner } from "@astryxdesign/core/Banner";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { Center } from "@astryxdesign/core/Center";
@@ -36,7 +37,7 @@ import type {
 } from "./api";
 import { login, read, write } from "./api";
 import { isAdmin, roleLabels, ScopedAnchor, useScope } from "./scope";
-import { Stat } from "./ui";
+import { Empty, Stat } from "./ui";
 import { RegistrationAccess } from "./registration";
 import type { components } from "./api.generated";
 
@@ -616,7 +617,7 @@ export function Users({ current }: { current: Account }) {
             <Stat label="Accounts" value={query.data.total} />
             <Stat label="Admins" value={query.data.admin_count} />
             <Stat
-              label="Team members & global viewers"
+              label="Members & viewers"
               value={query.data.total - query.data.admin_count}
             />
             <Stat label="Disabled" value={query.data.disabled_count} />
@@ -628,7 +629,9 @@ export function Users({ current }: { current: Account }) {
             <TextInput
               label={"Find a user"}
               id="user-filter"
-              placeholder="Filter by email address"
+              hasClear
+              width={280}
+              placeholder="name@example.com"
               value={filter}
               onChange={(value) => setFilter(value)}
               {...({
@@ -665,10 +668,17 @@ export function Users({ current }: { current: Account }) {
               ))}
             </VStack>
           ) : (
-            <VStack gap={3}>
-              <Heading level={2}>No matching accounts</Heading>
-              <Text as="p">Clear the filter or change the role shown.</Text>
-            </VStack>
+            <Empty
+              title={
+                filter || view !== "all"
+                  ? "No matching accounts"
+                  : "No accounts on this page"
+              }
+            >
+              {filter || view !== "all"
+                ? "Clear the filter or change the role shown."
+                : "Return to the first page to see this deployment's accounts."}
+            </Empty>
           )}
         </>
       )}
@@ -770,9 +780,18 @@ function UserRow({
               </Text>
             )}
           </Text>
-          <Text>{roleLabels[account.role]}</Text>
-          <Text>{account.active ? "Active" : "Disabled"}</Text>
-          <Text>{protectedAccount ? "View" : "Edit"}</Text>
+          <Text color="secondary">{roleLabels[account.role]}</Text>
+          <HStack gap={2} vAlign="center">
+            <StatusDot
+              aria-hidden="true"
+              variant={account.active ? "success" : "neutral"}
+              label={account.active ? "Active" : "Disabled"}
+            />
+            <Text>{account.active ? "Active" : "Disabled"}</Text>
+          </HStack>
+          <Text type="supporting">
+            {protectedAccount ? "View" : "Edit"}
+          </Text>
         </HStack>
       }
     >

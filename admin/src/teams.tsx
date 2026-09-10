@@ -1,3 +1,4 @@
+import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -280,6 +281,22 @@ export function TeamsPage() {
           label="Repository requests"
         />
       </TabList>
+      {assignRepository ? (
+        <Banner
+          status="info"
+          title={`Assigning ${repositoryName}`}
+          description="Pick its owning team below. This moves the retained review history; GitHub grants and review activation stay as they are."
+          collapsible={false}
+          endContent={
+            <Button
+              label={"Cancel assignment"}
+              variant="secondary"
+              size="sm"
+              onClick={clearAssignment}
+            />
+          }
+        />
+      ) : null}
       {adding ? (
         <VStack gap={4} as="section">
           <Heading level={2}>Create a team</Heading>
@@ -303,7 +320,8 @@ export function TeamsPage() {
           label={"Find a team"}
           value={draft}
           onChange={(value) => setDraft(value)}
-          placeholder="Search team names"
+          hasClear
+          width={280}
           {...({
             maxLength: 80,
           } satisfies InputHTMLAttributes<HTMLInputElement>)}
@@ -312,19 +330,6 @@ export function TeamsPage() {
         <Button label={"Search"} variant="secondary" type="submit" />
       </HStack>
       <Freshness query={query} />
-      {assignRepository ? (
-        <Text as="p">
-          Choose the owning team for <strong>{repositoryName}</strong>. This
-          assigns retained review history; it leaves GitHub grants and
-          review activation as they are.{" "}
-          <Button
-            label={"Cancel assignment"}
-            variant="primary"
-            type="submit"
-            onClick={clearAssignment}
-          />
-        </Text>
-      ) : null}
       {query.data?.items.length ? (
         <VStack gap={4} tabIndex={0} role="region" aria-label="Teams">
           <Table>

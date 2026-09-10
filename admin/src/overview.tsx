@@ -1,3 +1,4 @@
+import { Banner } from "@astryxdesign/core/Banner";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
@@ -279,7 +280,7 @@ export function OverviewPage() {
   const scope = useScope();
   const { days, update } = useFilters();
   useEffect(() => {
-    document.title = "Review Agent · Overview";
+    document.title = "Review Agent · Statistics";
   }, []);
   const query = useQuery({
     queryKey: ["overview", days, "scoped", scope.key],
@@ -297,12 +298,12 @@ export function OverviewPage() {
     : [];
   return (
     <>
-      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-        <div>
-          <Heading level={1}>Statistics</Heading>
-          <Text as="p">Review activity and delivery for this deployment.</Text>
-        </div>
-      </HStack>
+      <VStack gap={2}>
+        <Heading level={1}>Statistics</Heading>
+        <Text as="p" color="secondary">
+          Review activity and delivery for this deployment.
+        </Text>
+      </VStack>
 
       <ActivityTabs />
       {/* Current work and worker presence answer a different question from the
@@ -314,32 +315,42 @@ export function OverviewPage() {
         <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
           <Stat
             label="Active requests"
-            value={data ? data.active_requests : null}
+            value={data?.active_requests}
+            hint="Queued and running now"
           />
           {data?.live_review_workers != null ? (
             <>
               <Stat
                 label="Online review workers"
-                value={data ? data.live_review_workers : null}
+                value={data.live_review_workers}
+                hint="Sent a heartbeat in the last 90 seconds"
               />
               <Stat
                 label="Review capacity"
-                value={data ? data.review_capacity : null}
-                hint="Concurrent reviews"
+                value={data.review_capacity}
+                hint="Concurrent reviews reported"
               />
             </>
           ) : null}
           <Stat
             label="Repositories"
-            value={data ? data.repository_count : null}
+            value={data?.repository_count}
+            hint="Known to this deployment"
           />
         </Grid>
         {data && data.live_review_workers === 0 && data.active_requests > 0 && (
-          <Text as="p">
-            {`${number.format(data.active_requests)} request${data.active_requests === 1 ? " is" : "s are"} in progress but no review worker has sent a heartbeat in the last 90 seconds.`}{" "}
-            Check <Link to="/operations">Operations</Link> for worker presence
-            and queue depth.
-          </Text>
+          <Banner
+            status="warning"
+            title="No review worker is reporting"
+            collapsible={false}
+            description={
+              <>
+                {`${number.format(data.active_requests)} request${data.active_requests === 1 ? " is" : "s are"} in progress but no review worker has sent a heartbeat in the last 90 seconds.`}{" "}
+                Check <Link to="/operations">Operations</Link> for worker
+                presence and queue depth.
+              </>
+            }
+          />
         )}
       </Section>
 

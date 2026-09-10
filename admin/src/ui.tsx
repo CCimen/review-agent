@@ -4,6 +4,7 @@ import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Selector } from "@astryxdesign/core/Selector";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import type { UseQueryResult } from "@tanstack/react-query";
@@ -183,10 +184,14 @@ export function Stat({
   attention,
 }: {
   label: string;
-  value: number | string | null;
+  /** `null` states that the deployment holds no record of this figure.
+   *  `undefined` means the answer has not arrived yet, which is a
+   *  different claim and must not be printed as "Not recorded". */
+  value: number | string | null | undefined;
   hint?: ReactNode;
   attention?: boolean;
 }) {
+  const pending = value === undefined;
   const missing = value === null;
   const text =
     typeof value === "number"
@@ -204,13 +209,21 @@ export function Stat({
         ) : null}
         <Text color="secondary">{label}</Text>
       </HStack>
-      <Text
-        size="2xl"
-        weight="semibold"
-        color={missing ? "secondary" : "primary"}
-      >
-        {text}
-      </Text>
+      {pending ? (
+        // The shimmer occupies the line box the figure will take, so the
+        // tile does not shift when the answer lands.
+        <HStack height={34} vAlign="center" aria-label={`${label}, loading`}>
+          <Skeleton width={72} height={24} radius={2} />
+        </HStack>
+      ) : (
+        <Text
+          size="2xl"
+          weight="semibold"
+          color={missing ? "secondary" : "primary"}
+        >
+          {text}
+        </Text>
+      )}
       {hint ? <Text type="supporting">{hint}</Text> : null}
     </VStack>
   );
@@ -313,7 +326,7 @@ export function Freshness<T>({
 }
 
 export function Empty({
-  title = "No matching activity",
+  title = "Nothing to show",
   level = 2,
   children,
 }: {

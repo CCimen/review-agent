@@ -444,7 +444,9 @@ function AuditFilters({
           label="Search audit events"
           value={draft.search}
           onChange={(value) => update("search", value)}
-          placeholder="Words in an actor, subject, reason, or change"
+          hasClear
+          width={280}
+          placeholder="Actor, subject, or reason"
           {...({
             maxLength: 200,
           } satisfies InputHTMLAttributes<HTMLInputElement>)}

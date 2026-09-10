@@ -631,6 +631,11 @@ export function History() {
   const repository = params.get("repository") ?? "";
   const status = params.get("status") ?? "all";
   const [prDraft, setPrDraft] = useState(params.get("pr_number") ?? "");
+  const filtered =
+    status !== "all" ||
+    params.has("repository") ||
+    params.has("pr_number") ||
+    params.has("before_id");
   const queryParams = new URLSearchParams({
     days: String(days),
     status,
@@ -744,14 +749,12 @@ export function History() {
         ) : (
           <Empty
             title={
-              params.has("repository") ||
-              params.has("pr_number") ||
-              status !== "all"
-                ? "No matching review requests"
-                : "No review requests yet"
+              filtered ? "No matching pull requests" : "No pull requests yet"
             }
           >
-            Change the state or reporting period, or request a review on GitHub.
+            {filtered
+              ? "Change the state, reporting period, or repository filter."
+              : "Pull requests appear here once a review is asked for on GitHub."}
           </Empty>
         ))}
       {query.data &&

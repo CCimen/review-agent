@@ -22,3 +22,16 @@
     var(--color-text-primary)
   );
 }
+
+/* The neutral theme has no hue to spend, so `accent` resolves to the same tone
+   as body text and a link inside a sentence is left with no cue at all. An
+   underline is the one signal that survives a greyscale palette, and WCAG 1.4.1
+   requires something other than colour. Astryx offers hasUnderline per link;
+   setting it here keeps every link consistent rather than depending on whether
+   a call site remembered the prop. Side navigation and tabs draw their own
+   selection and are not Link, so they are unaffected. */
+.astryx-link {
+  text-decoration: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.18em;
+}

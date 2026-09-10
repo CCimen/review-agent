@@ -92,6 +92,11 @@ export function ActivityPage() {
     setRepository(params.get("repository") ?? "");
     setPr(params.get("pr_number") ?? "");
   }, [params]);
+  const filtered =
+    status !== "all" ||
+    params.has("repository") ||
+    params.has("pr_number") ||
+    params.has("before_id");
   const query = useQuery({
     queryKey: ["activity", queryParams.toString(), "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -215,17 +220,17 @@ export function ActivityPage() {
       <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
         <Stat
           label="Active requests"
-          value={data?.active_requests ?? null}
+          value={data?.active_requests}
           hint="Across all reporting periods"
         />
         <Stat
           label="Published"
-          value={data?.window.published_reviews ?? null}
+          value={data?.window.published_reviews}
           hint={`Last ${days} days`}
         />
         <Stat
           label="Failed"
-          value={data?.window.failed_requests ?? null}
+          value={data?.window.failed_requests}
           hint="Includes earlier failures followed by a successful review"
           attention={(data?.window.failed_requests ?? 0) > 0}
         />
@@ -289,14 +294,14 @@ export function ActivityPage() {
               />
 
               <Button label="Filter" type="submit" />
-              {params.has("repository") ||
-              params.has("pr_number") ||
-              params.has("before_id") ? (
+              {filtered ? (
                 <Button
                   label="Clear filters"
                   variant="ghost"
                   onClick={() =>
-                    update({ repository: "", pr_number: "", before_id: "" })
+                    // The state segments are filters too, so the control
+                    // that offers to clear filters clears them as well.
+                    update({ status: "", repository: "", pr_number: "" })
                   }
                 />
               ) : null}
@@ -330,8 +335,12 @@ export function ActivityPage() {
               </Text>
             </VStack>
           ) : (
-            <Empty title="No matching requests">
-              Change the filters or request a review on GitHub.
+            <Empty
+              title={filtered ? "No matching requests" : "No requests yet"}
+            >
+              {filtered
+                ? "Change the state, reporting period, or repository filter."
+                : "Requests appear here once a review is asked for on GitHub."}
             </Empty>
           ))}
         {query.data &&

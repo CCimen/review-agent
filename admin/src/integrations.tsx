@@ -179,7 +179,11 @@ function IntegrationEditor({
               ))}
             </VStack>
             {teams.data?.items.length === 0 && (
-              <Text as="p">No teams match this search.</Text>
+              <Text as="p">
+                {search.trim()
+                  ? "No teams match this search."
+                  : "No teams yet. Create one from team management."}
+              </Text>
             )}
             {teams.data?.next_after_id !== null &&
               teams.data?.next_after_id !== undefined && (

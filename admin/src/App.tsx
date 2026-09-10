@@ -222,7 +222,9 @@ function Repositories({ current }: { current: Account }) {
         </HStack>
       </Form>
       <Freshness query={query} />
-      {query.data && totals && (
+      {/* With nothing matching, six zeroes and a sentence explaining what
+          they would have counted say less than the empty state below. */}
+      {query.data && totals && query.data.total > 0 && (
         <>
           <Grid gap={4} columns={{ minWidth: 160, max: 3, repeat: "fit" }}>
             <Stat label="Repositories" value={query.data.total} />
@@ -269,17 +271,16 @@ function Repositories({ current }: { current: Account }) {
             title={search ? "No matching repositories" : "No repositories yet"}
           >
             {search ? (
-              <>
-                No repository matches “{search}”. Try another name, or{" "}
+              <VStack gap={3} hAlign="center">
+                <Text color="secondary">
+                  No repository matches “{search}”. Try another name.
+                </Text>
                 <Button
-                  label={"clear the search"}
-                  variant="primary"
-                  type="submit"
-
+                  label={"Clear the search"}
+                  variant="secondary"
                   onClick={() => update({ search: "" })}
                 />
-                .
-              </>
+              </VStack>
             ) : (
               "Repositories appear after they have been registered by Review Agent. Request a review on GitHub to create review activity."
             )}

@@ -321,7 +321,13 @@ export function ScopeSelector() {
             ))}
           </List>
           {page?.items.length === 0 ? (
-            <Text>No teams match this search.</Text>
+            // An empty deployment is not a failed search. Saying "no matches"
+            // when nothing was typed blames the reader for the empty list.
+            <Text>
+              {draft.trim()
+                ? "No teams match this search."
+                : "No teams yet. Create one from team management."}
+            </Text>
           ) : null}
           {page?.next_after_id ? (
             <Button

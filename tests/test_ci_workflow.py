@@ -1262,6 +1262,13 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             calls = temporary / "calls.jsonl"
             fake_bin.mkdir()
 
+            (fake_bin / "pip.py").write_text(
+                "from pathlib import Path\n"
+                "import sys\n"
+                "Path(sys.argv[sys.argv.index('--target') + 1]).mkdir()\n",
+                encoding="utf-8",
+            )
+
             docker = fake_bin / "docker"
             docker.write_text(
                 textwrap.dedent(
@@ -1403,6 +1410,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                         f"ghcr.io/example/review-agent@{manifest_digest}"
                     ),
                     "PATH": f"{fake_bin}{os.pathsep}{environment['PATH']}",
+                    "PYTHONPATH": str(fake_bin),
                     "RAW_MANIFEST": json.dumps(manifest),
                     "SYFT_CMD": str(syft),
                 }
@@ -1456,7 +1464,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 call for call in recorded_calls if call[:2] == ["docker", "run"]
             )
             self.assertEqual(
-                f"ghcr.io/example/review-agent@{amd64_digest}", runtime_call[-4]
+                f"ghcr.io/example/review-agent@{amd64_digest}", runtime_call[-5]
             )
             checksums = (output / "SBOM-SHA256SUMS.txt").read_text(
                 encoding="utf-8"

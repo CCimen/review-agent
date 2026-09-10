@@ -51,6 +51,11 @@ python3 scripts/sync_install_skill.py --check
 git diff --check
 ```
 
+Python inventory generation requires Python with pip on the build host. A
+hash-pinned installer is mounted read-only into a temporary tool environment;
+the runtime image does not need pip or `ensurepip`. Installed runtime packages
+are recorded before tool installation and checked against the generated inventory.
+
 ## Publish a release
 
 1. Push the validated, reviewed candidate and create an unused exact SemVer

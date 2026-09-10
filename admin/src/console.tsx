@@ -215,7 +215,24 @@ export function ConsoleLayout({
                 (pathname === section.path ||
                   pathname.startsWith(`${section.path}/`)),
             )?.path ?? "/");
-  const title = pathname.startsWith("/history/")
+  /* The breadcrumb named the section it fell back to, so an address the
+     console does not serve read "Activity" above a page saying it was not
+     found. These are the routes reached from somewhere other than the rail. */
+  const offNav = ["/history", "/overview", "/access", "/account",
+                  "/repository-requests"];
+  const known =
+    pathname === "/" ||
+    offNav.includes(pathname) ||
+    pathname.startsWith("/history/") ||
+    pathname.startsWith("/findings/") ||
+    sections.some(
+      (section) =>
+        section.path !== "/" &&
+        (pathname === section.path || pathname.startsWith(`${section.path}/`)),
+    );
+  const title = !known
+    ? "Page not found"
+    : pathname.startsWith("/history/")
     ? "Review request"
     : pathname === "/history"
       ? "Pull requests"
@@ -223,7 +240,9 @@ export function ConsoleLayout({
         ? "Statistics"
         : pathname.startsWith("/findings/")
           ? "Finding"
-          : pathname === "/access"
+          : pathname === "/repository-requests"
+            ? "Repository requests"
+            : pathname === "/access"
             ? "Repository access"
             : pathname === "/account"
               ? "Your account"

@@ -440,6 +440,34 @@ export function TeamsPage() {
         ))}
       </datalist>
       <Freshness query={query} />
+      {/* A team that owns nothing filters activity, repositories and
+          statistics to nothing, and the console reported that as a column of
+          zeroes without ever naming the cause. Ownership is assigned from the
+          repositories page, which is the one place this says so. */}
+      {isAdmin(scope.current.role) &&
+      query.data?.items.length &&
+      query.data.items.every((team) => team.repository_count === 0) ? (
+        <Banner
+          status="info"
+          title={
+            query.data.items.length === 1
+              ? "This team owns no repositories"
+              : "No team owns a repository yet"
+          }
+          description="Until a repository belongs to a team, choosing that team shows no activity and no statistics, and the usage report has nothing to compare."
+          collapsible={false}
+        >
+          <HStack gap={3} wrap="wrap" align="center">
+            <Button
+              label="Assign repositories"
+              variant="secondary"
+              size="sm"
+              href="/repositories"
+              as={ScopedAnchor}
+            />
+          </HStack>
+        </Banner>
+      ) : null}
       {query.data?.items.length ? (
         <VStack gap={4} tabIndex={0} role="region" aria-label="Teams">
           <Table

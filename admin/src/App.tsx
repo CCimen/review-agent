@@ -69,6 +69,36 @@ const ModelConnectionsPage = lazy(() =>
   })),
 );
 
+function NotFound() {
+  useEffect(() => {
+    document.title = "Review Agent · Page not found";
+  }, []);
+  return (
+    <>
+      <VStack gap={3}>
+        <Heading level={1}>Page not found</Heading>
+        <Text as="p" color="secondary">
+          The console has no page at this address.
+        </Text>
+      </VStack>
+      <Empty title="Nothing here">
+        <VStack gap={3} hAlign="center">
+          <Text color="secondary">
+            The link may be out of date, or the page may have moved. Everything
+            the console can show is in the navigation.
+          </Text>
+          <Button
+            label="Go to activity"
+            variant="secondary"
+            href="/"
+            as={ScopedAnchor}
+          />
+        </VStack>
+      </Empty>
+    </>
+  );
+}
+
 function Repositories({ current }: { current: Account }) {
   const scope = useScope();
   const { params, days, update } = useFilters();
@@ -559,6 +589,7 @@ function Application({
                 path="/account"
                 element={<MyAccount current={current} />}
               />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </VStack>
         </Section>

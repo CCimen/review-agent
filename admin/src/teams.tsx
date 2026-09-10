@@ -394,15 +394,18 @@ export function TeamsPage() {
           title={`Assigning ${repositoryName}`}
           description="Pick its owning team below. This moves the retained review history; GitHub grants and review activation stay as they are."
           collapsible={false}
-          endContent={
+        >
+          {/* On a phone the header keeps an end-aligned action on its own row
+              and squeezes the title into three lines beside it. */}
+          <HStack gap={3} wrap="wrap" align="center">
             <Button
               label={"Cancel assignment"}
               variant="secondary"
               size="sm"
               onClick={clearAssignment}
             />
-          }
-        />
+          </HStack>
+        </Banner>
       ) : null}
       {adding ? (
         <VStack gap={4} as="section">

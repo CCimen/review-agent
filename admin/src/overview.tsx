@@ -18,6 +18,7 @@ import { ScopedLink as Link, useScope } from "./scope";
 import {
   Freshness,
   Period,
+  Prose,
   Section,
   Stat,
   Unknown,
@@ -422,25 +423,36 @@ export function OverviewPage() {
             }
           >
             <Activity counts={data.lifetime} />
-            <Text as="p" color="secondary">
-              {number.format(data.reported_attempts)} of{" "}
-              {number.format(data.started_attempts)} lifetime job attempts
-              reported token usage. Missing usage remains unknown; some leases
-              can finish before calling the model. Recording coverage does not
-              verify provider billing.
-            </Text>
-            <Text as="p" color="secondary">
-              Median publication{" "}
-              {duration(data.lifetime.median_publication_seconds) ?? "—"}
-              {" · "}
-              95th percentile{" "}
-              {duration(data.lifetime.p95_publication_seconds) ?? "—"}
-              {" · "}
-              Total tokens{" "}
-              {data.lifetime.total_tokens === null
-                ? "not recorded"
-                : number.format(data.lifetime.total_tokens)}
-            </Text>
+            <MetadataList
+              orientation="horizontal"
+              columns="multi"
+              label={{ position: "top" }}
+            >
+              <MetadataListItem label="Median publication">
+                {duration(data.lifetime.median_publication_seconds) ?? "—"}
+              </MetadataListItem>
+              <MetadataListItem label="95th percentile">
+                {duration(data.lifetime.p95_publication_seconds) ?? "—"}
+              </MetadataListItem>
+              <MetadataListItem label="Total tokens">
+                {data.lifetime.total_tokens === null
+                  ? "Not recorded"
+                  : number.format(data.lifetime.total_tokens)}
+              </MetadataListItem>
+            </MetadataList>
+            {/* Before any attempt has run, "0 of 0 reported token usage" and
+                the reasons a figure might be missing describe nothing. */}
+            {data.started_attempts > 0 ? (
+              <Prose>
+                <Text as="p" color="secondary">
+                  {number.format(data.reported_attempts)} of{" "}
+                  {number.format(data.started_attempts)} lifetime job attempts
+                  reported token usage. Missing usage remains unknown; some
+                  leases can finish before calling the model. Recording
+                  coverage does not verify provider billing.
+                </Text>
+              </Prose>
+            ) : null}
           </Section>
         </>
       )}

@@ -101,6 +101,10 @@ jobs:
             docker compose --env-file .env.example -f compose.yaml -f compose.admin.yaml config --quiet
           docker build --file admin/Dockerfile --tag review-agent-admin:ci .
           sh ./scripts/check_admin_image.sh review-agent-admin:ci
+          inventory_dir="$(mktemp -d)"
+          CYCLONEDX_SPEC_VERSION=1.7 sh ./scripts/generate_python_runtime_sbom.sh \
+            review-agent-admin:ci /opt/admin-venv/bin/python \
+            "$inventory_dir/admin.cyclonedx.json"
 
   dependency-scan:
     name: Dependency vulnerabilities

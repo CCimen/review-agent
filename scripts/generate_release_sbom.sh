@@ -169,17 +169,8 @@ generate_image_sboms() {
     done
 
     runtime_asset="${component}-python-runtime-${release_tag}-linux-amd64.cyclonedx.json"
-    docker run --rm \
-        --platform linux/amd64 \
-        --user "$(id -u):$(id -g)" \
-        -e HOME=/tmp/review-agent-cyclonedx-home \
-        -e CYCLONEDX_SPEC_VERSION \
-        -v "$output_dir:/out" \
-        -v "$root/scripts/generate_python_runtime_sbom.sh:/cdx/generate-python-runtime-sbom.sh:ro" \
-        -v "$root/requirements-release-sbom.txt:/cdx/requirements-release-sbom.txt:ro" \
-        --entrypoint /bin/sh \
-        "$amd64_digest_ref" \
-        /cdx/generate-python-runtime-sbom.sh "/out/$runtime_asset" "$runtime_python"
+    sh "$root/scripts/generate_python_runtime_sbom.sh" \
+        "$amd64_digest_ref" "$runtime_python" "$output_dir/$runtime_asset"
 
     jq -e --arg spec "$CYCLONEDX_SPEC_VERSION" '
       .bomFormat == "CycloneDX"

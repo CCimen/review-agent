@@ -1,27 +1,51 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 2 ]; then
-    printf '%s\n' "usage: generate_python_runtime_sbom.sh /out/<name>.cyclonedx.json <runtime-python>" >&2
+if [ "$#" -ne 3 ]; then
+    printf '%s\n' "usage: generate_python_runtime_sbom.sh <image> <runtime-python> <output.cyclonedx.json>" >&2
     exit 2
 fi
 
-output_file=$1
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+image=$1
+runtime_python=$2
+output_file=$3
 case "$output_file" in
-    /out/*.cyclonedx.json) ;;
+    /*.cyclonedx.json) ;;
     *)
-        printf '%s\n' "output must be a CycloneDX JSON file under /out" >&2
+        printf '%s\n' "output must be an absolute CycloneDX JSON path" >&2
         exit 2
         ;;
 esac
 
 : "${CYCLONEDX_SPEC_VERSION:?CYCLONEDX_SPEC_VERSION is required}"
 
-runtime_python=$2
 case "$runtime_python" in
     /opt/hermes/.venv/bin/python|/opt/admin-venv/bin/python) ;;
     *) echo "Unsupported release runtime Python" >&2; exit 2 ;;
 esac
+
+output_dir=$(CDPATH= cd -- "$(dirname -- "$output_file")" && pwd)
+bootstrap_dir=$(mktemp -d)
+trap 'rm -r -- "$bootstrap_dir"' EXIT
+# pip is pure Python, so this read-only bootstrap works with either runtime.
+python3 -m pip install --quiet --no-cache-dir --disable-pip-version-check \
+    --no-compile --no-deps --only-binary=:all: --require-hashes \
+    --target "$bootstrap_dir/pip" \
+    --requirement "$root/requirements-release-sbom-bootstrap.txt"
+
+docker run --rm -i \
+    --user "$(id -u):$(id -g)" \
+    -e HOME=/tmp/review-agent-cyclonedx-home \
+    -e CYCLONEDX_SPEC_VERSION \
+    -v "$output_dir:/out" \
+    -v "$bootstrap_dir/pip:/cdx/pip:ro" \
+    -v "$root/requirements-release-sbom.txt:/cdx/requirements-release-sbom.txt:ro" \
+    --entrypoint /bin/sh \
+    "$image" -s -- "/out/$(basename -- "$output_file")" "$runtime_python" <<'CONTAINER'
+set -eu
+output_file=$1
+runtime_python=$2
 runtime_distributions=/tmp/review-agent-runtime-distributions.json
 tool_venv=/tmp/review-agent-cyclonedx-tool
 tool_requirements=/cdx/requirements-release-sbom.txt
@@ -58,8 +82,8 @@ for distribution in metadata.distributions(path=paths):
 print(json.dumps(sorted(rows, key=lambda row: row["name"].lower())))
 PY
 
-"$runtime_python" -m venv "$tool_venv"
-"$tool_venv/bin/python" -m pip install \
+"$runtime_python" -m venv --without-pip "$tool_venv"
+PYTHONPATH=/cdx/pip "$tool_venv/bin/python" -m pip install \
     --quiet \
     --no-cache-dir \
     --disable-pip-version-check \
@@ -126,3 +150,4 @@ print(
     f"against {len(components)} CycloneDX components."
 )
 PY
+CONTAINER

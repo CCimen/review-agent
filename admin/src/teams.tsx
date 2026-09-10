@@ -106,7 +106,7 @@ export function ConfirmAction({
       <HStack gap={3} wrap="wrap" align="center">
         <Button
           label={label}
-          variant={danger ? "destructive" : "secondary"}
+          variant="secondary"
           type="button"
           aria-expanded={open}
           onClick={() => {
@@ -132,7 +132,7 @@ export function ConfirmAction({
           <HStack gap={3} wrap="wrap" vAlign="center">
             <Button
               label={action.isPending ? "Saving…" : label}
-              variant="primary"
+              variant={danger ? "destructive" : "primary"}
               type="submit"
               isDisabled={action.isPending}
             />

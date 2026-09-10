@@ -17,6 +17,9 @@ on:
       - 'skills/install-review-agent/**'
       - 'website/**'
   workflow_dispatch:
+  workflow_run:
+    workflows: [Publish container image]
+    types: [completed]
 
 permissions:
   contents: read
@@ -27,10 +30,14 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444

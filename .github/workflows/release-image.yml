@@ -104,7 +104,6 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ github.event.release.tag_name }}
-            type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
 
       - name: Build and publish image
         id: push
@@ -112,8 +111,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             REVIEW_AGENT_VERSION=${{ github.event.release.tag_name }}
@@ -135,7 +133,6 @@ jobs:
           images: ${{ env.IMAGE_NAME }}-admin
           tags: |
             type=raw,value=${{ github.event.release.tag_name }}
-            type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}
 
       - name: Build and publish admin image
         id: push-admin
@@ -144,8 +141,7 @@ jobs:
           context: .
           file: admin/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-admin.outputs.tags }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }}-admin,push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta-admin.outputs.labels }}
           build-args: |
             REVIEW_AGENT_VERSION=${{ github.event.release.tag_name }}
@@ -512,3 +508,51 @@ jobs:
             }
           ' release-body-current.md > release-body-updated.md
           gh release edit "$RELEASE_TAG" --notes-file release-body-updated.md
+
+  promote:
+    name: Publish qualified version tags
+    needs: [verify, publish, sbom]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Confirm release tag still targets verified source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+        run: |
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq .sha)" = "$SOURCE_SHA"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish qualified version tags
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}
+          ADMIN_IMAGE_DIGEST: ${{ needs.publish.outputs.admin_image_digest }}
+        run: |
+          image_name="ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          for component in runtime admin; do
+            image="$image_name"
+            digest="$IMAGE_DIGEST"
+            if [ "$component" = admin ]; then
+              image="${image_name}-admin"
+              digest="$ADMIN_IMAGE_DIGEST"
+            fi
+            docker buildx imagetools create \
+              --tag "${image}:${RELEASE_TAG}" "${image}@${digest}"
+            published_digest="$(docker buildx imagetools inspect \
+              --format '{{.Manifest.Digest}}' "${image}:${RELEASE_TAG}")"
+            test "$published_digest" = "$digest"
+          done

@@ -88,9 +88,9 @@ search and task-based navigation. Key pages:
 | Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
 | Add repository instructions and platform context | [Repository context](docs/REPOSITORY_CONTEXT.md) |
 | Try optional graph context | [Code graph pilot](docs/CODE_GRAPH.md) |
-| Inspect team reviews and manage access, repository requests, audit, and platform policy | [Admin panel (source preview)](docs/ADMIN_PANEL.md) |
-| Connect an application to scoped reports with an expiring credential | [Application integrations (source preview)](docs/ADMIN_PANEL.md#application-integrations) |
-| Connect organization sign-in and provision accounts | [OIDC and SCIM (source preview)](docs/ADMIN_PANEL.md#organization-sign-in-and-scim) |
+| Inspect team reviews and manage access, repository requests, audit, and platform policy | [Admin panel](docs/ADMIN_PANEL.md) |
+| Connect an application to scoped reports with an expiring credential | [Application integrations](docs/ADMIN_PANEL.md#application-integrations) |
+| Connect organization sign-in and provision accounts | [OIDC and SCIM](docs/ADMIN_PANEL.md#organization-sign-in-and-scim) |
 | Allow staff to register their own accounts | [Registration allowlist and SMTP](docs/ADMIN_PANEL.md#self-registration) |
 | Operate or recover it | [Operations](docs/OPERATIONS.md) |
 | Assess trust boundaries | [Security](docs/SECURITY.md) |
@@ -103,6 +103,13 @@ source revision, include the frontend dependency inventory, and show the admin
 build version in the console. Compose can build locally or use qualified
 release digests through `REVIEW_AGENT_IMAGE` and `REVIEW_AGENT_ADMIN_IMAGE`; see
 [Deployment](docs/DEPLOYMENT.md#choose-an-image).
+
+The runtime, admin API, and frontend stay in this repository so API and schema
+changes can ship together. `admin/` owns the browser application; its OpenAPI
+and TypeScript types are generated from the Python API. The admin image serves
+the compiled frontend and API on one origin. Completed changes merge into
+`main`; [release qualification](docs/OPERATIONS.md#maintaining-a-release)
+produces the image pair that organizations deploy.
 
 ## What it does
 

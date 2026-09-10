@@ -784,6 +784,50 @@ or repository text, so scrub them before committing or sharing.
 
 ## Updating And Validation
 
+### Maintaining a release
+
+The runtime and console belong to one repository. Keep API changes, the
+generated OpenAPI and TypeScript contracts, migrations, and their consumers in
+the same reviewed change. Merge completed features into `main` after the
+required CI check passes. A maintained release branch may receive reviewed
+backports; it must pass the same release checks. Deployments select a qualified
+release rather than following a development branch.
+
+1. Choose an unused SemVer tag for the reviewed commit. Update `REVISION` in
+   `scripts/generate_llms_docs.py` and the versioned image example in
+   `docs/REPOSITORY_CONTEXT.md`, regenerate the onboarding documents, and
+   commit the version and any changed operator guidance together. Use a
+   prerelease tag while qualifying a release candidate.
+2. Create the Git tag at that exact commit and publish its GitHub Release.
+   **Publish container image** verifies the tag, documentation version, and
+   complete CI suite. It builds both images once, pushes them by digest, then
+   smoke-tests and scans those exact images. It attaches checksummed, attested
+   inventories and vulnerability evidence before publishing the version tags.
+3. Wait for the entire workflow to succeed. Download `IMAGE-DIGESTS.txt` and
+   `SOURCE-SHA.txt`, and retain both image references with the deployment
+   record. Registry attestation proves an image's origin; workflow success
+   establishes that the release passed qualification.
+4. The documentation workflow builds from `main`. The version-bump merge can
+   fail its release-evidence gate while qualification is pending. A successful
+   image workflow automatically retries documentation publication. If needed,
+   run **Publish documentation** manually from `main` after qualification.
+   Backports leave `main`'s current documentation version unchanged.
+5. Upgrade through the platform's [deployment procedure](DEPLOYMENT.md#upgrade-and-roll-back-production).
+   Preserve secrets, environment settings, persistent storage, and network
+   configuration. Updating an image reference does not require replacing the
+   environment with a fresh example file.
+
+If a scan or image smoke fails, version-tag promotion does not run. Inspect the
+failed job and its retained reports. A transient registry or evidence-upload
+failure can be retried with **Re-run failed jobs**, preserving the already
+built digests. If promotion stops after one tag, retry the failed promotion
+job; consumers must wait for both. A source fix needs a new reviewed commit
+and release tag. Do not move an existing Git tag or treat a fresh build as the
+same deployment artifact. See [backup and recovery](#backup-and-recovery)
+before reverting images across a schema or authorization change.
+
+### Runtime dependencies
+
 `HERMES_IMAGE` is pinned to the Hermes v2026.8.31 release tag and its immutable
 multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency

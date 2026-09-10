@@ -7,15 +7,21 @@ RUN npm run build \
     && npm sbom --sbom-format=cyclonedx --package-lock-only > frontend.cyclonedx.json \
     && sha256sum package-lock.json > frontend-lock.sha256
 
-FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f
+FROM python:3.14.7-slim-trixie@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/bootstrap/plugins \
     PATH=/opt/admin-venv/bin:$PATH
 WORKDIR /app
 COPY requirements-admin.txt /app/requirements-admin.txt
+# Debian package maintenance needs Perl, so remove it only after installation.
+# The API needs neither Perl nor pip and its vendored packages at runtime.
 RUN python -m venv /opt/admin-venv \
-    && /opt/admin-venv/bin/pip install --no-cache-dir --disable-pip-version-check -r requirements-admin.txt
+    && /opt/admin-venv/bin/pip install --no-cache-dir --disable-pip-version-check -r requirements-admin.txt \
+    && /opt/admin-venv/bin/python -m pip uninstall --yes pip \
+    && /usr/local/bin/python -m pip uninstall --yes pip \
+    && rm -rf /usr/local/lib/python3.14/ensurepip \
+    && dpkg --purge --force-remove-essential perl-base
 COPY bootstrap/plugins/review_agent_tools /app/bootstrap/plugins/review_agent_tools
 COPY --from=frontend /build/dist /app/admin/dist
 COPY --from=frontend /build/frontend.cyclonedx.json /build/frontend-lock.sha256 /app/share/review-agent/

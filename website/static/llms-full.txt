@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.4.0-rc.4
+Runtime release selected by `llms.txt`: v0.4.0-rc.5
 
 ---
 
@@ -321,7 +321,7 @@ result.
 Title: Deploy Review Agent
 Canonical URL: https://ccimen.github.io/review-agent/docs/deployment
 Status: current
-Last verified: 2026-09-07
+Last verified: 2026-09-10
 
 # Deploy Review Agent
 
@@ -341,8 +341,8 @@ gateway, Hermes `8642`, and PostgreSQL off the shared proxy network.
 
 The optional [admin panel](ADMIN_PANEL.md) adds a separate image and an authenticated service
 on port `8090` in the same deployment. It provides repository statistics, review
-history, email/password login, and basic user roles. It is currently a source
-preview; use its documented version and account-creation requirements.
+history, team access, and platform administration. Use its documented image,
+migration, and account-creation requirements.
 
 The GitHub App receives review commands directly. The private gateway uses its
 key for bounded source and publication operations; Hermes and the publisher do
@@ -377,20 +377,43 @@ reuse a webhook secret as a GitHub token or database password.
 ## Choose an image
 
 For local development, keep `REVIEW_AGENT_IMAGE=review-agent:local` and start
-Compose with `--build`. Each published release also creates one attested
-`linux/amd64` and `linux/arm64` image in GitHub Container Registry. Production
-deployments must use the manifest digest from the release's
-`IMAGE-DIGESTS.txt`, not a tag:
+Compose with `--build`. A qualified release supplies two images for
+`linux/amd64` and `linux/arm64`:
+
+| Image | Contents | Used by |
+| --- | --- | --- |
+| `review-agent` | Hermes and the Review Agent runtime | Initialization jobs, admission, gateway, workers, and publisher |
+| `review-agent-admin` | Admin API and compiled browser application | Optional operator console |
+
+Both images come from one source commit and release version. Their image
+digests differ. The admin image serves the frontend and API together; it has
+no Node.js runtime. Keep the source checkout, Compose files, and migration image
+on the same release as the services.
+
+Wait for **Publish container image** to succeed, then use the manifest
+references from that release's `IMAGE-DIGESTS.txt`:
 
 ```bash
 export REVIEW_AGENT_IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
 docker compose pull
 ```
 
-Prereleases receive only their exact version tag. Stable releases also update
-`latest`; production deployments should still pin the digest. Pin PostgreSQL as
-well. For a Compose deployment, resolve the selected PostgreSQL tag once and
-store the resulting repository digest as `POSTGRES_IMAGE`:
+Set `REVIEW_AGENT_ADMIN_IMAGE` to the admin manifest reference from that same
+file when installing the console. Every release publishes only its exact
+version tag, after both images pass qualification. Production deployments pin
+digests because a rebuild can change image contents without changing source.
+The registry cannot update two tags atomically; a single available tag does
+not establish that the release workflow has completed.
+
+The examples use the upstream `ghcr.io/ccimen/review-agent` package. Fork
+maintainers publish under `ghcr.io/<owner>/<repository>` and
+`ghcr.io/<owner>/<repository>-admin`, in lowercase. The workflow derives these
+names from its own GitHub repository. Organizations using upstream releases
+can keep the upstream image references with their own GitHub App, database,
+hostnames, and secrets.
+
+Pin PostgreSQL as well. For a Compose deployment, resolve the selected
+PostgreSQL tag once and store the resulting repository digest as `POSTGRES_IMAGE`:
 
 ```bash
 docker pull postgres:17-alpine
@@ -402,14 +425,15 @@ printf 'Review Agent: %s\nPostgreSQL: %s\n' \
   "$REVIEW_AGENT_IMAGE" "$POSTGRES_IMAGE"
 ```
 
-Record both exact references with the deployment. The OpenShift template uses
+Record all selected image references with the deployment. The OpenShift template uses
 an external database, so its operator must pin and record that database image
 separately. Do not combine a PostgreSQL major-version change with a Review Agent
 upgrade.
 
 GitHub creates the first package as private even for a public repository. After
-the first release, open **Packages > review-agent > Package settings > Change
-visibility** to make anonymous pulls available. Public visibility cannot be
+the first release, check the visibility and repository access of both packages.
+Open **Packages > package name > Package settings > Change visibility** to
+make anonymous pulls available. Public visibility cannot be
 reversed. See GitHub's guides to
 [publishing container images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)
 and [package visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
@@ -1192,8 +1216,7 @@ keeps the conversation focused on real owner decisions instead of asking you to
 translate the deployment guide.
 
 For an optional operator UI, also request the [admin panel](ADMIN_PANEL.md).
-It is currently a source preview, so a release-based installation must wait for
-a qualified release containing both images. The agent can prepare the optional
+Use a qualified release containing both runtime and admin images. The agent can prepare the optional
 Compose service and hostname; the owner enters the first platform-owner password in
 the container terminal. New users receive team membership, and repository
 requests require platform approval. Do not add account passwords to the non-secret plan.
@@ -1802,7 +1825,7 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.4.0-rc.4 \
+  ghcr.io/ccimen/review-agent:v0.4.0-rc.5 \
   repository-context validate /repo
 ```
 
@@ -2101,8 +2124,8 @@ token use, and resource use on the deployment hardware.
 
 Title: Review Agent operator console
 Canonical URL: https://ccimen.github.io/review-agent/docs/admin-panel
-Status: transitional
-Last verified: 2026-09-09
+Status: current
+Last verified: 2026-09-10
 
 # Review Agent operator console
 
@@ -2112,11 +2135,12 @@ and inspect the audit log. Platform settings and provider credentials belong to
 owners. GitHub remains the source of review requests and the destination for
 published reviews.
 
-This feature is available in the source candidate and has not yet been released.
-The current v0.4.0-rc.4 image does not include it. Build both images from the same
-candidate checkout, or use a future qualified release that supplies both
+The console requires a qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 27.
+an older migration image: the current admin API requires PostgreSQL schema 28.
+Releases through v0.4.0-rc.4 do not include the
+console. For a source build, build both images from the same checkout and run
+its migrations before starting the services.
 
 After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
@@ -2799,6 +2823,12 @@ backup and migrations. The panel is one additional service in the existing
 Compose application, with its own image and hostname. It serves its compiled
 frontend and API together on port `8090`; Node.js is used only during the build.
 
+The supplied console overlay works with Docker Compose and platforms that run
+Compose applications. The current OpenShift template deploys the main runtime
+only. Installing the console there also requires its Deployment, Service,
+HTTPS Route, and network-policy access to the private database and gateway;
+these resources are not supplied by that template.
+
 Both release images carry the same release tag and source revision, with
 different immutable image digests. The console footer and `GET /api/version`
 identify the running admin build. This metadata is baked into the image;
@@ -2806,7 +2836,9 @@ deployment environment variables do not change it. Source checkouts and local
 builds default to `development` with no claimed source revision. A local build
 is not a qualified release.
 
-The admin image uses Python 3.14.7. The main image retains the Python runtime
+The admin image uses Python 3.14.7 on Debian 13. Its runtime omits pip, ensurepip,
+and Perl after dependency installation; apply updates by replacing the image.
+The main image retains the Python runtime
 supported by the pinned Hermes image; see [runtime updates](OPERATIONS.md#updating-and-validation).
 The admin build also includes an npm dependency inventory outside the served
 web assets. Qualified releases attach the inventory with their other
@@ -4473,6 +4505,50 @@ or repository text, so scrub them before committing or sharing.
 
 ## Updating And Validation
 
+### Maintaining a release
+
+The runtime and console belong to one repository. Keep API changes, the
+generated OpenAPI and TypeScript contracts, migrations, and their consumers in
+the same reviewed change. Merge completed features into `main` after the
+required CI check passes. A maintained release branch may receive reviewed
+backports; it must pass the same release checks. Deployments select a qualified
+release rather than following a development branch.
+
+1. Choose an unused SemVer tag for the reviewed commit. Update `REVISION` in
+   `scripts/generate_llms_docs.py` and the versioned image example in
+   `docs/REPOSITORY_CONTEXT.md`, regenerate the onboarding documents, and
+   commit the version and any changed operator guidance together. Use a
+   prerelease tag while qualifying a release candidate.
+2. Create the Git tag at that exact commit and publish its GitHub Release.
+   **Publish container image** verifies the tag, documentation version, and
+   complete CI suite. It builds both images once, pushes them by digest, then
+   smoke-tests and scans those exact images. It attaches checksummed, attested
+   inventories and vulnerability evidence before publishing the version tags.
+3. Wait for the entire workflow to succeed. Download `IMAGE-DIGESTS.txt` and
+   `SOURCE-SHA.txt`, and retain both image references with the deployment
+   record. Registry attestation proves an image's origin; workflow success
+   establishes that the release passed qualification.
+4. The documentation workflow builds from `main`. The version-bump merge can
+   fail its release-evidence gate while qualification is pending. A successful
+   image workflow automatically retries documentation publication. If needed,
+   run **Publish documentation** manually from `main` after qualification.
+   Backports leave `main`'s current documentation version unchanged.
+5. Upgrade through the platform's [deployment procedure](DEPLOYMENT.md#upgrade-and-roll-back-production).
+   Preserve secrets, environment settings, persistent storage, and network
+   configuration. Updating an image reference does not require replacing the
+   environment with a fresh example file.
+
+If a scan or image smoke fails, version-tag promotion does not run. Inspect the
+failed job and its retained reports. A transient registry or evidence-upload
+failure can be retried with **Re-run failed jobs**, preserving the already
+built digests. If promotion stops after one tag, retry the failed promotion
+job; consumers must wait for both. A source fix needs a new reviewed commit
+and release tag. Do not move an existing Git tag or treat a fresh build as the
+same deployment artifact. See [backup and recovery](#backup-and-recovery)
+before reverting images across a schema or authorization change.
+
+### Runtime dependencies
+
 `HERMES_IMAGE` is pinned to the Hermes v2026.8.31 release tag and its immutable
 multi-platform digest in `.env.example`, `compose.yaml`, and `Dockerfile`.
 Update both the human-readable tag and digest through a reviewed dependency
@@ -4959,8 +5035,8 @@ as unpinned packages, suspicious dependency additions, removed lockfile
 discipline, or a dangerous version change. That is still LLM review, not a CVE
 database lookup.
 
-Repository CI runs one pinned Trivy policy against `requirements.txt`,
-`install/package-lock.json`, and `website/package-lock.json`. Release CI runs the
+Repository CI runs one pinned Trivy policy against all shipped Python
+requirements and the admin, installer, and documentation npm lockfiles. Release CI runs the
 same policy against the exact published `linux/amd64` and `linux/arm64` digests.
 Every JSON report the scanner produces is retained.
 
@@ -4977,10 +5053,25 @@ The policy is intentionally small:
   the exact reports, machine-readable policy receipt, and generated human
   summary remain release evidence.
 
+Temporary npm overrides belong to the package manifest that consumes them:
+
+| Manifest | Override | Reason and removal condition |
+| --- | --- | --- |
+| `admin/package.json` | `js-yaml` 4.3.2 | Fix [CVE-2026-84375](https://github.com/advisories/GHSA-2883-xcg3-v3hh) in the Swagger UI parser and OpenAPI generator. Remove when the parent packages resolve a patched parser without the override; rebuild and check the API reference. |
+| `website/package.json` | `js-yaml` 4.3.2 and `svgo` 3.3.5 on their affected major lines | Fix [CVE-2026-84375](https://github.com/advisories/GHSA-2883-xcg3-v3hh) and [CVE-2026-84370](https://github.com/advisories/GHSA-w27v-7q3p-w38r). Remove each override when the documentation toolchain resolves its patched dependency normally. |
+| `website/package.json` | `serialize-javascript` 7.1.1 | Keep the build toolchain above the fixes for [code injection](https://github.com/advisories/GHSA-5c6j-r48x-rmvq) and [CPU exhaustion](https://github.com/advisories/GHSA-qj8w-gfj5-8c6v). Remove when upstream dependencies select a compatible patched version. |
+
+Recheck overrides when updating a parent dependency; a forced older major can
+break a newer parent. Regenerate the lockfile, run the affected build, and scan
+the resolved dependencies before removing or changing an override.
+
 The write-authorized evidence job appends the generated summary to the release
 notes only after the exact platform scans pass and the attested evidence files
 are attached. A release image is not qualified for deployment until this job
-succeeds.
+succeeds. A separate job then publishes each exact version tag from its
+qualified manifest digest and verifies that the tag preserves that digest.
+There is no moving `latest` alias. Wait for the full release workflow before
+installing either image.
 
 Source reports remain available as workflow artifacts for 30 days. Successful
 release reports are checksummed, attested, and attached to the GitHub release;

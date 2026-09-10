@@ -89,8 +89,19 @@ class PythonBundleWorkflowTests(unittest.TestCase):
     def test_pages_publishes_only_a_qualified_documented_release(self):
         document = workflow(DOCS_WORKFLOW)
         self.assertEqual(mapping(document["permissions"]), {"contents": "read"})
+        release_event = mapping(mapping(document["on"])["workflow_run"])
+        self.assertEqual(["Publish container image"], release_event["workflows"])
+        self.assertEqual(["completed"], release_event["types"])
         jobs = mapping(document["jobs"])
         build = mapping(jobs["build"])
+        self.assertEqual(
+            "${{ github.event_name != 'workflow_run' || "
+            "github.event.workflow_run.conclusion == 'success' }}",
+            build["if"],
+        )
+        checkout = mapping(named_step(build, "Check out repository")["with"])
+        self.assertEqual("refs/heads/main", checkout["ref"])
+        self.assertEqual("false", checkout["persist-credentials"])
         gate = named_step(build, "Confirm documented release is qualified")
         self.assertEqual("${{ github.token }}", mapping(gate["env"])["GH_TOKEN"])
         self.assertEqual("${{ github.repository }}", mapping(gate["env"])["GH_REPO"])
@@ -188,6 +199,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("./scripts/check_postgres_schema.sh", source)
         self.assertIn("docker build --tag review-agent:ci .", source)
         self.assertIn("bash ./scripts/check_image.sh review-agent:ci", source)
+        self.assertIn("sh ./scripts/check_admin_image.sh review-agent-admin:ci", source)
         image_check = IMAGE_CHECK.read_text(encoding="utf-8")
         for runtime_contract in (
             "review-agent-admission",
@@ -374,7 +386,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             job = mapping(value)
             job_permissions = mapping(job["permissions"]) if "permissions" in job else {}
             if any(level == "write" for level in job_permissions.values()):
-                self.assertIn(job_id, {"publish", "sbom"})
+                self.assertIn(job_id, {"publish", "sbom", "promote"})
 
         self.assertIn("source_sha: ${{ steps.source.outputs.sha }}", source)
         self.assertIn("python3 scripts/validate_release_tag.py", source)
@@ -446,10 +458,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         self.assertIn("platforms: linux/amd64,linux/arm64", source)
         self.assertIn("type=raw,value=${{ github.event.release.tag_name }}", source)
-        self.assertIn(
-            "type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}",
-            source,
-        )
+        self.assertNotIn("value=latest", source)
         self.assertIn("password: ${{ secrets.GITHUB_TOKEN }}", source)
         self.assertIn("provenance: mode=max", source)
         self.assertIn("sbom: true", source)
@@ -460,6 +469,93 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("subject-name: ${{ env.IMAGE_NAME }}", source)
         self.assertIn("subject-digest: ${{ steps.push.outputs.digest }}", source)
         self.assertIn("push-to-registry: true", source)
+
+    def test_release_tags_wait_for_qualified_image_pair(self):
+        jobs = mapping(workflow(RELEASE_WORKFLOW)["jobs"])
+        publish = mapping(jobs["publish"])
+        for name, image in (
+            ("Build and publish image", "${{ env.IMAGE_NAME }}"),
+            ("Build and publish admin image", "${{ env.IMAGE_NAME }}-admin"),
+        ):
+            inputs = mapping(named_step(publish, name)["with"])
+            self.assertNotIn("tags", inputs)
+            self.assertEqual(
+                f"type=image,name={image},push-by-digest=true,name-canonical=true,push=true",
+                inputs["outputs"],
+            )
+        promote = mapping(jobs["promote"])
+        self.assertEqual({"verify", "publish", "sbom"}, needs(promote))
+        self.assertNotIn("if", promote)
+        self.assertEqual(
+            {"contents": "read", "packages": "write"},
+            mapping(promote["permissions"]),
+        )
+        step = named_step(promote, "Publish qualified version tags")
+        environment = mapping(step["env"])
+        self.assertEqual(
+            "${{ needs.publish.outputs.image_digest }}", environment["IMAGE_DIGEST"]
+        )
+        self.assertEqual(
+            "${{ needs.publish.outputs.admin_image_digest }}",
+            environment["ADMIN_IMAGE_DIGEST"],
+        )
+        step_names = [str(mapping(item).get("name")) for item in sequence(promote["steps"])]
+        self.assertLess(
+            step_names.index("Confirm release tag still targets verified source"),
+            step_names.index("Publish qualified version tags"),
+        )
+
+    def test_release_promotion_preserves_digests_and_stops_on_registry_mismatch(self):
+        job = mapping(mapping(workflow(RELEASE_WORKFLOW)["jobs"])["promote"])
+        command = str(named_step(job, "Publish qualified version tags")["run"])
+        runtime_digest = "sha256:" + "a" * 64
+        admin_digest = "sha256:" + "b" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            docker = temporary / "docker"
+            docker.write_text(
+                textwrap.dedent("""\
+                    #!/usr/bin/env python3
+                    import json, os, sys
+                    from pathlib import Path
+                    if sys.argv[1:4] == ["buildx", "imagetools", "create"]:
+                        with Path("published.jsonl").open("a") as output:
+                            output.write(json.dumps(sys.argv[4:]) + "\\n")
+                    elif sys.argv[1:4] == ["buildx", "imagetools", "inspect"]:
+                        name = "ADMIN_IMAGE_DIGEST" if "-admin:" in sys.argv[-1] else "IMAGE_DIGEST"
+                        print(os.environ.get("REGISTRY_DIGEST", os.environ[name]))
+                    else:
+                        sys.exit(2)
+                    """),
+                encoding="utf-8",
+            )
+            docker.chmod(0o755)
+            environment = {
+                **os.environ,
+                "PATH": f"{temporary}:{os.environ['PATH']}",
+                "GITHUB_REPOSITORY": "Example/Review-Agent",
+                "RELEASE_TAG": "v1.2.3-rc.1",
+                "IMAGE_DIGEST": runtime_digest,
+                "ADMIN_IMAGE_DIGEST": admin_digest,
+            }
+            for mismatch in (False, True):
+                with self.subTest(registry_mismatch=mismatch):
+                    if mismatch:
+                        environment["REGISTRY_DIGEST"] = "sha256:" + "c" * 64
+                    result = subprocess.run(
+                        ["bash", "-c", f"set -euo pipefail\n{command}"],
+                        cwd=temporary, env=environment, capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, not mismatch, result.stderr)
+                    receipts = temporary / "published.jsonl"
+                    images = [("ghcr.io/example/review-agent", runtime_digest)]
+                    if not mismatch:
+                        images.append(("ghcr.io/example/review-agent-admin", admin_digest))
+                    self.assertEqual(
+                        [json.loads(line) for line in receipts.read_text().splitlines()],
+                        [["--tag", f"{image}:v1.2.3-rc.1", f"{image}@{digest}"] for image, digest in images],
+                    )
+                    receipts.unlink()
 
     def test_build_metadata_and_frontend_inventory_preserve_release_identity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1110,6 +1206,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             'bash ./scripts/check_image.sh "$AMD64_IMAGE"',
             str(smoke["run"]),
         )
+        admin_smoke = named_step(evidence_job, "Smoke exact linux/amd64 admin image")
+        self.assertEqual(
+            'sh ./scripts/check_admin_image.sh "$ADMIN_AMD64_IMAGE"',
+            str(admin_smoke["run"]),
+        )
 
         self.assertLess(
             step_names.index("Generate release inventories"),
@@ -1121,6 +1222,10 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         )
         self.assertLess(
             step_names.index("Smoke exact linux/amd64 release image"),
+            step_names.index("Scan linux/amd64 image vulnerabilities"),
+        )
+        self.assertLess(
+            step_names.index("Smoke exact linux/amd64 admin image"),
             step_names.index("Scan linux/amd64 image vulnerabilities"),
         )
         self.assertLess(

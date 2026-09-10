@@ -3,8 +3,8 @@ sidebar_label: Admin panel
 slug: /admin-panel
 title: Review Agent operator console
 description: Inspect reviews, manage repository access and finding decisions, and apply deployment policy through an authenticated console.
-status: transitional
-last_verified: 2026-09-09
+status: current
+last_verified: 2026-09-10
 ---
 
 # Review Agent operator console
@@ -15,11 +15,12 @@ and inspect the audit log. Platform settings and provider credentials belong to
 owners. GitHub remains the source of review requests and the destination for
 published reviews.
 
-This feature is available in the source candidate and has not yet been released.
-The current v0.4.0-rc.4 image does not include it. Build both images from the same
-candidate checkout, or use a future qualified release that supplies both
+The console requires a qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 27.
+an older migration image: the current admin API requires PostgreSQL schema 28.
+Releases through v0.4.0-rc.4 do not include the
+console. For a source build, build both images from the same checkout and run
+its migrations before starting the services.
 
 After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
@@ -702,6 +703,12 @@ backup and migrations. The panel is one additional service in the existing
 Compose application, with its own image and hostname. It serves its compiled
 frontend and API together on port `8090`; Node.js is used only during the build.
 
+The supplied console overlay works with Docker Compose and platforms that run
+Compose applications. The current OpenShift template deploys the main runtime
+only. Installing the console there also requires its Deployment, Service,
+HTTPS Route, and network-policy access to the private database and gateway;
+these resources are not supplied by that template.
+
 Both release images carry the same release tag and source revision, with
 different immutable image digests. The console footer and `GET /api/version`
 identify the running admin build. This metadata is baked into the image;
@@ -709,7 +716,9 @@ deployment environment variables do not change it. Source checkouts and local
 builds default to `development` with no claimed source revision. A local build
 is not a qualified release.
 
-The admin image uses Python 3.14.7. The main image retains the Python runtime
+The admin image uses Python 3.14.7 on Debian 13. Its runtime omits pip, ensurepip,
+and Perl after dependency installation; apply updates by replacing the image.
+The main image retains the Python runtime
 supported by the pinned Hermes image; see [runtime updates](OPERATIONS.md#updating-and-validation).
 The admin build also includes an npm dependency inventory outside the served
 web assets. Qualified releases attach the inventory with their other

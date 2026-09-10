@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "website" / "public-documents.json"
 STATIC = ROOT / "website" / "static"
 BASE_URL = "https://ccimen.github.io/review-agent"
-REVISION = "v0.4.0-rc.4"
+REVISION = "v0.4.0-rc.5"
 FRONTMATTER = re.compile(r"\A---\n(?P<header>.*?)\n---\n", re.DOTALL)
 TAB_ITEM = re.compile(r'^<TabItem\b[^>]*\blabel="(?P<label>[^"]+)"[^>]*>$')
 DIRECTIVE = re.compile(r"^(?P<indent>\s*):::(?P<kind>[a-z]+)\[(?P<title>[^]]+)]$")
@@ -123,7 +123,7 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
         f"- Operations: {BASE_URL}/docs/operations",
         f"- Feedback and design decisions: {BASE_URL}/docs/feedback-and-decisions",
         f"- Repository context: {BASE_URL}/docs/repository-context",
-        f"- Optional admin panel (source preview): {BASE_URL}/docs/admin-panel",
+        f"- Optional admin panel: {BASE_URL}/docs/admin-panel",
         f"- Security: {BASE_URL}/docs/security",
         "",
         "## Coding-agent handoff",

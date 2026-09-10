@@ -115,8 +115,8 @@ as unpinned packages, suspicious dependency additions, removed lockfile
 discipline, or a dangerous version change. That is still LLM review, not a CVE
 database lookup.
 
-Repository CI runs one pinned Trivy policy against `requirements.txt`,
-`install/package-lock.json`, and `website/package-lock.json`. Release CI runs the
+Repository CI runs one pinned Trivy policy against all shipped Python
+requirements and the admin, installer, and documentation npm lockfiles. Release CI runs the
 same policy against the exact published `linux/amd64` and `linux/arm64` digests.
 Every JSON report the scanner produces is retained.
 
@@ -133,10 +133,25 @@ The policy is intentionally small:
   the exact reports, machine-readable policy receipt, and generated human
   summary remain release evidence.
 
+Temporary npm overrides belong to the package manifest that consumes them:
+
+| Manifest | Override | Reason and removal condition |
+| --- | --- | --- |
+| `admin/package.json` | `js-yaml` 4.3.2 | Fix [CVE-2026-84375](https://github.com/advisories/GHSA-2883-xcg3-v3hh) in the Swagger UI parser and OpenAPI generator. Remove when the parent packages resolve a patched parser without the override; rebuild and check the API reference. |
+| `website/package.json` | `js-yaml` 4.3.2 and `svgo` 3.3.5 on their affected major lines | Fix [CVE-2026-84375](https://github.com/advisories/GHSA-2883-xcg3-v3hh) and [CVE-2026-84370](https://github.com/advisories/GHSA-w27v-7q3p-w38r). Remove each override when the documentation toolchain resolves its patched dependency normally. |
+| `website/package.json` | `serialize-javascript` 7.1.1 | Keep the build toolchain above the fixes for [code injection](https://github.com/advisories/GHSA-5c6j-r48x-rmvq) and [CPU exhaustion](https://github.com/advisories/GHSA-qj8w-gfj5-8c6v). Remove when upstream dependencies select a compatible patched version. |
+
+Recheck overrides when updating a parent dependency; a forced older major can
+break a newer parent. Regenerate the lockfile, run the affected build, and scan
+the resolved dependencies before removing or changing an override.
+
 The write-authorized evidence job appends the generated summary to the release
 notes only after the exact platform scans pass and the attested evidence files
 are attached. A release image is not qualified for deployment until this job
-succeeds.
+succeeds. A separate job then publishes each exact version tag from its
+qualified manifest digest and verifies that the tag preserves that digest.
+There is no moving `latest` alias. Wait for the full release workflow before
+installing either image.
 
 Source reports remain available as workflow artifacts for 30 days. Successful
 release reports are checksummed, attested, and attached to the GitHub release;

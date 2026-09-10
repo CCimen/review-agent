@@ -73,6 +73,10 @@ function UsageContent() {
     update({ search: value }, { replace: true }),
   );
   const customPeriod = params.has("start") || params.has("end");
+  /** Nothing narrowed the report, so an empty one means nothing has been
+   *  recorded yet rather than that a filter excluded it. */
+  const narrowed =
+    !!search || !!repository || customPeriod || days !== 30 || !!scope.teamId;
   const queryParams = new URLSearchParams({
     days: String(days),
     dimension,
@@ -394,24 +398,34 @@ function UsageContent() {
                 </>
               ) : (
                 data && (
-                  <Empty title="No matching usage">
-                    <Text as="p">
-                      No retained requests match this scope, period and search.
-                    </Text>
-                    <Button
-                      label="Reset filters"
-                      variant="ghost"
-                      onClick={() =>
-                        update({
-                          search: "",
-                          repository: "",
-                          offset: "",
-                          start: "",
-                          end: "",
-                          days: "30",
-                        })
-                      }
-                    />
+                  <Empty
+                    title={
+                      narrowed ? "No matching usage" : "Nothing recorded yet"
+                    }
+                  >
+                    <VStack gap={3} hAlign="center">
+                      <Text color="secondary">
+                        {narrowed
+                          ? "No retained requests match this scope, period and search."
+                          : "Usage appears here once reviews have been asked for on GitHub."}
+                      </Text>
+                      {narrowed ? (
+                        <Button
+                          label="Reset filters"
+                          variant="secondary"
+                          onClick={() =>
+                            update({
+                              search: "",
+                              repository: "",
+                              offset: "",
+                              start: "",
+                              end: "",
+                              days: "30",
+                            })
+                          }
+                        />
+                      ) : null}
+                    </VStack>
                   </Empty>
                 )
               )}

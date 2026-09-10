@@ -222,31 +222,35 @@ export function ActivityPage() {
         <Period days={days} change={(value) => update({ days: value })} />
       </HStack>
       <ActivityTabs />
-      <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
-        <Stat
-          label="Active requests"
-          value={data?.active_requests}
-          hint="Across all reporting periods"
-        />
-        <Stat
-          label="Published"
-          value={data?.window.published_reviews}
-          hint={`Last ${days} days`}
-        />
-        <Stat
-          label="Failed"
-          value={data?.window.failed_requests}
-          hint="Includes earlier failures followed by a successful review"
-          attention={(data?.window.failed_requests ?? 0) > 0}
-        />
-        {data?.live_review_workers != null ? (
+      {/* Once the request has failed with nothing cached, a shimmering tile
+          promises a figure that is not coming. */}
+      {overview.isError && !data ? null : (
+        <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
           <Stat
-            label="Review workers online"
-            value={data.live_review_workers}
-            hint={`${data.review_capacity} slots reported by online workers`}
+            label="Active requests"
+            value={data?.active_requests}
+            hint="Across all reporting periods"
           />
-        ) : null}
-      </Grid>
+          <Stat
+            label="Published"
+            value={data?.window.published_reviews}
+            hint={`Last ${days} days`}
+          />
+          <Stat
+            label="Failed"
+            value={data?.window.failed_requests}
+            hint="Includes earlier failures followed by a successful review"
+            attention={(data?.window.failed_requests ?? 0) > 0}
+          />
+          {data?.live_review_workers != null ? (
+            <Stat
+              label="Review workers online"
+              value={data.live_review_workers}
+              hint={`${data.review_capacity} slots reported by online workers`}
+            />
+          ) : null}
+        </Grid>
+      )}
       <Freshness query={overview} quiet />
       <VStack gap={4}>
         {/* One filter bar. The state segments already applied on click while

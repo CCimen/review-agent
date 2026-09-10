@@ -940,9 +940,23 @@ function TeamRepositories({
         </VStack>
       ) : query.data ? (
         <Empty title="No repositories assigned">
-          {maintain
-            ? "Request a repository above. An administrator can then verify access and approve it."
-            : "A team maintainer can request repository access."}
+          <VStack gap={3} hAlign="center">
+            <Text color="secondary">
+              {isAdmin(scope.current.role)
+                ? "Reviews for this team appear once it owns a repository."
+                : maintain
+                  ? "Request a repository above. An administrator then verifies its GitHub access and approves it."
+                  : "A team maintainer can request repository access."}
+            </Text>
+            {isAdmin(scope.current.role) ? (
+              <Button
+                label="Assign a repository"
+                variant="secondary"
+                href="/repositories"
+                as={ScopedAnchor}
+              />
+            ) : null}
+          </VStack>
         </Empty>
       ) : null}
       {after || query.data?.next_after_id ? (
@@ -1450,16 +1464,31 @@ export function TeamDetail() {
     <>
       {team ? (
         <>
-          <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-            <VStack gap={3}>
-              <Heading level={1}>{team.name}</Heading>
-              <Text as="p">
-                {team.description ||
-                  "Team repositories, membership, and access history."}
-              </Text>
-            </VStack>
-            <Link to={`/?team_id=${team.id}`}>View team activity</Link>
-          </HStack>
+          <VStack gap={3}>
+            <Heading level={1}>{team.name}</Heading>
+            <Text as="p" color="secondary">
+              {team.description ||
+                "Team repositories, membership, and access history."}
+            </Text>
+            {/* This page owns the team's setup; its reviews and its numbers
+                are elsewhere. As one text link at the far edge of a wide
+                header they were easy to miss and did not say that statistics
+                were among them. */}
+            <HStack gap={3} wrap="wrap" align="center">
+              <Button
+                label="Review activity"
+                variant="secondary"
+                href={`/?team_id=${team.id}`}
+                as={ScopedAnchor}
+              />
+              <Button
+                label="Statistics"
+                variant="secondary"
+                href={`/overview?team_id=${team.id}`}
+                as={ScopedAnchor}
+              />
+            </HStack>
+          </VStack>
           <TabList
             aria-label="Team views"
             value={tab}

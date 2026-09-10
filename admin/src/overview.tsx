@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { ActivityTabs } from "./activity";
 import type { ActivityCounts, ActivityDay, Overview } from "./api";
 import { read } from "./api";
-import { ScopedLink as Link, useScope } from "./scope";
+import { ScopedLink as Link, isAdmin, useScope } from "./scope";
 import {
   Freshness,
   Period,
@@ -340,9 +340,19 @@ export function OverviewPage() {
     <>
       <VStack gap={2}>
         <Heading level={1}>Statistics</Heading>
-        <Text as="p" color="secondary">
-          Review activity and delivery for this deployment.
-        </Text>
+        <Prose>
+          <Text as="p" color="secondary">
+            How reviews are going here: what was asked for, what reached
+            GitHub, how long it took and what failed.
+            {isAdmin(scope.current.role) ? (
+              <>
+                {" "}
+                To compare teams, repositories or the GitHub users who asked,
+                read <Link to="/usage">Usage</Link>.
+              </>
+            ) : null}
+          </Text>
+        </Prose>
       </VStack>
 
       <ActivityTabs />
@@ -394,17 +404,20 @@ export function OverviewPage() {
         )}
       </Section>
 
-      <HStack gap={3} wrap="wrap" vAlign="center">
-        <Period days={days} change={(value) => update({ days: value })} />
-      </HStack>
-      <Freshness query={query} />
-
-      {data && (
-        <>
-          <Section
-            title={`Last ${days} days`}
-            description={`${time(data.window_start)} to ${time(data.window_end)}. Requests are counted from when they started; publications from when the result reached GitHub.`}
-          >
+      <Section
+        title={`Last ${days} days`}
+        description={
+          data
+            ? `${time(data.window_start)} to ${time(data.window_end)}. Requests are counted from when they started; publications from when the result reached GitHub.`
+            : undefined
+        }
+        actions={
+          <Period days={days} change={(value) => update({ days: value })} />
+        }
+      >
+        <Freshness query={query} />
+        {data ? (
+          <>
             <Activity counts={data.window} />
             <Grid gap={6} columns={{ minWidth: 300, max: 2, repeat: "fit" }}>
               {series.filter((entry) => entry.published_reviews > 0).length >
@@ -423,8 +436,12 @@ export function OverviewPage() {
               )}
               <Latency counts={data.window} />
             </Grid>
-          </Section>
+          </>
+        ) : null}
+      </Section>
 
+      {data && (
+        <>
           <Section
             title="Why requests failed"
             description="The most common recorded causes in this period. A later request can still have published a review for the same pull request."
@@ -451,6 +468,19 @@ export function OverviewPage() {
             }
           >
             <Tokens counts={data.window} />
+            {/* Before any attempt has run, "0 of 0 reported token usage" and
+                the reasons a figure might be missing describe nothing. */}
+            {data.started_attempts > 0 ? (
+              <Prose>
+                <Text as="p" color="secondary">
+                  {number.format(data.reported_attempts)} of{" "}
+                  {number.format(data.started_attempts)} job attempts recorded
+                  their usage since this deployment began keeping records. What
+                  the rest used is unknown rather than nought; a lease can
+                  finish before it calls the model.
+                </Text>
+              </Prose>
+            ) : null}
           </Section>
 
           <Section
@@ -489,19 +519,6 @@ export function OverviewPage() {
                 </MetadataList>
               </>
             )}
-            {/* Before any attempt has run, "0 of 0 reported token usage" and
-                the reasons a figure might be missing describe nothing. */}
-            {data.started_attempts > 0 ? (
-              <Prose>
-                <Text as="p" color="secondary">
-                  {number.format(data.reported_attempts)} of{" "}
-                  {number.format(data.started_attempts)} lifetime job attempts
-                  reported token usage. Missing usage remains unknown; some
-                  leases can finish before calling the model. Recording
-                  coverage does not verify provider billing.
-                </Text>
-              </Prose>
-            ) : null}
           </Section>
         </>
       )}

@@ -191,9 +191,13 @@ function UsageContent() {
         <VStack gap={3}>
           <Heading level={1}>Usage</Heading>
           <Prose>
-            <Text as="p">
-              See where reviews are used and where recorded tokens go across{" "}
-              {scope.team?.name ?? "all teams"}.
+            <Text as="p" color="secondary">
+              Compare teams, repositories and the GitHub users who asked for
+              reviews across {scope.team?.name ?? "all teams"}, and see where
+              recorded tokens go. For how one deployment is performing —
+              delivery times, failures and the daily rate — read{" "}
+              <Link to="/overview">Statistics</Link>. The two count over
+              different reporting rules, so their totals can differ.
             </Text>
           </Prose>
         </VStack>

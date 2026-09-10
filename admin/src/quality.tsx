@@ -405,6 +405,7 @@ export function QualityPage() {
               </>
             ) : feedback.data ? (
               <Empty
+                level={3}
                 title={
                   feedback.data.total
                     ? "No reports on this page"

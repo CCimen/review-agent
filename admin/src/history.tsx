@@ -251,9 +251,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
           It may have been removed by retention. Return to history to find an
           available review.
         </Empty>
-      ) : (
-        <Freshness query={query} />
-      )}
+      ) : null}
       {!missing && item && data ? (
         <>
           <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -261,10 +259,11 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
               <Heading level={1}>
                 {item.repository} PR #{item.pr_number}
               </Heading>
-              <Text as="p">
+              <Text as="p" color="secondary">
                 Request #{item.id} · {time(item.started_at)}
                 {item.is_latest ? " · Latest request" : " · Earlier request"}
               </Text>
+              <Freshness query={query} />
             </VStack>
             <AstryxLink
               href={pullRequestURL(item)}
@@ -393,7 +392,10 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
             >
               <VStack gap={4}>
                 <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-                  <Result item={item} />
+                  <VStack gap={3}>
+                    <Heading level={2}>Result</Heading>
+                    <Result item={item} />
+                  </VStack>
                   {data.can_maintain && <RunControls runId={item.id} />}
                 </HStack>
                 <Text as="p">
@@ -515,7 +517,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
             </VStack>
           </Grid>
         </>
-      ) : null}
+      ) : missing ? null : (
+        <Freshness query={query} />
+      )}
     </>
   );
 }

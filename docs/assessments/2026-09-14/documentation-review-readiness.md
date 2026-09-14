@@ -10,7 +10,7 @@ remains open until the labelled model pilot is run and reviewed by maintainers.
 
 ## Candidate and rollout
 
-The intended release is `v0.4.0-rc.7`. Its exact commit and qualified runtime/admin
+The intended release is `v0.4.0-rc.8`. Its exact commit and qualified runtime/admin
 image digests must be recorded after the commit gate and release workflow finish.
 The migration boundary is 035; the managed profile includes `review-agent-docs`.
 Deploy all services from one qualified source/image pair, drain existing work,

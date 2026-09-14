@@ -15,9 +15,14 @@ ENV PYTHONUNBUFFERED=1 \
     PATH=/opt/admin-venv/bin:$PATH
 WORKDIR /app
 COPY requirements-admin.txt /app/requirements-admin.txt
+# Apply security fixes published after the pinned base image was built.
 # Debian package maintenance needs Perl, so remove it only after installation.
 # The API needs neither Perl nor pip and its vendored packages at runtime.
-RUN python -m venv /opt/admin-venv \
+RUN apt-get -o Acquire::Retries=3 update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 upgrade \
+        -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m venv /opt/admin-venv \
     && /opt/admin-venv/bin/pip install --no-cache-dir --disable-pip-version-check -r requirements-admin.txt \
     && /opt/admin-venv/bin/python -m pip uninstall --yes pip \
     && /usr/local/bin/python -m pip uninstall --yes pip \

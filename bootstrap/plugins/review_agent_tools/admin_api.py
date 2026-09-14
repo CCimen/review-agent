@@ -255,12 +255,15 @@ def create_app(
         dimension: admin_usage.UsageDimension = "repository",
         sort: admin_usage.UsageSort = "requests",
         repository: Repository = None,
+        requester: Annotated[str | None, Query(max_length=200)] = None,
         search: Annotated[str, Query(max_length=200)] = "",
         offset: Annotated[int, Query(ge=0, le=10000)] = 0,
         limit: Limit = 25,
     ) -> admin_usage.UsageReport:
         """Usage for owners and admins, grouped by team, repository or GitHub login.
 
+        A requester narrows every grouping to the reviews one GitHub login asked
+        for, so a team or repository breakdown can be read for one person.
         The period selects retained requests by start time. Outcomes and all
         reported attempt tokens reflect the current snapshot, including retries
         and later reports. Teams follow current repository ownership. Null token
@@ -277,6 +280,7 @@ def create_app(
                 dimension=dimension,
                 sort=sort,
                 repository=repository,
+                requester=requester,
                 search=search,
                 offset=offset,
                 limit=limit,

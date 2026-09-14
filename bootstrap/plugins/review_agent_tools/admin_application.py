@@ -458,6 +458,7 @@ def usage(
     dimension: admin_usage.UsageDimension = "repository",
     sort: admin_usage.UsageSort = "requests",
     repository: str | None = None,
+    requester: str | None = None,
     search: str = "",
     offset: int = 0,
     limit: int = 25,
@@ -471,6 +472,9 @@ def usage(
     ):
         raise ValueError("Unknown usage grouping or sort")
     if not 0 <= offset <= 10000 or len(search) > 200:
+        raise ValueError("Usage filter exceeds its bounds")
+    requested_by = (requester or "").strip()
+    if len(requested_by) > 200:
         raise ValueError("Usage filter exceeds its bounds")
     normalized = resolve_repository(repository) if repository else None
     window_start, window_end, now = report_window(days=days, start=start, end=end)
@@ -486,6 +490,7 @@ def usage(
             dimension=dimension,
             sort=sort,
             repository=normalized,
+            requester=requested_by or None,
             search=search.strip(),
             offset=offset,
             limit=limit,

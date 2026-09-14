@@ -72,6 +72,8 @@ _REQUESTS = sql.SQL("""
         WHERE run.started_at >= %(start)s AND run.started_at < %(end)s
           AND (%(repository)s::text IS NULL OR lower(repo.full_name) = lower(%(repository)s))
           AND (%(purpose)s::text IS NULL OR run.purpose = %(purpose)s)
+          AND (%(requester)s::text IS NULL
+               OR lower(nullif(btrim(run.trigger_user), '')) = %(requester)s)
     ), attempts AS (
         SELECT usage.job_id, count(*) AS reported_attempts,
             sum(usage.prompt_tokens)::bigint AS prompt_tokens,
@@ -116,6 +118,7 @@ def usage(
     offset: int,
     limit: int,
     purpose: ReviewPurpose | None = None,
+    requester: str | None = None,
 ) -> UsageReport:
     dimensions: dict[UsageDimension, tuple[LiteralString, ...]] = {
         "team": (
@@ -140,7 +143,10 @@ def usage(
             "requester",
         ),
     }
-    key, label, team_id, repository_column, requester = dimensions[dimension]
+    # The grouping's own requester expression; the filter value is read before
+    # this line rebinds the name.
+    key, label, team_id, repository_column, requester_column = dimensions[dimension]
+    requested_by = requester.lower() if requester else None
     requests = _REQUESTS.format(repositories=repository_source(scope))
     matching = sql.SQL(
         " FROM requests WHERE position(lower(%(search)s) IN lower({label})) > 0 "
@@ -150,6 +156,9 @@ def usage(
         "end": end,
         "repository": repository,
         "purpose": purpose.value if purpose is not None else None,
+        # Logins are recorded as written and compared in lower case, the same
+        # form the requester grouping keys on.
+        "requester": requested_by,
         "search": search,
         "offset": offset,
         "limit": limit + 1,
@@ -175,7 +184,7 @@ def usage(
                 label=sql.SQL(label),
                 team_id=sql.SQL(team_id),
                 repository=sql.SQL(repository_column),
-                requester=sql.SQL(requester),
+                requester=sql.SQL(requester_column),
                 metrics=_METRICS,
             )
             + matching

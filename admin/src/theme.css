@@ -125,7 +125,8 @@
    changed, and drops the movement and blur. */
 @media (prefers-reduced-motion: reduce) {
   .console-page,
-  .console-arrive {
+  .console-arrive,
+  .console-confirm {
     animation-name: console-fade;
     animation-duration: var(--duration-fast-min);
   }
@@ -240,4 +241,24 @@ abbr[title]:has(> .astryx-code) {
 .console-inline {
   display: inline-flex;
   vertical-align: middle;
+}
+
+/* A confirmation that has just appeared takes the same entrance as a page,
+   and its check carries the theme's success colour so the state is not
+   signalled by position alone. */
+.console-confirm {
+  animation: console-enter var(--duration-fast) var(--ease-standard) backwards;
+}
+.console-success {
+  color: var(--color-success);
+}
+
+/* The usage ranking bars carry the console's own accent. The library's accent
+   variant paints them in the theme's progress blue, which this deployment
+   already spends on work that is running, and its neutral grey sat close
+   enough to the track to read as a disabled control rather than as activity
+   that was recorded. The track keeps the library's tone, so only the filled
+   length changes colour. */
+.console-rank .astryx-progress-bar-fill {
+  background-color: var(--color-accent);
 }

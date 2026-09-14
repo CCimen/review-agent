@@ -10,15 +10,11 @@ import {
 } from "@astryxdesign/core/SegmentedControl";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type InputHTMLAttributes } from "react";
 import { APIError, read, write } from "./api";
 import type { components } from "./api.generated";
-import { Form } from "./ui";
+import { Form, Saved } from "./ui";
 
 type Settings = components["schemas"]["EmailSettings"];
 type Configuration = components["schemas"]["SMTPConfiguration"];
@@ -60,8 +56,7 @@ export function EmailDelivery() {
       settings={query.data}
       reload={async () => {
         const result = await query.refetch({ throwOnError: true });
-        if (!result.data)
-          throw new Error("Could not reload email settings.");
+        if (!result.data) throw new Error("Could not reload email settings.");
         return result.data;
       }}
     />
@@ -122,8 +117,7 @@ function EmailForm({
   const pending = save.isPending || test.isPending || refresh.isPending;
   const dirty =
     enabled !== baseline.enabled ||
-    JSON.stringify(draft) !==
-      JSON.stringify(baseline.configuration ?? empty) ||
+    JSON.stringify(draft) !== JSON.stringify(baseline.configuration ?? empty) ||
     !!password ||
     clearPassword;
   const conflict = [save.error, test.error].some(
@@ -138,8 +132,8 @@ function EmailForm({
     >
       <VStack gap={5} maxWidth={760}>
         <Text color="secondary">
-          Connect your SMTP provider to send registration verification
-          emails. Saved changes take effect immediately.
+          Connect your SMTP provider to send registration verification emails.
+          Saved changes take effect immediately.
         </Text>
         <CheckboxInput
           label="Enable email delivery"
@@ -194,8 +188,8 @@ function EmailForm({
             <SegmentedControlItem label="Implicit TLS" value="implicit" />
           </SegmentedControl>
           <Text type="supporting">
-            Both options verify the server certificate. You can adjust the
-            port for your provider.
+            Both options verify the server certificate. You can adjust the port
+            for your provider.
           </Text>
         </VStack>
         <TextInput
@@ -229,9 +223,7 @@ function EmailForm({
             value={password}
             onChange={setPassword}
             isDisabled={
-              pending ||
-              clearPassword ||
-              !baseline.credential_storage_available
+              pending || clearPassword || !baseline.credential_storage_available
             }
             {...({
               maxLength: 4096,
@@ -284,9 +276,7 @@ function EmailForm({
             description={refresh.error.message}
           />
         )}
-        {save.isSuccess && !dirty && (
-          <Text role="status">Email settings saved.</Text>
-        )}
+        {save.isSuccess && !dirty && <Saved>Email settings saved.</Saved>}
         {test.isSuccess && !dirty && (
           <Text role="status">
             Test email sent to your account email. Check your inbox.
@@ -305,9 +295,7 @@ function EmailForm({
             type="button"
             variant="secondary"
             isLoading={test.isPending}
-            isDisabled={
-              pending || conflict || dirty || !baseline.configuration
-            }
+            isDisabled={pending || conflict || dirty || !baseline.configuration}
             onClick={() => test.mutate()}
           />
           {conflict && (

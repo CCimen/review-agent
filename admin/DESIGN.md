@@ -61,11 +61,22 @@ changing a public boundary.
 
 Administration's Usage page is restricted to owners and admins. It opens with
 three "Most active" cards (teams, repositories, GitHub users), each the same
-report cut to five rows and ranked against its leader with a neutral bar; the
-tab below pages through the full grouping, with a share bar under each request
-count. Team and repository rows drill into the next grouping; a GitHub login
-has no request list to open. There is no per-user daily series in the API, so
-trends stay on Statistics. Reuse the
+report cut to five rows and ranked against its leader; the tab below pages
+through the full grouping, with a share bar under each request count. Ranking
+bars carry the console's accent through `theme.css`, because the library's
+accent variant is the blue this deployment spends on work that is running and
+its neutral grey reads as a disabled control. Each card names whether it is the
+grouping listed in full and otherwise links to it, so the cards and the tabs
+below are not two competing ways to choose the same thing.
+
+Every grouping can be narrowed to one GitHub login, so a team or repository
+breakdown reads as one person's follow-up; a requester row links into it. An
+active repository or GitHub user filter is a removable token under its own
+label, one control clears them all, and because each drill is an address the
+browser's Back button and a shared link both work. The console adds no back or
+forward control of its own. Refresh sits beside the line that says how old the
+figures are. There is no per-user daily series in the API, so trends stay on
+Statistics, and the request list cannot yet be filtered by requester. Reuse the
 workspace team scope and reporting period, with tabs for teams, repositories,
 and GitHub requesters. Rank and paginate on the server; summary figures cover
 all matching rows. Keep token reporting coverage next to the totals and show
@@ -107,7 +118,12 @@ Implementation and rollout evidence are tracked by Beads epic
 `ra-docs-review-ms1`. The [documentation review design](../docs/assessments/2026-09-14/documentation-review-design.md#team-and-repository-administration)
 owns policy and authority. Reuse this console's components and navigation.
 
-Team detail has a Documentation review section for the team's default mode.
+Team detail has a Documentation review section for the team's default mode. The
+mode is a segmented control, not a menu: three or four mutually exclusive modes
+are what the section is for, so they stay visible, with what "Inherit" resolves
+to written beside them and the reason a viewer cannot change them carried by the
+control's own disabled message. While the deployment switch is off, an owner can
+reach it from the banner that says so.
 Repository views expose a shared docs settings/detail section, reachable from team
 repositories and repository activity as well as platform administration. Team
 maintainers must not need the platform-only Access management page to change an
@@ -128,3 +144,9 @@ coverage and failure/skip reasons instead of a repository accuracy percentage.
 Usage retains its platform-admin restriction and unknown token coverage. Reuse
 current loading, empty, retry, freshness, focus, narrow-screen, light/dark and
 reduced-motion behavior. Keep these controls in the existing navigation and visual system.
+
+A save that worked is confirmed by a check in the theme's success colour beside
+one sentence, announced once and entering on the fast band; every settings form
+uses the same one. A link that leaves for GitHub opens in a new tab and says so.
+Activity's reserved column widths add up to just under the console body at 1440
+CSS pixels, so a row can be read without pushing the table sideways.

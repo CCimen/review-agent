@@ -7,7 +7,10 @@ import {
   MetadataList,
   MetadataListItem,
 } from "@astryxdesign/core/MetadataList";
-import { Selector } from "@astryxdesign/core/Selector";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@astryxdesign/core/SegmentedControl";
 import {
   Table,
   proportional,
@@ -20,7 +23,7 @@ import documentationStarter from "../../examples/repository-context/.review-agen
 import { APIError, read, write } from "./api";
 import type { components } from "./api.generated";
 import { ScopedLink as Link, useScope } from "./scope";
-import { Copy, Form, Freshness, time } from "./ui";
+import { Copy, ExternalLink, Form, Freshness, Saved, time } from "./ui";
 
 type Mode = components["schemas"]["DocumentationMode"];
 type ResolvedMode = components["schemas"]["ResolvedDocumentationMode"];
@@ -103,29 +106,32 @@ export function DocumentationReviewEvidence({
         <VStack gap={4}>
           <MetadataList columns="multi" label={{ position: "top" }}>
             <MetadataListItem label="Policy at target base">
-              <Link
-                to={source(result.base_sha, ".review-agent/documentation.toml")}
+              <ExternalLink
+                href={source(
+                  result.base_sha,
+                  ".review-agent/documentation.toml",
+                )}
               >
                 <Code>{result.base_sha.slice(0, 12)}</Code>
-              </Link>
+              </ExternalLink>
             </MetadataListItem>
             <MetadataListItem label="Comparison commit">
               {result.comparison_sha ? (
-                <Link
-                  to={`https://github.com/${repository}/commit/${result.comparison_sha}`}
+                <ExternalLink
+                  href={`https://github.com/${repository}/commit/${result.comparison_sha}`}
                 >
                   <Code>{result.comparison_sha.slice(0, 12)}</Code>
-                </Link>
+                </ExternalLink>
               ) : (
                 "Unavailable"
               )}
             </MetadataListItem>
             <MetadataListItem label="Reviewed head">
-              <Link
-                to={`https://github.com/${repository}/commit/${result.head_sha}`}
+              <ExternalLink
+                href={`https://github.com/${repository}/commit/${result.head_sha}`}
               >
                 <Code>{result.head_sha.slice(0, 12)}</Code>
-              </Link>
+              </ExternalLink>
             </MetadataListItem>
           </MetadataList>
           {result.scope ? (
@@ -137,7 +143,9 @@ export function DocumentationReviewEvidence({
                 <VStack as="ul" gap={2}>
                   {result.scope.documents.map((path) => (
                     <li key={path}>
-                      <Link to={source(result.head_sha, path)}>{path}</Link>
+                      <ExternalLink href={source(result.head_sha, path)}>
+                        {path}
+                      </ExternalLink>
                     </li>
                   ))}
                 </VStack>
@@ -188,11 +196,11 @@ export function DocumentationReviewEvidence({
           <VStack as="ul" gap={2}>
             {result.evidence.map((entry, index) => (
               <li key={index}>
-                <Link
-                  to={`${source(entry.revision, entry.path)}${entry.start_line === null ? "" : `#L${entry.start_line}${entry.end_line === entry.start_line ? "" : `-L${entry.end_line}`}`}`}
+                <ExternalLink
+                  href={`${source(entry.revision, entry.path)}${entry.start_line === null ? "" : `#L${entry.start_line}${entry.end_line === entry.start_line ? "" : `-L${entry.end_line}`}`}`}
                 >
                   {entry.path}
-                </Link>{" "}
+                </ExternalLink>{" "}
                 · {entry.role} · {entry.revision.slice(0, 12)}
                 {entry.unavailable_reason
                   ? ` · ${entry.unavailable_reason.replaceAll("_", " ")}`
@@ -237,11 +245,18 @@ function ModeHelp() {
   );
 }
 function DeploymentPaused({ enabled }: { enabled: boolean }) {
+  const scope = useScope();
   return !enabled ? (
     <Banner
       status="info"
       title="Documentation reviews are disabled for this deployment"
       description="Your mode is saved, but reviews remain off until an owner enables documentation reviews in Settings."
+      /* An owner can act on this here rather than hunting for the switch. */
+      endContent={
+        scope.current.role === "owner" ? (
+          <Link to="/settings">Open Settings</Link>
+        ) : undefined
+      }
     />
   ) : null;
 }
@@ -380,18 +395,36 @@ function TeamDocumentationEditor({ initial }: { initial: TeamPolicy }) {
         }}
       >
         <VStack gap={4}>
-          <Selector
-            label="Team default"
-            value={mode}
-            options={modeOptions}
-            isReadOnly={!preview.can_manage}
-            isDisabled={busy}
-            onChange={(value) => {
-              setMode(value as Mode);
-              setSaved(false);
-              save.reset();
-            }}
-          />
+          {/* Three mutually exclusive modes, all visible: the choice is what
+              this section is for, so it should not be hidden behind a menu. */}
+          <VStack gap={2}>
+            <Text>Team default</Text>
+            <HStack hAlign="start">
+              <SegmentedControl
+                label="Team documentation review default"
+                value={mode}
+                isDisabled={busy || !preview.can_manage}
+                disabledMessage={
+                  preview.can_manage
+                    ? undefined
+                    : "A team maintainer or platform administrator can change this default."
+                }
+                onChange={(value) => {
+                  setMode(value as Mode);
+                  setSaved(false);
+                  save.reset();
+                }}
+              >
+                {modeOptions.map((option) => (
+                  <SegmentedControlItem
+                    key={option.value}
+                    value={option.value}
+                    label={option.label}
+                  />
+                ))}
+              </SegmentedControl>
+            </HStack>
+          </VStack>
           <Text color="secondary">
             Applies to {preview.inherited_count} inherited{" "}
             {preview.inherited_count === 1 ? "repository" : "repositories"}.{" "}
@@ -448,7 +481,7 @@ function TeamDocumentationEditor({ initial }: { initial: TeamPolicy }) {
               description={save.error.message}
             />
           )}
-          {saved && <Text role="status">Team default saved.</Text>}
+          {saved && <Saved>Team default saved.</Saved>}
         </VStack>
       </Form>
       {reviewed ? (
@@ -641,24 +674,42 @@ function RepositoryDocumentationEditor({
         }}
       >
         <VStack gap={4}>
-          <Selector
-            label="Repository mode"
-            value={mode}
-            options={[
-              {
-                value: "inherit",
-                label: `Inherit ${policy.team_id ? "team" : "unassigned"} default · ${documentationModeLabel(policy.team_default ?? "manual")}`,
-              },
-              ...modeOptions,
-            ]}
-            isReadOnly={!policy.can_manage}
-            isDisabled={busy}
-            onChange={(value) => {
-              setMode(value as Mode | "inherit");
-              setSaved(false);
-              save.reset();
-            }}
-          />
+          <VStack gap={2}>
+            <Text>Repository mode</Text>
+            <HStack hAlign="start">
+              <SegmentedControl
+                label="Repository documentation review mode"
+                value={mode}
+                isDisabled={busy || !policy.can_manage}
+                disabledMessage={
+                  policy.can_manage
+                    ? undefined
+                    : "A repository maintainer or platform administrator can change this mode."
+                }
+                onChange={(value) => {
+                  setMode(value as Mode | "inherit");
+                  setSaved(false);
+                  save.reset();
+                }}
+              >
+                <SegmentedControlItem value="inherit" label="Inherit" />
+                {modeOptions.map((option) => (
+                  <SegmentedControlItem
+                    key={option.value}
+                    value={option.value}
+                    label={option.label}
+                  />
+                ))}
+              </SegmentedControl>
+            </HStack>
+            {/* What "Inherit" resolves to belongs beside the choice, not
+                inside a segment label that would crowd the other three. */}
+            <Text type="supporting">
+              Inherit follows the {policy.team_id ? "team" : "unassigned"}{" "}
+              default, {documentationModeLabel(policy.team_default ?? "manual")}
+              .
+            </Text>
+          </VStack>
           {policy.can_manage ? (
             <HStack gap={3} wrap="wrap">
               <Button
@@ -706,7 +757,7 @@ function RepositoryDocumentationEditor({
               description={reload.error.message}
             />
           )}
-          {saved && <Text role="status">Repository mode saved.</Text>}
+          {saved && <Saved>Repository mode saved.</Saved>}
         </VStack>
       </Form>
       <VStack gap={2}>
@@ -740,7 +791,9 @@ function RepositoryDocumentationEditor({
           <Copy value="/review docs" label="Copy documentation review command">
             /review docs
           </Copy>
-          <Link to={`/history?${new URLSearchParams({ repository: policy.repository, purpose: "documentation" })}`}>
+          <Link
+            to={`/history?${new URLSearchParams({ repository: policy.repository, purpose: "documentation" })}`}
+          >
             Documentation review history
           </Link>
         </HStack>
@@ -925,18 +978,26 @@ function OwnershipDocumentationConfirmation({
       if (error instanceof APIError && error.status === 409) setStale(true);
     },
   });
-  const ownershipChanged = query.data !== undefined && query.data.previous_team_id !== expectedTeamId;
+  const ownershipChanged =
+    query.data !== undefined && query.data.previous_team_id !== expectedTeamId;
   return (
     <Form
       onSubmit={(event) => {
         event.preventDefault();
-        if (query.data && !stale && !ownershipChanged && !query.isFetching) save.mutate();
+        if (query.data && !stale && !ownershipChanged && !query.isFetching)
+          save.mutate();
       }}
     >
       <VStack gap={3}>
         <Text as="p">{description}</Text>
         <Freshness query={query} interval={false} />
-        {ownershipChanged && <Banner status="warning" title="The repository has moved" description="Close this preview and reopen the repository from its current owning team before moving it again." />}
+        {ownershipChanged && (
+          <Banner
+            status="warning"
+            title="The repository has moved"
+            description="Close this preview and reopen the repository from its current owning team before moving it again."
+          />
+        )}
         {query.data && (
           <>
             <MetadataList columns="single" label={{ position: "top" }}>

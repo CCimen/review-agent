@@ -186,6 +186,11 @@ records the evidence behind the current improvement work. Beads epic
 `ra-quality-2026-09-614` owns priorities, phases, dependencies and implementation
 status; use `br show ra-quality-2026-09-614 --json` from this checkout to continue.
 
+The [scoped documentation review design](docs/assessments/2026-09-14/documentation-review-design.md)
+describes the proposed capability. Beads epic `ra-docs-review-ms1` owns its
+implementation dependencies and acceptance. Documentation review is not yet
+implemented.
+
 Run the full validation bundle before shipping changes:
 
 ```bash

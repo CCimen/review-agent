@@ -21,6 +21,7 @@ from .domain.review import (
     PullRequestId,
     ReviewDomainError,
     ReviewMode,
+    ReviewPurpose,
     ReviewPhase,
     ReviewRunId,
     ReviewStatus,
@@ -91,6 +92,7 @@ class PostgresRunRequest:
     request_key: str
     trigger_comment_id: int | None = None
     trigger_user: str = ""
+    purpose: ReviewPurpose = ReviewPurpose.CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -411,6 +413,7 @@ def _ensure_review_scope(
         )
     )
     subject_definition = resolve_review_subject(
+        purpose=request.purpose,
         base_sha=request.base_sha,
         head_sha=request.head_sha,
         policy_revision=request.policy_revision,

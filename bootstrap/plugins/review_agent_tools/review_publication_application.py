@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from . import failure_codes, review_run_application
 from .domain.publication import PublicationPartType
+from .domain.review import ReviewPurpose
 from .github.publication import (
     GitHubPublicationAuthorityLost,
     GitHubPublicationError,
@@ -328,17 +329,19 @@ def publish_postgres_run_failure_status(
             connection, run_id=resolved_id, lease_owner=owner,
             lease_generation=generation,
         )
-    body = _failure_status_body(run_id, target.head_sha, target.failure_code)
+        purpose = postgres_review_runs.get_run(connection, resolved_id).purpose
+    body = _failure_status_body(run_id, target.head_sha, target.failure_code, purpose=purpose)
     try:
         listed_markers = _my_failure_status_comments(
-            github, target.repository, target.pr_number
+            github, target.repository, target.pr_number, purpose=purpose
         )
         current_markers = _cleanup_postgres_failure_status(
             runtime, github=github, repository=target.repository,
             pr_number=target.pr_number, exclude_run_id=resolved_id,
+            purpose=purpose,
             known_markers=listed_markers,
         )
-        marker = _failure_status_marker(run_id, target.head_sha)
+        marker = _failure_status_marker(run_id, target.head_sha, purpose=purpose)
         existing = next(
             (item for item in current_markers if marker in item.body), None
         )
@@ -397,6 +400,7 @@ def _cleanup_postgres_failure_status(
     scan_markers: bool = True,
     exclude_run_id: "ReviewRunId | None" = None,
     known_markers: Sequence[IssueComment] | None = None,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> tuple[IssueComment, ...]:
     """Remove stored and marker-recovered failure statuses after a real review."""
     from .postgres import review_runs as postgres_review_runs
@@ -407,12 +411,14 @@ def _cleanup_postgres_failure_status(
             repository=repository,
             pr_number=pr_number,
             exclude_run_id=exclude_run_id,
+            purpose=purpose,
         )
         targets = postgres_review_runs.failure_status_comments_for_pull_request(
             connection,
             repository=repository,
             pr_number=pr_number,
             exclude_run_id=exclude_run_id,
+            purpose=purpose,
         )
     deleted: set[int] = set()
     retained: set[int] = set()
@@ -433,13 +439,15 @@ def _cleanup_postgres_failure_status(
         return ()
     if known_markers is None:
         try:
-            marker_comments = _my_failure_status_comments(github, repository, pr_number)
+            marker_comments = _my_failure_status_comments(github, repository, pr_number, purpose=purpose)
         except GitHubPublicationError:
             return ()
     else:
         marker_comments = known_markers
     current_markers: list[IssueComment] = []
     for comment in marker_comments:
+        if _failure_status_prefix(purpose) not in comment.body:
+            continue
         if exclude_run_id is not None and f"run={int(exclude_run_id)} " in comment.body:
             current_markers.append(comment)
             continue
@@ -529,6 +537,7 @@ def publish_postgres_publication(
             repository=publication.repository,
             pr_number=publication.pr_number,
             scan_markers=False,
+            purpose=publication.purpose,
         )
         return PostgresPublicationResult(
             publication_id=publication_id,
@@ -853,6 +862,7 @@ def publish_postgres_publication(
         github=github,
         repository=publication.repository,
         pr_number=publication.pr_number,
+        purpose=publication.purpose,
     )
     try:
         with runtime.transaction() as connection:
@@ -937,12 +947,22 @@ _FAILURE_REASONS = {
 }
 
 
-def _failure_status_marker(run_id: int, head_sha: str) -> str:
-    return f"<!-- {_FAILURE_STATUS_TOKEN} run={run_id} head={head_sha} -->"
+def _failure_status_prefix(purpose: ReviewPurpose) -> str:
+    # Retained code comments use the original marker; purpose remains readable
+    # after the corresponding run has expired from database retention.
+    qualifier = "" if purpose is ReviewPurpose.CODE else f" purpose={purpose.value}"
+    return f"<!-- {_FAILURE_STATUS_TOKEN}{qualifier} run="
+
+
+def _failure_status_marker(
+    run_id: int, head_sha: str, *, purpose: ReviewPurpose = ReviewPurpose.CODE,
+) -> str:
+    return f"{_failure_status_prefix(purpose)}{run_id} head={head_sha} -->"
 
 
 def _my_failure_status_comments(
-    gateway: GitHubPublicationGateway, repository: str, pr_number: int
+    gateway: GitHubPublicationGateway, repository: str, pr_number: int,
+    *, purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> list[IssueComment]:
     login = gateway.current_user_login().casefold()
     comments = gateway.list_issue_comments(
@@ -955,11 +975,13 @@ def _my_failure_status_comments(
         comment
         for comment in comments
         if comment.author_login.casefold() == login
-        and _FAILURE_STATUS_TOKEN in comment.body
+        and _failure_status_prefix(purpose) in comment.body
     ]
 
 
-def _failure_status_body(run_id: int, head_sha: str, failure_code: str) -> str:
+def _failure_status_body(
+    run_id: int, head_sha: str, failure_code: str, *, purpose: ReviewPurpose = ReviewPurpose.CODE,
+) -> str:
     if failure_code == failure_codes.SNAPSHOT_SUPERSEDED:
         return (
             f"## {REVIEW_COMMENT_TITLE} — review snapshot was superseded\n\n"
@@ -970,7 +992,7 @@ def _failure_status_body(run_id: int, head_sha: str, failure_code: str) -> str:
             "top-level PR comment after the latest changes are ready. Deterministic "
             "CI remains the merge gate.\n\n"
             f"- Status code: `{failure_code}`\n\n"
-            f"{_failure_status_marker(run_id, head_sha)}\n"
+            f"{_failure_status_marker(run_id, head_sha, purpose=purpose)}\n"
         )
     reason = _FAILURE_REASONS.get(
         failure_code, "the review did not complete; see operator logs"
@@ -985,5 +1007,5 @@ def _failure_status_body(run_id: int, head_sha: str, failure_code: str) -> str:
         "the merge gate. After correcting the cause, post `/review` again as a new "
         "top-level PR comment. If it fails again, share the status code with the "
         "reviewer operator.\n\n"
-        f"{_failure_status_marker(run_id, head_sha)}\n"
+        f"{_failure_status_marker(run_id, head_sha, purpose=purpose)}\n"
     )

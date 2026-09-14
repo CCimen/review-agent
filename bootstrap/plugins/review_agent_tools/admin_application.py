@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
@@ -53,7 +53,7 @@ def _report_transaction(
     access: ReadAccessRequest,
     operation: IntegrationOperation,
     details: dict[str, str | int | bool | None] | None = None,
-) -> Iterator[tuple[psycopg.Connection[TupleRow], ReadScope]]:
+) -> Generator[tuple[psycopg.Connection[TupleRow], ReadScope], None, None]:
     with _transaction(runtime, access) as (connection, scope):
         yield connection, scope
         if isinstance(scope, IntegrationScope):

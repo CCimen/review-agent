@@ -23,7 +23,7 @@ from typing import cast
 import psycopg
 
 from . import failure_codes, review_contract, review_run_application
-from .domain.review import JsonObject
+from .domain.review import JsonObject, ReviewPurpose
 from .hermes_control import MANAGED_REVIEW_PATH
 from .postgres import jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
@@ -121,6 +121,7 @@ class ClaimedReview:
     repository: str
     pr_number: int
     resolved_config: JsonObject
+    purpose: ReviewPurpose = ReviewPurpose.CODE
 
 
 class HermesChatClient:
@@ -374,6 +375,7 @@ class ReviewWorker:
                 resolved_config=cast(
                     JsonObject, json.loads(scope.resolved_config.canonical_json)
                 ),
+                purpose=scope.run.purpose,
             )
 
     def _recover_if_due(self) -> None:

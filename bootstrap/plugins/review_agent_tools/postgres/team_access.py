@@ -1,7 +1,7 @@
 """Console authorization resolved against current accounts and team ownership."""
 
 from dataclasses import dataclass, field
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Literal, overload
 from uuid import UUID
@@ -126,7 +126,7 @@ def authorized_transaction(
     *,
     write: bool = False,
     access_change: bool = False,
-) -> Iterator[tuple[psycopg.Connection[TupleRow], ReadScope]]:
+) -> Generator[tuple[psycopg.Connection[TupleRow], ReadScope], None, None]:
     """Resolve current authorization in the transaction containing the operation."""
     with runtime.transaction() as connection:
         if isinstance(access, IntegrationAccessRequest):

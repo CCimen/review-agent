@@ -10,7 +10,7 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
-from ..domain.review import ReviewRunId
+from ..domain.review import ReviewPurpose, ReviewRunId
 from . import coverage as postgres_coverage
 from .team_access import ReadScope, repository_source
 
@@ -63,6 +63,7 @@ class RepositoryPage:
 @dataclass(frozen=True, slots=True)
 class HistoryRow:
     id: ReviewRunId
+    purpose: ReviewPurpose
     pull_request_id: int
     previous_head_sha: str | None
     repository: str
@@ -145,7 +146,7 @@ def repositories(
                     count(*) FILTER (
                         WHERE run.status = 'failed' AND NOT EXISTS (
                             SELECT 1 FROM review_agent.review_runs AS newer
-                            WHERE newer.pull_request_id = run.pull_request_id AND newer.id > run.id
+                            WHERE newer.pull_request_id = run.pull_request_id AND newer.purpose = run.purpose AND newer.id > run.id
                         )
                     )::integer AS latest_failed_prs,
                     max(coalesce(run.completed_at, run.last_heartbeat_at)) AS last_activity_at
@@ -220,10 +221,10 @@ def repositories(
 
 
 _HISTORY_SELECT = """
-            SELECT run.id, pr.id AS pull_request_id,
+            SELECT run.id, run.purpose, pr.id AS pull_request_id,
                 (SELECT prior_subject.head_sha FROM review_agent.review_runs prior
                  JOIN review_agent.review_subjects prior_subject ON prior_subject.id = prior.review_subject_id
-                 WHERE prior.pull_request_id = pr.id AND prior.id < run.id
+                 WHERE prior.pull_request_id = pr.id AND prior.purpose = run.purpose AND prior.id < run.id
                  ORDER BY prior.id DESC LIMIT 1) AS previous_head_sha,
                 repo.full_name AS repository, pr.number AS pr_number,
                 subject.base_sha, subject.head_sha,
@@ -245,11 +246,11 @@ _HISTORY_SELECT = """
                 (pub.superseded_at IS NOT NULL) AS publication_superseded,
                 NOT EXISTS (
                     SELECT 1 FROM review_agent.review_runs AS newer
-                    WHERE newer.pull_request_id = pr.id AND newer.id > run.id
+                    WHERE newer.pull_request_id = pr.id AND newer.purpose = run.purpose AND newer.id > run.id
                 ) AS is_latest,
                 (run.status = 'failed' AND EXISTS (
                     SELECT 1 FROM review_agent.publications AS newer
-                    WHERE newer.pull_request_id = pr.id AND newer.review_run_id > run.id
+                    WHERE newer.pull_request_id = pr.id AND newer.purpose = run.purpose AND newer.review_run_id > run.id
                       AND newer.posted_at IS NOT NULL
                 )) AS recovered,
                 CASE WHEN job.status = 'queued' AND run.status = 'running'
@@ -289,7 +290,7 @@ _HISTORY_QUERY = (
                    OR (%(status)s = 'failed' AND run.status = 'failed')
                    OR (%(status)s = 'latest_failed' AND run.status = 'failed' AND NOT EXISTS (
                        SELECT 1 FROM review_agent.review_runs AS newer
-                       WHERE newer.pull_request_id = pr.id AND newer.id > run.id
+                       WHERE newer.pull_request_id = pr.id AND newer.purpose = run.purpose AND newer.id > run.id
                    ))
                    OR (%(status)s = 'superseded' AND run.status = 'superseded'))
                 """
@@ -374,6 +375,7 @@ def _history_items(
     return tuple(
         HistoryItem(
             id=row.id,
+            purpose=ReviewPurpose(row.purpose),
             pull_request_id=row.pull_request_id,
             previous_head_sha=row.previous_head_sha,
             repository=row.repository,

@@ -4472,6 +4472,16 @@ owns the suppression trust rules in [docs/SECURITY.md](SECURITY.md).
 
 ## Backup And Recovery
 
+Migration 029 separates code and documentation review identities. Before applying
+it, pause admission and drain active reviews and publication deliveries, then
+stop all application services, including `review-admin`. Deploy every service
+from the same source revision before resuming work. Older workers must not run
+against this schema alongside newer workers: their queries assume one review
+purpose per pull request. Existing records remain code reviews with their IDs,
+finding references, and decisions preserved. If rollback is required after
+documentation records have been created, restore the pre-upgrade database backup
+with its matching application revision; do not remove purpose columns in place.
+
 Back up PostgreSQL securely. It may contain unpublished findings and
 human-entered reasons. Create a logical backup from the Compose host:
 

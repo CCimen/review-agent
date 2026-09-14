@@ -31,6 +31,7 @@ from ..domain.publication import (
 )
 from ..domain.finding import FindingId, suppression_is_active
 from ..domain.review import (
+    ReviewPurpose,
     DiffCoverageExample,
     DiffState,
     PullRequestId,
@@ -100,6 +101,7 @@ class StoredPublication:
     delivery_lease_expires_at: datetime | None
     delivery_recovery_count: int
     parts: tuple[StoredPublicationPart, ...]
+    purpose: ReviewPurpose = ReviewPurpose.CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,11 +117,13 @@ class _RunScope:
     pull_request_id: PullRequestId
     status: str
     phase: str
+    purpose: str
 
 
 @dataclass(frozen=True, slots=True)
 class _PublicationRow:
     id: PublicationId
+    purpose: str
     pull_request_id: PullRequestId
     review_run_id: ReviewRunId
     review_number: int
@@ -361,6 +365,7 @@ def preparation_context(
               ON all_publication.pull_request_id = run.pull_request_id
             LEFT JOIN review_agent.publications AS current_publication
               ON current_publication.pull_request_id = run.pull_request_id
+             AND current_publication.purpose = run.purpose
              AND current_publication.status = 'posted'
              AND current_publication.superseded_by_publication_id IS NULL
             LEFT JOIN review_agent.review_runs AS previous_run
@@ -426,12 +431,13 @@ def preparation_context(
             JOIN review_agent.finding_occurrences AS occurrence
               ON occurrence.id = item.source_finding_occurrence_id
             WHERE publication.pull_request_id = %s
+              AND publication.purpose = %s
               AND publication.status = 'posted'
               AND publication.superseded_by_publication_id IS NULL
               AND item.outcome IN ('current', 'not_checked')
             ORDER BY item.local_reference
             """,
-            (scope_lock.pull_request_id,),
+            (scope_lock.pull_request_id, scope_lock.purpose),
         ).fetchall()
 
     published_fingerprint_rows = connection.execute(
@@ -443,9 +449,10 @@ def preparation_context(
         JOIN review_agent.finding_identities AS identity
           ON identity.id = item.finding_id
         WHERE publication.pull_request_id = %s
+          AND publication.purpose = %s
           AND publication.status = 'posted'
         """,
-        (scope_lock.pull_request_id,),
+        (scope_lock.pull_request_id, scope_lock.purpose),
     ).fetchall()
 
     reconciliation_rows = connection.execute(
@@ -624,7 +631,7 @@ def _run_scope(
     with connection.cursor(row_factory=class_row(_RunScope)) as cursor:
         scope = cursor.execute(
             """
-            SELECT pull_request_id, status, phase
+            SELECT pull_request_id, status, phase, purpose
             FROM review_agent.review_runs
             WHERE id = %s
             """,
@@ -643,7 +650,7 @@ def _run_scope(
     with connection.cursor(row_factory=class_row(_RunScope)) as cursor:
         locked = cursor.execute(
             """
-            SELECT pull_request_id, status, phase
+            SELECT pull_request_id, status, phase, purpose
             FROM review_agent.review_runs
             WHERE id = %s
             FOR UPDATE
@@ -774,6 +781,7 @@ def _stored(
         ),
     )
     return StoredPublication(
+        purpose=ReviewPurpose(row.purpose),
         id=row.id,
         pull_request_id=row.pull_request_id,
         review_run_id=row.review_run_id,
@@ -818,7 +826,7 @@ def _publication_row(
     with connection.cursor(row_factory=class_row(_PublicationRow)) as cursor:
         return cursor.execute(
             f"""
-            SELECT publication.id, publication.pull_request_id,
+            SELECT publication.id, publication.pull_request_id, publication.purpose,
                    publication.review_run_id, publication.review_number,
                    repository.full_name AS repository,
                    pull_request.number AS pr_number,
@@ -878,6 +886,7 @@ def publication_for_supersession(
         SELECT id, superseded_by_publication_id
         FROM review_agent.publications
         WHERE pull_request_id = %s
+          AND purpose = %s
           AND superseded_by_publication_id IS NOT NULL
           AND (
               supersession_rendered_at IS NULL
@@ -886,7 +895,7 @@ def publication_for_supersession(
         ORDER BY (superseded_by_publication_id = %s) DESC, superseded_at, id
         LIMIT 1
         """,
-        (current.pull_request_id, superseding_publication_id),
+        (current.pull_request_id, current.purpose.value, superseding_publication_id),
     ).fetchone()
     if row is None:
         return None
@@ -1442,11 +1451,12 @@ def complete_publication(
             SET superseded_at = statement_timestamp(),
                 superseded_by_publication_id = %s
             WHERE pull_request_id = %s
+              AND purpose = %s
               AND status = 'posted'
               AND superseded_by_publication_id IS NULL
               AND id <> %s
             """,
-            (publication_id, row.pull_request_id, publication_id),
+            (publication_id, row.pull_request_id, row.purpose, publication_id),
         )
         connection.execute(
             """
@@ -1643,9 +1653,9 @@ def prepare_publication(
                 pull_request_id, review_run_id, review_number, publication_key,
                 rendered_markdown, rendered_blocks_schema_version,
                 rendered_blocks, rendered_hash, status, generated_at,
-                delivery_available_at, delivery_max_attempts
+                delivery_available_at, delivery_max_attempts, purpose
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'generated',
-                      statement_timestamp(), statement_timestamp(), %s)
+                      statement_timestamp(), statement_timestamp(), %s, %s)
             RETURNING id
             """,
             (
@@ -1658,6 +1668,7 @@ def prepare_publication(
                 Jsonb(json.loads(plan.rendered_blocks_json)),
                 plan.rendered_hash,
                 delivery_max_attempts,
+                scope.purpose,
             ),
         ).fetchone()
         if publication_id_row is None:
@@ -1687,8 +1698,8 @@ def prepare_publication(
                     publication_id, publication_review_run_id, pull_request_id,
                     finding_id, source_finding_occurrence_id,
                     source_review_run_id, local_reference, outcome,
-                    outcome_evidence
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    outcome_evidence, purpose
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     publication_id,
@@ -1700,6 +1711,7 @@ def prepare_publication(
                     finding.local_reference,
                     finding.outcome.value,
                     finding.outcome_evidence,
+                    scope.purpose,
                 ),
             )
         updated = connection.execute(

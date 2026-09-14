@@ -84,6 +84,11 @@ class ReviewMode(StrEnum):
     GENERATED_CONTRACT = "generated-contract"
 
 
+class ReviewPurpose(StrEnum):
+    CODE = "code"
+    DOCUMENTATION = "documentation"
+
+
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")
 
 
@@ -104,6 +109,7 @@ class ReviewSubjectDefinition:
     head_sha: str
     policy_revision: str
     resolved_config: ResolvedConfig
+    purpose: ReviewPurpose = ReviewPurpose.CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,9 +376,11 @@ def resolve_review_subject(
     policy_revision: str,
     resolved_config_schema_version: int,
     resolved_config: JsonObject,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> ReviewSubjectDefinition:
     """Validate and freeze the exact subject before a transaction is opened."""
     return ReviewSubjectDefinition(
+        purpose=ReviewPurpose(purpose),
         base_sha=_commit_sha(base_sha, field="base_sha"),
         head_sha=_commit_sha(head_sha, field="head_sha"),
         policy_revision=_policy_revision(policy_revision),

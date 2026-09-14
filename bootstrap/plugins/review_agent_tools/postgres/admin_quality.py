@@ -12,6 +12,7 @@ from psycopg.rows import TupleRow, class_row
 
 from ..domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
 from ..domain.finding import FindingDecision
+from ..domain.review import ReviewPurpose
 from .reporting import FindingReport
 from .team_access import AccessScope, maintainer_predicate, repository_source
 
@@ -117,6 +118,7 @@ def feedback_backlog(
     repository: str | None,
     limit: int,
     offset: int,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> QualityFeedbackPage:
     """Return latest triage state for a bounded missed-issue feedback page."""
     _require_transaction(connection)
@@ -152,6 +154,7 @@ def feedback_backlog(
                     LIMIT 1
                 ) AS latest ON true
                 WHERE feedback.category = 'missed_issue'
+                  AND feedback.publication_id IN (SELECT id FROM review_agent.publications WHERE purpose = {purpose})
                   AND (
                       %s::text IS NULL
                       OR lower(repository.full_name) = lower(%s::text)
@@ -166,6 +169,7 @@ def feedback_backlog(
             """).format(
                 repositories=repository_source(scope),
                 can_triage=maintainer_predicate(scope, sql.SQL("repository.id")),
+                purpose=sql.Literal(purpose.value),
             ),
             (repository, repository, limit + 1, offset),
         ).fetchall()

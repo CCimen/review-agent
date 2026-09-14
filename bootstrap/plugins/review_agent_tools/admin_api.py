@@ -3,7 +3,7 @@
 import os
 from datetime import datetime
 from uuid import UUID
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -84,7 +84,7 @@ def create_app(
     build = read_build_info()
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             await run_in_threadpool(runtime.open)
             yield

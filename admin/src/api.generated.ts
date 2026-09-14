@@ -2426,6 +2426,7 @@ export interface components {
         HistoryItem: {
             /** Id */
             id: number;
+            purpose: components["schemas"]["ReviewPurpose"];
             /** Pull Request Id */
             pull_request_id: number;
             /** Previous Head Sha */
@@ -3665,6 +3666,11 @@ export interface components {
          * @enum {string}
          */
         ReviewJobStatus: "queued" | "leased" | "awaiting_publication" | "superseded" | "succeeded" | "failed" | "dead_letter";
+        /**
+         * ReviewPurpose
+         * @enum {string}
+         */
+        ReviewPurpose: "code" | "documentation";
         /**
          * ReviewStatus
          * @enum {string}

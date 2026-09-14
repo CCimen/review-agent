@@ -126,14 +126,16 @@ export const day = (value: string) => dayOnly.format(new Date(value));
 export function duration(seconds: number | null | undefined) {
   if (seconds === null || seconds === undefined) return null;
   if (seconds < 1) return `${seconds.toFixed(2)} s`;
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
-  if (seconds < 3600) {
-    const minutes = Math.floor(seconds / 60);
-    const rest = Math.round(seconds % 60);
+  const rounded = Math.round(seconds);
+  if (rounded < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  if (rounded < 3600) {
+    const minutes = Math.floor(rounded / 60);
+    const rest = rounded % 60;
     return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
   }
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.round((seconds % 3600) / 60);
+  const roundedMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
   return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
 }
 

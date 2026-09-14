@@ -587,6 +587,13 @@ const request = {
   publication_superseded: false,
   attempt_count: 1,
   max_attempts: 3,
+  usage: {
+    started_attempts: 2,
+    reported_attempts: 1,
+    prompt_tokens: 8000,
+    completion_tokens: 4345,
+    total_tokens: 12345,
+  },
   coverage: {
     state: "partial",
     registration_complete: true,
@@ -698,6 +705,13 @@ test("review destination leads with publication and coverage, preserves filters 
   assert.match(html, /#issuecomment-123/);
   assert.match(html, /Incomplete/);
   assert.match(html, /46 min 24 s/);
+  assert.match(html, /Recorded tokens/);
+  assert.match(html, /12,345 total/);
+  assert.match(textContent(html), /8,000 prompt · 4,345 completion/);
+  assert.match(
+    textContent(html),
+    /Partial · 1 of 2 attempts reported · Reported retries included/,
+  );
   assert.match(html, /aria-current="page"/);
   assert.match(button(html, "Execution details"), /aria-expanded="false"/);
   assert.ok(
@@ -953,6 +967,7 @@ test("activity keeps request metadata and does not report unpublished findings",
     "Commit",
     "Findings",
     "Attempts used",
+    "Recorded tokens",
     "Last activity",
   ])
     assert.match(html, new RegExp(`>${label}<`));
@@ -963,6 +978,7 @@ test("activity keeps request metadata and does not report unpublished findings",
   assert.doesNotMatch(html, />99<\/td>/);
   assert.match(html, /The model provider returned an error/);
   assert.match(html, /Recovered: a later review published/);
+  assert.match(html, /12,345 tokens/);
   assert.match(html, /Older requests/);
 });
 
@@ -1118,4 +1134,41 @@ test("pull request results use aligned table columns", async () => {
   assert.match(html, /<table[^>]*aria-label="Pull requests"/);
   assert.match(html, /<thead[\s\S]*?Pull request[\s\S]*?Latest matching result[\s\S]*?Started[\s\S]*?Action[\s\S]*?<\/thead>/);
   assert.match(html, /<tbody[\s\S]*?PR #/);
+  assert.match(html, /12,345 tokens/);
+});
+
+test("duration carries rounded seconds and minutes across unit boundaries", async () => {
+  const { duration } = await server.ssrLoadModule("/src/ui.tsx");
+  assert.equal(duration(59.5), "1 min");
+  assert.equal(duration(299.6), "5 min");
+  assert.equal(duration(3599.5), "1 h");
+  assert.equal(duration(7199), "2 h");
+});
+
+test("request usage distinguishes missing, partial and reported zero totals", async () => {
+  const { ReviewUsageSummary } = await server.ssrLoadModule(
+    "/src/reviewUsage.tsx",
+  );
+  const renderedUsage = (usage) =>
+    textContent(renderConsolePage(createElement(ReviewUsageSummary, { usage }), []));
+  assert.match(
+    renderedUsage({
+      started_attempts: 1,
+      reported_attempts: 0,
+      prompt_tokens: null,
+      completion_tokens: null,
+      total_tokens: null,
+    }),
+    /Not reportedPartial · 0 of 1 attempts reported/,
+  );
+  assert.match(
+    renderedUsage({
+      started_attempts: 1,
+      reported_attempts: 1,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+    }),
+    /^0 tokens$/,
+  );
 });

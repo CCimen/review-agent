@@ -2365,6 +2365,14 @@ another request replaces the review. On narrow screens, use the request selector
 Each request has a direct URL; returning to history preserves its filters and
 list position.
 
+Each request shows recorded token usage beside its duration: total, prompt and
+completion tokens, plus how many started attempts reported usage. Reported
+retries are included. Missing usage stays **Not reported**; a partial total is
+labeled **Partial**. The request list and history show compact totals for each
+request. A grouped PR row shows its latest matching request's usage, not a total
+across that PR. These details use the same team access as the review; the
+aggregate Usage report remains limited to owners and admins.
+
 The reader displays the stored original publication after every publication part
 has been delivered. It includes exact links to the GitHub review comments and any
 separately published suggested changes. Later GitHub edits and discussion are not

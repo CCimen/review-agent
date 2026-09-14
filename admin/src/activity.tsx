@@ -28,6 +28,7 @@ import {
   reviewStateLabel,
   reviewStateTone,
 } from "./reviewProgress";
+import { ReviewUsageSummary } from "./reviewUsage";
 import { ScopedLink as Link, ScopedAnchor, useScope } from "./scope";
 import {
   Empty,
@@ -188,6 +189,12 @@ export function ActivityPage() {
         item.max_attempts === null
           ? "—"
           : `${item.attempt_count} of ${item.max_attempts}`,
+    },
+    {
+      key: "usage",
+      header: "Recorded tokens",
+      width: proportional(1, { minWidth: 190 }),
+      renderCell: (item) => <ReviewUsageSummary usage={item.usage} />,
     },
     {
       key: "last_heartbeat_at",

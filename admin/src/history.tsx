@@ -43,6 +43,7 @@ import type {
 } from "./api";
 import { APIError, read } from "./api";
 import { ReviewFindings } from "./reviewFindings";
+import { ReviewUsageSummary } from "./reviewUsage";
 import {
   ReviewProgress,
   reviewStateLabel,
@@ -94,6 +95,7 @@ function Result({ item }: { item: HistoryItem }) {
       ) : (
         <ReviewProgress item={item} />
       )}
+      <ReviewUsageSummary usage={item.usage} />
     </VStack>
   );
 }
@@ -378,6 +380,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                       )}
                     </MetadataListItem>
                   ) : null}
+                  <MetadataListItem label="Recorded tokens">
+                    <ReviewUsageSummary usage={item.usage} details />
+                  </MetadataListItem>
                   {item.previous_head_sha &&
                   item.previous_head_sha !== item.head_sha ? (
                     <MetadataListItem label="Since previous request">

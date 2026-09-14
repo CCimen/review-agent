@@ -1,9 +1,11 @@
 # Scoped documentation review design
 
 Design prepared 14 September 2026 against `feature/admin-panel` at
-`d2554c4d75083227a3d8672ba5bb8f21b3d04b52`. This describes proposed behavior. Documentation
-review is not implemented or deployed. Beads epic `ra-docs-review-ms1` owns implementation
-status, dependencies and acceptance; this document owns the product and technical decisions.
+`d2554c4d75083227a3d8672ba5bb8f21b3d04b52`. The version 1 `documentation.toml` validator and
+revision-bound local `repository-context docs-scope` preview are implemented. Live documentation
+reviews, settings and GitHub check publication remain proposed and are not deployed. Beads epic
+`ra-docs-review-ms1` owns implementation status, dependencies and acceptance; this document owns
+the product and technical decisions.
 
 A ready pull request should receive a focused, advisory assessment of documentation that its
 changes could make incorrect. Authors get evidence and a small correction they can apply in the

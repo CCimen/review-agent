@@ -33,6 +33,7 @@ def _load_package() -> None:
 _load_package()
 
 from review_agent_tools import (  # noqa: E402
+    documentation_scope,
     operator_application,
     operator_setup,
     repository_context_validation,
@@ -225,6 +226,13 @@ def _parser() -> argparse.ArgumentParser:
     repository_context_validate.add_argument(
         "root", nargs="?", default=".", help="Repository root; defaults to the current directory."
     )
+    repository_context_scope = repository_context_commands.add_parser(
+        "docs-scope",
+        help="Preview documentation scope from exact local Git revisions.",
+    )
+    repository_context_scope.add_argument("root", type=Path)
+    repository_context_scope.add_argument("--base", required=True)
+    repository_context_scope.add_argument("--head", required=True)
     return parser
 
 
@@ -920,6 +928,23 @@ def _validate_repository_context(args: argparse.Namespace) -> int:
     return 0
 
 
+def _preview_documentation_scope(args: argparse.Namespace) -> int:
+    try:
+        receipt = documentation_scope.preview_repository_scope(
+            args.root, base=args.base, head=args.head
+        )
+    except documentation_scope.DocumentationScopeError as exc:
+        print(
+            json.dumps(
+                {"code": exc.code, "detail": exc.detail, "ready": False},
+                sort_keys=True,
+            )
+        )
+        return 1
+    print(json.dumps(receipt.to_json_obj(), sort_keys=True))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -999,6 +1024,11 @@ def main(argv: list[str] | None = None) -> int:
         and args.repository_context_command == "validate"
     ):
         return _validate_repository_context(args)
+    if (
+        args.command == "repository-context"
+        and args.repository_context_command == "docs-scope"
+    ):
+        return _preview_documentation_scope(args)
     parser.error("unsupported command")
 
 

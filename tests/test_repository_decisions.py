@@ -9,9 +9,15 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools.domain import repository_decisions  # noqa: E402
+from review_agent_tools.domain import repository_paths  # noqa: E402
 
 
 class RepositoryDecisionContractTests(unittest.TestCase):
+    def test_pathological_segment_glob_nonmatch_is_bounded(self) -> None:
+        pattern = "a*" * 25 + "b"
+
+        self.assertFalse(repository_paths.matches(pattern, "a" * 100))
+
     def test_index_matches_recursive_globs_without_widening_single_segment_globs(
         self,
     ) -> None:

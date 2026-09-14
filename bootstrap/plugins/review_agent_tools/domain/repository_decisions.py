@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import lru_cache
 import hashlib
 import json
 import re
 import tomllib
 from typing import cast
+
+from . import repository_paths
 
 
 # These fixed ceilings bound optional ADR metadata, never PR discovery or source
@@ -28,7 +29,7 @@ MAX_ON_CHANGE_ITEMS = 10
 # The byte ceiling remains authoritative; this line ceiling bounds gateway work
 # without rejecting a maximally populated, normally formatted index.
 MAX_INDEX_LINES = 1 + MAX_INDEX_ENTRIES * (MAX_GLOBS_PER_DECISION + 6)
-_MAX_PATH_CHARS = 500
+_MAX_PATH_CHARS = repository_paths.MAX_REPOSITORY_PATH_CHARS
 _MAX_INVARIANT_CHARS = 500
 _MAX_ON_CHANGE_CHARS = 300
 _DECISION_ID_RE = re.compile(r"^ADR-[0-9A-Za-z][0-9A-Za-z._-]{0,63}$")
@@ -94,12 +95,10 @@ def _decision_id(value: object, *, field: str = "id") -> str:
 
 
 def _path(value: object, *, field: str) -> str:
-    path = _text(value, field=field, maximum=_MAX_PATH_CHARS)
-    if "\\" in path:
-        raise RepositoryDecisionError(f"{field} must use forward slashes")
-    if path.startswith("/") or any(part in {"", ".", ".."} for part in path.split("/")):
-        raise RepositoryDecisionError(f"{field} must be a normalized repository path")
-    return path
+    try:
+        return repository_paths.normalized_path(value, field=field)
+    except repository_paths.RepositoryPathError as exc:
+        raise RepositoryDecisionError(str(exc)) from exc
 
 
 def _adr_path(value: object, *, field: str) -> str:
@@ -112,22 +111,10 @@ def _adr_path(value: object, *, field: str) -> str:
 
 
 def _glob(value: object, *, field: str) -> str:
-    pattern = _path(value, field=field)
-    if any(character in pattern for character in "[]{}"):
-        raise RepositoryDecisionError(
-            f"{field} supports only simple glob syntax: *, ?, and ** path segments"
-        )
-    segments = pattern.split("/")
-    for position, segment in enumerate(segments):
-        if "**" in segment and segment != "**":
-            raise RepositoryDecisionError(
-                f"{field} may use ** only as a complete path segment"
-            )
-        if position and segment == "**" and segments[position - 1] == "**":
-            raise RepositoryDecisionError(
-                f"{field} must not contain consecutive ** segments"
-            )
-    return pattern
+    try:
+        return repository_paths.simple_glob(value, field=field)
+    except repository_paths.RepositoryPathError as exc:
+        raise RepositoryDecisionError(str(exc)) from exc
 
 
 def _string_list(
@@ -217,33 +204,8 @@ def parse_index(content: str) -> DecisionIndex:
     return DecisionIndex(entries=tuple(entries))
 
 
-@lru_cache(maxsize=MAX_TOTAL_GLOBS)
-def _compiled_glob(pattern: str) -> re.Pattern[str]:
-    """Compile the validated path glob once for every matching run."""
-    parts = pattern.split("/")
-    expression: list[str] = ["^"]
-    for index, part in enumerate(parts):
-        if part == "**":
-            if len(parts) == 1:
-                expression.append(r"(?:[^/]+(?:/[^/]+)*)?")
-            elif index == 0:
-                expression.append(r"(?:[^/]+/)*")
-            elif index == len(parts) - 1:
-                expression.append(r"(?:/[^/]+)*")
-            else:
-                expression.append(r"/(?:[^/]+/)*")
-            continue
-        if index > 0 and parts[index - 1] != "**":
-            expression.append("/")
-        expression.append(
-            re.escape(part).replace(r"\*", "[^/]*").replace(r"\?", "[^/]")
-        )
-    expression.append("$")
-    return re.compile("".join(expression))
-
-
 def _matches(pattern: str, path: str) -> bool:
-    return _compiled_glob(pattern).fullmatch(path) is not None
+    return repository_paths.matches(pattern, path)
 
 
 def matching_entries(

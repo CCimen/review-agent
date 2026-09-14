@@ -1,0 +1,21 @@
+version = 1
+
+# Replace this example with the target repository's source relationships and
+# maintained documents.
+
+[[area]]
+id = "platform-contracts"
+sources = ["src/platform/**", "deploy/**"]
+documents = [".review-agent/context/platform.md"]
+intent = "Keep shared platform contracts, integration boundaries and failure modes accurate."
+
+[[ignore_changes]]
+# Exclusions apply only when no explicit area mapping matches the changed path.
+paths = ["tests/fixtures/**"]
+reason = "Internal test fixtures are not shipped as operator examples."
+
+[[ignore_documents]]
+# Document exclusions explain why current-version freshness does not apply.
+# They do not disable structural validation or other deterministic checks.
+paths = ["docs/assessments/**"]
+reason = "Dated assessments describe the state and decisions at the time they were written."

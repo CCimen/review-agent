@@ -7,7 +7,7 @@ import hashlib
 from pathlib import Path
 
 from . import capacity, repository_decision_context, repository_guidance_context
-from .domain import repository_decisions, repository_guidance
+from .domain import documentation_policy, repository_decisions, repository_guidance
 
 
 class RepositoryContextValidationError(ValueError):
@@ -63,6 +63,9 @@ class RepositoryContextValidationReceipt:
     decision_index_hash: str | None
     decisions: tuple[ValidatedDecision, ...]
     guidance_chars: int
+    documentation_configured: bool
+    documentation_config_hash: str | None
+    documentation_areas: tuple[str, ...]
 
     def to_json_obj(self) -> dict[str, object]:
         return {
@@ -73,6 +76,9 @@ class RepositoryContextValidationReceipt:
             "decisions": [item.to_json_obj() for item in self.decisions],
             "enabled": self.enabled,
             "guidance_chars": self.guidance_chars,
+            "documentation_areas": list(self.documentation_areas),
+            "documentation_config_hash": self.documentation_config_hash,
+            "documentation_configured": self.documentation_configured,
             "instructions": (
                 self.instructions.to_json_obj()
                 if self.instructions is not None
@@ -308,6 +314,31 @@ def validate_repository_context(
                 )
             )
 
+    documentation_configured = _optional(
+        resolved_root, documentation_policy.CONFIG_PATH
+    )
+    documentation_config_hash: str | None = None
+    documentation_areas: tuple[str, ...] = ()
+    if documentation_configured:
+        content = _read(
+            resolved_root,
+            documentation_policy.CONFIG_PATH,
+            max_bytes=documentation_policy.MAX_CONFIG_BYTES,
+        )
+        try:
+            policy = documentation_policy.parse_policy(content)
+        except documentation_policy.DocumentationPolicyError as exc:
+            raise RepositoryContextValidationError(
+                "repository_documentation_config_invalid",
+                path=documentation_policy.CONFIG_PATH,
+                detail=str(exc),
+            ) from exc
+        for area in policy.areas:
+            for document in area.documents:
+                _target(resolved_root, document)
+        documentation_config_hash = _hash(content)
+        documentation_areas = tuple(area.id for area in policy.areas)
+
     return RepositoryContextValidationReceipt(
         configured=config_exists,
         enabled=enabled,
@@ -317,6 +348,9 @@ def validate_repository_context(
         decision_index_hash=decision_index_hash,
         decisions=tuple(decisions),
         guidance_chars=guidance_chars,
+        documentation_configured=documentation_configured,
+        documentation_config_hash=documentation_config_hash,
+        documentation_areas=documentation_areas,
     )
 
 

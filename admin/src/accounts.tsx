@@ -8,7 +8,7 @@ import { Section } from "@astryxdesign/core/Section";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import type { InputHTMLAttributes } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Form } from "./ui";
+import { Form, Loading } from "./ui";
 // Login layout adapted from Astryx's Login Card template.
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 import { Banner } from "@astryxdesign/core/Banner";
@@ -283,7 +283,10 @@ export function Login() {
                     />
                   )}
                   {mutation.isError && (
+                    // Keyed by the attempt so a second rejection shakes again.
                     <Banner
+                      key={mutation.submittedAt}
+                      className="t-shake"
                       status="error"
                       title={
                         mode === "login"
@@ -624,11 +627,7 @@ export function Users({ current }: { current: Account }) {
           </Form>
         </Section>
       )}
-      {query.isPending && (
-        <Text as="p" role="status">
-          Loading users…
-        </Text>
-      )}
+      {query.isPending && <Loading label="Loading users" rows={6} />}
       {query.isError && (
         <VStack gap={3} role="alert">
           <Text as="p">Could not load users.</Text>

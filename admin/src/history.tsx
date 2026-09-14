@@ -1,7 +1,9 @@
+import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { Grid } from "@astryxdesign/core/Grid";
+import { Grid, GridSpan } from "@astryxdesign/core/Grid";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import {
   MetadataList,
@@ -21,6 +23,7 @@ import {
   type TableColumn,
 } from "@astryxdesign/core/Table";
 import { Selector } from "@astryxdesign/core/Selector";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -40,7 +43,11 @@ import type {
 } from "./api";
 import { APIError, read } from "./api";
 import { ReviewFindings } from "./reviewFindings";
-import { ReviewProgress, reviewStateLabel } from "./reviewProgress";
+import {
+  ReviewProgress,
+  reviewStateLabel,
+  reviewStateTone,
+} from "./reviewProgress";
 import { RunControls } from "./runControls";
 import { ScopedLink as Link, useScope } from "./scope";
 import {
@@ -49,6 +56,7 @@ import {
   Empty,
   failureSentence,
   Freshness,
+  Loading,
   number,
   Period,
   time,
@@ -66,7 +74,14 @@ const pullRequestURL = (item: Pick<HistoryItem, "repository" | "pr_number">) =>
 function Result({ item }: { item: HistoryItem }) {
   return (
     <VStack gap={1}>
-      <Text>{reviewStateLabel(item)}</Text>
+      <HStack gap={2} vAlign="center">
+        <StatusDot
+          variant={reviewStateTone(item)}
+          label={reviewStateLabel(item)}
+          aria-hidden="true"
+        />
+        <Text>{reviewStateLabel(item)}</Text>
+      </HStack>
       {item.posted_at !== null ? (
         <Text type="supporting">
           {item.findings_count === null
@@ -155,45 +170,65 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
           a cause that is not there. The status beside this already names the
           state, and the reader below says which request to open instead. */}
       {item.failure_code && !superseded && (
-        <VStack gap={3}>
-          <strong>
-            {item.recovered
-              ? "Earlier failure; a later request published a review."
+        <Banner
+          status={item.recovered ? "info" : "error"}
+          title={
+            item.recovered
+              ? "A later request published a review"
               : item.is_latest
-                ? "The latest review request failed."
-                : "This earlier request failed."}
-          </strong>
-          <Text as="p">
-            {failureSentence(item.failure_code)}.{" "}
-            <Copy value={item.failure_code} label="failure code">
-              <Code>{item.failure_code}</Code>
-            </Copy>
-            {item.job_failure_code ? (
+                ? "The pull request needs a new review request"
+                : "An earlier request; a later one may have published"
+          }
+          description={
+            item.recovered ? (
+              "Nothing is waiting on this failure. The cause is kept for the record."
+            ) : (
               <>
-                {" "}
-                · Worker cause:{" "}
-                <Copy value={item.job_failure_code} label="worker failure code">
-                  <Code>{item.job_failure_code}</Code>
-                </Copy>
+                Check the review result on GitHub and the operator logs for
+                request #{item.id}. After resolving the cause, request{" "}
+                <Code>/review</Code> on the PR again.
               </>
-            ) : null}
-          </Text>
-          <Text as="p">
-            Check the review result on GitHub and the operator logs for request
-            #{item.id}. After resolving the cause, request <Code>/review</Code>{" "}
-            on the PR again.
-          </Text>
-        </VStack>
+            )
+          }
+        >
+          <VStack gap={2}>
+            {/* The recorded token is what an operator greps for; it sits
+                under the sentence rather than inside it. When the worker
+                recorded the same cause, one token is enough. */}
+            <Text as="p" type="supporting">
+              Recorded cause{" "}
+              <Copy value={item.failure_code} label="failure code">
+                <Code>{item.failure_code}</Code>
+              </Copy>
+              {item.job_failure_code &&
+              item.job_failure_code !== item.failure_code ? (
+                <>
+                  {" "}
+                  · Worker cause{" "}
+                  <Copy
+                    value={item.job_failure_code}
+                    label="worker failure code"
+                  >
+                    <Code>{item.job_failure_code}</Code>
+                  </Copy>
+                </>
+              ) : null}
+            </Text>
+          </VStack>
+        </Banner>
       )}
       {item.coverage.state !== "complete" &&
         (item.posted_at !== null ||
           (item.state !== "queued" && item.coverage.registration_complete)) && (
-          <Text as="p">
-            {item.coverage.state === "unknown"
-              ? "Coverage has not been established."
-              : `Complete diffs were available for ${item.coverage.changed_paths_with_complete_diff} of ${item.coverage.changed_files_reported ?? "an unknown number of"} changed files.`}{" "}
-            A published result may leave changes unreviewed.
-          </Text>
+          <Banner
+            status="warning"
+            title="Some changes may not have been reviewed"
+            description={
+              item.coverage.state === "unknown"
+                ? "Coverage has not been established. A published result may leave changes unreviewed."
+                : `Complete diffs were available for ${item.coverage.changed_paths_with_complete_diff} of ${item.coverage.changed_files_reported ?? "an unknown number of"} changed files. A published result may leave changes unreviewed.`
+            }
+          />
         )}
     </>
   );
@@ -241,6 +276,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
     setParams(next, { preventScrollReset: true });
   }
   const selectedURL = (id: number) => `/history/${id}${search}`;
+  const wide = useMediaQuery("(min-width: 1024px)");
   const data = query.data;
   const missing = query.error instanceof APIError && query.error.status === 404;
   return (
@@ -274,7 +310,175 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
               <VisuallyHidden> on GitHub (opens in a new tab)</VisuallyHidden>
             </AstryxLink>
           </HStack>
-          <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
+          {/* The published review is what the reader came for, so it takes
+              the first two of three columns; the request history is the
+              rail beside it and drops below on a narrow screen. Reading and
+              focus order match: review first, then its history. */}
+          <Grid columns={wide ? 3 : 1} gap={6}>
+            <GridSpan columns={wide ? 2 : 1}>
+            <VStack
+              gap={4}
+              as="section"
+              aria-label={`Review request ${item.id}`}
+            >
+              <VStack gap={4}>
+                <HStack gap={3} wrap="wrap" hAlign="between" vAlign="center">
+                  <Heading level={2}>Result</Heading>
+                  {data.can_maintain && <RunControls runId={item.id} />}
+                </HStack>
+                {/* The outcome is the one thing the reader came to learn, so
+                    it leads at a weight the body text does not use, with its
+                    qualifier beside it; the facts about the request follow
+                    as a labelled row instead of a sentence of chips. */}
+                <HStack gap={2} wrap="wrap" vAlign="center">
+                  <StatusDot
+                    variant={reviewStateTone(item)}
+                    label={reviewStateLabel(item)}
+                    aria-hidden="true"
+                  />
+                  <Text size="lg" weight="semibold">
+                    {reviewStateLabel(item)}
+                  </Text>
+                  <Text color="secondary">
+                    {item.posted_at !== null
+                      ? `${
+                          item.findings_count === null
+                            ? "Unknown"
+                            : number.format(item.findings_count)
+                        } finding${item.findings_count === 1 ? "" : "s"}`
+                      : item.recovered
+                        ? "A later review published"
+                        : item.failure_code
+                          ? failureSentence(item.failure_code)
+                          : null}
+                  </Text>
+                </HStack>
+                {item.posted_at === null && !item.failure_code ? (
+                  <ReviewProgress item={item} />
+                ) : null}
+                <MetadataList
+                  orientation="horizontal"
+                  columns="multi"
+                  label={{ position: "top" }}
+                >
+                  <MetadataListItem label="Reviewed commit">
+                    <Copy value={item.head_sha} label="reviewed head SHA">
+                      <Code>{item.head_sha.slice(0, 12)}</Code>
+                    </Copy>
+                  </MetadataListItem>
+                  {item.completed_at ? (
+                    <MetadataListItem label="Duration">
+                      {duration(
+                        Math.max(
+                          0,
+                          (Date.parse(item.completed_at) -
+                            Date.parse(item.started_at)) /
+                            1000,
+                        ),
+                      )}
+                    </MetadataListItem>
+                  ) : null}
+                  {item.previous_head_sha &&
+                  item.previous_head_sha !== item.head_sha ? (
+                    <MetadataListItem label="Since previous request">
+                      <AstryxLink
+                        href={`https://github.com/${item.repository}/compare/${item.previous_head_sha}...${item.head_sha}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Compare commits
+                        <VisuallyHidden> on GitHub (opens in a new tab)</VisuallyHidden>
+                      </AstryxLink>
+                    </MetadataListItem>
+                  ) : null}
+                </MetadataList>
+              </VStack>
+              <ReviewOutcome item={item} />
+              <ReviewFindings runId={item.id} repository={item.repository} />
+              {data.markdown !== null ? (
+                <>
+                  <VStack gap={3}>
+                    {data.publication_links.map((link) => (
+                      <AstryxLink
+                        key={link.url}
+                        href={link.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {link.label}
+                        <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+                      </AstryxLink>
+                    ))}
+                  </VStack>
+                  <Text as="p">
+                    Recorded publication from {time(item.posted_at)}. Later
+                    edits and discussion on GitHub are not reflected here.
+                  </Text>
+                  {data.content_truncated || data.links_truncated ? (
+                    <Text as="p">
+                      This large review exceeds the reader limit. Open the
+                      published review on GitHub for the complete result.
+                    </Text>
+                  ) : null}
+                  <Suspense
+                    fallback={
+                      <Text as="p" role="status">
+                        Loading review text…
+                      </Text>
+                    }
+                  >
+                    <ReviewMarkdown
+                      markdown={data.markdown}
+                      repository={item.repository}
+                      headSha={item.head_sha}
+                    />
+                  </Suspense>
+                </>
+              ) : !item.posted_at &&
+                (item.state === "queued" ||
+                  item.state === "running" ||
+                  item.state === "publishing" ||
+                  item.state === "stalled") ? (
+                <Text as="p">
+                  This page updates automatically as the review progresses.
+                </Text>
+              ) : (
+                <Empty
+                  title={
+                    item.state === "failed"
+                      ? "No published review"
+                      : item.state === "superseded"
+                        ? "Request superseded"
+                        : item.posted_at
+                          ? "Review content unavailable"
+                          : "Review not published yet"
+                  }
+                >
+                  {item.state === "failed"
+                    ? "This request failed before a complete review was published. The failure information above explains the recorded cause."
+                    : item.state === "superseded"
+                      ? "This request was replaced before publication. Select a later request from the history."
+                      : item.posted_at
+                        ? "The retained record does not contain a published review body. Check the pull request on GitHub."
+                        : item.state === "publishing"
+                          ? "The result is being delivered to GitHub. The reader will update when publication completes."
+                          : "The request is queued or still being reviewed. This page updates while you wait."}
+                </Empty>
+              )}
+              <Collapsible
+                defaultIsOpen={false}
+                trigger={
+                  <HStack gap={3} wrap="wrap" vAlign="center">
+                    Execution details
+                  </HStack>
+                }
+              >
+                <VStack gap={4}>
+                  <RunDetails item={item} />
+                </VStack>
+              </Collapsible>
+            </VStack>
+            </GridSpan>
             <VStack as="aside" gap={3} aria-labelledby="request-history-title">
               <Heading level={2} id="request-history-title">
                 Review history
@@ -384,136 +588,6 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                   />
                 </HStack>
               ) : null}
-            </VStack>
-            <VStack
-              gap={4}
-              as="section"
-              aria-label={`Review request ${item.id}`}
-            >
-              <VStack gap={4}>
-                <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-                  <VStack gap={3}>
-                    <Heading level={2}>Result</Heading>
-                    <Result item={item} />
-                  </VStack>
-                  {data.can_maintain && <RunControls runId={item.id} />}
-                </HStack>
-                <Text as="p">
-                  Request head{" "}
-                  <Copy value={item.head_sha} label="reviewed head SHA">
-                    <Code>{item.head_sha.slice(0, 12)}</Code>
-                  </Copy>
-                  {item.completed_at ? (
-                    <Text>
-                      {" "}
-                      ·{" "}
-                      {duration(
-                        Math.max(
-                          0,
-                          (Date.parse(item.completed_at) -
-                            Date.parse(item.started_at)) /
-                            1000,
-                        ),
-                      )}
-                    </Text>
-                  ) : null}
-                </Text>
-                {item.previous_head_sha &&
-                item.previous_head_sha !== item.head_sha ? (
-                  <AstryxLink
-                    href={`https://github.com/${item.repository}/compare/${item.previous_head_sha}...${item.head_sha}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Compare commits with previous request
-                    <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
-                  </AstryxLink>
-                ) : null}
-              </VStack>
-              <ReviewOutcome item={item} />
-              <ReviewFindings runId={item.id} repository={item.repository} />
-              {data.markdown !== null ? (
-                <>
-                  <VStack gap={3}>
-                    {data.publication_links.map((link) => (
-                      <AstryxLink
-                        key={link.url}
-                        href={link.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {link.label}
-                        <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
-                      </AstryxLink>
-                    ))}
-                  </VStack>
-                  <Text as="p">
-                    Recorded publication from {time(item.posted_at)}. Later
-                    edits and discussion on GitHub are not reflected here.
-                  </Text>
-                  {data.content_truncated || data.links_truncated ? (
-                    <Text as="p">
-                      This large review exceeds the reader limit. Open the
-                      published review on GitHub for the complete result.
-                    </Text>
-                  ) : null}
-                  <Suspense
-                    fallback={
-                      <Text as="p" role="status">
-                        Loading review text…
-                      </Text>
-                    }
-                  >
-                    <ReviewMarkdown
-                      markdown={data.markdown}
-                      repository={item.repository}
-                      headSha={item.head_sha}
-                    />
-                  </Suspense>
-                </>
-              ) : !item.posted_at &&
-                (item.state === "queued" ||
-                  item.state === "running" ||
-                  item.state === "publishing" ||
-                  item.state === "stalled") ? (
-                <Text as="p">
-                  This page updates automatically as the review progresses.
-                </Text>
-              ) : (
-                <Empty
-                  title={
-                    item.state === "failed"
-                      ? "No published review"
-                      : item.state === "superseded"
-                        ? "Request superseded"
-                        : item.posted_at
-                          ? "Review content unavailable"
-                          : "Review not published yet"
-                  }
-                >
-                  {item.state === "failed"
-                    ? "This request failed before a complete review was published. The failure information above explains the recorded cause."
-                    : item.state === "superseded"
-                      ? "This request was replaced before publication. Select a later request from the history."
-                      : item.posted_at
-                        ? "The retained record does not contain a published review body. Check the pull request on GitHub."
-                        : item.state === "publishing"
-                          ? "The result is being delivered to GitHub. The reader will update when publication completes."
-                          : "The request is queued or still being reviewed. This page updates while you wait."}
-                </Empty>
-              )}
-              <Collapsible
-                defaultIsOpen={false}
-                trigger={
-                  <HStack gap={3} wrap="wrap" vAlign="center">
-                    Execution details
-                  </HStack>
-                }
-              >
-                <VStack gap={4}>
-                  <RunDetails item={item} />
-                </VStack>
-              </Collapsible>
             </VStack>
           </Grid>
         </>
@@ -683,6 +757,7 @@ export function History() {
         </Text>
       )}
       <Freshness query={query} />
+      {query.isPending && <Loading label="Loading pull requests" rows={8} />}
       {query.data && (
         <Text as="p">
           Showing {number.format(query.data.items.length)} of{" "}

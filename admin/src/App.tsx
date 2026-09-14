@@ -44,6 +44,7 @@ import { UsagePage } from "./usage";
 import {
   Empty,
   Freshness,
+  Loading,
   Period,
   Prose,
   Stat,
@@ -266,11 +267,14 @@ function Repositories({ current }: { current: Account }) {
         <Period days={days} change={(value) => update({ days: value })} />
       </HStack>
       <Freshness query={query} />
+      {query.isPending && <Loading label="Loading repositories" rows={6} />}
       {/* With nothing matching, six zeroes and a sentence explaining what
           they would have counted say less than the empty state below. */}
       {query.data && totals && query.data.total > 0 && (
         <>
-          <Grid gap={4} columns={{ minWidth: 160, max: 3, repeat: "fit" }}>
+          {/* One row, as on Activity; three columns left half the width
+              between figures that belong together. */}
+          <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
             <Stat label="Repositories" value={query.data.total} />
             <Stat label="PRs reviewed" value={totals.prs_reviewed} />
             <Stat label="Published reviews" value={totals.published_requests} />
@@ -465,7 +469,15 @@ function Application({
         logout={() => logout.mutate()}
         signingOut={logout.isPending}
       >
-        <Section padding={0} maxWidth={1440}>
+        {/* Keyed by path so a new page enters rather than snapping into
+            the old one's place; filter changes keep the same key and move
+            nothing. */}
+        <Section
+          padding={0}
+          maxWidth={1440}
+          className="console-page"
+          key={pathname}
+        >
           <VStack gap={6} padding={6} paddingInline={isNarrow ? 4 : 6}>
             {logout.isError && (
               <Text as="p" role="alert">

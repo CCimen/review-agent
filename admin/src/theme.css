@@ -91,3 +91,153 @@
 .astryx-banner .astryx-link .astryx-text {
   color: var(--color-text-primary);
 }
+
+/* Motion. Astryx animates its own controls, dialogs and disclosures; these
+   rules cover the two moments the console itself creates and the library
+   cannot see: one page replacing another, and data replacing the placeholder
+   that held its place. Both are entrances, so they run on the theme's
+   standard ease-out; the page uses the fast band, the data the medium band
+   so a figure settles rather than blinks. Hover, focus, the
+   segmented filter and the ⌘K palette get nothing: those are repeated too
+   often for motion to read as anything but delay. `backwards` fill so the
+   transform and filter leave the element once it has landed; either would
+   otherwise become a containing block for the anchored popovers inside. */
+.console-page {
+  animation: console-enter var(--duration-fast) var(--ease-standard) backwards;
+}
+.console-arrive {
+  animation: console-arrive var(--duration-medium) var(--ease-standard)
+    backwards;
+}
+@keyframes console-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes console-arrive {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+/* Reduced motion keeps the fade, which still explains that something
+   changed, and drops the movement and blur. */
+@media (prefers-reduced-motion: reduce) {
+  .console-page,
+  .console-arrive {
+    animation-name: console-fade;
+    animation-duration: var(--duration-fast-min);
+  }
+  @keyframes console-fade {
+    from {
+      opacity: 0;
+    }
+  }
+}
+
+/* Two transitions from transitions.dev, tuned to the theme's motion tokens
+   rather than to a second token block, so the console keeps one motion scale.
+
+   Text states swap (transitions.dev 04): a label that changes in place
+   ("Copy" → "Copied") enters from a few pixels below with a touch of blur,
+   which reads as the same slot changing rather than two labels overlapping.
+   React remounts the label, so only the enter half is needed; the exit is
+   the old node leaving, which the eye has already moved past. */
+.t-text-swap {
+  display: inline-block;
+  animation: t-text-swap-enter var(--duration-fast) var(--ease-standard)
+    backwards;
+}
+@keyframes t-text-swap-enter {
+  from {
+    transform: translateY(4px);
+    filter: blur(2px);
+    opacity: 0;
+  }
+}
+
+/* Error state shake (transitions.dev 12): a rejected sign-in shakes the
+   message once. Percent stops are the cumulative segment durations
+   (80, 60, 80, 60 ms of 280 ms); each leg carries the theme's ease. */
+.t-shake {
+  animation: t-shake 280ms linear;
+}
+@keyframes t-shake {
+  0% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-standard);
+  }
+  28.57% {
+    transform: translateX(6px);
+    animation-timing-function: var(--ease-standard);
+  }
+  57.14% {
+    transform: translateX(-6px);
+    animation-timing-function: var(--ease-standard);
+  }
+  78.57% {
+    transform: translateX(4px);
+    animation-timing-function: var(--ease-standard);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-text-swap {
+    animation-name: console-fade;
+    animation-duration: var(--duration-fast-min);
+  }
+  .t-shake {
+    animation: none;
+  }
+}
+
+/* Icon swap (transitions.dev 09), used by the Copy control: the copy and
+   check icons share one grid cell and cross-fade with a touch of blur and
+   scale, on the theme's fast band. */
+.t-icon-swap {
+  position: relative;
+  display: inline-grid;
+}
+.t-icon-swap .t-icon {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    filter var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="a"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="b"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="b"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="a"] {
+  opacity: 0;
+  filter: blur(2px);
+  transform: scale(0.9);
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-icon-swap .t-icon {
+    transition: opacity var(--duration-fast-min) var(--ease-standard);
+    filter: none;
+    transform: none;
+  }
+}
+
+/* An abbreviation that expands a shortened identifier already sits in a
+   code chip; the browser's dotted underline on top of it read as a third
+   decoration. The title still expands on hover and for assistive tech. */
+abbr[title]:has(> .astryx-code) {
+  text-decoration: none;
+}
+
+/* A value with its copy button sits inside running text ("Recorded cause
+   review_failed"), so the pair must stay on the line rather than break it. */
+.console-inline {
+  display: inline-flex;
+  vertical-align: middle;
+}

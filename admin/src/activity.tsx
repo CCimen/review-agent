@@ -23,11 +23,16 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import type { HistoryItem, HistoryPage, Overview } from "./api";
 import { read } from "./api";
-import { ReviewProgress, reviewStateLabel } from "./reviewProgress";
+import {
+  ReviewProgress,
+  reviewStateLabel,
+  reviewStateTone,
+} from "./reviewProgress";
 import { ScopedLink as Link, ScopedAnchor, useScope } from "./scope";
 import {
   Empty,
   Freshness,
+  Loading,
   Period,
   Stat,
   failureSentence,
@@ -144,19 +149,7 @@ export function ActivityPage() {
           <StatusDot
             label={reviewStateLabel(item)}
             aria-hidden="true"
-            variant={
-              item.state === "published"
-                ? item.coverage.state === "complete"
-                  ? "success"
-                  : "warning"
-                : item.state === "stalled"
-                  ? "warning"
-                  : item.state === "failed"
-                    ? "error"
-                    : item.state === "running" || item.state === "publishing"
-                      ? "accent"
-                      : "neutral"
-            }
+            variant={reviewStateTone(item)}
           />
           <Text>{reviewStateLabel(item)}</Text>
         </HStack>
@@ -321,6 +314,9 @@ export function ActivityPage() {
           ) : null}
         </HStack>
         <Freshness query={query} />
+        {query.isPending && (
+          <Loading label="Loading review requests" rows={8} />
+        )}
         {query.data &&
           (query.data.items.length ? (
             <VStack gap={3}>

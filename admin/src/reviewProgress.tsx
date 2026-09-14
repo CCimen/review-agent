@@ -22,6 +22,19 @@ const phaseLabels: Record<string, string> = {
   publishing: "Preparing publication",
 };
 
+/** The status dot hue for a request, shared by every place a state is named
+ *  so a list row and the reader agree on what "Incomplete" looks like. */
+export function reviewStateTone(
+  item: HistoryItem,
+): "success" | "warning" | "error" | "accent" | "neutral" {
+  if (item.state === "published")
+    return item.coverage.state === "complete" ? "success" : "warning";
+  if (item.state === "stalled") return "warning";
+  if (item.state === "failed") return "error";
+  if (item.state === "running" || item.state === "publishing") return "accent";
+  return "neutral";
+}
+
 export function reviewStateLabel(item: HistoryItem): string {
   if (item.state === "published" && item.coverage.state !== "complete")
     return "Incomplete";

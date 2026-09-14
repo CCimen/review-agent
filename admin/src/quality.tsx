@@ -1,6 +1,8 @@
 import { Button } from "@astryxdesign/core/Button";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Section as AstryxSection } from "@astryxdesign/core/Section";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -109,7 +111,19 @@ function FeedbackRow({
             Feedback #{item.id} · {time(item.created_at)}
           </Text>
         </VStack>
-        <Text>{item.triage_status}</Text>
+        {/* A stored token, shown as a status rather than a lowercase word
+            floating at the far edge. */}
+        <HStack gap={2} vAlign="center">
+          <StatusDot
+            aria-hidden="true"
+            label={item.triage_status}
+            variant={item.triage_status === "pending" ? "warning" : "neutral"}
+          />
+          <Text>
+            {item.triage_status.charAt(0).toUpperCase() +
+              item.triage_status.slice(1).replaceAll("_", " ")}
+          </Text>
+        </HStack>
       </HStack>
       <VStack gap={4}>
         <Text as="p">{item.reason || "No reason was supplied."}</Text>
@@ -350,13 +364,22 @@ export function QualityPage() {
             <Freshness query={feedback} quiet />
             {feedback.data?.items.length ? (
               <>
-                <VStack gap={3}>
-                  {feedback.data.items.map((item) => (
-                    <FeedbackRow
+                {/* Each report is several lines and a disclosure; without a
+                    rule between them the stack read as one long form. */}
+                <VStack gap={0}>
+                  {feedback.data.items.map((item, index) => (
+                    <AstryxSection
                       key={item.id}
-                      item={item}
-                      admin={item.can_triage ?? false}
-                    />
+                      variant="transparent"
+                      padding={0}
+                      paddingBlock={4}
+                      dividers={index === 0 ? undefined : ["top"]}
+                    >
+                      <FeedbackRow
+                        item={item}
+                        admin={item.can_triage ?? false}
+                      />
+                    </AstryxSection>
                   ))}
                 </VStack>
                 <HStack

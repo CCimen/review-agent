@@ -76,6 +76,8 @@ export function ConfirmAction({
   method = "POST",
   danger = false,
   width,
+  variant = "secondary",
+  size,
 }: {
   label: string;
   path: string;
@@ -87,6 +89,10 @@ export function ConfirmAction({
   /** Set when the trigger shares a column with another button, so the two
    *  take the same width instead of each sizing to its own label. */
   width?: string;
+  /** Quiet in a table row, where a filled button per row is louder than the
+   *  rows it acts on; the confirmation step keeps its own weight. */
+  variant?: "secondary" | "ghost";
+  size?: "sm" | "md";
 }) {
   const refresh = useTeamRefresh();
   const [open, setOpen] = useState(false);
@@ -105,7 +111,8 @@ export function ConfirmAction({
       <HStack gap={3} wrap="wrap" align="center">
         <Button
           label={label}
-          variant="secondary"
+          variant={variant}
+          size={size}
           type="button"
           width={width}
           aria-expanded={open}
@@ -839,9 +846,9 @@ function TeamRepositories({
           {
             key: "actions",
             header: "Actions",
-            width: pixel(210),
+            width: pixel(200),
             renderCell: (repo: TeamRepository) => (
-              <VStack gap={3}>
+              <VStack gap={1} hAlign="start">
                 {moving?.repository_id === repo.repository_id && destination ? (
                   <ConfirmAction
                     label="Confirm move"
@@ -863,8 +870,8 @@ function TeamRepositories({
                 ) : (
                   <Button
                     label="Move to another team"
-                    variant="secondary"
-                    width="100%"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => {
                       setDestination("");
                       setTeamSearch("");
@@ -877,7 +884,8 @@ function TeamRepositories({
                   path={`/api/teams/${team.id}/repositories/${repo.repository_id}/remove`}
                   description={`Disable reviews for ${repo.repository} and remove its team ownership. Stored review history is retained for platform administrators.`}
                   danger
-                  width="100%"
+                  variant="ghost"
+                  size="sm"
                 />
               </VStack>
             ),

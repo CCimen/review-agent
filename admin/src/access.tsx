@@ -76,7 +76,7 @@ const connectionLabels = {
   unavailable: "Could not verify",
 } as const;
 
-export function GitHubConnection() {
+export function GitHubConnection({ level = 2 }: { level?: 2 | 3 } = {}) {
   const query = useQuery({
     queryKey: ["github-connection"],
     queryFn: ({ signal }) =>
@@ -87,7 +87,7 @@ export function GitHubConnection() {
   return (
     <VStack gap={4} as="section">
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-        <Heading level={2}>GitHub App</Heading>
+        <Heading level={level}>GitHub App</Heading>
         {data && <Text>{connectionLabels[data.status]}</Text>}
       </HStack>
       <VStack gap={4}>

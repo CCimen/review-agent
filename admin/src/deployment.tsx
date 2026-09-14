@@ -38,12 +38,12 @@ export function DeploymentLink() {
     </AstryxLink>
   ) : null;
 }
-export function EngineServices() {
+export function EngineServices({ level = 2 }: { level?: 2 | 3 } = {}) {
   const deployment = useDeployment();
   return (
     <VStack gap={4} as="section">
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-        <Heading level={2}>Container status</Heading>
+        <Heading level={level}>Container status</Heading>
         <Text color="secondary">Dokploy</Text>
       </HStack>
       <VStack gap={4}>
@@ -121,7 +121,7 @@ export function EngineServices() {
     </VStack>
   );
 }
-export function ProviderHealth() {
+export function ProviderHealth({ level = 2 }: { level?: 2 | 3 } = {}) {
   const providers = useQuery({
     queryKey: ["providers"],
     queryFn: ({ signal }) => read<Providers>("/api/providers", signal),
@@ -130,7 +130,7 @@ export function ProviderHealth() {
   return (
     <VStack gap={4} as="section">
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-        <Heading level={2}>Provider authentication</Heading>
+        <Heading level={level}>Provider authentication</Heading>
         <Link to="/settings">Manage connections</Link>
       </HStack>
       <VStack gap={4}>
@@ -172,7 +172,7 @@ const checkLabels = {
   gateway: "Gateway",
   background_queues: "Background queues",
 } as const;
-export function HermesHealth() {
+export function HermesHealth({ level = 2 }: { level?: 2 | 3 } = {}) {
   const query = useQuery({
     queryKey: ["hermes-runtime"],
     queryFn: ({ signal }) =>
@@ -183,7 +183,7 @@ export function HermesHealth() {
   return (
     <VStack gap={4} as="section">
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-        <Heading level={2}>Review engine</Heading>
+        <Heading level={level}>Review engine</Heading>
         {runtime && (
           <Text>{runtime.status === "ok" ? "Ready" : "Needs attention"}</Text>
         )}

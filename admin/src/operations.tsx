@@ -1,4 +1,5 @@
 import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -116,14 +117,25 @@ function Workers({
               <TableRow key={worker.id}>
                 <TableHeaderCell scope="row">
                   <Text>{workerRoles[worker.kind] ?? worker.kind}</Text>
+                  {/* A table cell clips rather than wraps, and a 36-character
+                      instance ID is wider than the column it shares with five
+                      others. The first eight characters tell workers apart;
+                      the copy carries the whole ID. */}
                   <Text color="secondary" display="block" type="supporting">
                     <Copy value={worker.id} label="worker ID">
-                      <Code>{worker.id}</Code>
+                      <Code>{worker.id.slice(0, 8)}</Code>
                     </Copy>
                   </Text>
                   <Text color="secondary" display="block" type="supporting">
-                    lease owner {worker.lease_owner} · started{" "}
-                    {time(worker.started_at)}
+                    {worker.lease_owner}
+                  </Text>
+                  <Text color="secondary" display="block" type="supporting">
+                    <time
+                      dateTime={worker.started_at}
+                      title={time(worker.started_at)}
+                    >
+                      Started {since(worker.started_at)}
+                    </time>
                   </Text>
                 </TableHeaderCell>
                 <TableCell>
@@ -257,8 +269,10 @@ function Queue({ queue }: { queue: QueueStatus }) {
       {Number.isFinite(queue.live_workers) &&
       Number.isFinite(queue.worker_capacity) ? (
         <Text type="supporting">
-          {number.format(queue.live_workers)} live workers ·{" "}
-          {number.format(queue.worker_capacity)} slots
+          {number.format(queue.live_workers)} live worker
+          {queue.live_workers === 1 ? "" : "s"} ·{" "}
+          {number.format(queue.worker_capacity)} slot
+          {queue.worker_capacity === 1 ? "" : "s"}
         </Text>
       ) : null}
       {queue.capacity_waiting > 0 && (
@@ -487,8 +501,12 @@ export function OperationsPage() {
               maxWidth={900}
               columns={{ minWidth: 240, max: 3, repeat: "fit" }}
             >
+              {/* Each queue is a standalone widget; a card gives the three
+                  a shared edge so their uneven contents read as siblings. */}
               {[...data.queues].sort(byPipeline).map((queue) => (
-                <Queue key={queue.kind} queue={queue} />
+                <Card key={queue.kind} padding={5}>
+                  <Queue queue={queue} />
+                </Card>
               ))}
             </Grid>
             {liveCountsKnown ? null : (
@@ -541,11 +559,25 @@ export function OperationsPage() {
         title="Service connections"
         description="Container status and provider authentication are separate from worker reports."
       >
-        <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
-          {current.role === "owner" ? <EngineServices /> : null}
-          {current.role === "owner" ? <HermesHealth /> : null}
-          <GitHubConnection />
-          {current.role === "owner" ? <ProviderHealth /> : null}
+        <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={5}>
+          {current.role === "owner" ? (
+            <Card padding={5}>
+              <EngineServices level={3} />
+            </Card>
+          ) : null}
+          {current.role === "owner" ? (
+            <Card padding={5}>
+              <HermesHealth level={3} />
+            </Card>
+          ) : null}
+          <Card padding={5}>
+            <GitHubConnection level={3} />
+          </Card>
+          {current.role === "owner" ? (
+            <Card padding={5}>
+              <ProviderHealth level={3} />
+            </Card>
+          ) : null}
         </Grid>
       </Section>
     </>

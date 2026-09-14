@@ -1032,6 +1032,35 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             ),
             (1, 1, 200),
         )
+        # One person's follow-up: every grouping narrows to what they asked for,
+        # whatever case the login was recorded in.
+        by_requester = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            dimension="repository",
+            requester="ALICE",
+        )
+        self.assertEqual(
+            (
+                by_requester.totals.groups,
+                by_requester.totals.requests,
+                by_requester.totals.requester_count,
+            ),
+            (1, 2, 1),
+        )
+        unknown_requester = admin_application.usage(
+            self.runtime,
+            access=self.admin_access,
+            start=start,
+            end=end,
+            dimension="repository",
+            requester="nobody",
+        )
+        self.assertEqual(
+            (unknown_requester.totals.requests, unknown_requester.items), (0, ())
+        )
         beyond = admin_application.usage(
             self.runtime,
             access=self.admin_access,

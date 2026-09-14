@@ -23,7 +23,11 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import type { HistoryItem, HistoryPage, Overview } from "./api";
 import { read } from "./api";
-import { ReviewPurposeFilter, selectedReviewPurpose, reviewPurposeLabel } from "./reviewPurpose";
+import {
+  ReviewPurposeFilter,
+  selectedReviewPurpose,
+  reviewPurposeLabel,
+} from "./reviewPurpose";
 import {
   ReviewProgress,
   reviewStateLabel,
@@ -107,7 +111,8 @@ export function ActivityPage() {
     document.title = "Review Agent · Activity";
   }, []);
   const filtered =
-    !!purpose || status !== "all" ||
+    !!purpose ||
+    status !== "all" ||
     params.has("repository") ||
     params.has("pr_number") ||
     params.has("before_id");
@@ -117,22 +122,38 @@ export function ActivityPage() {
       read<HistoryPage>(scope.path(`/api/history?${queryParams}`), signal),
   });
   const overview = useQuery({
-    queryKey: ["overview", days, ...(purpose ? [purpose] : []), "scoped", scope.key],
+    queryKey: [
+      "overview",
+      days,
+      ...(purpose ? [purpose] : []),
+      "scoped",
+      scope.key,
+    ],
     queryFn: ({ signal }) =>
-      read<Overview>(scope.path(`/api/overview?days=${days}${purpose ? `&purpose=${purpose}` : ""}`), signal),
+      read<Overview>(
+        scope.path(
+          `/api/overview?days=${days}${purpose ? `&purpose=${purpose}` : ""}`,
+        ),
+        signal,
+      ),
   });
   const data = overview.data;
+  /* Eight columns share the console body: the reserved widths add up to just
+     under it at 1440 so an operator can read the whole row, including when it
+     last moved, without pushing the table sideways. */
   const columns: TableColumn<HistoryItem>[] = [
     {
       key: "repository",
       header: "Pull request",
-      width: proportional(2, { minWidth: 250 }),
+      width: proportional(2, { minWidth: 210 }),
       renderCell: (item) => (
         <VStack gap={1}>
           <Link to={`/history/${item.id}?${params}`}>
             {item.repository} <Text>#{item.pr_number}</Text>
           </Link>
-          <Text type="supporting" color="secondary">{reviewPurposeLabel(item.purpose)}</Text>
+          <Text type="supporting" color="secondary">
+            {reviewPurposeLabel(item.purpose)}
+          </Text>
           <Text type="supporting">
             Request #{item.id} · {time(item.started_at)}
           </Text>
@@ -148,7 +169,7 @@ export function ActivityPage() {
     {
       key: "state",
       header: "State",
-      width: pixel(126),
+      width: pixel(118),
       renderCell: (item) => (
         <HStack gap={2}>
           <StatusDot
@@ -163,13 +184,13 @@ export function ActivityPage() {
     {
       key: "phase",
       header: "Progress",
-      width: proportional(1, { minWidth: 170 }),
+      width: proportional(1, { minWidth: 140 }),
       renderCell: (item) => <ReviewProgress item={item} />,
     },
     {
       key: "head_sha",
       header: "Commit",
-      width: pixel(100),
+      width: pixel(104),
       renderCell: (item) => (
         <abbr title={item.head_sha}>
           <Code>{item.head_sha.slice(0, 8)}</Code>
@@ -180,7 +201,7 @@ export function ActivityPage() {
       key: "findings_count",
       header: "Findings",
       align: "end",
-      width: pixel(90),
+      width: pixel(86),
       renderCell: (item) =>
         item.posted_at !== null ? (item.findings_count ?? "—") : "—",
     },
@@ -188,7 +209,7 @@ export function ActivityPage() {
       key: "attempt_count",
       header: "Attempts used",
       align: "end",
-      width: pixel(124),
+      width: pixel(128),
       renderCell: (item) =>
         item.max_attempts === null
           ? "—"
@@ -197,13 +218,13 @@ export function ActivityPage() {
     {
       key: "usage",
       header: "Recorded tokens",
-      width: proportional(1, { minWidth: 190 }),
+      width: proportional(1, { minWidth: 150 }),
       renderCell: (item) => <ReviewUsageSummary usage={item.usage} />,
     },
     {
       key: "last_heartbeat_at",
       header: "Last activity",
-      width: pixel(150),
+      width: pixel(116),
       renderCell: (item) => (
         <time
           dateTime={item.last_heartbeat_at}
@@ -263,7 +284,10 @@ export function ActivityPage() {
             because pushing the groups to opposite edges opened a gap the
             width of the console between controls that filter one list. */}
         <HStack gap={4} align="end" wrap="wrap">
-          <ReviewPurposeFilter value={purpose} onChange={(value) => update({ purpose: value })} />
+          <ReviewPurposeFilter
+            value={purpose}
+            onChange={(value) => update({ purpose: value })}
+          />
           <SegmentedControl
             label="Filter request state"
             value={status}
@@ -320,7 +344,12 @@ export function ActivityPage() {
               onClick={() =>
                 // The state segments are filters too, so the control that
                 // offers to clear filters clears them as well.
-                update({ status: "", repository: "", pr_number: "", purpose: "" })
+                update({
+                  status: "",
+                  repository: "",
+                  pr_number: "",
+                  purpose: "",
+                })
               }
             />
           ) : null}

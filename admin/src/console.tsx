@@ -29,6 +29,7 @@ import {
   Bot,
   Cable,
   FileClock,
+  FileText,
   FolderGit2,
   GitPullRequest,
   HeartPulse,
@@ -60,6 +61,12 @@ const sections = [
     path: "/repositories",
     label: "Repositories",
     icon: FolderGit2,
+    group: "Workspace",
+  },
+  {
+    path: "/documentation",
+    label: "Documentation",
+    icon: FileText,
     group: "Workspace",
   },
   {
@@ -218,8 +225,13 @@ export function ConsoleLayout({
   /* The breadcrumb named the section it fell back to, so an address the
      console does not serve read "Activity" above a page saying it was not
      found. These are the routes reached from somewhere other than the rail. */
-  const offNav = ["/history", "/overview", "/access", "/account",
-                  "/repository-requests"];
+  const offNav = [
+    "/history",
+    "/overview",
+    "/access",
+    "/account",
+    "/repository-requests",
+  ];
   const known =
     pathname === "/" ||
     offNav.includes(pathname) ||
@@ -233,21 +245,21 @@ export function ConsoleLayout({
   const title = !known
     ? "Page not found"
     : pathname.startsWith("/history/")
-    ? "Review request"
-    : pathname === "/history"
-      ? "Pull requests"
-      : pathname === "/overview"
-        ? "Statistics"
-        : pathname.startsWith("/findings/")
-          ? "Finding"
-          : pathname === "/repository-requests"
-            ? "Repository requests"
-            : pathname === "/access"
-            ? "Repository access"
-            : pathname === "/account"
-              ? "Your account"
-              : (sections.find((section) => section.path === activeSection)
-                  ?.label ?? "Activity");
+      ? "Review request"
+      : pathname === "/history"
+        ? "Pull requests"
+        : pathname === "/overview"
+          ? "Statistics"
+          : pathname.startsWith("/findings/")
+            ? "Finding"
+            : pathname === "/repository-requests"
+              ? "Repository requests"
+              : pathname === "/access"
+                ? "Repository access"
+                : pathname === "/account"
+                  ? "Your account"
+                  : (sections.find((section) => section.path === activeSection)
+                      ?.label ?? "Activity");
   const commands = [
     ...navigation,
     { path: "/history", label: "Pull requests", key: "P" },

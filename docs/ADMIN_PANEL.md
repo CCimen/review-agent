@@ -29,6 +29,11 @@ database recovery procedure in [Deployment](./DEPLOYMENT.md#upgrade-and-roll-bac
 
 ## Documentation review controls
 
+Open **Workspace → Documentation** to see repository modes within the current
+team scope, inspect a repository's settings, and follow documentation requests.
+The list shows whether each mode comes from its team or an explicit override;
+on narrow screens the mode stays beside the repository name.
+
 Owners enable documentation review in deployment **Settings**. Team maintainers
 choose Off, Manual, or Automatic in the team's **Documentation** tab. Repositories
 inherit that default or keep an explicit override. The console shows the effective
@@ -218,6 +223,10 @@ requests by team, repository or the GitHub login that requested them. Select a
 7-, 30- or 90-day period, search within the grouping, and rank by requests,
 recorded tokens or published reviews. Team links open their repositories;
 repository links open their requesting users while preserving team and period.
+Choose a GitHub user to see the repositories they requested reviews for. This
+requester filter applies to every grouping until cleared. The most-active
+panels compare the leading teams, repositories, and GitHub users for the selected
+scope and period. Each row's request share is measured against its matching total.
 Use **Refresh** to update the report. It does not poll in the background.
 
 The period selects requests by their start time, with an inclusive start and
@@ -254,8 +263,8 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | --- | --- | --- |
 | `GET /api/version` | Signed-in users | Baked release version and full source revision; the console footer shows the version and short revision. |
 | `GET /api/overview` | Team reader or global role | Lifetime and selected-period totals, UTC daily publications, publication latency, recent failure reasons, and reporting review workers and capacity. |
-| `GET /api/usage` | Owner or admin | Grouped request usage and totals, token reporting coverage, current publication/failure counts, and distinct repository/requester counts. Supports `team_id`, `repository`, `days` or timezone-aware `start`/`end`, `dimension=team\|repository\|requester`, `sort=requests\|total_tokens\|published_requests`, literal `search`, `limit` and `offset`. |
-| `GET /api/repositories` | Team reader or global role | Paginated repositories, `total` matching repositories, and aggregate `totals` across every matching repository. |
+| `GET /api/usage` | Owner or admin | Grouped request usage and totals, token reporting coverage, current publication/failure counts, and distinct repository/requester counts. Supports `team_id`, `repository`, case-insensitive exact `requester`, `days` or timezone-aware `start`/`end`, `dimension=team\|repository\|requester`, `sort=requests\|total_tokens\|published_requests`, literal `search`, `limit` and `offset`. |
+| `GET /api/repositories` | Team reader or global role | Paginated repositories with resolved documentation modes, `total` matching repositories, and aggregate `totals` across every matching repository. |
 | `GET /api/pull-requests` | Team reader or global role | Paginated PR groups, total matching PRs, matching and lifetime request counts, and the latest matching request. |
 | `GET /api/history` | Team reader or global role | Paginated requests, `total` matching requests before the cursor is applied, per-request token usage, and recorded account quota waits. |
 | `GET /api/history/{run_id}` | Team reader or global role | Selected request, original published Markdown and GitHub links, plus up to 20 retained requests for the same PR. `before_id` pages that PR's history; selection is independent of the cursor and reporting period. Missing requests return 404. |

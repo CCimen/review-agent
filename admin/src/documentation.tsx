@@ -2,25 +2,45 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
+import { List, ListItem } from "@astryxdesign/core/List";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import {
   MetadataList,
   MetadataListItem,
 } from "@astryxdesign/core/MetadataList";
-import { Selector } from "@astryxdesign/core/Selector";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@astryxdesign/core/SegmentedControl";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import {
   Table,
+  pixel,
   proportional,
   type TableColumn,
 } from "@astryxdesign/core/Table";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import documentationStarter from "../../examples/repository-context/.review-agent/documentation.toml?raw";
 import { APIError, read, write } from "./api";
+import type { RepositoryPage } from "./api";
 import type { components } from "./api.generated";
 import { ScopedLink as Link, useScope } from "./scope";
-import { Copy, Form, Freshness, time } from "./ui";
+import {
+  Copy,
+  Empty,
+  ExternalLink,
+  Form,
+  Freshness,
+  Loading,
+  Saved,
+  time,
+  useFilters,
+  useLiveSearch,
+} from "./ui";
 
 type Mode = components["schemas"]["DocumentationMode"];
 type ResolvedMode = components["schemas"]["ResolvedDocumentationMode"];
@@ -44,6 +64,7 @@ export function DocumentationReviewEvidence({
   result: components["schemas"]["DocumentationReviewSummary"];
   repository: string;
 }) {
+  const isNarrow = useMediaQuery("(max-width: 768px)");
   const labels: Record<components["schemas"]["DocumentationOutcome"], string> =
     {
       not_needed: "No relevant documentation changes",
@@ -101,31 +122,37 @@ export function DocumentationReviewEvidence({
         trigger="Documentation scope and evidence"
       >
         <VStack gap={4}>
-          <MetadataList columns="multi" label={{ position: "top" }}>
+          <MetadataList
+            columns={isNarrow ? "single" : "multi"}
+            label={{ position: isNarrow ? "start" : "top" }}
+          >
             <MetadataListItem label="Policy at target base">
-              <Link
-                to={source(result.base_sha, ".review-agent/documentation.toml")}
+              <ExternalLink
+                href={source(
+                  result.base_sha,
+                  ".review-agent/documentation.toml",
+                )}
               >
                 <Code>{result.base_sha.slice(0, 12)}</Code>
-              </Link>
+              </ExternalLink>
             </MetadataListItem>
             <MetadataListItem label="Comparison commit">
               {result.comparison_sha ? (
-                <Link
-                  to={`https://github.com/${repository}/commit/${result.comparison_sha}`}
+                <ExternalLink
+                  href={`https://github.com/${repository}/commit/${result.comparison_sha}`}
                 >
                   <Code>{result.comparison_sha.slice(0, 12)}</Code>
-                </Link>
+                </ExternalLink>
               ) : (
                 "Unavailable"
               )}
             </MetadataListItem>
             <MetadataListItem label="Reviewed head">
-              <Link
-                to={`https://github.com/${repository}/commit/${result.head_sha}`}
+              <ExternalLink
+                href={`https://github.com/${repository}/commit/${result.head_sha}`}
               >
                 <Code>{result.head_sha.slice(0, 12)}</Code>
-              </Link>
+              </ExternalLink>
             </MetadataListItem>
           </MetadataList>
           {result.scope ? (
@@ -137,7 +164,9 @@ export function DocumentationReviewEvidence({
                 <VStack as="ul" gap={2}>
                   {result.scope.documents.map((path) => (
                     <li key={path}>
-                      <Link to={source(result.head_sha, path)}>{path}</Link>
+                      <ExternalLink href={source(result.head_sha, path)}>
+                        {path}
+                      </ExternalLink>
                     </li>
                   ))}
                 </VStack>
@@ -188,11 +217,11 @@ export function DocumentationReviewEvidence({
           <VStack as="ul" gap={2}>
             {result.evidence.map((entry, index) => (
               <li key={index}>
-                <Link
-                  to={`${source(entry.revision, entry.path)}${entry.start_line === null ? "" : `#L${entry.start_line}${entry.end_line === entry.start_line ? "" : `-L${entry.end_line}`}`}`}
+                <ExternalLink
+                  href={`${source(entry.revision, entry.path)}${entry.start_line === null ? "" : `#L${entry.start_line}${entry.end_line === entry.start_line ? "" : `-L${entry.end_line}`}`}`}
                 >
                   {entry.path}
-                </Link>{" "}
+                </ExternalLink>{" "}
                 · {entry.role} · {entry.revision.slice(0, 12)}
                 {entry.unavailable_reason
                   ? ` · ${entry.unavailable_reason.replaceAll("_", " ")}`
@@ -237,11 +266,18 @@ function ModeHelp() {
   );
 }
 function DeploymentPaused({ enabled }: { enabled: boolean }) {
+  const scope = useScope();
   return !enabled ? (
     <Banner
       status="info"
       title="Documentation reviews are disabled for this deployment"
       description="Your mode is saved, but reviews remain off until an owner enables documentation reviews in Settings."
+      /* An owner can act on this here rather than hunting for the switch. */
+      endContent={
+        scope.current.role === "owner" ? (
+          <Link to="/settings">Open Settings</Link>
+        ) : undefined
+      }
     />
   ) : null;
 }
@@ -380,18 +416,36 @@ function TeamDocumentationEditor({ initial }: { initial: TeamPolicy }) {
         }}
       >
         <VStack gap={4}>
-          <Selector
-            label="Team default"
-            value={mode}
-            options={modeOptions}
-            isReadOnly={!preview.can_manage}
-            isDisabled={busy}
-            onChange={(value) => {
-              setMode(value as Mode);
-              setSaved(false);
-              save.reset();
-            }}
-          />
+          {/* Three mutually exclusive modes, all visible: the choice is what
+              this section is for, so it should not be hidden behind a menu. */}
+          <VStack gap={2}>
+            <Text>Team default</Text>
+            <HStack hAlign="start">
+              <SegmentedControl
+                label="Team documentation review default"
+                value={mode}
+                isDisabled={busy || !preview.can_manage}
+                disabledMessage={
+                  preview.can_manage
+                    ? undefined
+                    : "A team maintainer or platform administrator can change this default."
+                }
+                onChange={(value) => {
+                  setMode(value as Mode);
+                  setSaved(false);
+                  save.reset();
+                }}
+              >
+                {modeOptions.map((option) => (
+                  <SegmentedControlItem
+                    key={option.value}
+                    value={option.value}
+                    label={option.label}
+                  />
+                ))}
+              </SegmentedControl>
+            </HStack>
+          </VStack>
           <Text color="secondary">
             Applies to {preview.inherited_count} inherited{" "}
             {preview.inherited_count === 1 ? "repository" : "repositories"}.{" "}
@@ -448,7 +502,7 @@ function TeamDocumentationEditor({ initial }: { initial: TeamPolicy }) {
               description={save.error.message}
             />
           )}
-          {saved && <Text role="status">Team default saved.</Text>}
+          {saved && <Saved>Team default saved.</Saved>}
         </VStack>
       </Form>
       {reviewed ? (
@@ -543,6 +597,7 @@ function RepositoryDocumentationEditor({
 }) {
   const scope = useScope();
   const refresh = usePolicyRefresh();
+  const isNarrow = useMediaQuery("(max-width: 768px)");
   const [policy, setPolicy] = useState(initial);
   const [mode, setMode] = useState<Mode | "inherit">(
     initial.repository_override ?? "inherit",
@@ -595,7 +650,10 @@ function RepositoryDocumentationEditor({
     save.isPending || reload.isPending || refreshConfiguration.isPending;
   return (
     <VStack gap={4}>
-      <MetadataList label={{ position: "top" }} columns="multi">
+      <MetadataList
+        label={{ position: isNarrow ? "start" : "top" }}
+        columns={isNarrow ? "single" : "multi"}
+      >
         <MetadataListItem label="Effective mode">
           <EffectiveMode mode={policy.resolved} />
         </MetadataListItem>
@@ -641,24 +699,42 @@ function RepositoryDocumentationEditor({
         }}
       >
         <VStack gap={4}>
-          <Selector
-            label="Repository mode"
-            value={mode}
-            options={[
-              {
-                value: "inherit",
-                label: `Inherit ${policy.team_id ? "team" : "unassigned"} default · ${documentationModeLabel(policy.team_default ?? "manual")}`,
-              },
-              ...modeOptions,
-            ]}
-            isReadOnly={!policy.can_manage}
-            isDisabled={busy}
-            onChange={(value) => {
-              setMode(value as Mode | "inherit");
-              setSaved(false);
-              save.reset();
-            }}
-          />
+          <VStack gap={2}>
+            <Text>Repository mode</Text>
+            <HStack hAlign="start">
+              <SegmentedControl
+                label="Repository documentation review mode"
+                value={mode}
+                isDisabled={busy || !policy.can_manage}
+                disabledMessage={
+                  policy.can_manage
+                    ? undefined
+                    : "A repository maintainer or platform administrator can change this mode."
+                }
+                onChange={(value) => {
+                  setMode(value as Mode | "inherit");
+                  setSaved(false);
+                  save.reset();
+                }}
+              >
+                <SegmentedControlItem value="inherit" label="Inherit" />
+                {modeOptions.map((option) => (
+                  <SegmentedControlItem
+                    key={option.value}
+                    value={option.value}
+                    label={option.label}
+                  />
+                ))}
+              </SegmentedControl>
+            </HStack>
+            {/* What "Inherit" resolves to belongs beside the choice, not
+                inside a segment label that would crowd the other three. */}
+            <Text type="supporting">
+              Inherit follows the {policy.team_id ? "team" : "unassigned"}{" "}
+              default, {documentationModeLabel(policy.team_default ?? "manual")}
+              .
+            </Text>
+          </VStack>
           {policy.can_manage ? (
             <HStack gap={3} wrap="wrap">
               <Button
@@ -706,7 +782,7 @@ function RepositoryDocumentationEditor({
               description={reload.error.message}
             />
           )}
-          {saved && <Text role="status">Repository mode saved.</Text>}
+          {saved && <Saved>Repository mode saved.</Saved>}
         </VStack>
       </Form>
       <VStack gap={2}>
@@ -740,7 +816,9 @@ function RepositoryDocumentationEditor({
           <Copy value="/review docs" label="Copy documentation review command">
             /review docs
           </Copy>
-          <Link to={`/history?${new URLSearchParams({ repository: policy.repository, purpose: "documentation" })}`}>
+          <Link
+            to={`/history?${new URLSearchParams({ repository: policy.repository, purpose: "documentation" })}`}
+          >
             Documentation review history
           </Link>
         </HStack>
@@ -925,18 +1003,26 @@ function OwnershipDocumentationConfirmation({
       if (error instanceof APIError && error.status === 409) setStale(true);
     },
   });
-  const ownershipChanged = query.data !== undefined && query.data.previous_team_id !== expectedTeamId;
+  const ownershipChanged =
+    query.data !== undefined && query.data.previous_team_id !== expectedTeamId;
   return (
     <Form
       onSubmit={(event) => {
         event.preventDefault();
-        if (query.data && !stale && !ownershipChanged && !query.isFetching) save.mutate();
+        if (query.data && !stale && !ownershipChanged && !query.isFetching)
+          save.mutate();
       }}
     >
       <VStack gap={3}>
         <Text as="p">{description}</Text>
         <Freshness query={query} interval={false} />
-        {ownershipChanged && <Banner status="warning" title="The repository has moved" description="Close this preview and reopen the repository from its current owning team before moving it again." />}
+        {ownershipChanged && (
+          <Banner
+            status="warning"
+            title="The repository has moved"
+            description="Close this preview and reopen the repository from its current owning team before moving it again."
+          />
+        )}
         {query.data && (
           <>
             <MetadataList columns="single" label={{ position: "top" }}>
@@ -1024,5 +1110,204 @@ export function ApprovalDocumentationSummary({ teamId }: { teamId: number }) {
         </Text>
       )}
     </VStack>
+  );
+}
+
+/** Where documentation reviews stand across the deployment.
+ *
+ *  The setting itself lives in three places by design: a deployment switch, a
+ *  team default, and a repository override. Until now each was reached from a
+ *  different corner of the console, so the one question an operator actually
+ *  asks — which repositories run documentation reviews, and why — had no
+ *  screen. This is that screen; it changes nothing on its own and hands each
+ *  repository to the editor that already owns it. */
+export function DocumentationOverviewPage() {
+  const scope = useScope();
+  /* A table puts the mode in a second column, and on a phone a second column
+     is off the screen: the page would show a list of repository names and
+     hide the one thing it exists to say. Narrow screens get the same fields
+     stacked. */
+  const isNarrow = useMediaQuery("(max-width: 768px)");
+  const { params, update } = useFilters();
+  const search = params.get("search") ?? "";
+  const offset = Math.max(0, Number(params.get("offset")) || 0);
+  const { draft, setDraft, flush } = useLiveSearch(search, (value) =>
+    update({ search: value }, { replace: true }),
+  );
+  useEffect(() => {
+    document.title = "Review Agent · Documentation reviews";
+  }, []);
+  const queryParams = new URLSearchParams({
+    search,
+    offset: String(offset),
+    limit: "50",
+  });
+  const query = useQuery({
+    queryKey: ["repositories", queryParams.toString(), "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<RepositoryPage>(
+        scope.path(`/api/repositories?${queryParams}`),
+        signal,
+      ),
+  });
+  const data = query.data;
+  const deploymentEnabled = data?.items[0]?.documentation.deployment_enabled;
+  const columns: TableColumn<RepositoryPage["items"][number]>[] = [
+    {
+      key: "repository",
+      header: "Repository",
+      width: proportional(2, { minWidth: 240 }),
+      renderCell: (repo) => (
+        <VStack gap={1}>
+          <Text weight="medium">{repo.repository}</Text>
+          <Text type="supporting">
+            {repo.team_id ? (
+              <Link
+                to={`/teams/${repo.team_id}?team_id=${repo.team_id}&tab=documentation`}
+              >
+                {repo.team_name}
+              </Link>
+            ) : (
+              "No team"
+            )}
+          </Text>
+        </VStack>
+      ),
+    },
+    {
+      key: "mode",
+      header: "Documentation reviews",
+      width: proportional(1, { minWidth: 220 }),
+      renderCell: (repo) => <EffectiveMode mode={repo.documentation} />,
+    },
+    {
+      key: "actions",
+      header: "Settings",
+      width: pixel(150),
+      renderCell: (repo) => (
+        <Link
+          to={`/repositories?documentation_repository=${repo.repository_id}`}
+        >
+          Open settings
+        </Link>
+      ),
+    },
+  ];
+  return (
+    <>
+      <VStack gap={3}>
+        <Heading level={1}>Documentation reviews</Heading>
+        <Text as="p" color="secondary">
+          Which repositories check that documentation matches the change, and
+          where each mode comes from.
+        </Text>
+        <ModeHelp />
+      </VStack>
+      {/* The deployment switch overrides every team and repository, so it is
+          settled before the list that it governs. */}
+      {deploymentEnabled === false ? (
+        <DeploymentPaused enabled={false} />
+      ) : deploymentEnabled === true ? (
+        <HStack gap={3} wrap="wrap" vAlign="center">
+          <HStack gap={2} vAlign="center">
+            <StatusDot
+              variant="success"
+              label="Enabled for this deployment"
+              aria-hidden="true"
+            />
+            <Text>Enabled for this deployment</Text>
+          </HStack>
+          {scope.current.role === "owner" ? (
+            <Link to="/settings">Change in Settings</Link>
+          ) : null}
+        </HStack>
+      ) : null}
+      <HStack gap={4} wrap="wrap" vAlign="end">
+        <TextInput
+          label="Find a repository"
+          id="documentation-search"
+          startIcon="search"
+          hasClear
+          width={280}
+          placeholder="owner/repository"
+          value={draft}
+          onChange={(value) => setDraft(value)}
+          onEnter={flush}
+        />
+        <Link to="/teams">Team defaults</Link>
+      </HStack>
+      <Freshness query={query} />
+      {query.isPending && <Loading rows={6} label="Loading repositories" />}
+      {data &&
+        (data.items.length ? (
+          isNarrow ? (
+            <List hasDividers>
+              {data.items.map((repo) => (
+                <ListItem
+                  key={repo.repository_id}
+                  label={repo.repository}
+                  description={
+                    <VStack gap={2}>
+                      <EffectiveMode mode={repo.documentation} />
+                      <HStack gap={4} wrap="wrap" vAlign="center">
+                        {repo.team_id ? (
+                          <Link
+                            to={`/teams/${repo.team_id}?team_id=${repo.team_id}&tab=documentation`}
+                          >
+                            {repo.team_name}
+                          </Link>
+                        ) : (
+                          <Text type="supporting">No team</Text>
+                        )}
+                        <Link
+                          to={`/repositories?documentation_repository=${repo.repository_id}`}
+                        >
+                          Open settings
+                        </Link>
+                      </HStack>
+                    </VStack>
+                  }
+                />
+              ))}
+            </List>
+          ) : (
+            <Table
+              aria-label="Documentation review modes"
+              data={data.items}
+              columns={columns}
+              idKey="repository_id"
+              density="balanced"
+              dividers="rows"
+              hasHover
+              verticalAlign="top"
+            />
+          )
+        ) : (
+          <Empty
+            title={search ? "No matching repositories" : "No repositories yet"}
+          >
+            {search
+              ? `No repository matches “${search}”.`
+              : "Repositories appear here once Review Agent has registered them."}
+          </Empty>
+        ))}
+      {data && (offset > 0 || data.has_more) && (
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label="Previous"
+            variant="secondary"
+            isDisabled={offset === 0}
+            onClick={() => update({ offset: String(Math.max(0, offset - 50)) })}
+          />
+          <Text>Page {Math.floor(offset / 50) + 1}</Text>
+          <Button
+            label="Next"
+            variant="secondary"
+            isDisabled={!data.has_more || offset >= 10000}
+            onClick={() => update({ offset: String(offset + 50) })}
+          />
+        </HStack>
+      )}
+    </>
   );
 }

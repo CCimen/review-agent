@@ -125,7 +125,8 @@
    changed, and drops the movement and blur. */
 @media (prefers-reduced-motion: reduce) {
   .console-page,
-  .console-arrive {
+  .console-arrive,
+  .console-confirm {
     animation-name: console-fade;
     animation-duration: var(--duration-fast-min);
   }
@@ -240,4 +241,41 @@ abbr[title]:has(> .astryx-code) {
 .console-inline {
   display: inline-flex;
   vertical-align: middle;
+}
+
+/* A confirmation that has just appeared takes the same entrance as a page,
+   and its check carries the theme's success colour so the state is not
+   signalled by position alone. */
+.console-confirm {
+  animation: console-enter var(--duration-fast) var(--ease-standard) backwards;
+}
+.console-success {
+  color: var(--color-success);
+}
+
+/* The usage ranking bars. A grey fill on a grey track read as a disabled
+   control rather than as activity that was recorded, so the fill carries the
+   console's accent; the track keeps the border tone it sits on. Both come
+   from the theme, and the bar is sized by the row it is in. */
+.console-rank {
+  /* The reset lays media out as a flex box, which leaves an SVG's own
+     coordinate system unscaled; a graphic is a block. */
+  display: block;
+  inline-size: 100%;
+  block-size: var(--spacing-2);
+}
+.console-rank-track {
+  fill: var(--color-border-emphasized);
+}
+.console-rank-fill {
+  fill: var(--color-accent);
+}
+
+/* A grid item's automatic minimum size is its own content, so a region that
+   holds a table refuses to become narrower than that table and pushes the
+   layout past the screen. Nothing in the library's props expresses that
+   minimum, and zero has no token, so the reset is written once here: the
+   region may shrink, and the table scrolls inside the region it already has. */
+.console-shrink {
+  min-width: 0;
 }

@@ -92,6 +92,12 @@ class _Repository:
     team_revision: int | None
 
 
+def deployment(connection: psycopg.Connection[TupleRow]) -> tuple[bool, int]:
+    """The deployment switch and its revision, for callers resolving many
+    repositories at once."""
+    return _deployment(connection)
+
+
 def _deployment(connection: psycopg.Connection[TupleRow]) -> tuple[bool, int]:
     current = deployment_settings.latest(connection)
     settings = (

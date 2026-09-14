@@ -42,8 +42,11 @@ Published Markdown is sanitized before Astryx renders its typography, code block
 tables, and disclosures. Rejected URLs render as noninteractive text.
 
 Published review text is the primary content on the reader page: on wide screens
-it takes the first two of three columns and the request history is the rail
-beside it, stacking below on narrow screens. The Result block leads with the
+it takes three fifths of the width and the request history is the rail beside
+it, wide enough for the retained requests table to be read rather than
+scrolled, and stacking below on narrow screens. A region that holds a table is
+told it may shrink, so the table scrolls inside its own region instead of
+pushing the page past the screen. The Result block leads with the
 outcome (status dot, label, qualifier), groups commit, duration and comparison in a
 MetadataList, and states a failure or coverage gap as a Banner whose title is the
 next step. Request history
@@ -61,11 +64,24 @@ changing a public boundary.
 
 Administration's Usage page is restricted to owners and admins. It opens with
 three "Most active" cards (teams, repositories, GitHub users), each the same
-report cut to five rows and ranked against its leader with a neutral bar; the
-tab below pages through the full grouping, with a share bar under each request
-count. Team and repository rows drill into the next grouping; a GitHub login
-has no request list to open. There is no per-user daily series in the API, so
-trends stay on Statistics. Reuse the
+report cut to five rows and ranked against its leader; the tab below pages
+through the full grouping, with a share bar under each request count. The bar is
+drawn from theme colours rather than borrowed from the progress component, which
+is for work that takes time and announces itself as progress; the figure and the
+percentage beside it carry the value, so the bar is a graphic and is hidden from
+assistive technology. Its fill is the console accent, because a grey fill on a
+grey track read as a disabled control. Each card names whether it is the
+grouping listed in full and otherwise links to it, so the cards and the tabs
+below are not two competing ways to choose the same thing.
+
+Every grouping can be narrowed to one GitHub login, so a team or repository
+breakdown reads as one person's follow-up; a requester row links into it. An
+active repository or GitHub user filter is a removable token under its own
+label, one control clears them all, and because each drill is an address the
+browser's Back button and a shared link both work. The console adds no back or
+forward control of its own. Refresh sits beside the line that says how old the
+figures are. There is no per-user daily series in the API, so trends stay on
+Statistics, and the request list cannot yet be filtered by requester. Reuse the
 workspace team scope and reporting period, with tabs for teams, repositories,
 and GitHub requesters. Rank and paginate on the server; summary figures cover
 all matching rows. Keep token reporting coverage next to the totals and show
@@ -107,7 +123,20 @@ Implementation and rollout evidence are tracked by Beads epic
 `ra-docs-review-ms1`. The [documentation review design](../docs/assessments/2026-09-14/documentation-review-design.md#team-and-repository-administration)
 owns policy and authority. Reuse this console's components and navigation.
 
-Team detail has a Documentation review section for the team's default mode.
+Documentation reviews are a Workspace destination, not a setting to be hunted
+for. The page answers which repositories run them and where each mode comes
+from, states the deployment switch first because it overrides everything, and
+hands each repository to the editor that already owns it rather than becoming a
+second one. A phone gets the same fields as list rows instead of a table, because
+a table would put the mode in a column the screen cannot show. The repository list reports the resolved mode, so the list and a
+single repository share one precedence rule.
+
+Team detail has a Documentation review section for the team's default mode. The
+mode is a segmented control, not a menu: three or four mutually exclusive modes
+are what the section is for, so they stay visible, with what "Inherit" resolves
+to written beside them and the reason a viewer cannot change them carried by the
+control's own disabled message. While the deployment switch is off, an owner can
+reach it from the banner that says so.
 Repository views expose a shared docs settings/detail section, reachable from team
 repositories and repository activity as well as platform administration. Team
 maintainers must not need the platform-only Access management page to change an
@@ -128,3 +157,12 @@ coverage and failure/skip reasons instead of a repository accuracy percentage.
 Usage retains its platform-admin restriction and unknown token coverage. Reuse
 current loading, empty, retry, freshness, focus, narrow-screen, light/dark and
 reduced-motion behavior. Keep these controls in the existing navigation and visual system.
+
+A save that worked is confirmed by a check in the theme's success colour beside
+one sentence, announced once and entering on the fast band; every settings form
+uses the same one. A link that leaves for GitHub opens in a new tab and says so.
+Activity's reserved column widths add up to just under the console body at 1440
+CSS pixels, so a row can be read without pushing the table sideways.
+
+A render that fails, most often a lazily loaded page a deployment has replaced,
+shows what to do about it rather than the framework's stack trace.

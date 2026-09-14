@@ -549,6 +549,8 @@ export interface paths {
          * Usage
          * @description Usage for owners and admins, grouped by team, repository or GitHub login.
          *
+         *     A requester narrows every grouping to the reviews one GitHub login asked
+         *     for, so a team or repository breakdown can be read for one person.
          *     The period selects retained requests by start time. Outcomes and all
          *     reported attempt tokens reflect the current snapshot, including retries
          *     and later reports. Teams follow current repository ownership. Null token
@@ -3720,6 +3722,7 @@ export interface components {
             latest_failed_prs: number;
             /** Last Activity At */
             last_activity_at: string | null;
+            documentation: components["schemas"]["ResolvedDocumentationMode"];
         };
         /** RepositoryApproval */
         RepositoryApproval: {
@@ -5952,6 +5955,7 @@ export interface operations {
                 dimension?: "team" | "repository" | "requester";
                 sort?: "requests" | "total_tokens" | "published_requests";
                 repository?: string | null;
+                requester?: string | null;
                 search?: string;
                 offset?: number;
                 limit?: number;

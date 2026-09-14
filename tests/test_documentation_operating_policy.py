@@ -157,6 +157,20 @@ class DocumentationPolicyAPITests(unittest.TestCase):
         )
         self.save_repository(override_id, None)
         self.assertEqual(self.repository(override_id)["resolved"]["source"], "team")
+        # The repository list reports the same resolved mode, so an operator can
+        # see which repositories run documentation reviews without opening each.
+        listed = self.client.get("/api/repositories?limit=50")
+        self.assertEqual(listed.status_code, 200)
+        listed_modes = {
+            item["repository_id"]: (
+                item["documentation"]["effective_mode"],
+                item["documentation"]["source"],
+            )
+            for item in listed.json()["items"]
+        }
+        self.assertEqual(listed_modes[inherited_id], ("off", "team"))
+        self.assertEqual(listed_modes[override_id], ("off", "team"))
+        self.assertEqual(listed_modes[unassigned_id], ("manual", "unassigned"))
         self.enable_global(False)
         unassigned = self.repository(unassigned_id)
         self.assertEqual(unassigned["resolved"]["configured_mode"], "manual")

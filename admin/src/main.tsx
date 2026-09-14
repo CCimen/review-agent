@@ -12,6 +12,7 @@ import {
 } from "react-router-dom";
 import { App } from "./App";
 import { APIError } from "./api";
+import { RenderFailure } from "./ui";
 import "./theme.css";
 
 const client = new QueryClient({
@@ -48,6 +49,10 @@ const client = new QueryClient({
 const router = createBrowserRouter([
   {
     path: "*",
+    // Without this a failed render, most often a lazily loaded page that a
+    // deployment has replaced, leaves the reader on the router's own stack
+    // trace with nothing to do.
+    errorElement: <RenderFailure />,
     element: (
       <>
         <App />

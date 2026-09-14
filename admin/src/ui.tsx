@@ -1,8 +1,10 @@
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Center } from "@astryxdesign/core/Center";
 import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Link as AstryxLink } from "@astryxdesign/core/Link";
 import { Section as AstryxSection } from "@astryxdesign/core/Section";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
@@ -237,6 +239,67 @@ export function Copy({
         </Text>
       )}
     </HStack>
+  );
+}
+
+/** The console could not draw the page.
+ *
+ *  A console tab is often left open across a deployment, and the next click
+ *  into a lazily loaded page asks for a file that release no longer serves.
+ *  Reloading fetches the current one. The reader is told what to do rather
+ *  than being handed the framework's own stack trace. */
+export function RenderFailure() {
+  return (
+    <main>
+      <Center minHeight="100dvh" padding={6}>
+        <VStack gap={4} width="100%" maxWidth={440}>
+          <Banner
+            status="error"
+            title="This page could not be displayed"
+            description="The console may have been updated while this tab was open. Reloading loads the current version. If it happens again, report it with the address of this page."
+            endContent={
+              <Button label="Reload" onClick={() => window.location.reload()} />
+            }
+          />
+        </VStack>
+      </Center>
+    </main>
+  );
+}
+
+/** A save that worked. The check is the cue the copy control already uses, so
+ *  "this just succeeded" looks the same across the console, and the line
+ *  enters rather than appearing out of nowhere beneath the button. */
+export function Saved({ children }: { children: string }) {
+  return (
+    <HStack
+      as="span"
+      gap={2}
+      vAlign="center"
+      role="status"
+      className="console-confirm"
+    >
+      <Check size="1em" aria-hidden="true" className="console-success" />
+      <Text>{children}</Text>
+    </HStack>
+  );
+}
+
+/** GitHub is another site. Its links leave the console, so they open in a new
+ *  tab and say so, which keeps a half-read review on screen. The router's
+ *  link would carry the reader away from it instead. */
+export function ExternalLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
+  return (
+    <AstryxLink href={href} target="_blank" rel="noreferrer">
+      {children}
+      <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
+    </AstryxLink>
   );
 }
 

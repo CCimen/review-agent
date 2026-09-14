@@ -4,15 +4,11 @@ import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { components } from "./api.generated";
 import { APIError, read, write } from "./api";
-import { Form } from "./ui";
+import { Form, Saved } from "./ui";
 
 type RegistrationSettings = components["schemas"]["RegistrationSettings"];
 type RegistrationUpdate = components["schemas"]["RegistrationUpdate"];
@@ -119,8 +115,7 @@ function RegistrationForm({
     },
   });
   const pending = save.isPending || refresh.isPending;
-  const conflict =
-    save.error instanceof APIError && save.error.status === 409;
+  const conflict = save.error instanceof APIError && save.error.status === 409;
   return (
     <Form
       onSubmit={(event) => {
@@ -136,8 +131,8 @@ function RegistrationForm({
           isDisabled={pending}
         />
         <Text color="secondary">
-          Users can register when their verified email matches either list.
-          New accounts are members; an administrator assigns team access.
+          Users can register when their verified email matches either list. New
+          accounts are members; an administrator assigns team access.
         </Text>
         {availability.data && !availability.data.email_configured && (
           <Banner
@@ -169,8 +164,8 @@ function RegistrationForm({
           isDisabled={pending}
         />
         <Text type="supporting">
-          Empty lists admit nobody. Closing registration or removing an
-          entry does not disable existing accounts.
+          Empty lists admit nobody. Closing registration or removing an entry
+          does not disable existing accounts.
         </Text>
         {save.isError && (
           <Banner
@@ -186,9 +181,7 @@ function RegistrationForm({
             description={refresh.error.message}
           />
         )}
-        {save.isSuccess && (
-          <Text role="status">Registration settings saved.</Text>
-        )}
+        {save.isSuccess && <Saved>Registration settings saved.</Saved>}
         <HStack gap={3} wrap="wrap">
           <Button
             label="Save registration settings"

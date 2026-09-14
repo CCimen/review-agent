@@ -10,10 +10,16 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
+from ..domain.documentation_operating_policy import (
+    DocumentationMode,
+    ResolvedDocumentationMode,
+    resolve_mode,
+)
 from ..domain.review import ReviewPurpose, ReviewRunId
 from ..domain.documentation_review import DocumentationOutcome, EvidenceRead
 from ..documentation_scope import DocumentationScope
 from . import coverage as postgres_coverage
+from . import documentation_operating_policy
 from . import documentation_reviews
 from .team_access import ReadScope, repository_source
 
@@ -38,6 +44,27 @@ class RepositoryActivity:
     active_requests: int
     latest_failed_prs: int
     last_activity_at: datetime | None
+    documentation: ResolvedDocumentationMode
+
+
+@dataclass(frozen=True, slots=True)
+class _RepositoryRow:
+    """The row as selected. Documentation mode is stored as the override and the
+    team default it falls back to, and resolved once the deployment switch has
+    been read, so the list and a single repository agree on precedence."""
+
+    repository_id: int
+    repository: str
+    team_id: int | None
+    team_name: str | None
+    prs_reviewed: int
+    published_requests: int
+    failed_requests: int
+    active_requests: int
+    latest_failed_prs: int
+    last_activity_at: datetime | None
+    documentation_override: str | None
+    documentation_team_default: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +146,10 @@ class HistoryPage:
     watermark_id: int | None = None
 
 
+def _mode(value: str | None) -> DocumentationMode | None:
+    return DocumentationMode(value) if value is not None else None
+
+
 def repositories(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -162,6 +193,8 @@ def repositories(
             )
             SELECT repo.id AS repository_id, repo.full_name AS repository,
                 ownership.team_id, team.name AS team_name,
+                repo.documentation_mode AS documentation_override,
+                team.documentation_mode AS documentation_team_default,
                 coalesce(a.prs_reviewed, 0) AS prs_reviewed,
                 coalesce(a.published_requests, 0) AS published_requests,
                 coalesce(a.failed_requests, 0) AS failed_requests,
@@ -197,8 +230,9 @@ def repositories(
     watermark = watermark_id if watermark_id is not None else totals[6] or 0
     if after_id is not None:
         parameters["watermark"] = watermark
-    with connection.cursor(row_factory=class_row(RepositoryActivity)) as cursor:
-        rows = cursor.execute(
+    enabled, _ = documentation_operating_policy.deployment(connection)
+    with connection.cursor(row_factory=class_row(_RepositoryRow)) as cursor:
+        selected = cursor.execute(
             query
             + sql.SQL(
                 " AND repo.id > %(after)s ORDER BY repo.id LIMIT %(limit)s"
@@ -207,6 +241,26 @@ def repositories(
             ),
             parameters,
         ).fetchall()
+    rows = [
+        RepositoryActivity(
+            row.repository_id,
+            row.repository,
+            row.team_id,
+            row.team_name,
+            row.prs_reviewed,
+            row.published_requests,
+            row.failed_requests,
+            row.active_requests,
+            row.latest_failed_prs,
+            row.last_activity_at,
+            resolve_mode(
+                deployment_enabled=enabled,
+                team_default=_mode(row.documentation_team_default),
+                repository_override=_mode(row.documentation_override),
+            ),
+        )
+        for row in selected
+    ]
     return RepositoryPage(
         tuple(rows[:limit]),
         len(rows) > limit,

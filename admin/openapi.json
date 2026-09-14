@@ -2150,7 +2150,7 @@
     "/api/usage": {
       "get": {
         "summary": "Usage",
-        "description": "Usage for owners and admins, grouped by team, repository or GitHub login.\n\nThe period selects retained requests by start time. Outcomes and all\nreported attempt tokens reflect the current snapshot, including retries\nand later reports. Teams follow current repository ownership. Null token\ntotals mean no usage was reported; reported/started attempts show coverage.",
+        "description": "Usage for owners and admins, grouped by team, repository or GitHub login.\n\nA requester narrows every grouping to the reviews one GitHub login asked\nfor, so a team or repository breakdown can be read for one person.\nThe period selects retained requests by start time. Outcomes and all\nreported attempt tokens reflect the current snapshot, including retries\nand later reports. Teams follow current repository ownership. Null token\ntotals mean no usage was reported; reported/started attempts show coverage.",
         "operationId": "usage_api_usage_get",
         "security": [
           {
@@ -2266,6 +2266,23 @@
                 }
               ],
               "title": "Repository"
+            }
+          },
+          {
+            "name": "requester",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Requester"
             }
           },
           {
@@ -13851,6 +13868,9 @@
               }
             ],
             "title": "Last Activity At"
+          },
+          "documentation": {
+            "$ref": "#/components/schemas/ResolvedDocumentationMode"
           }
         },
         "type": "object",
@@ -13864,7 +13884,8 @@
           "failed_requests",
           "active_requests",
           "latest_failed_prs",
-          "last_activity_at"
+          "last_activity_at",
+          "documentation"
         ],
         "title": "RepositoryActivity"
       },

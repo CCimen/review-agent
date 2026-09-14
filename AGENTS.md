@@ -70,6 +70,23 @@ acceptance criteria, validation, and recovery or rollback where applicable.
   to use an example. Preserve routing, team scope, permissions, form state, and
   error recovery when replacing visible components.
 
+### Astryx tooling
+
+- `xds` MCP is the HTTP server at `https://astryx.atmeta.com/mcp`. It exposes
+  `search(query)` for finding components, doc topics, and templates, and
+  `get(name[, section])` for full props, examples, and best practices. Register
+  it once per machine with
+  `claude mcp add --scope user --transport http xds https://astryx.atmeta.com/mcp`;
+  Cursor, Windsurf, and Claude Desktop take the same URL in their own MCP config.
+- The CLI is the offline fallback. `admin/package.json` defines the `astryx`
+  script so agents do not guess the binary path. Add `--dense` for token-efficient
+  output when pasting into a chat, and run
+  `npm --prefix admin run astryx -- doctor` when the setup looks wrong.
+- Generated agent docs live in the `ASTRYX` block of `admin/CLAUDE.md` and
+  `admin/preview/AGENTS.md`. Refresh them with
+  `npm --prefix admin run astryx -- upgrade --apply` after any Astryx
+  dependency bump; do not hand-edit the block.
+
 ## Repository invariants
 
 - GitHub App installation tokens are the production GitHub credential path. Do

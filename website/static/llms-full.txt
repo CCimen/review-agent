@@ -3212,6 +3212,8 @@ web assets. Qualified releases attach the inventory with their other
    For a qualified release that includes the panel, set both image variables to
    their respective manifest references from the same `IMAGE-DIGESTS.txt`, then
    use `pull` and `up -d --no-build`. The two images have different digests.
+   Remove any saved `pull_policy: never` override left from a local-build setup;
+   it prevents Compose from fetching a new release image.
    After an upgrade, compare the console version and full revision from
    `/api/version` with the release tag and `SOURCE-SHA.txt`. Keep the admin
    service stopped during migrations and start it with the matching workers.

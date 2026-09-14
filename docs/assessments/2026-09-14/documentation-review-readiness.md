@@ -1,6 +1,6 @@
 # Documentation review rollout evidence
 
-Release `v0.4.0-rc.8` implements documentation review as an advisory capability
+Stable release `v0.4.0` implements documentation review as an advisory capability
 and is deployed. Documentation review remains disabled in production pending
 GitHub App setup and pilot acceptance. Deterministic tests establish
 source, state, permission, and publication behavior; they do not establish model
@@ -11,15 +11,15 @@ remains open until the labelled model pilot is run and reviewed by maintainers.
 
 ## Candidate and rollout
 
-The [qualified release](https://github.com/CCimen/review-agent/releases/tag/v0.4.0-rc.8)
-uses source `0686c996b7a0ef29dcb86ad256c7683ab85aea88`.
-Its [image workflow](https://github.com/CCimen/review-agent/actions/runs/34855611415)
+The [qualified release](https://github.com/CCimen/review-agent/releases/tag/v0.4.0)
+uses source `75ed0ff80609ca56defb7f5574d7a7cc9808ed35`.
+Its [image workflow](https://github.com/CCimen/review-agent/actions/runs/34876470601)
 passed, and all 24 entries in the release checksum manifest were verified.
 
 | Image | Deployed manifest digest |
 | --- | --- |
-| `ghcr.io/ccimen/review-agent` | `sha256:3b71e06ff0fe13d4a87dfd45592c38f18de81b2ad2ca7b36f499935b30d38f40` |
-| `ghcr.io/ccimen/review-agent-admin` | `sha256:d1acad366f558d3a6085d50eb58c134dd301c3904ff989e01c7f1c4deb8b9455` |
+| `ghcr.io/ccimen/review-agent` | `sha256:11d35faf8b3b1762dc9fa6f4cb8ac060363fa606985bed7570abc4e47c95b0c9` |
+| `ghcr.io/ccimen/review-agent-admin` | `sha256:7e9ca026ca27df94fe451558a9f41bd21f85ab39eed5d9b6b2b78ec71366b92c` |
 
 The existing Dokploy deployment was upgraded after draining work and verifying
 a PostgreSQL backup restore. All 42 retained review request IDs survived the
@@ -32,16 +32,23 @@ each and no failures or dead letters at the final check.
 The review worker now has the private gateway URL and network access described
 in [Deployment](../../DEPLOYMENT.md#upgrade-and-roll-back-production). This required
 Compose wiring was applied to the running deployment; the protected environment
-file was unchanged. Include the corrected wiring when using rc.8 images with an
-existing Compose file or OpenShift template. The earlier rc.7 release failed
-image qualification and must not be deployed.
+file was unchanged. The stable release includes this wiring in both templates.
+An obsolete `pull_policy: never` on the saved Dokploy admin service initially
+skipped its image pull. Startup with an explicit pull succeeded, and the saved
+override was removed. The earlier rc.7 release failed image qualification and
+must not be deployed.
 
-The public console health endpoint returned ready. Its index and 14 JavaScript
-and CSS assets matched the deployed admin image by SHA-256. The
+The public console health endpoint returned ready. Its index and 25 assets
+matched the deployed admin image by SHA-256. The
 [documentation site](https://ccimen.github.io/review-agent/docs/documentation-review)
 was published from `main`: all 19 public documentation routes and both generated
 LLM documentation files returned HTTP 200. These checks verify delivery, not
 browser rendering or a live model review.
+
+A post-upgrade dry run against an enabled repository's open, same-repository PR
+verified GitHub App read/publication authority and available capacity. It made
+no model call or GitHub write. The backup restored successfully into a temporary
+database with all 42 request IDs; that database was removed after verification.
 
 The deployment-level documentation switch defaults off. Do not broaden App grants,
 change repository modes, or trigger reviews of unrelated pull requests during an
@@ -75,18 +82,24 @@ pair; do not reverse populated purpose or evidence migrations in place.
   branch inspection, and refresh ordering.
 - Existing reporting and console tests cover purpose filters, exact request
   evidence, recorded token totals, and unknown usage. Production frontend builds
-  and TypeScript checks pass locally. Browser visual verification is unavailable
-  because the browser administrator denied access to the local fixture; no
-  alternate browser surface was used.
+  and TypeScript checks pass locally. The contributor reported no horizontal
+  overflow at 390×844 on seven routes and checked navigation, documentation
+  panels, and the reader in light and dark modes. This was not repeated by the
+  release operator, whose browser access to the local fixture was denied.
+  Touch-target sizes, landscape, and Settings/Users/Audit mobile layouts remain
+  unaudited.
 - The public documentation manifest includes the documentation-review guide;
   public Pages delivery was verified separately from local generation.
 
-The source and packaging commit gates passed with Claude Opus 5 at xhigh effort.
+The documentation-review implementation and rc.8 packaging commit gates passed
+with Claude Opus 5 at xhigh effort.
 Validation included the bundle suite (1,017 tests, 406 skipped without the
 PostgreSQL test environment), 389 PostgreSQL contract tests with populated
 migration and restore checks, 36 console tests, strict Python and TypeScript
 checks, generated API contracts, and the 19-route documentation site build.
-The deployed image workflow also passed its release vulnerability policy.
+The stable candidate also passed Astra source acceptance and 34 focused
+PostgreSQL reporting/policy tests. The complete canonical CI and exact-image
+vulnerability policy passed again in the stable release workflow.
 
 Final bundle, migration, admin, site, Claude gate, release, and deployment receipts
 are retained outside the repository. Do not treat earlier partial implementation

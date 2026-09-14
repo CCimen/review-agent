@@ -341,10 +341,10 @@ oc rollout restart deployment/hermes-review
 ```
 
 Only admission has a Route. The template mounts the App key into the private
-gateway pod and allows gateway ingress only from Hermes, the App delivery
-worker, and the publisher. It omits `runAsUser`, drops Linux capabilities, and
-uses PVC or `emptyDir` mounts for writable paths so OpenShift can assign an
-arbitrary UID under `restricted-v2`.
+gateway pod and allows gateway ingress only from Hermes, the review worker, the
+App delivery worker, and the publisher. It omits `runAsUser`, drops Linux
+capabilities, and uses PVC or `emptyDir` mounts for writable paths so OpenShift
+can assign an arbitrary UID under `restricted-v2`.
 
 </TabItem>
 </Tabs>
@@ -365,6 +365,14 @@ revision must match. Preserve `compose.admin.yaml` in Compose commands, stop
 Follow the [admin service procedure](ADMIN_PANEL.md#add-the-service) for the
 overlay, hostname, and post-upgrade version check. The platform examples below
 cover the main services.
+
+The review worker requires the private GitHub gateway at startup, even when
+documentation review is disabled. In Compose, set its `REVIEW_AGENT_GITHUB_GATEWAY_URL` to
+`http://review-github-gateway:8646` and attach it to `review-github-control`.
+In OpenShift, use `http://review-agent-github-gateway:8646` and permit the
+`review-agent-worker` pod in the gateway ingress policy. Both use the existing
+`API_SERVER_KEY`; no new secret or shared environment-file entry is needed.
+Include this wiring when upgrading an existing deployment, including rc.8.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after

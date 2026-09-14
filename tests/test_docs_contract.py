@@ -281,6 +281,14 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("source: github_app_private_key", compose)
         self.assertIn("review-github-gateway:", compose)
         self.assertIn("REVIEW_AGENT_GITHUB_GATEWAY_URL", compose)
+        review_worker = compose.split("\n  review-worker:\n", 1)[1].split(
+            "\n  review-github-gateway:\n", 1
+        )[0]
+        self.assertIn(
+            'REVIEW_AGENT_GITHUB_GATEWAY_URL: "http://review-github-gateway:8646"',
+            review_worker,
+        )
+        self.assertIn("review-github-control", review_worker)
         self.assertEqual(compose.count("source: github_app_private_key"), 1)
         worker = compose.split("\n  review-github-app-worker:\n", 1)[1].split(
             "\n  review-publisher:", 1
@@ -397,6 +405,28 @@ class DocsContractTests(unittest.TestCase):
             },
             {
                 "hermes-review",
+                "review-agent-worker",
+                "review-agent-github-app-worker",
+                "review-agent-publisher",
+            },
+        )
+        gateway_policy = next(
+            mapping(resource)
+            for resource in sequence(document["objects"])
+            if mapping(resource).get("kind") == "NetworkPolicy"
+            and mapping(mapping(resource)["metadata"])["name"]
+            == "review-agent-github-gateway-ingress"
+        )
+        gateway_peers = {
+            mapping(mapping(mapping(peer)["podSelector"])["matchLabels"])["app"]
+            for rule in sequence(mapping(gateway_policy["spec"])["ingress"])
+            for peer in sequence(mapping(rule)["from"])
+        }
+        self.assertEqual(
+            gateway_peers,
+            {
+                "hermes-review",
+                "review-agent-worker",
                 "review-agent-github-app-worker",
                 "review-agent-publisher",
             },

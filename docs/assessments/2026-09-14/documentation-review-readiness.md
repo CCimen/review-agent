@@ -1,7 +1,8 @@
 # Documentation review rollout evidence
 
-The source candidate implements documentation review as an advisory capability.
-Automatic production spending remains disabled. Deterministic tests establish
+Release `v0.4.0-rc.8` implements documentation review as an advisory capability
+and is deployed. Documentation review remains disabled in production pending
+GitHub App setup and pilot acceptance. Deterministic tests establish
 source, state, permission, and publication behavior; they do not establish model
 accuracy or usefulness.
 
@@ -10,22 +11,43 @@ remains open until the labelled model pilot is run and reviewed by maintainers.
 
 ## Candidate and rollout
 
-The intended release is `v0.4.0-rc.8`. Its exact commit and qualified runtime/admin
-image digests must be recorded after the commit gate and release workflow finish.
-The migration boundary is 035; the managed profile includes `review-agent-docs`.
-Deploy all services from one qualified source/image pair, drain existing work,
-back up PostgreSQL, stop old applications, apply the bundled migrations, install
-the matching profile, and verify service readiness before resuming admission.
+The [qualified release](https://github.com/CCimen/review-agent/releases/tag/v0.4.0-rc.8)
+uses source `0686c996b7a0ef29dcb86ad256c7683ab85aea88`.
+Its [image workflow](https://github.com/CCimen/review-agent/actions/runs/34855611415)
+passed, and all 24 entries in the release checksum manifest were verified.
 
-The authorized deployment target is the existing Review Agent production Compose
-application in Dokploy. Preserve its secrets, networks, volumes, repository grants,
-and saved operating choices. Update the docs site from `main` only after the
-qualified release evidence exists. Use the existing deployment and release
-procedures in [Operations](../../OPERATIONS.md#updating-and-validation).
+| Image | Deployed manifest digest |
+| --- | --- |
+| `ghcr.io/ccimen/review-agent` | `sha256:3b71e06ff0fe13d4a87dfd45592c38f18de81b2ad2ca7b36f499935b30d38f40` |
+| `ghcr.io/ccimen/review-agent-admin` | `sha256:d1acad366f558d3a6085d50eb58c134dd301c3904ff989e01c7f1c4deb8b9455` |
+
+The existing Dokploy deployment was upgraded after draining work and verifying
+a PostgreSQL backup restore. All 42 retained review request IDs survived the
+upgrade. Migration 035 and runtime-role readiness passed; the managed profile
+matches the release and includes `review-agent-docs`. All 11 services were
+verified, including successful migration/profile jobs, before review intake
+resumed. Review, publication, and webhook queues were empty with one live worker
+each and no failures or dead letters at the final check.
+
+The review worker now has the private gateway URL and network access described
+in [Deployment](../../DEPLOYMENT.md#upgrade-and-roll-back-production). This required
+Compose wiring was applied to the running deployment; the protected environment
+file was unchanged. Include the corrected wiring when using rc.8 images with an
+existing Compose file or OpenShift template. The earlier rc.7 release failed
+image qualification and must not be deployed.
+
+The public console health endpoint returned ready. Its index and 14 JavaScript
+and CSS assets matched the deployed admin image by SHA-256. The
+[documentation site](https://ccimen.github.io/review-agent/docs/documentation-review)
+was published from `main`: all 19 public documentation routes and both generated
+LLM documentation files returned HTTP 200. These checks verify delivery, not
+browser rendering or a live model review.
 
 The deployment-level documentation switch defaults off. Do not broaden App grants,
 change repository modes, or trigger reviews of unrelated pull requests during an
-upgrade. The GitHub owner must accept Checks write where missing. Choose one
+upgrade. The deployed GitHub App still needs **Checks: write** and the **Pull
+request** and **Check run** event subscriptions. The GitHub owner must update its
+registration and accept the installation permission where required. Choose one
 explicit pilot repository and representative PR before enabling Manual. Automatic
 adoption follows useful pilot evidence; saving Automatic does not sweep open PRs.
 
@@ -56,8 +78,15 @@ pair; do not reverse populated purpose or evidence migrations in place.
   and TypeScript checks pass locally. Browser visual verification is unavailable
   because the browser administrator denied access to the local fixture; no
   alternate browser surface was used.
-- The public documentation manifest includes the documentation-review guide.
-  Local site generation is distinct from verified public Pages publication.
+- The public documentation manifest includes the documentation-review guide;
+  public Pages delivery was verified separately from local generation.
+
+The source and packaging commit gates passed with Claude Opus 5 at xhigh effort.
+Validation included the bundle suite (1,017 tests, 406 skipped without the
+PostgreSQL test environment), 389 PostgreSQL contract tests with populated
+migration and restore checks, 36 console tests, strict Python and TypeScript
+checks, generated API contracts, and the 19-route documentation site build.
+The deployed image workflow also passed its release vulnerability policy.
 
 Final bundle, migration, admin, site, Claude gate, release, and deployment receipts
 are retained outside the repository. Do not treat earlier partial implementation

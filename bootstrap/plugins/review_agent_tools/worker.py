@@ -22,9 +22,12 @@ from typing import cast
 
 import psycopg
 
-from . import failure_codes, review_contract, review_run_application
-from .domain.review import JsonObject
+from . import documentation_preflight, failure_codes, review_contract, review_run_application, settings
+from .domain.review import JsonObject, ReviewPurpose
 from .hermes_control import MANAGED_REVIEW_PATH
+from .github.gateway import GitHubGatewayRejected, GitHubGatewayRetryable
+from .github.gateway_client import ReviewGitHubGatewayClient
+from .review_tool_runtime import GatewaySourceSession, ToolInputError
 from .postgres import jobs, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
 from .source_control import SameOriginHttpsRedirectHandler
@@ -96,6 +99,7 @@ class HermesChatSettings:
     endpoint: str
     bearer_token: str = field(repr=False)
     skill_path: Path
+    documentation_skill_path: Path | None = None
 
     def __post_init__(self) -> None:
         parsed = parse.urlsplit(self.endpoint)
@@ -113,6 +117,8 @@ class HermesChatSettings:
             raise WorkerConfigurationError(
                 f"review skill does not exist: {self.skill_path}"
             )
+        if self.documentation_skill_path is not None and not self.documentation_skill_path.is_file():
+            raise WorkerConfigurationError("documentation review skill does not exist")
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +127,7 @@ class ClaimedReview:
     repository: str
     pr_number: int
     resolved_config: JsonObject
+    purpose: ReviewPurpose = ReviewPurpose.CODE
 
 
 class HermesChatClient:
@@ -139,6 +146,10 @@ class HermesChatClient:
     ) -> None:
         self._settings = settings
         self._system_instructions = _load_skill_instructions(settings.skill_path)
+        self._documentation_instructions = (
+            _load_skill_instructions(settings.documentation_skill_path)
+            if settings.documentation_skill_path is not None else None
+        )
         self._opener = opener or request.build_opener(
             SameOriginHttpsRedirectHandler()
         )
@@ -151,17 +162,26 @@ class HermesChatClient:
             lease_generation=claimed.job.lease_generation,
         )
         contract = review_contract.queued_contract(claimed.resolved_config)
+        instructions = self._system_instructions
+        first_call = (
+            "Call review_agent_begin first with repository "
+            f"{claimed.repository!r}, pr_number {claimed.pr_number}, "
+            f"and existing_run_id {int(claimed.job.review_run_id)}. "
+        )
+        if claimed.purpose is ReviewPurpose.DOCUMENTATION:
+            if self._documentation_instructions is None:
+                raise HermesRequestError("Documentation review skill is not installed", retryable=False)
+            instructions = self._documentation_instructions
+            first_call = f"Call review_agent_docs_begin first with run_id {int(claimed.job.review_run_id)}. "
         payload = json.dumps(
             {
                 "messages": [
-                    {"role": "system", "content": self._system_instructions},
+                    {"role": "system", "content": instructions},
                     {
                         "role": "user",
                         "content": (
                             "Continue the assigned durable pull-request review. "
-                            "Call review_agent_begin first with repository "
-                            f"{claimed.repository!r}, pr_number {claimed.pr_number}, "
-                            f"and existing_run_id {int(claimed.job.review_run_id)}. "
+                            f"{first_call}"
                             "Follow the review skill and finish through deterministic "
                             "delivery."
                         ),
@@ -232,12 +252,14 @@ class ReviewWorker:
         lease_owner: str,
         stop_event: threading.Event,
         telemetry: WorkerTelemetry | None = None,
+        source_client: ReviewGitHubGatewayClient | None = None,
     ) -> None:
         owner = lease_owner.strip()
         if not owner:
             raise WorkerConfigurationError("lease_owner is required")
         self._runtime = runtime
         self._telemetry = telemetry
+        self._source_client = source_client
         self._client = client
         self._policy = policy
         self._lease_owner = owner
@@ -374,6 +396,7 @@ class ReviewWorker:
                 resolved_config=cast(
                     JsonObject, json.loads(scope.resolved_config.canonical_json)
                 ),
+                purpose=scope.run.purpose,
             )
 
     def _recover_if_due(self) -> None:
@@ -457,6 +480,7 @@ class ReviewWorker:
         heartbeat.start()
         failure: HermesRequestError | None = None
         usage: TokenUsage | None = None
+        model_invoked = False
         if self._telemetry is not None:
             self._telemetry.event(
                 "review_started",
@@ -464,9 +488,44 @@ class ReviewWorker:
                 job_id=claimed.job.id,
             )
         try:
-            usage = self._client.review(claimed, timeout=self._policy.request_timeout)
+            terminal_documentation = False
+            if claimed.purpose is ReviewPurpose.DOCUMENTATION:
+                if self._source_client is None:
+                    raise HermesRequestError("Documentation source client is not configured", retryable=False)
+                result = documentation_preflight.run_preflight(
+                    self._runtime,
+                    GatewaySourceSession(
+                        run_id=int(claimed.job.review_run_id),
+                        lease=jobs.WorkerLeaseSession(
+                            job_id=claimed.job.id, lease_generation=claimed.job.lease_generation,
+                        ),
+                        client=self._source_client,
+                    ),
+                    installed_contract,
+                )
+                terminal_documentation = result.frozen
+                if terminal_documentation:
+                    from .review_publication_application import prepare_postgres_documentation_publication
+
+                    configured = settings.ReviewAgentSettings.from_environment()
+                    prepare_postgres_documentation_publication(
+                        self._runtime, run_id=int(claimed.job.review_run_id),
+                        max_comment_bytes=configured.publish_max_bytes,
+                        delivery_max_attempts=configured.publication_max_attempts,
+                        review_job_id=claimed.job.id,
+                        review_lease_generation=claimed.job.lease_generation,
+                    )
+            if not terminal_documentation and not lease_lost.is_set():
+                model_invoked = True
+                usage = self._client.review(claimed, timeout=self._policy.request_timeout)
         except HermesRequestError as exc:
             failure = exc
+        except GitHubGatewayRetryable as exc:
+            failure = HermesRequestError(f"Review source unavailable: {exc.reason}", retryable=True)
+        except (GitHubGatewayRejected, ToolInputError, review_run_application.ReviewRunError) as exc:
+            failure = HermesRequestError(f"Review preflight rejected: {exc}", retryable=False)
+        except (jobs.ReviewJobLeaseLost, review_run_application.ReviewRunTerminal):
+            lease_lost.set()
         finally:
             heartbeat_stop.set()
             heartbeat.join()
@@ -479,7 +538,7 @@ class ReviewWorker:
                 )
             if self._telemetry is not None:
                 self._telemetry.event(
-                    "review_returned" if usage is not None else "usage_unavailable",
+                    "usage_unavailable" if model_invoked and usage is None else "review_returned",
                     run_id=claimed.job.review_run_id,
                     job_id=claimed.job.id,
                 )

@@ -41,7 +41,12 @@ submission of invalid drafts so a previously valid value cannot be submitted.
 Published Markdown is sanitized before Astryx renders its typography, code blocks,
 tables, and disclosures. Rejected URLs render as noninteractive text.
 
-Published review text is the primary content on the reader page. Request history
+Published review text is the primary content on the reader page: on wide screens
+it takes the first two of three columns and the request history is the rail
+beside it, stacking below on narrow screens. The Result block leads with the
+outcome (status dot, label, qualifier), groups commit, duration and comparison in a
+MetadataList, and states a failure or coverage gap as a Banner whose title is the
+next step. Request history
 belongs in the secondary rail; review actions open from the selected request status.
 Recovery actions remain under an advanced disclosure, with confirmation before a
 change. Settings and user management share persistent navigation. Finding decisions link
@@ -54,7 +59,13 @@ logic on the server. Newly issued application credentials are shown once and
 kept out of shared caches and browser storage. Build the generated API contract with the backend when
 changing a public boundary.
 
-Administration's Usage page is restricted to owners and admins. Reuse the
+Administration's Usage page is restricted to owners and admins. It opens with
+three "Most active" cards (teams, repositories, GitHub users), each the same
+report cut to five rows and ranked against its leader with a neutral bar; the
+tab below pages through the full grouping, with a share bar under each request
+count. Team and repository rows drill into the next grouping; a GitHub login
+has no request list to open. There is no per-user daily series in the API, so
+trends stay on Statistics. Reuse the
 workspace team scope and reporting period, with tabs for teams, repositories,
 and GitHub requesters. Rank and paginate on the server; summary figures cover
 all matching rows. Keep token reporting coverage next to the totals and show
@@ -78,3 +89,42 @@ scope in the page introduction.
 Application integrations share Settings navigation with users and roles. State
 the platform scope, distinguish aggregate and published-content grants, and show
 expiry and revocation without an editable permission matrix.
+
+Motion is Astryx's for controls, dialogs and disclosures. The console adds only
+entrances in `src/theme.css`, on the theme's duration and easing tokens: a page
+replacing another, a figure or list replacing its skeleton, the Copy label
+swapping to a check, and one shake on a rejected sign-in. A copyable identifier
+is shown as code beside an icon-only copy button, never inside a button, so a
+chip, a pill and an underline do not stack on one value. On Health, each queue
+and each service connection is a Card so uneven contents read as siblings. Hover, focus, filters and the ⌘K
+palette get no added motion. Reduced motion keeps the fade and drops movement
+and blur. Lists that will hold a table show the shared `Loading` skeleton while
+their first answer is pending so the page does not grow when it lands.
+
+## Documentation review controls
+
+Implementation and rollout evidence are tracked by Beads epic
+`ra-docs-review-ms1`. The [documentation review design](../docs/assessments/2026-09-14/documentation-review-design.md#team-and-repository-administration)
+owns policy and authority. Reuse this console's components and navigation.
+
+Team detail has a Documentation review section for the team's default mode.
+Repository views expose a shared docs settings/detail section, reachable from team
+repositories and repository activity as well as platform administration. Team
+maintainers must not need the platform-only Access management page to change an
+authorized repo override. Lead with effective mode, its inherited/explicit source
+and readiness; keep rules, exclusions, ADR links and retained review evidence
+progressively disclosed. The global control stays in owner-only Settings.
+
+Show the affected inherited repositories and explicit exceptions before saving a
+team default. Preserve settings drafts on refresh, keep input after recoverable
+errors, and make read-only permissions clear. Mode and readiness have separate
+labels: Automatic can be configured while waiting for rules or App permissions.
+Repository rule/ADR changes go through GitHub; the panel provides source links and
+a starter, not a second live policy editor.
+
+Existing Activity, reader, Quality and authorized Usage views have a purpose
+filter and links that retain team/repository/period context. Show exact selected
+coverage and failure/skip reasons instead of a repository accuracy percentage.
+Usage retains its platform-admin restriction and unknown token coverage. Reuse
+current loading, empty, retry, freshness, focus, narrow-screen, light/dark and
+reduced-motion behavior. Keep these controls in the existing navigation and visual system.

@@ -11,6 +11,7 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow
 
 from ..domain.finding import SUPPRESSIVE_DECISION_KINDS
+from ..domain.review import ReviewPurpose
 from . import reporting as base_reporting
 from .team_access import ReadScope, repository_source
 
@@ -85,6 +86,7 @@ def build_report(
     window_started_at: datetime,
     window_ended_at: datetime,
     window_days: int,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> QualityReport:
     """Build one read-only report from explicit persisted signals."""
     _require_transaction(connection)
@@ -102,7 +104,7 @@ def build_report(
               ON pull_request.id = run.pull_request_id
             JOIN scoped_repositories AS repository
               ON repository.id = pull_request.repository_id
-            WHERE run.status = 'completed'
+            WHERE run.purpose = {purpose} AND run.status = 'completed'
               AND run.completed_at >= %s
               AND run.completed_at < %s
         ), posted_publications AS (
@@ -112,7 +114,7 @@ def build_report(
               ON pull_request.id = publication.pull_request_id
             JOIN scoped_repositories AS repository
               ON repository.id = pull_request.repository_id
-            WHERE publication.status = 'posted'
+            WHERE publication.purpose = {purpose} AND publication.status = 'posted'
               AND publication.posted_at >= %s
               AND publication.posted_at < %s
         )
@@ -151,7 +153,7 @@ def build_report(
                   ON identity.id = decision.finding_id
                 JOIN scoped_repositories AS repository
                   ON repository.id = identity.repository_id
-                WHERE decision.decision = 'false_positive'
+                WHERE identity.purpose = {purpose} AND decision.decision = 'false_positive'
                   AND decision.created_at >= %s
                   AND decision.created_at < %s
             ),
@@ -162,7 +164,7 @@ def build_report(
                   ON pull_request.id = feedback.pull_request_id
                 JOIN scoped_repositories AS repository
                   ON repository.id = pull_request.repository_id
-                WHERE feedback.category = 'scope_confusion'
+                WHERE feedback.publication_id IN (SELECT id FROM review_agent.publications WHERE purpose = {purpose}) AND feedback.category = 'scope_confusion'
                   AND feedback.created_at >= %s
                   AND feedback.created_at < %s
             ),
@@ -173,11 +175,11 @@ def build_report(
                   ON pull_request.id = feedback.pull_request_id
                 JOIN scoped_repositories AS repository
                   ON repository.id = pull_request.repository_id
-                WHERE feedback.category = 'missed_issue'
+                WHERE feedback.publication_id IN (SELECT id FROM review_agent.publications WHERE purpose = {purpose}) AND feedback.category = 'missed_issue'
                   AND feedback.created_at >= %s
                   AND feedback.created_at < %s
             )
-        """).format(repositories=repository_source(scope)),
+        """).format(repositories=repository_source(scope), purpose=sql.Literal(purpose.value)),
         (
             repository,
             repository,
@@ -208,7 +210,7 @@ def build_report(
               ON pull_request.id = feedback.pull_request_id
             JOIN {repositories} AS repository
               ON repository.id = pull_request.repository_id
-            WHERE feedback.category = 'missed_issue'
+            WHERE feedback.publication_id IN (SELECT id FROM review_agent.publications WHERE purpose = {purpose}) AND feedback.category = 'missed_issue'
               AND feedback.created_at < %s
               AND (
                   %s::text IS NULL
@@ -233,7 +235,7 @@ def build_report(
         LEFT JOIN latest_triage AS latest ON latest.feedback_id = feedback.id
         GROUP BY status, latest.target_owner
         ORDER BY status, latest.target_owner
-        """).format(repositories=repository_source(scope)),
+        """).format(repositories=repository_source(scope), purpose=sql.Literal(purpose.value)),
         (
             window_ended_at,
             repository,
@@ -257,6 +259,7 @@ def build_report(
         repository=repository,
         expiring_at=window_ended_at,
         expiring_within_days=0,
+        purpose=purpose,
         now=window_ended_at,
     )
     finding_totals = connection.execute(
@@ -266,8 +269,8 @@ def build_report(
             FROM review_agent.finding_identities AS identity
             JOIN {repositories} AS repository
               ON repository.id = identity.repository_id
-            WHERE %s::text IS NULL
-               OR lower(repository.full_name) = lower(%s::text)
+            WHERE identity.purpose = {purpose}
+              AND (%s::text IS NULL OR lower(repository.full_name) = lower(%s::text))
         ), latest_occurrence AS (
             SELECT DISTINCT ON (occurrence.finding_id)
                    occurrence.finding_id, occurrence.context_hash
@@ -309,7 +312,7 @@ def build_report(
         FROM latest_occurrence AS occurrence
         LEFT JOIN latest_decision AS decision
           ON decision.finding_id = occurrence.finding_id
-        """).format(repositories=repository_source(scope)),
+        """).format(repositories=repository_source(scope), purpose=sql.Literal(purpose.value)),
         (
             repository,
             repository,
@@ -330,7 +333,7 @@ def build_report(
           ON identity.id = decision.finding_id
         JOIN {repositories} AS repository
           ON repository.id = identity.repository_id
-        WHERE decision.decision = 'false_positive'
+        WHERE identity.purpose = {purpose} AND decision.decision = 'false_positive'
           AND decision.created_at >= %s
           AND decision.created_at < %s
           AND (
@@ -340,7 +343,7 @@ def build_report(
         GROUP BY identity.rule_id
         ORDER BY count(*) DESC, identity.rule_id
         LIMIT %s
-        """).format(repositories=repository_source(scope)),
+        """).format(repositories=repository_source(scope), purpose=sql.Literal(purpose.value)),
         (
             window_started_at,
             window_ended_at,
@@ -363,7 +366,7 @@ def build_report(
           ON pull_request.id = run.pull_request_id
         JOIN {repositories} AS repository
           ON repository.id = pull_request.repository_id
-        WHERE run.status = 'completed'
+        WHERE run.purpose = {purpose} AND run.status = 'completed'
           AND run.completed_at >= %s
           AND run.completed_at < %s
           AND file.is_changed_path
@@ -375,7 +378,7 @@ def build_report(
         GROUP BY 1
         ORDER BY count(*) DESC, failure_code
         LIMIT %s
-        """).format(repositories=repository_source(scope)),
+        """).format(repositories=repository_source(scope), purpose=sql.Literal(purpose.value)),
         (
             window_started_at,
             window_ended_at,
@@ -422,7 +425,7 @@ def build_report(
           ON repository.id = pull_request.repository_id
         JOIN review_agent.review_subjects AS subject
           ON subject.id = run.review_subject_id
-        WHERE run.status = 'completed'
+        WHERE run.purpose = {purpose} AND run.status = 'completed'
           AND run.completed_at >= %s
           AND run.completed_at < %s
           AND (
@@ -433,7 +436,7 @@ def build_report(
         ORDER BY repository.full_name, profile, review_contract_hash,
                  model_provider, model, subject.policy_revision
         LIMIT 201
-        """).format(repositories=repository_source(scope)),
+        """).format(repositories=repository_source(scope), purpose=sql.Literal(purpose.value)),
         (
             window_started_at,
             window_ended_at,

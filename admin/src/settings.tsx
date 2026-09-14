@@ -337,8 +337,24 @@ function SettingsEditor({ data }: { data: Page }) {
           <Banner
             status="info"
             title="When changes take effect"
-            description="Model changes apply to new requests. Queued reviews keep their selected model. Other settings take effect after the relevant services restart."
+            description="Model changes apply to new requests. Queued reviews keep their selected model. Documentation availability applies when requests are admitted. Other settings take effect after the relevant services restart."
           />
+          <SettingsGroup
+            title="Documentation reviews"
+            description="Control availability across all teams and repositories. Team defaults and repository overrides select the operating mode."
+            disabled={save.isPending}
+          >
+            <CheckboxInput
+              label="Enable documentation reviews"
+              value={draft.documentation_review_enabled}
+              isDisabled={save.isPending}
+              onChange={(value) => setDraft({ ...draft, documentation_review_enabled: value })}
+            />
+            <Text as="p" color="secondary">
+              Disabling this takes precedence over every team and repository mode.
+              Saved modes and repository rules are retained.
+            </Text>
+          </SettingsGroup>
           <SettingsGroup
             title="Review model"
             description="Choose the provider, model, and reasoning effort for new requests."

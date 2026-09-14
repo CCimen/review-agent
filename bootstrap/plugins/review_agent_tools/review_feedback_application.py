@@ -15,6 +15,7 @@ from .domain.feedback import (
     resolve_text,
 )
 from .domain.finding import resolve_decision
+from .domain.review import ReviewPurpose
 from .feedback_commands import (
     FeedbackCommand,
     FindingFeedbackCommand,
@@ -46,8 +47,15 @@ def record_postgres_feedback(
     source_comment_url: str = "",
     expires_days: int | None = None,
     now: datetime | None = None,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> FeedbackResult:
     """Validate feedback before opening its one PostgreSQL transaction."""
+    try:
+        purpose = ReviewPurpose(purpose)
+    except ValueError as exc:
+        raise ReviewFeedbackError("feedback purpose is invalid") from exc
+    if purpose is ReviewPurpose.DOCUMENTATION and isinstance(command, FindingFeedbackCommand) and command.decision != "false_positive":
+        raise ReviewFeedbackError("documentation intentional suppression is not supported")
     resolved_event_id = resolve_event_id(event_id)
     resolved_actor_user_id = str(
         resolve_positive_int(actor_user_id, field="actor_user_id")
@@ -109,6 +117,7 @@ def record_postgres_feedback(
             connection,
             repository=resolved_repository,
             pr_number=resolved_pr_number,
+            purpose=purpose,
         )
         if publication is None:
             postgres_feedback.complete_event(

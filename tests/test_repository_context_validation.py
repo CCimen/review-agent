@@ -17,6 +17,29 @@ from review_agent_tools.domain import repository_decisions  # noqa: E402
 
 
 class RepositoryContextValidationTests(unittest.TestCase):
+    def test_standalone_documentation_policy_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".review-agent").mkdir()
+            (root / "docs").mkdir()
+            (root / "docs/guide.md").write_text("# Guide\n")
+            (root / ".review-agent/documentation.toml").write_text(
+                """version = 1
+[[area]]
+id = "guide"
+sources = ["src/**"]
+documents = ["docs/guide.md"]
+intent = "Keep the guide accurate."
+"""
+            )
+
+            receipt = repository_context_validation.validate_repository_context(root)
+
+        self.assertFalse(receipt.configured)
+        self.assertTrue(receipt.documentation_configured)
+        self.assertEqual(receipt.documentation_areas, ("guide",))
+        self.assertRegex(receipt.documentation_config_hash or "", r"^sha256:")
+
     def test_missing_repository_root_is_a_bounded_validation_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             missing = Path(directory) / "missing"

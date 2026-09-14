@@ -589,7 +589,7 @@ def load_live_context(
                 JOIN review_agent.repositories AS repository
                   ON repository.id = pull_request.repository_id
                 WHERE lower(repository.full_name) = lower(%s)
-                  AND pull_request.number = %s AND run.status = 'running'
+                  AND pull_request.number = %s AND run.status = 'running' AND run.purpose = 'code'
                 """,
                 (query.repository, query.pr_number),
             ).fetchone()
@@ -622,7 +622,7 @@ def load_live_context(
                         SELECT pull_request_id
                         FROM review_agent.review_runs WHERE id = %s
                     )
-                      AND publication.status = 'posted'
+                      AND publication.status = 'posted' AND publication.purpose = 'code'
                       AND publication.superseded_by_publication_id IS NULL
                       AND item.outcome IN ('current', 'not_checked')
                     """,

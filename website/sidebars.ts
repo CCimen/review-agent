@@ -10,6 +10,7 @@ const sidebars: SidebarsConfig = {
         'docs/OVERVIEW',
         'docs/GETTING_STARTED',
         'docs/HOW_REVIEWS_WORK',
+        'docs/DOCUMENTATION_REVIEW',
         'examples/comments/example-review',
       ],
     },

@@ -8,7 +8,7 @@ import { Section } from "@astryxdesign/core/Section";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import type { InputHTMLAttributes } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Form } from "./ui";
+import { Form, Loading } from "./ui";
 // Login layout adapted from Astryx's Login Card template.
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 import { Banner } from "@astryxdesign/core/Banner";
@@ -35,8 +35,14 @@ import type {
   AccountIdentity,
   OIDCStart,
 } from "./api";
-import { login, read, write } from "./api";
-import { isAdmin, roleLabels, ScopedAnchor, useScope } from "./scope";
+import { APIError, login, read, write } from "./api";
+import {
+  isAdmin,
+  roleLabels,
+  ScopedAnchor,
+  ScopedLink as Link,
+  useScope,
+} from "./scope";
 import { Empty, Stat } from "./ui";
 import { RegistrationAccess } from "./registration";
 import type { components } from "./api.generated";
@@ -75,6 +81,16 @@ export function SettingsTabs() {
   );
 }
 
+/** A check that failed for a reason other than the capability being absent.
+ *  Both optional sign-in endpoints answer 404 when the deployment does not
+ *  offer them, which is a configuration, not a fault. */
+function checkFailed(query: { isError: boolean; error: Error | null }) {
+  return (
+    query.isError &&
+    !(query.error instanceof APIError && query.error.status === 404)
+  );
+}
+
 export function Login() {
   const client = useQueryClient();
   const { search, hash, pathname } = useLocation();
@@ -92,6 +108,17 @@ export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [sent, setSent] = useState(false);
+  /* Both ask a question about how this deployment is configured, not about
+     anything that changes while someone looks at the sign-in card. Under the
+     console's defaults they inherited a five second staleness and a ten
+     second refetch, so a deployment offering neither re-asked for both, and
+     was answered 404 for both, for as long as the page stayed open. */
+  const capability = {
+    staleTime: Infinity,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    retry: false,
+  } as const;
   const registration = useQuery({
     queryKey: ["registration-availability"],
     queryFn: ({ signal }) =>
@@ -99,11 +126,13 @@ export function Login() {
         "/api/auth/registration",
         signal,
       ),
+    ...capability,
   });
   const provider = useQuery({
     queryKey: ["identity-provider"],
     queryFn: ({ signal }) =>
       read<IdentityProvider>("/api/auth/oidc/provider", signal),
+    ...capability,
   });
   const sso = useMutation({
     mutationFn: () =>
@@ -254,7 +283,10 @@ export function Login() {
                     />
                   )}
                   {mutation.isError && (
+                    // Keyed by the attempt so a second rejection shakes again.
                     <Banner
+                      key={mutation.submittedAt}
+                      className="t-shake"
                       status="error"
                       title={
                         mode === "login"
@@ -337,7 +369,7 @@ export function Login() {
                     )}
                   </VStack>
                 )}
-              {provider.isError && (
+              {checkFailed(provider) && (
                 <VStack gap={2}>
                   <Text role="alert" color="secondary">
                     Could not check organization sign-in.
@@ -350,7 +382,7 @@ export function Login() {
                   />
                 </VStack>
               )}
-              {registration.isError && (
+              {checkFailed(registration) && (
                 <VStack gap={2}>
                   <Text role="alert" color="secondary">
                     Could not check whether registration is open.
@@ -455,9 +487,10 @@ export function Users({ current }: { current: Account }) {
       <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
         <VStack gap={3}>
           <Heading level={1}>Users &amp; roles</Heading>
-          <Text as="p">
-            Platform administration · Manage accounts and platform roles.
-            Team roles are assigned in Teams.
+          <Text as="p" color="secondary">
+            Platform administration · Manage accounts and platform roles. An
+            account belongs to a team from that team's page, not from here:
+            open <Link to="/teams">Teams</Link> and add the account by email.
           </Text>
         </VStack>
         <Button
@@ -594,11 +627,7 @@ export function Users({ current }: { current: Account }) {
           </Form>
         </Section>
       )}
-      {query.isPending && (
-        <Text as="p" role="status">
-          Loading users…
-        </Text>
-      )}
+      {query.isPending && <Loading label="Loading users" rows={6} />}
       {query.isError && (
         <VStack gap={3} role="alert">
           <Text as="p">Could not load users.</Text>

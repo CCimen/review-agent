@@ -25,7 +25,7 @@ from ..domain.finding import (
     require_unique_finding_identities,
     suppression_is_active,
 )
-from ..domain.review import PullRequestId, RepositoryId, ReviewRunId
+from ..domain.review import PullRequestId, RepositoryId, ReviewPurpose, ReviewRunId
 
 
 class FindingStoreError(ValueError):
@@ -102,6 +102,7 @@ class _RunScope:
     pull_request_id: PullRequestId
     repository_id: RepositoryId
     head_sha: str
+    purpose: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +177,7 @@ def _scope(
         scope = cursor.execute(
             """
             SELECT run.status, run.pull_request_id, pr.repository_id,
-                   subject.head_sha
+                   subject.head_sha, run.purpose
             FROM review_agent.review_runs AS run
             JOIN review_agent.pull_requests AS pr
               ON pr.id = run.pull_request_id
@@ -205,7 +206,7 @@ def _scope(
         locked = cursor.execute(
             """
             SELECT run.status, run.pull_request_id, pr.repository_id,
-                   subject.head_sha
+                   subject.head_sha, run.purpose
             FROM review_agent.review_runs AS run
             JOIN review_agent.pull_requests AS pr
               ON pr.id = run.pull_request_id
@@ -231,24 +232,26 @@ def _identities(
     connection: psycopg.Connection[TupleRow],
     repository_id: RepositoryId,
     definitions: tuple[FindingDefinition, ...],
+    purpose: str,
 ) -> dict[str, _IdentityRow]:
     if definitions:
         connection.execute(
             """
             INSERT INTO review_agent.finding_identities (
                 repository_id, fingerprint, rule_id, path, symbol, anchor,
-                first_seen_at, last_seen_at
+                first_seen_at, last_seen_at, purpose
             )
             SELECT %s, incoming.fingerprint, incoming.rule_id, incoming.path,
                    incoming.symbol, incoming.anchor,
-                   statement_timestamp(), statement_timestamp()
+                   statement_timestamp(), statement_timestamp(), %s
             FROM unnest(
                 %s::text[], %s::text[], %s::text[], %s::text[], %s::text[]
             ) AS incoming(fingerprint, rule_id, path, symbol, anchor)
-            ON CONFLICT (repository_id, fingerprint) DO NOTHING
+            ON CONFLICT (repository_id, purpose, fingerprint) DO NOTHING
             """,
             (
                 repository_id,
+                purpose,
                 [item.fingerprint for item in definitions],
                 [item.rule_id for item in definitions],
                 [item.path for item in definitions],
@@ -262,8 +265,9 @@ def _identities(
             SELECT id, fingerprint, rule_id, path, symbol, anchor
             FROM review_agent.finding_identities
             WHERE repository_id = %s AND fingerprint = ANY(%s::text[])
+              AND purpose = %s
             """,
-            (repository_id, [item.fingerprint for item in definitions]),
+            (repository_id, [item.fingerprint for item in definitions], purpose),
         ).fetchall()
     stored = {row.fingerprint: row for row in rows}
     for item in definitions:
@@ -296,14 +300,14 @@ def _occurrences(
                 review_run_id, pull_request_id, repository_id, finding_id,
                 line, title, severity, category, publication_score, confidence,
                 context_hash, evidence, disproof_checks, impact, smallest_fix,
-                observed_at
+                observed_at, purpose
             )
             SELECT %s, %s, %s, incoming.finding_id, incoming.line,
                    incoming.title, incoming.severity, incoming.category,
                    incoming.publication_score, incoming.confidence,
                    incoming.context_hash, incoming.evidence,
                    incoming.disproof_checks, incoming.impact,
-                   incoming.smallest_fix, statement_timestamp()
+                   incoming.smallest_fix, statement_timestamp(), %s
             FROM unnest(
                 %s::bigint[], %s::integer[], %s::text[], %s::text[],
                 %s::text[], %s::integer[], %s::numeric[], %s::text[],
@@ -319,6 +323,7 @@ def _occurrences(
                 run_id,
                 scope.pull_request_id,
                 scope.repository_id,
+                scope.purpose,
                 finding_ids,
                 [item.line for item in definitions],
                 [item.title for item in definitions],
@@ -454,22 +459,29 @@ def record_findings(
     scope = _scope(connection, run_id, for_write=True)
     if scope.head_sha != expected_head_sha:
         raise FindingConflict("head_sha does not match the exact review subject")
-    paths = sorted({item.path for item in definitions})
-    changed = connection.execute(
-        """
-        SELECT path FROM review_agent.review_run_files
-        WHERE review_run_id = %s AND is_changed_path AND path = ANY(%s::text[])
-        """,
-        (run_id, paths),
-    ).fetchall()
-    changed_paths = {str(row[0]) for row in changed}
-    missing_paths = [path for path in paths if path not in changed_paths]
-    if missing_paths:
-        raise FindingPathNotChanged(
-            f"finding path is not registered as changed: {missing_paths[0]}"
-        )
-
-    identities = _identities(connection, scope.repository_id, definitions)
+    if scope.purpose == ReviewPurpose.DOCUMENTATION.value:
+        from . import documentation_reviews
+        from ..domain.finding import finding_definition_hash
+        receipt = documentation_reviews.get_result(connection, run_id=run_id)
+        allowed: set[str] = {item.definition_sha256 for item in receipt.assessment.findings} if receipt and receipt.assessment else set()
+        if any(finding_definition_hash(item) not in allowed for item in definitions):
+            raise FindingConflict("documentation findings require their validated evidence receipt")
+    else:
+        paths = sorted({item.path for item in definitions})
+        changed = connection.execute(
+            """
+            SELECT path FROM review_agent.review_run_files
+            WHERE review_run_id = %s AND is_changed_path AND path = ANY(%s::text[])
+            """,
+            (run_id, paths),
+        ).fetchall()
+        changed_paths = {str(row[0]) for row in changed}
+        missing_paths = [path for path in paths if path not in changed_paths]
+        if missing_paths:
+            raise FindingPathNotChanged(
+                f"finding path is not registered as changed: {missing_paths[0]}"
+            )
+    identities = _identities(connection, scope.repository_id, definitions, scope.purpose)
     occurrences = _occurrences(
         connection,
         scope=scope,
@@ -499,6 +511,7 @@ def resolve_fingerprint(
     *,
     repository_id: RepositoryId,
     query: FingerprintQuery,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> str:
     """Resolve a full fingerprint or prefix inside exactly one repository."""
     _require_transaction(connection)
@@ -506,9 +519,9 @@ def resolve_fingerprint(
     value = query.value if query.exact else query.value + "%"
     rows = connection.execute(
         "SELECT fingerprint FROM review_agent.finding_identities "
-        f"WHERE repository_id = %s AND fingerprint {operator} %s "
+        f"WHERE repository_id = %s AND fingerprint {operator} %s AND purpose = %s "
         "ORDER BY fingerprint LIMIT 2",
-        (repository_id, value),
+        (repository_id, value, purpose.value),
     ).fetchall()
     if not rows:
         raise FingerprintNotFound("unknown fingerprint in this repository")
@@ -564,6 +577,7 @@ def repeat_history(
                   ON subject.id = previous_run.review_subject_id
                 WHERE occurrence.pull_request_id = %s
                   AND occurrence.repository_id = %s
+                  AND occurrence.purpose = %s
                   AND occurrence.review_run_id <> %s
                   AND NOT EXISTS (
                       SELECT 1 FROM review_agent.pull_request_finding_groups AS member
@@ -577,7 +591,7 @@ def repeat_history(
             ORDER BY observed_at DESC, id DESC
             LIMIT %s
             """,
-            (scope.pull_request_id, scope.repository_id, run_id, limit),
+            (scope.pull_request_id, scope.repository_id, scope.purpose, run_id, limit),
         ).fetchall()
     return tuple(
         RepeatFinding(
@@ -624,13 +638,15 @@ def stage_finding_relationships(
         SELECT reference.finding_id, reference.local_reference,
                COALESCE(member.canonical_finding_id, reference.finding_id)
         FROM review_agent.pull_request_finding_references AS reference
+        JOIN review_agent.finding_identities AS identity
+          ON identity.id = reference.finding_id AND identity.purpose = %s
         LEFT JOIN review_agent.pull_request_finding_groups AS member
           ON member.pull_request_id = reference.pull_request_id
          AND member.finding_id = reference.finding_id
         WHERE reference.pull_request_id = %s
           AND reference.local_reference = ANY(%s::text[])
         """,
-        (scope.pull_request_id, references),
+        (scope.purpose, scope.pull_request_id, references),
     ).fetchall()
     by_reference = {str(row[1]): FindingId(int(row[0])) for row in requested}
     missing = set(references).difference(by_reference)
@@ -776,15 +792,16 @@ def stage_finding_relationships(
         """
         INSERT INTO review_agent.finding_group_changes (
             review_run_id, pull_request_id, finding_id,
-            previous_canonical_finding_id, canonical_finding_id, evidence, latest_decision_id
+            previous_canonical_finding_id, canonical_finding_id, evidence, latest_decision_id, purpose
         )
-        SELECT %s, %s, incoming.finding_id, incoming.previous_id, incoming.canonical_id, incoming.evidence, incoming.decision_id
+        SELECT %s, %s, incoming.finding_id, incoming.previous_id, incoming.canonical_id, incoming.evidence, incoming.decision_id, %s
         FROM unnest(%s::bigint[], %s::bigint[], %s::bigint[], %s::text[], %s::bigint[])
           AS incoming(finding_id, previous_id, canonical_id, evidence, decision_id)
         """,
         (
             run_id,
             scope.pull_request_id,
+            scope.purpose,
             [item[0] for item in changes],
             [item[1] for item in changes],
             [item[2] for item in changes],

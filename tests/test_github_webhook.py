@@ -14,6 +14,29 @@ from review_agent_tools import github_webhook  # noqa: E402
 
 
 class GitHubWebhookTests(unittest.TestCase):
+    def test_documentation_commands_and_only_relevant_pr_actions_are_normalized(self) -> None:
+        from tests.test_github_app_processor import GitHubAppProcessorTests
+        for body, expected in (("/review docs", "review"), ("@review DOCS", "review"),
+                               ("/review docs extra", "invalid"),
+                               ("/review docs false-positive F2 because A current guard proves this.", "finding_feedback")):
+            payload = GitHubAppProcessorTests.review_payload()
+            payload["comment"]["body"] = body
+            normalized = github_webhook.normalize_event("issue_comment", payload)
+            self.assertEqual(normalized.command_kind.value, expected)
+            self.assertEqual(normalized.normalized["purpose"], "documentation")
+        base = {"installation": {"id": 7}, "repository": {"id": 42, "full_name": "owner/repo"},
+                "pull_request": {"number": 99, "body": "untrusted content", "head": {"sha": "ignored"}},
+                "sender": {"id": 5, "login": "author"}}
+        for action, changes, accepted in (("opened", {}, True), ("reopened", {}, True),
+            ("ready_for_review", {}, True), ("synchronize", {}, True), ("converted_to_draft", {}, True),
+            ("closed", {}, True), ("edited", {"base": {"ref": {"from": "old"}}}, True),
+            ("edited", {"body": {"from": "old"}}, False), ("labeled", {}, False)):
+            normalized = github_webhook.normalize_event("pull_request", {**base, "action": action, "changes": changes})
+            self.assertEqual(normalized.command_kind is github_webhook.CommandKind.REVIEW, accepted)
+            self.assertEqual(normalized.normalized["pr_number"], 99)
+            self.assertNotIn("head", normalized.normalized)
+            self.assertNotIn("body", normalized.normalized)
+
     def test_signature_covers_the_untouched_body(self) -> None:
         body = b'{"action":"created"}'
         signature = "sha256=" + hmac.new(b"secret", body, hashlib.sha256).hexdigest()
@@ -70,6 +93,7 @@ class GitHubWebhookTests(unittest.TestCase):
                 "issues_permission": "write",
                 "kind": "installation",
                 "pull_requests_permission": "write",
+                "checks_permission": "none",
                 "repository_selection": "selected",
                 "repositories": [{"full_name": "CCimen/review-agent", "id": 42}],
             },

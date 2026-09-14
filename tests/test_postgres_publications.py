@@ -27,6 +27,7 @@ from review_agent_tools import (  # noqa: E402
 )
 from review_agent_tools.domain.finding import FindingInput  # noqa: E402
 from review_agent_tools.domain.publication import (  # noqa: E402
+    CheckRunDelivery,
     IssueCommentDelivery,
     PublicationDomainError,
     PublicationFindingInput,
@@ -36,8 +37,10 @@ from review_agent_tools.domain.publication import (  # noqa: E402
     PublicationPlan,
     resolve_publication_plan,
 )
-from review_agent_tools.domain.review import DiffState, ReviewPhase, ReviewStatus  # noqa: E402
+from review_agent_tools.domain.review import DiffState, ReviewPhase, ReviewPurpose, ReviewStatus  # noqa: E402
 from review_agent_tools.github.publication import (  # noqa: E402
+    CheckRun,
+    CheckRunScan,
     PUBLICATION_REQUEST_MAX_PAGES,
     GitHubPublicationError,
     InlineReviewComment,
@@ -51,7 +54,7 @@ from review_agent_tools.github.publication_gateway import (  # noqa: E402
     PublicationGatewayRequest,
     ReviewPublicationGateway,
 )
-from review_agent_tools.postgres import publications  # noqa: E402
+from review_agent_tools.postgres import feedback, publications, quality_reporting, reporting  # noqa: E402
 from review_agent_tools.postgres import github_app  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
 from review_agent_tools.postgres import review_runs  # noqa: E402
@@ -96,6 +99,35 @@ class FakePostgresPublicationGitHub:
         self.publication_leases: list[tuple[int, str, int]] = []
         self.posted_publications: list[int] = []
         self.failure_status_leases: list[tuple[int, str, int]] = []
+
+    def list_check_runs(self, repository: str, *, max_pages: int = 3) -> CheckRunScan:
+        self._outside_transaction()
+        return CheckRunScan(tuple(getattr(self, "checks", [])), not getattr(self, "incomplete_check_scan", False), 17)
+
+    def create_check_run(self, repository: str) -> CheckRun:
+        self._outside_transaction()
+        with self.runtime.transaction() as connection:
+            row = connection.execute("SELECT id FROM review_agent.publications WHERE purpose = 'documentation' AND status = 'posting' ORDER BY id DESC LIMIT 1").fetchone()
+            publication = publications.get_publication(connection, row[0])
+        delivery = next(part.delivery for part in publication.parts if part.part_type is PublicationPartType.CHECK_RUN)
+        assert isinstance(delivery, CheckRunDelivery)
+        checks = getattr(self, "checks", [])
+        check = CheckRun(900 + len(checks), delivery.name, delivery.head_sha, delivery.external_id, 17, "completed", delivery.conclusion)
+        checks.append(check)
+        self.checks = checks
+        if getattr(self, "move_head_after_check", False):
+            self.head_sha = "f" * 40
+        if getattr(self, "kill_after_check_create", False):
+            raise ProcessDeath("crash after check create")
+        return check
+
+    def update_check_run(self, repository: str, check_run_id: int, *, cancelled: bool = False) -> CheckRun:
+        self._outside_transaction()
+        check = next(item for item in self.checks if item.check_run_id == check_run_id)
+        if cancelled:
+            check = replace(check, conclusion="cancelled")
+            self.checks = [check if item.check_run_id == check_run_id else item for item in self.checks]
+        return check
 
     def for_publication(
         self,
@@ -499,6 +531,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         changed_files: tuple[review_run_application.PostgresChangedFile, ...]
         | None = None,
         pr_number: int = 41,
+        purpose: ReviewPurpose = ReviewPurpose.CODE,
     ) -> tuple[
         review_runs.ReviewRunId, review_finding_application.PostgresFindingBatch
     ]:
@@ -526,6 +559,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
                 resolved_config_schema_version=1,
                 resolved_config={"profile": "default-standard"},
                 request_key=request_key,
+                purpose=purpose,
             ),
         )
         assert isinstance(result, review_runs.StartedRun)
@@ -536,20 +570,33 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             changed_files_reported=len(paths),
             registration_complete=True,
         )
-        batch = review_finding_application.record_postgres_findings(
-            self.runtime,
-            run_id=result.run.id,
-            head_sha="a" * 40,
-            findings=inputs,
-            changed_files=tuple(
-                review_finding_application.ChangedFile(
-                    path=path,
-                    context_hash="c" * 40,
-                    context_hash_source="blob",
-                )
-                for path in paths
-            ),
-        )
+        if purpose is ReviewPurpose.DOCUMENTATION:
+            from review_agent_tools.domain.finding import resolve_finding_content, finding_definition_hash
+            from review_agent_tools.domain.documentation_review import DocumentationAssessment, FindingEvidence, EvidenceCitation, EvidenceRole
+            from review_agent_tools.postgres import documentation_reviews, findings as finding_store
+            definitions = tuple(resolve_finding_content(item, context_hash="c" * 40) for item in inputs)
+            # Publication tests start after the documentation validator's boundary.
+            receipt = DocumentationAssessment(tuple(FindingEvidence(item.fingerprint, finding_definition_hash(item), item.path,
+                "fixture", item.path, "Validated publication fixture", (EvidenceCitation(EvidenceRole.HEAD, item.path, item.line, item.line),), ()) for item in definitions), ())
+            with self.runtime.transaction() as connection:
+                documentation_reviews.initialize(connection, run_id=result.run.id, comparison_sha="c" * 40)
+                documentation_reviews.store_assessment(connection, run_id=result.run.id, assessment=receipt)
+                batch = finding_store.record_findings(connection, run_id=result.run.id, expected_head_sha="a" * 40, definitions=definitions)
+        else:
+            batch = review_finding_application.record_postgres_findings(
+                self.runtime,
+                run_id=result.run.id,
+                head_sha="a" * 40,
+                findings=inputs,
+                changed_files=tuple(
+                    review_finding_application.ChangedFile(
+                        path=path,
+                        context_hash="c" * 40,
+                        context_hash_source="blob",
+                    )
+                    for path in paths
+                ),
+            )
         with self.runtime.transaction() as connection:
             for phase in (
                 ReviewPhase.FETCHING_PR,
@@ -2626,6 +2673,248 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(stored, ("failed", "repository_not_authorized", 1))
         self.assertEqual(run.failure_code, "repository_not_authorized")
 
+    @staticmethod
+    def documentation_plan(plan: PublicationPlan, *, overflow: bool = False) -> PublicationPlan:
+        parts = [PublicationPartInput(part.part_type, part.part_number, 1, json.loads(part.payload.canonical_json)) for part in plan.parts] if overflow else []
+        parts.append(PublicationPartInput(PublicationPartType.CHECK_RUN, 1, 1, {
+            "name": "Documentation review", "head_sha": "a" * 40,
+            "external_id": "review-agent:canonical publication=" + plan.publication_key,
+            "status": "completed", "conclusion": "neutral", "title": "Docs result",
+            "summary": plan.rendered_markdown,
+            "report_part_numbers": [1, 2] if overflow else [],
+        }))
+        return resolve_publication_plan(publication_key=plan.publication_key,
+            rendered_markdown=plan.rendered_markdown, rendered_blocks_schema_version=1,
+            rendered_blocks=json.loads(plan.rendered_blocks_json), parts=parts,
+            findings=tuple(PublicationFindingInput(f.finding_id, f.source_finding_occurrence_id,
+                f.source_review_run_id, f.local_reference, f.outcome, f.outcome_evidence) for f in plan.findings))
+
+    def test_documentation_rerun_preserves_unchecked_and_resolved_occurrences(self) -> None:
+        from review_agent_tools.domain.documentation_review import DocumentationAssessment, DocumentationOutcome, PreviousDocumentationAssessment
+        from review_agent_tools.postgres import documentation_reviews
+        from review_agent_tools.review_publication_planner import build_documentation_publication
+        run_id, batch = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION)
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(connection, run_id=run_id, plan=self.documentation_plan(self.plan(batch)))
+        github = FakePostgresPublicationGitHub(self.runtime)
+        review_publication_application.publish_postgres_publication(self.runtime, publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
+        second, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, request_key="docs-followup", findings=())
+        with self.runtime.transaction() as connection:
+            previous = documentation_reviews.previous_findings(connection, run_id=second)
+            self.assertEqual(len(previous), 1)
+            self.assertEqual(previous[0].local_reference, self.plan(batch).findings[0].local_reference)
+            from tests.test_postgres_documentation_reviews import scope
+            documentation_reviews.freeze_scope(connection, run_id=second, scope=scope())
+            result = documentation_reviews.finalize(connection, run_id=second, outcome=DocumentationOutcome.INCOMPLETE, semantic_inference_used=False, incomplete_reasons=("Document excluded from the current scope.",))
+            context = publications.preparation_context(connection, run_id=second)
+        unchecked = build_documentation_publication(context, result, max_comment_bytes=60_000)
+        self.assertEqual(unchecked.plan.findings[0].outcome, PublicationFindingOutcome.NOT_CHECKED)
+        self.assertEqual(unchecked.plan.findings[0].source_review_run_id, run_id)
+        self.assertIn("Not checked", unchecked.plan.rendered_markdown)
+        suppressed_context = replace(context, previous=tuple(replace(item, suppressed=True) for item in context.previous))
+        suppressed = build_documentation_publication(suppressed_context, result, max_comment_bytes=60_000)
+        self.assertEqual(suppressed.plan.findings[0].outcome, PublicationFindingOutcome.SUPPRESSED)
+        prior = previous[0]
+        receipt = DocumentationAssessment((), (), (PreviousDocumentationAssessment(prior.local_reference, prior.fingerprint, prior.occurrence_id, "resolved", "The corrected guide matches the implementation.", ()),))
+        resolved = build_documentation_publication(context, replace(result, assessment=receipt), max_comment_bytes=60_000)
+        self.assertEqual(resolved.resolved_count, 1)
+        self.assertEqual(resolved.plan.findings[0].outcome, PublicationFindingOutcome.RESOLVED)
+        self.assertIn("Resolved", resolved.plan.rendered_markdown)
+        with self.runtime.transaction() as connection:
+            saved = publications.prepare_publication(connection, run_id=second, plan=resolved.plan)
+        self.assertEqual(saved.plan.findings[0].source_finding_occurrence_id, prior.occurrence_id)
+        review_publication_application.publish_postgres_publication(self.runtime, publication_id=int(saved.id), github=github, max_comment_bytes=60_000)
+        third, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, request_key="docs-after-resolution", findings=())
+        with self.runtime.transaction() as connection:
+            self.assertEqual(documentation_reviews.previous_findings(connection, run_id=third), ())
+
+    def test_documentation_zero_model_result_prepares_without_code_diff_coverage(self) -> None:
+        from review_agent_tools.domain.documentation_review import DocumentationOutcome
+        from review_agent_tools.postgres import documentation_reviews
+        from tests.test_postgres_documentation_reviews import scope
+        run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, findings=())
+        with self.runtime.transaction() as connection:
+            documentation_reviews.initialize(connection, run_id=run_id, comparison_sha="c" * 40)
+            documentation_reviews.freeze_scope(connection, run_id=run_id, scope=scope())
+            documentation_reviews.finalize(connection, run_id=run_id,
+                outcome=DocumentationOutcome.INCOMPLETE, semantic_inference_used=False,
+                incomplete_reasons=("Provider timeout prevented the remaining document reads.",))
+        prepared = review_publication_application.prepare_postgres_documentation_publication(
+            self.runtime, run_id=int(run_id), max_comment_bytes=60_000)
+        with self.runtime.transaction() as connection:
+            stored = publications.get_publication(connection, prepared.publication_id)
+        self.assertEqual([part.part_type for part in stored.parts], [PublicationPartType.CHECK_RUN])
+        self.assertEqual(stored.parts[0].delivery.conclusion, "neutral")
+        self.assertIn("Provider timeout", stored.parts[0].delivery.summary)
+        self.assertIn("Semantic assessment: not used", stored.plan.rendered_markdown)
+        github = FakePostgresPublicationGitHub(self.runtime)
+        result = review_publication_application.publish_postgres_publication(self.runtime,
+            publication_id=prepared.publication_id, github=github, max_comment_bytes=60_000)
+        self.assertEqual(result.status, "posted")
+        self.assertEqual(github.comments, [])
+
+    def test_documentation_report_partitions_without_dropping_blocks(self) -> None:
+        from review_agent_tools.domain.documentation_review import DocumentationOutcome
+        from review_agent_tools.postgres import documentation_reviews
+        from review_agent_tools.review_publication_planner import build_documentation_publication
+        from review_agent_tools.review_renderer import ReviewBlock
+        from tests.test_postgres_documentation_reviews import scope
+        run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, findings=())
+        with self.runtime.transaction() as connection:
+            documentation_reviews.initialize(connection, run_id=run_id, comparison_sha="c" * 40)
+            documentation_reviews.freeze_scope(connection, run_id=run_id, scope=scope())
+            result = documentation_reviews.finalize(connection, run_id=run_id,
+                outcome=DocumentationOutcome.INCOMPLETE, semantic_inference_used=False,
+                incomplete_reasons=("One source read was unavailable.",))
+            context = publications.preparation_context(connection, run_id=run_id)
+        blocks = tuple(ReviewBlock("finding", f"Report section {i}\n\n" + "Detailed evidence. " * 900) for i in range(5))
+        planned = build_documentation_publication(context, result, report_blocks=blocks, max_comment_bytes=30_000)
+        check = next(part.delivery for part in planned.plan.parts if part.part_type is PublicationPartType.CHECK_RUN)
+        self.assertEqual(len(check.report_part_numbers), 5)
+        delivered = "\n".join(part.delivery.body for part in planned.plan.parts if isinstance(part.delivery, IssueCommentDelivery))
+        for block in blocks:
+            self.assertTrue(block.markdown.rstrip() in delivered, "overflow must preserve every rendered block")
+        limited = build_documentation_publication(context, result,
+            report_blocks=(ReviewBlock("finding", "Oversized evidence " * 5000),), max_comment_bytes=30_000)
+        self.assertEqual(len(limited.plan.parts), 1)
+        self.assertIn("Delivery limitation", limited.plan.parts[0].delivery.summary)
+        self.assertIn("Oversized evidence", limited.plan.rendered_markdown)
+
+    def test_documentation_check_recovers_create_and_preserves_overflow_acknowledgements(self) -> None:
+        run_id, batch = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION)
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(connection, run_id=run_id,
+                plan=self.documentation_plan(self.plan(batch), overflow=True))
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.kill_after_check_create = True
+        with self.assertRaises(ProcessDeath):
+            review_publication_application.publish_postgres_publication(self.runtime,
+                publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
+        self.assertEqual(len(github.checks), 1)
+        self.assertEqual(github.create_calls, 2)
+        github.kill_after_check_create = False
+        with self.runtime.transaction() as connection:
+            connection.execute("UPDATE review_agent.publications SET delivery_lease_expires_at = statement_timestamp() - interval '1 second' WHERE id = %s", (prepared.id,))
+        result = review_publication_application.publish_postgres_publication(self.runtime,
+            publication_id=int(prepared.id), github=github, max_comment_bytes=60_000, recover_posting=True)
+        self.assertEqual(result.status, "posted")
+        self.assertEqual(len(github.checks), 1)
+        self.assertEqual(github.create_calls, 2)
+        self.assertEqual(result.recovered_parts, 1)
+
+    def test_documentation_incomplete_check_scan_prevents_create(self) -> None:
+        run_id, batch = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION)
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(connection, run_id=run_id,
+                plan=self.documentation_plan(self.plan(batch)))
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.incomplete_check_scan = True
+        result = review_publication_application.publish_postgres_publication(self.runtime,
+            publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
+        self.assertEqual(result.status, "publish_failed")
+        self.assertFalse(getattr(github, "checks", []))
+        self.assertEqual(github.create_calls, 0)
+
+    def test_documentation_late_check_is_cancelled_on_its_original_head(self) -> None:
+        run_id, batch = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION)
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(connection, run_id=run_id,
+                plan=self.documentation_plan(self.plan(batch)))
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.move_head_after_check = True
+        result = review_publication_application.publish_postgres_publication(self.runtime,
+            publication_id=int(prepared.id), github=github, max_comment_bytes=60_000)
+        self.assertEqual(result.status, "stale")
+        self.assertEqual(github.checks[0].conclusion, "cancelled")
+        self.assertEqual(github.checks[0].head_sha, "a" * 40)
+
+    def test_publications_findings_and_feedback_are_isolated_by_purpose(self) -> None:
+        github = FakePostgresPublicationGitHub(self.runtime)
+        published = []
+        for index, purpose in enumerate((ReviewPurpose.CODE, ReviewPurpose.DOCUMENTATION, ReviewPurpose.DOCUMENTATION)):
+            run_id, batch = self.start_recorded_run(
+                request_key=f"purpose:{index}", purpose=purpose,
+            )
+            plan = self.plan(batch, key_character="def"[index])
+            if purpose is ReviewPurpose.DOCUMENTATION:
+                plan = self.documentation_plan(plan)
+            with self.runtime.transaction() as connection:
+                prepared = publications.prepare_publication(connection, run_id=run_id, plan=plan)
+            result = review_publication_application.publish_postgres_publication(
+                self.runtime, publication_id=int(prepared.id), github=github,
+                max_comment_bytes=60_000,
+            )
+            self.assertEqual(result.status, "posted")
+            published.append(prepared)
+        with self.runtime.transaction() as connection:
+            current = connection.execute(
+                "SELECT id, purpose FROM review_agent.publications "
+                "WHERE status = 'posted' AND superseded_by_publication_id IS NULL ORDER BY id"
+            ).fetchall()
+            identities = connection.execute(
+                "SELECT purpose, fingerprint FROM review_agent.finding_identities ORDER BY id"
+            ).fetchall()
+            references = connection.execute(
+                "SELECT local_reference FROM review_agent.pull_request_finding_references ORDER BY local_reference"
+            ).fetchall()
+            code = feedback.current_publication(connection, repository="team/service", pr_number=41)
+            docs = feedback.current_publication(
+                connection, repository="team/service", pr_number=41, purpose=ReviewPurpose.DOCUMENTATION,
+            )
+            code_findings = reporting.list_findings(
+                connection, repository="team/service", limit=10, include_suppressed=True,
+                now=datetime.now(timezone.utc),
+            )
+            docs_findings = reporting.list_findings(
+                connection, repository="team/service", purpose=ReviewPurpose.DOCUMENTATION,
+                limit=10, include_suppressed=True, now=datetime.now(timezone.utc),
+            )
+            now = datetime.now(timezone.utc)
+            quality = quality_reporting.build_report(
+                connection, repository="team/service", window_started_at=now-timedelta(days=1),
+                window_ended_at=now, window_days=1,
+            )
+            with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+                with connection.transaction():
+                    connection.execute(
+                        "UPDATE review_agent.finding_occurrences SET purpose = 'documentation' "
+                        "WHERE review_run_id = %s", (published[0].review_run_id,),
+                    )
+            with self.assertRaises(psycopg.errors.ForeignKeyViolation):
+                with connection.transaction():
+                    connection.execute(
+                        "UPDATE review_agent.publication_findings SET purpose = 'documentation' "
+                        "WHERE publication_id = %s", (published[0].id,),
+                    )
+        self.assertEqual(current, [(published[0].id, "code"), (published[2].id, "documentation")])
+        self.assertEqual([item[0] for item in identities], ["code", "documentation"])
+        self.assertEqual(identities[0][1], identities[1][1])
+        self.assertEqual(references, [("F1",), ("F2",)])
+        assert code is not None and docs is not None
+        self.assertEqual(code.publication_id, published[0].id)
+        self.assertEqual(docs.publication_id, published[2].id)
+        self.assertEqual(len(code_findings), 1)
+        self.assertEqual(len(docs_findings), 1)
+        self.assertEqual(quality.completed_reviews, 1)
+        self.assertEqual(quality.published_findings, 1)
+        from review_agent_tools.review_feedback_application import record_postgres_feedback
+        from review_agent_tools.feedback_commands import FindingFeedbackCommand
+        from review_agent_tools.domain.feedback import FeedbackStatus
+        for reference, expected in (("F1", FeedbackStatus.NOT_CURRENT), ("F2", FeedbackStatus.RECORDED)):
+            decision = record_postgres_feedback(
+                self.runtime, event_id=f"docs-feedback:{reference}", repository="team/service", pr_number=41,
+                command=FindingFeedbackCommand(kind="finding", local_reference=reference, decision="false_positive", reason="The documented behavior remains correct."),
+                actor_user_id=77, authorization_version="sha256:" + "a" * 64,
+                source_comment_id=90 if reference == "F1" else 91, purpose=ReviewPurpose.DOCUMENTATION,
+            )
+            self.assertEqual(decision.status, expected)
+        with self.runtime.transaction() as connection:
+            decided = connection.execute(
+                "SELECT identity.purpose FROM review_agent.finding_decisions AS decision "
+                "JOIN review_agent.finding_identities AS identity ON identity.id = decision.finding_id"
+            ).fetchall()
+            self.assertEqual(decided, [("documentation",)])
+
     def test_second_posted_review_supersedes_the_first_in_one_transaction(self) -> None:
         first_run, first_batch = self.start_recorded_run(
             request_key="github:issue-comment:supersession-1"
@@ -2950,44 +3239,59 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(len(github.comments), 1)
 
     def test_failure_status_reclaims_after_create_without_duplicate(self) -> None:
-        run_id, _ = self.start_recorded_run(request_key="failure-status-reclaim")
-        with self.runtime.transaction() as connection:
-            review_runs.fail_run(connection, run_id, failure_code="review_deliver_error")
-            claim = review_runs.claim_failure_status(
-                connection, run_id=run_id, lease_owner="dead-worker",
-                lease_duration=timedelta(seconds=30),
-            )
         github = FakePostgresPublicationGitHub(self.runtime)
-        github.kill_after_create = True
-        with self.assertRaises(ProcessDeath):
-            review_publication_application.publish_postgres_run_failure_status(
-                self.runtime, run_id=int(run_id), github=github,
-                lease_owner="dead-worker",
-                lease_generation=claim.target.delivery_lease_generation,
+        for expected_count, purpose in enumerate((ReviewPurpose.CODE, ReviewPurpose.DOCUMENTATION), start=1):
+            run_id, _ = self.start_recorded_run(
+                request_key=f"failure-status-reclaim:{purpose.value}", purpose=purpose,
             )
-        original_id = github.comments[0].comment_id
+            with self.runtime.transaction() as connection:
+                review_runs.fail_run(connection, run_id, failure_code="review_deliver_error")
+                claim = review_runs.claim_failure_status(
+                    connection, run_id=run_id, lease_owner="dead-worker",
+                    lease_duration=timedelta(seconds=30),
+                )
+            github.kill_after_create = True
+            with self.assertRaises(ProcessDeath):
+                review_publication_application.publish_postgres_run_failure_status(
+                    self.runtime, run_id=int(run_id), github=github,
+                    lease_owner="dead-worker",
+                    lease_generation=claim.target.delivery_lease_generation,
+                )
+            original_id = github.comments[-1].comment_id
+            with self.runtime.transaction() as connection:
+                connection.execute(
+                    "UPDATE review_agent.review_runs SET "
+                    "failure_status_delivery_lease_expires_at = statement_timestamp() "
+                    "WHERE id = %s", (run_id,),
+                )
+            worker = PublicationWorker(
+                self.runtime, github,
+                PublisherPolicy(
+                    lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
+                    retry_delay=timedelta(seconds=1), poll_interval=timedelta(milliseconds=10),
+                    max_comment_bytes=60_000,
+                ), lease_owner="recovery-worker", stop_event=threading.Event(),
+            )
+
+            worker.run(once=True)
+
+            self.assertEqual(len(github.comments), expected_count)
+            self.assertEqual(github.comments[-1].comment_id, original_id)
+            with self.runtime.transaction() as connection:
+                stored = review_runs.failure_status_target(connection, run_id)
+            self.assertEqual(stored.delivery_status, "posted")
+
+        docs_comment_id = github.comments[-1].comment_id
+        code_run, code_batch = self.start_recorded_run(request_key="code-after-docs-failure")
         with self.runtime.transaction() as connection:
-            connection.execute(
-                "UPDATE review_agent.review_runs SET "
-                "failure_status_delivery_lease_expires_at = statement_timestamp() "
-                "WHERE id = %s", (run_id,),
+            prepared = publications.prepare_publication(
+                connection, run_id=code_run, plan=self.plan(code_batch, key_character="8"),
             )
-        worker = PublicationWorker(
-            self.runtime, github,
-            PublisherPolicy(
-                lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
-                retry_delay=timedelta(seconds=1), poll_interval=timedelta(milliseconds=10),
-                max_comment_bytes=60_000,
-            ), lease_owner="recovery-worker", stop_event=threading.Event(),
+        result = review_publication_application.publish_postgres_publication(
+            self.runtime, publication_id=int(prepared.id), github=github, max_comment_bytes=60_000,
         )
-
-        worker.run(once=True)
-
-        self.assertEqual(len(github.comments), 1)
-        self.assertEqual(github.comments[0].comment_id, original_id)
-        with self.runtime.transaction() as connection:
-            stored = review_runs.failure_status_target(connection, run_id)
-        self.assertEqual(stored.delivery_status, "posted")
+        self.assertEqual(result.status, "posted")
+        self.assertIn(docs_comment_id, [item.comment_id for item in github.comments])
 
     def test_recent_failure_status_marker_is_recovered_without_duplicate(self) -> None:
         run_id, _ = self.start_recorded_run(

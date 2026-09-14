@@ -5,6 +5,10 @@
 !scripts/validate_release_tag.py
 !admin/
 !admin/**
+!examples/
+!examples/repository-context/
+!examples/repository-context/.review-agent/
+!examples/repository-context/.review-agent/documentation.toml
 !bootstrap/
 !bootstrap/plugins/
 !bootstrap/plugins/review_agent_tools/

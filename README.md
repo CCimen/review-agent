@@ -186,6 +186,13 @@ records the evidence behind the current improvement work. Beads epic
 `ra-quality-2026-09-614` owns priorities, phases, dependencies and implementation
 status; use `br show ra-quality-2026-09-614 --json` from this checkout to continue.
 
+[Documentation review](docs/DOCUMENTATION_REVIEW.md) adds scoped, advisory
+checks for maintained documents through `/review docs` and optional automatic
+PR updates. Teams set defaults and repositories can override them. The repository
+owns its source-to-document mappings in `.review-agent/documentation.toml`.
+The [design record](docs/assessments/2026-09-14/documentation-review-design.md)
+and Beads epic `ra-docs-review-ms1` track implementation and rollout evidence.
+
 Run the full validation bundle before shipping changes:
 
 ```bash

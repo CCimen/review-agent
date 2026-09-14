@@ -1,6 +1,8 @@
 import { Button } from "@astryxdesign/core/Button";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Section as AstryxSection } from "@astryxdesign/core/Section";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -23,6 +25,7 @@ import type { FormEvent, InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { APIError, read, write } from "./api";
+import { ReviewPurposeFilter, selectedReviewPurpose } from "./reviewPurpose";
 import type { components } from "./api.generated";
 import { ScopedLink as Link, useScope } from "./scope";
 import {
@@ -109,7 +112,19 @@ function FeedbackRow({
             Feedback #{item.id} · {time(item.created_at)}
           </Text>
         </VStack>
-        <Text>{item.triage_status}</Text>
+        {/* A stored token, shown as a status rather than a lowercase word
+            floating at the far edge. */}
+        <HStack gap={2} vAlign="center">
+          <StatusDot
+            aria-hidden="true"
+            label={item.triage_status}
+            variant={item.triage_status === "pending" ? "warning" : "neutral"}
+          />
+          <Text>
+            {item.triage_status.charAt(0).toUpperCase() +
+              item.triage_status.slice(1).replaceAll("_", " ")}
+          </Text>
+        </HStack>
       </HStack>
       <VStack gap={4}>
         <Text as="p">{item.reason || "No reason was supplied."}</Text>
@@ -215,6 +230,7 @@ function FeedbackRow({
 export function QualityPage() {
   const scope = useScope();
   const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose")) || "code";
   const repository = params.get("repository") ?? "";
   const feedbackOffset = Math.max(
     0,
@@ -225,6 +241,8 @@ export function QualityPage() {
     limit: "50",
     offset: String(feedbackOffset),
   });
+  reportParams.set("purpose", purpose);
+  feedbackParams.set("purpose", purpose);
   if (repository) {
     reportParams.set("repository", repository);
     feedbackParams.set("repository", repository);
@@ -271,12 +289,13 @@ export function QualityPage() {
           </Text>
         </VStack>
         <Link
-          to={`/history?${new URLSearchParams({ days: String(days), status: "published", ...(repository ? { repository } : {}) })}`}
+          to={`/history?${new URLSearchParams({ days: String(days), status: "published", purpose, ...(repository ? { repository } : {}) })}`}
         >
           Browse published reviews
         </Link>
       </HStack>
       <HStack gap={3} wrap="wrap" vAlign="center">
+        <ReviewPurposeFilter value={purpose} allowAll={false} onChange={(value) => update({ purpose: value, feedback_offset: "" })} />
         <Period
           days={days}
           change={(value) => update({ days: value, feedback_offset: "" })}
@@ -289,6 +308,20 @@ export function QualityPage() {
             <Stat
               label="Published findings"
               value={data.published_findings}
+              hint={`Across ${number.format(data.completed_reviews)} completed reviews`}
+            />
+            <Stat
+              label="Reviews seeing every file"
+              value={data.complete_coverage_reviews}
+              hint={
+                data.completed_reviews
+                  ? `of ${number.format(data.completed_reviews)} completed · the rest read part of the change`
+                  : "No review completed in this period"
+              }
+              attention={
+                data.completed_reviews > 0 &&
+                data.complete_coverage_reviews < data.completed_reviews
+              }
             />
             <Stat
               label="Reported false positives"
@@ -336,13 +369,22 @@ export function QualityPage() {
             <Freshness query={feedback} quiet />
             {feedback.data?.items.length ? (
               <>
-                <VStack gap={3}>
-                  {feedback.data.items.map((item) => (
-                    <FeedbackRow
+                {/* Each report is several lines and a disclosure; without a
+                    rule between them the stack read as one long form. */}
+                <VStack gap={0}>
+                  {feedback.data.items.map((item, index) => (
+                    <AstryxSection
                       key={item.id}
-                      item={item}
-                      admin={item.can_triage ?? false}
-                    />
+                      variant="transparent"
+                      padding={0}
+                      paddingBlock={4}
+                      dividers={index === 0 ? undefined : ["top"]}
+                    >
+                      <FeedbackRow
+                        item={item}
+                        admin={item.can_triage ?? false}
+                      />
+                    </AstryxSection>
                   ))}
                 </VStack>
                 <HStack
@@ -391,6 +433,7 @@ export function QualityPage() {
               </>
             ) : feedback.data ? (
               <Empty
+                level={3}
                 title={
                   feedback.data.total
                     ? "No reports on this page"
@@ -521,11 +564,13 @@ export function FindingPage() {
   const { fingerprint = "" } = useParams();
   const [params] = useSearchParams();
   const repository = params.get("repository") ?? "";
+  const purpose = selectedReviewPurpose(params.get("purpose")) || "code";
   const occurrenceId = params.get("occurrence_id") ?? "";
   const decisionsBefore = params.get("decisions_before_id") ?? "";
   const detailParams = new URLSearchParams({
     repository,
     occurrence_id: occurrenceId,
+    purpose,
   });
   if (decisionsBefore)
     detailParams.set("decisions_before_id", decisionsBefore);
@@ -536,6 +581,7 @@ export function FindingPage() {
       fingerprint,
       occurrenceId,
       decisionsBefore,
+      purpose,
       "scoped",
       scope.key,
     ],
@@ -675,7 +721,7 @@ export function FindingPage() {
                     <Selector
                       label={"Decision"}
                       options={[
-                        decisions.map((value) => ({
+                        decisions.filter((value) => purpose !== "documentation" || value !== "intentional_by_design").map((value) => ({
                           value: String(value),
                           label: value.replaceAll("_", " "),
                         })),
@@ -707,8 +753,8 @@ export function FindingPage() {
                       type="supporting"
                     >
                       This records a decision for occurrence #
-                      {finding.occurrence_id}. Intentional decisions must
-                      match its accepted ADR snapshot and path.
+                      {finding.occurrence_id}.
+                      {purpose === "code" ? " Intentional decisions must match its accepted ADR snapshot and path." : " Documentation findings do not support intentional-by-design decisions."}
                     </Text>
                     {mutation.error ? (
                       <Text as="p">

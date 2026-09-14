@@ -32,6 +32,7 @@ import {
   FolderGit2,
   GitPullRequest,
   HeartPulse,
+  LogOut,
   Moon,
   Search,
   Settings,
@@ -51,7 +52,7 @@ import {
   roleLabels,
   useScope,
 } from "./scope";
-import { number, time } from "./ui";
+import { number } from "./ui";
 
 const sections = [
   { path: "/", label: "Activity", icon: Activity, group: "Workspace" },
@@ -214,7 +215,24 @@ export function ConsoleLayout({
                 (pathname === section.path ||
                   pathname.startsWith(`${section.path}/`)),
             )?.path ?? "/");
-  const title = pathname.startsWith("/history/")
+  /* The breadcrumb named the section it fell back to, so an address the
+     console does not serve read "Activity" above a page saying it was not
+     found. These are the routes reached from somewhere other than the rail. */
+  const offNav = ["/history", "/overview", "/access", "/account",
+                  "/repository-requests"];
+  const known =
+    pathname === "/" ||
+    offNav.includes(pathname) ||
+    pathname.startsWith("/history/") ||
+    pathname.startsWith("/findings/") ||
+    sections.some(
+      (section) =>
+        section.path !== "/" &&
+        (pathname === section.path || pathname.startsWith(`${section.path}/`)),
+    );
+  const title = !known
+    ? "Page not found"
+    : pathname.startsWith("/history/")
     ? "Review request"
     : pathname === "/history"
       ? "Pull requests"
@@ -222,7 +240,9 @@ export function ConsoleLayout({
         ? "Statistics"
         : pathname.startsWith("/findings/")
           ? "Finding"
-          : pathname === "/access"
+          : pathname === "/repository-requests"
+            ? "Repository requests"
+            : pathname === "/access"
             ? "Repository access"
             : pathname === "/account"
               ? "Your account"
@@ -344,6 +364,7 @@ export function ConsoleLayout({
               <Button
                 label="Search"
                 icon={<Search {...iconProps} />}
+                isIconOnly={isNarrow}
                 variant="ghost"
                 onClick={openPalette}
                 tooltip="Search pages and repositories (⌘K / Ctrl+K)"
@@ -357,14 +378,19 @@ export function ConsoleLayout({
                     <Sun {...iconProps} />
                   )
                 }
+                isIconOnly={isNarrow}
                 variant="ghost"
                 onClick={toggleTheme}
+                tooltip={theme === "light" ? "Dark theme" : "Light theme"}
               />
               <Button
                 label={signingOut ? "Signing out…" : "Sign out"}
+                icon={<LogOut {...iconProps} />}
+                isIconOnly={isNarrow}
                 variant="ghost"
                 isDisabled={signingOut}
                 onClick={logout}
+                tooltip="Sign out"
               />
             </HStack>
           </HStack>
@@ -405,25 +431,13 @@ export function ConsoleLayout({
             <AstryxLink href="/api/docs" target="_blank" rel="noreferrer">
               API reference
             </AstryxLink>
-            <Text type="supporting">
-              Active requests{" "}
-              {overview.data
-                ? number.format(overview.data.active_requests)
-                : "—"}
-            </Text>
-            <Text type="supporting">
-              Repositories{" "}
-              {overview.data
-                ? number.format(overview.data.repository_count)
-                : "—"}
-            </Text>
-            <Text type="supporting">
-              {overview.isError
-                ? "Connection interrupted"
-                : overview.data
-                  ? `Updated ${time(new Date(overview.dataUpdatedAt).toISOString())}`
-                  : "Connecting…"}
-            </Text>
+            {/* The two counts and a timestamp that used to close this row
+                belonged to other pages: the active request count is already
+                the badge on Activity, the repository count is a figure on
+                Repositories, and every page states the freshness of the data
+                it is actually showing. At the foot of a team's member list
+                they described nothing on screen. What remains identifies the
+                deployment, which is what a footer is for. */}
           </HStack>
         </Section>
       </AppShell>

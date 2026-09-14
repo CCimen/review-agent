@@ -7,10 +7,14 @@ from collections import OrderedDict
 from threading import Lock
 import base64
 import binascii
+import hashlib
+import re
 from typing import Any, Mapping, cast
 import urllib.parse
 
 from .. import changed_files
+from ..domain.review import ReviewPurpose
+from ..domain.documentation_policy import CONFIG_PATH, MAX_CONFIG_BYTES
 from ..postgres.review_runs import ReviewRunScope
 from ..source_control import GitHubReadClient, GitHubReadError
 
@@ -28,6 +32,66 @@ _FILE_CACHE_MAX_ENTRIES = 32
 
 class GitHubSourceError(ValueError):
     """GitHub returned source data that does not match the durable subject."""
+
+
+class GitHubComparisonUnavailable(GitHubSourceError):
+    """The exact commits have no merge base available for comparison."""
+
+
+def _commit_sha(value: object) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40,64}", value) is None:
+        raise GitHubSourceError("GitHub returned an invalid source identity")
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewComparison:
+    base_sha: str
+    head_sha: str
+    comparison_sha: str
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "ReviewComparison":
+        if set(value) != {"kind", "base_sha", "head_sha", "comparison_sha"} or value.get("kind") != "comparison":
+            raise GitHubSourceError("gateway comparison response has unexpected fields")
+        return cls(*(_commit_sha(value[key]) for key in ("base_sha", "head_sha", "comparison_sha")))
+
+    def to_mapping(self) -> dict[str, object]:
+        return {"kind": "comparison", "base_sha": self.base_sha,
+                "head_sha": self.head_sha, "comparison_sha": self.comparison_sha}
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewPolicySource:
+    state: str
+    revision: str
+    content: str | None
+    blob_sha: str | None
+    content_sha256: str | None
+
+    def to_mapping(self) -> dict[str, object]:
+        return {"kind": "documentation_policy", "state": self.state,
+                "revision": self.revision, "content": self.content,
+                "blob_sha": self.blob_sha, "content_sha256": self.content_sha256}
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "ReviewPolicySource":
+        if set(value) != {"kind", "state", "revision", "content", "blob_sha", "content_sha256"} or value.get("kind") != "documentation_policy":
+            raise GitHubSourceError("gateway documentation policy has unexpected fields")
+        state = value["state"]
+        content = value["content"]
+        digest = value["content_sha256"]
+        blob = value["blob_sha"]
+        if not isinstance(state, str):
+            raise GitHubSourceError("gateway documentation policy state is invalid")
+        if state == "ok":
+            if (not isinstance(content, str) or len(content.encode("utf-8")) > MAX_CONFIG_BYTES
+                or not isinstance(digest, str) or hashlib.sha256(content.encode("utf-8")).hexdigest() != digest):
+                raise GitHubSourceError("gateway documentation policy content is invalid")
+            blob = _commit_sha(blob)
+        elif content is not None or blob is not None or digest is not None:
+            raise GitHubSourceError("unavailable documentation policy contains content")
+        return cls(state, _commit_sha(value["revision"]), content, blob, digest)
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +235,7 @@ class ReviewFilePage:
     content: str
     complete_lines: int
     partial_line: bool
+    blob_sha: str | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "ReviewFilePage":
@@ -184,6 +249,7 @@ class ReviewFilePage:
             "content",
             "complete_lines",
             "partial_line",
+            "blob_sha",
         }
         if set(value) != expected or value.get("kind") != "file_page":
             raise GitHubSourceError("gateway file response has unexpected fields")
@@ -210,6 +276,7 @@ class ReviewFilePage:
             content=cast(str, value["content"]),
             complete_lines=complete_lines,
             partial_line=cast(bool, value["partial_line"]),
+            blob_sha=_commit_sha(value["blob_sha"]) if value["blob_sha"] is not None else None,
         )
 
     def to_mapping(self) -> dict[str, object]:
@@ -223,6 +290,7 @@ class ReviewFilePage:
             "content": self.content,
             "complete_lines": self.complete_lines,
             "partial_line": self.partial_line,
+            "blob_sha": self.blob_sha,
         }
 
 
@@ -356,20 +424,60 @@ def read_review_diff(
 
 def _terminal_file(
     scope: ReviewRunScope,
-    side: str,
+    revision: str,
     state: str,
     start_line: int,
 ) -> ReviewFilePage:
     return ReviewFilePage(
         state=state,
         repository=scope.repository,
-        revision=scope.head_sha if side == "head" else scope.base_sha,
+        revision=revision,
         start_line=start_line,
         total_lines=0,
         content="",
         complete_lines=0,
         partial_line=False,
     )
+
+
+def _regular_file_blob(
+    github: GitHubReadClient, *, repository: str, revision: str, path: str,
+) -> tuple[str | None, str | None]:
+    """Check exact tree modes because the contents API follows repository symlinks."""
+    segments = path.split("/")
+    if len(segments) > 32:
+        return None, "path_too_deep"
+    commit = _object(github.request_json(
+        f"/repos/{repository}/git/commits/{revision}", max_bytes=1_000_000,
+    ), "GitHub returned invalid commit metadata")
+    if _commit_sha(commit.get("sha")) != revision:
+        raise GitHubSourceError("GitHub file commit does not match its revision")
+    tree_sha = _commit_sha(_object(commit.get("tree"), "GitHub commit has no tree").get("sha"))
+    for index, segment in enumerate(segments):
+        tree = _object(github.request_json(
+            f"/repos/{repository}/git/trees/{tree_sha}", max_bytes=2_000_000,
+        ), "GitHub returned invalid tree metadata")
+        if _commit_sha(tree.get("sha")) != tree_sha:
+            raise GitHubSourceError("GitHub returned a different source tree")
+        if tree.get("truncated") is not False:
+            return None, "tree_incomplete"
+        entries = tree.get("tree")
+        if not isinstance(entries, list):
+            raise GitHubSourceError("GitHub tree has no entries")
+        matches = [entry for raw_entry in cast(list[object], entries)
+                   if (entry := _object(raw_entry, "GitHub tree entry is invalid")).get("path") == segment]
+        if not matches:
+            return None, "not_found_at_revision"
+        if len(matches) != 1:
+            raise GitHubSourceError("GitHub source path is ambiguous")
+        entry = _object(matches[0], "GitHub returned an invalid tree entry")
+        last = index == len(segments) - 1
+        if last and entry.get("type") == "blob" and entry.get("mode") in {"100644", "100755"}:
+            return _commit_sha(entry.get("sha")), None
+        if last or entry.get("type") != "tree" or entry.get("mode") != "040000":
+            return None, "not_regular"
+        tree_sha = _commit_sha(entry.get("sha"))
+    return None, "not_found_at_revision"
 
 
 def read_review_file_page(
@@ -382,13 +490,29 @@ def read_review_file_page(
     max_lines: int,
     max_chars: int,
     cache: ReviewFileCache | None = None,
+    comparison_sha: str | None = None,
+    require_regular: bool = False,
 ) -> ReviewFilePage:
     """Return one bounded source page without returning the complete file to Hermes."""
     repository = urllib.parse.quote(scope.repository, safe="/")
     encoded_path = "/".join(
         urllib.parse.quote(part, safe="") for part in path.split("/")
     )
-    revision = scope.head_sha if side == "head" else scope.base_sha
+    if side == "comparison":
+        if scope.run.purpose is not ReviewPurpose.DOCUMENTATION or comparison_sha is None:
+            raise GitHubSourceError("comparison reads require a documentation review identity")
+        revision = _commit_sha(comparison_sha)
+    elif side in {"head", "base"}:
+        revision = scope.head_sha if side == "head" else scope.base_sha
+    else:
+        raise GitHubSourceError("source revision role is invalid")
+    expected_blob = None
+    if require_regular or side == "comparison":
+        expected_blob, unavailable = _regular_file_blob(
+            github, repository=repository, revision=revision, path=path,
+        )
+        if unavailable is not None:
+            return _terminal_file(scope, revision, unavailable, start_line)
     ref = urllib.parse.quote(revision, safe="")
     endpoint = f"/repos/{repository}/contents/{encoded_path}?ref={ref}"
     key = ReviewFileKey(
@@ -402,11 +526,11 @@ def read_review_file_page(
             value = github.request_json(endpoint, max_bytes=2_000_000)
         except GitHubReadError as exc:
             if exc.kind == "not_found":
-                return _terminal_file(scope, side, "not_found_at_revision", start_line)
+                return _terminal_file(scope, revision, "not_found_at_revision", start_line)
             raise
         metadata = _object(value, "GitHub returned invalid file metadata")
         if metadata.get("type") != "file":
-            return _terminal_file(scope, side, "not_regular", start_line)
+            return _terminal_file(scope, revision, "not_regular", start_line)
         raw_content = metadata.get("content")
         if metadata.get("encoding") == "base64" and isinstance(raw_content, str):
             try:
@@ -416,18 +540,21 @@ def read_review_file_page(
         else:
             size = metadata.get("size")
             if type(size) is not int or size > _GITHUB_RAW_FILE_MAX_BYTES:
-                return _terminal_file(scope, side, "too_large", start_line)
+                return _terminal_file(scope, revision, "too_large", start_line)
             raw, truncated, _ = github.request(
                 endpoint,
                 accept="application/vnd.github.raw+json",
                 max_bytes=_GITHUB_RAW_FILE_MAX_BYTES,
             )
             if truncated:
-                return _terminal_file(scope, side, "too_large", start_line)
+                return _terminal_file(scope, revision, "too_large", start_line)
         if b"\x00" in raw[:8192]:
-            return _terminal_file(scope, side, "binary", start_line)
-        if cache is not None:
-            cache.put(key, raw)
+            return _terminal_file(scope, revision, "binary", start_line)
+    blob_sha = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
+    if expected_blob is not None and expected_blob != blob_sha:
+        raise GitHubSourceError("GitHub file bytes do not match the exact tree blob")
+    if cache is not None:
+        cache.put(key, raw)
     # Preserve line boundaries without accepting invalid bytes. Surrogate escapes
     # let a bounded page ignore invalid data outside the requested page while the
     # fragment actually returned below still fails closed.
@@ -443,7 +570,7 @@ def read_review_file_page(
         remaining = max_chars - used
         if len(candidate) <= remaining:
             if any(0xDC80 <= ord(character) <= 0xDCFF for character in candidate):
-                return _terminal_file(scope, side, "not_utf8", start_line)
+                return _terminal_file(scope, revision, "not_utf8", start_line)
             parts.append(candidate)
             used += len(candidate)
             complete_lines += 1
@@ -451,7 +578,7 @@ def read_review_file_page(
         fragment = candidate[:remaining]
         if fragment:
             if any(0xDC80 <= ord(character) <= 0xDCFF for character in fragment):
-                return _terminal_file(scope, side, "not_utf8", start_line)
+                return _terminal_file(scope, revision, "not_utf8", start_line)
             parts.append(fragment)
             partial_line = True
         break
@@ -464,10 +591,66 @@ def read_review_file_page(
         content="".join(parts),
         complete_lines=complete_lines,
         partial_line=partial_line,
+        blob_sha=blob_sha,
     )
 
 
+def read_review_comparison(github: GitHubReadClient, scope: ReviewRunScope) -> ReviewComparison:
+    """Resolve the merge base of the stored exact commits without changing base policy authority."""
+    repository = urllib.parse.quote(scope.repository, safe="/")
+    result = _object(github.request_json(
+        f"/repos/{repository}/compare/{scope.base_sha}...{scope.head_sha}?per_page=1",
+        max_bytes=2_000_000,
+    ), "GitHub returned an invalid comparison")
+    base = _object(result.get("base_commit"), "GitHub comparison has no base commit")
+    if _commit_sha(base.get("sha")) != scope.base_sha:
+        raise GitHubSourceError("GitHub comparison does not match the requested base")
+    if result.get("merge_base_commit") is None:
+        raise GitHubComparisonUnavailable("GitHub comparison has no merge base")
+    comparison = _object(result["merge_base_commit"], "GitHub comparison returned an invalid merge base")
+    return ReviewComparison(scope.base_sha, scope.head_sha, _commit_sha(comparison.get("sha")))
+
+
+def read_documentation_policy(
+    github: GitHubReadClient, scope: ReviewRunScope, *, side: str,
+) -> ReviewPolicySource:
+    """Read the fixed policy as exact UTF-8, without normalizing TOML string content."""
+    if scope.run.purpose is not ReviewPurpose.DOCUMENTATION or side not in {"head", "base"}:
+        raise GitHubSourceError("documentation policy requires an exact documentation subject")
+    revision = scope.base_sha if side == "base" else scope.head_sha
+    return read_documentation_policy_at_revision(github, repository=scope.repository, revision=revision)
+
+
+def read_documentation_policy_at_revision(
+    github: GitHubReadClient, *, repository: str, revision: str,
+) -> ReviewPolicySource:
+    """Read policy bytes for an already-authorized immutable repository revision."""
+    revision = _commit_sha(revision)
+    repository = urllib.parse.quote(repository, safe="/")
+    blob, unavailable = _regular_file_blob(
+        github, repository=repository, revision=revision, path=CONFIG_PATH,
+    )
+    if unavailable is not None:
+        return ReviewPolicySource(unavailable, revision, None, None, None)
+    raw, truncated, _ = github.request(
+        f"/repos/{repository}/contents/{CONFIG_PATH}?ref={revision}",
+        accept="application/vnd.github.raw+json", max_bytes=MAX_CONFIG_BYTES,
+    )
+    if truncated or len(raw) > MAX_CONFIG_BYTES:
+        return ReviewPolicySource("too_large", revision, None, None, None)
+    actual_blob = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
+    if actual_blob != blob:
+        raise GitHubSourceError("documentation policy bytes do not match the exact tree blob")
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return ReviewPolicySource("not_utf8", revision, None, None, None)
+    return ReviewPolicySource("ok", revision, content, blob, hashlib.sha256(raw).hexdigest())
+
+
 __all__ = [
+    "ReviewComparison",
+    "ReviewPolicySource",
     "ReviewFileCache",
     "ReviewFileKey",
     "GitHubReadError",
@@ -479,4 +662,7 @@ __all__ = [
     "read_review_diff",
     "read_review_file_page",
     "read_review_pull",
+    "read_review_comparison",
+    "read_documentation_policy",
+    "read_documentation_policy_at_revision",
 ]

@@ -35,6 +35,14 @@ class GitHubAppRepositoryUnauthorized(GitHubAppStateError):
     """The repository is not currently authorized for this App operation."""
 
 
+class GitHubAppDocumentationUnauthorized(GitHubAppRepositoryUnauthorized):
+    """Repository access exists but the documentation capability is unavailable."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
 class AccountType(StrEnum):
     USER = "user"
     ORGANIZATION = "organization"
@@ -94,6 +102,7 @@ class InstallationDefinition:
     contents_permission: PermissionLevel
     issues_permission: PermissionLevel
     pull_requests_permission: PermissionLevel
+    checks_permission: PermissionLevel = PermissionLevel.NONE
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +139,7 @@ class GitHubAppInstallation:
     updated_at: datetime
     suspended_at: datetime | None
     deleted_at: datetime | None
+    checks_permission: PermissionLevel = PermissionLevel.NONE
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +235,7 @@ class _InstallationRow:
     updated_at: datetime
     suspended_at: datetime | None
     deleted_at: datetime | None
+    checks_permission: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,7 +288,7 @@ _INSTALLATION_COLUMNS = """
     activation_policy_actor, activation_policy_reason,
     activation_policy_changed_at, status, contents_permission,
     issues_permission, pull_requests_permission, created_at, updated_at,
-    suspended_at, deleted_at
+    suspended_at, deleted_at, checks_permission
 """
 
 _ACCESS_COLUMNS = """
@@ -346,6 +357,7 @@ def _installation(row: _InstallationRow) -> GitHubAppInstallation:
         updated_at=row.updated_at,
         suspended_at=row.suspended_at,
         deleted_at=row.deleted_at,
+        checks_permission=PermissionLevel(row.checks_permission),
     )
 
 
@@ -412,9 +424,9 @@ def sync_installation(
             INSERT INTO review_agent.github_app_installations (
                 provider_installation_id, account_id, account_login, account_type,
                 repository_selection, status, contents_permission,
-                issues_permission, pull_requests_permission, created_at, updated_at
+                issues_permission, pull_requests_permission, checks_permission, created_at, updated_at
             ) VALUES (
-                %s, %s, %s, %s, %s, 'active', %s, %s, %s,
+                %s, %s, %s, %s, %s, 'active', %s, %s, %s, %s,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             ON CONFLICT ON CONSTRAINT github_app_installations_provider_id_uk
@@ -426,6 +438,7 @@ def sync_installation(
                 contents_permission = EXCLUDED.contents_permission,
                 issues_permission = EXCLUDED.issues_permission,
                 pull_requests_permission = EXCLUDED.pull_requests_permission,
+                checks_permission = EXCLUDED.checks_permission,
                 updated_at = CURRENT_TIMESTAMP
             WHERE review_agent.github_app_installations.status <> 'deleted'
             RETURNING {_INSTALLATION_COLUMNS}
@@ -439,6 +452,7 @@ def sync_installation(
                 definition.contents_permission.value,
                 definition.issues_permission.value,
                 definition.pull_requests_permission.value,
+                definition.checks_permission.value,
             ),
         ).fetchone()
     if row is None:
@@ -780,6 +794,31 @@ def authorize_review_publication(
         provider_repository_id=provider_id,
         provider_installation_id=installation_id,
     )
+
+
+def authorize_documentation_review(
+    connection: psycopg.Connection[TupleRow],
+    provider_repository_id: int,
+    *,
+    profile_key: str | None = None,
+    automatic: bool = False,
+) -> GitHubAppAuthorization:
+    """Apply current docs operating policy and approved Checks access to real work."""
+    from . import documentation_operating_policy
+    from ..domain.documentation_operating_policy import DocumentationMode
+
+    authority = authorize_review_publication(
+        connection, provider_repository_id, profile_key=profile_key,
+    )
+    installation = get_installation_by_provider_id(connection, authority.provider_installation_id)
+    if installation.checks_permission is not PermissionLevel.WRITE:
+        raise GitHubAppDocumentationUnauthorized("documentation_checks_missing")
+    policy = documentation_operating_policy.resolve(connection, repository_id=int(authority.repository_id))
+    if policy.resolved.effective_mode is DocumentationMode.OFF:
+        raise GitHubAppDocumentationUnauthorized("documentation_disabled")
+    if automatic and policy.resolved.effective_mode is not DocumentationMode.AUTOMATIC:
+        raise GitHubAppDocumentationUnauthorized("documentation_automatic_disabled")
+    return authority
 
 
 def authorize_review_admission(

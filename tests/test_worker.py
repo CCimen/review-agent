@@ -62,6 +62,29 @@ class _ChatHandler(BaseHTTPRequestHandler):
 
 
 class WorkerBoundaryTests(unittest.TestCase):
+    def test_documentation_preflight_routes_terminal_and_semantic_work(self) -> None:
+        from review_agent_tools import documentation_preflight, review_publication_application
+        from review_agent_tools.domain.review import ReviewPurpose
+
+        for frozen in (True, False):
+            with self.subTest(frozen=frozen):
+                runtime = Mock(spec=PostgreSQLRuntime)
+                runtime.transaction.side_effect = lambda: nullcontext(Mock())
+                client = Mock(spec=HermesChatClient)
+                client.review.return_value = None
+                claimed = replace(self._claim(generation=1), purpose=ReviewPurpose.DOCUMENTATION)
+                worker = ReviewWorker(runtime, client, self._policy(), lease_owner="worker",
+                    stop_event=threading.Event(), source_client=Mock())
+                with (
+                    patch.object(documentation_preflight, "run_preflight", return_value=Mock(frozen=frozen)) as preflight,
+                    patch.object(review_publication_application, "prepare_postgres_documentation_publication") as publish,
+                    patch.object(jobs, "get_job", return_value=replace(claimed.job, status=jobs.ReviewJobStatus.SUCCEEDED)),
+                ):
+                    worker._execute(claimed)
+                preflight.assert_called_once()
+                self.assertEqual(client.review.call_count, 0 if frozen else 1)
+                self.assertEqual(publish.call_count, 1 if frozen else 0)
+
     def setUp(self) -> None:
         _ChatHandler.requests = []
         _ChatHandler.response_status = 200
@@ -119,6 +142,32 @@ class WorkerBoundaryTests(unittest.TestCase):
             {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 3},
         ):
             self.assertIsNone(parse_usage(json.dumps({"usage": usage}).encode()))
+
+    def test_documentation_request_uses_installed_docs_procedure_and_exact_run(self) -> None:
+        from review_agent_tools.domain.review import ReviewPurpose
+
+        with tempfile.TemporaryDirectory() as directory:
+            code_skill = Path(directory) / "code.md"
+            docs_skill = Path(directory) / "docs.md"
+            code_skill.write_text("Code procedure.")
+            docs_skill.write_text("Documentation procedure.")
+            settings = HermesChatSettings(
+                endpoint=f"http://127.0.0.1:{self.server.server_port}/v1/review-agent/review",
+                bearer_token="test-token", skill_path=code_skill,
+                documentation_skill_path=docs_skill,
+            )
+            claimed = replace(self._claim(generation=1), purpose=ReviewPurpose.DOCUMENTATION)
+            HermesChatClient(settings).review(claimed, timeout=self._timeout())
+            with self.assertRaisesRegex(HermesRequestError, "skill is not installed"):
+                HermesChatClient(replace(settings, documentation_skill_path=None)).review(
+                    claimed, timeout=self._timeout(),
+                )
+        self.assertEqual(len(_ChatHandler.requests), 1)
+        headers, body = _ChatHandler.requests[0]
+        messages = body["messages"]
+        self.assertEqual(messages[0]["content"], "Documentation procedure.")
+        self.assertIn(f"review_agent_docs_begin first with run_id {claimed.job.review_run_id}", messages[1]["content"])
+        self.assertEqual(headers["Idempotency-Key"], "review-agent-job-17-lease-1")
 
     def test_usage_storage_failure_does_not_change_completed_job(self) -> None:
         runtime = Mock(spec=PostgreSQLRuntime)

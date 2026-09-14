@@ -81,6 +81,9 @@ class _Tokens:
     def app_bot_login(self) -> str:
         return "review-agent[bot]"
 
+    def app_identity(self) -> app_auth.GitHubAppIdentity:
+        return app_auth.GitHubAppIdentity(17, "review-agent", "CCimen", (), ("issue_comment", "pull_request", "check_run"))
+
     def verify_installation_repository(
         self,
         provider_installation_id: int,
@@ -148,6 +151,11 @@ class _GitHub(GitHubReadClient):
         self.before_pull = before_pull
         self.request_error = request_error
         self.endpoints: list[str] = []
+        self.state = "open"
+        self.draft = False
+        self.base_sha = "b" * 40
+        self.head_sha = "a" * 40
+        self.number = 42
 
     def request_json(self, endpoint: str, *, max_bytes: int = 2_000_000) -> object:
         self.endpoints.append(endpoint)
@@ -169,13 +177,15 @@ class _GitHub(GitHubReadClient):
             else {"id": self.head_repository_id, "full_name": "CCimen/review-agent"}
         )
         return {
-            "number": 42,
-            "state": "open",
+            "number": self.number,
+            "state": self.state,
+            "draft": self.draft,
             "base": {
-                "sha": "b" * 40,
+                "sha": self.base_sha,
+                "ref": "main",
                 "repo": {"id": 9001, "full_name": "CCimen/review-agent"},
             },
-            "head": {"sha": "a" * 40, "repo": head_repository},
+            "head": {"sha": self.head_sha, "repo": head_repository},
         }
 
 
@@ -378,6 +388,242 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 reason="approve pilot",
             )
             authorization(connection, 9001)
+
+    def enable_documentation(self, mode: str = "automatic") -> None:
+        self.enable_repository()
+        with self.runtime.transaction() as connection:
+            connection.execute("UPDATE review_agent.github_app_installations SET checks_permission = 'write'")
+            connection.execute("UPDATE review_agent.repositories SET documentation_mode = %s", (mode,))
+            deployment_settings.save(connection, settings=DeploymentSettings(documentation_review_enabled=True),
+                expected_revision=0, actor="operator:test", reason="Enable documentation for the fixture")
+
+    def documentation_event(self, action: str = "synchronize") -> dict[str, object]:
+        return {"action": action, "installation": {"id": 7001},
+            "repository": {"id": 9001, "full_name": "CCimen/review-agent"},
+            "pull_request": {"number": 42}, "sender": {"id": 5001, "login": "ccimen"}}
+
+    def settle_documentation(self, delivery_id: int) -> None:
+        with self.runtime.transaction() as connection:
+            connection.execute("UPDATE review_agent.github_webhook_deliveries SET received_at = statement_timestamp() - interval '3 minutes', available_at = statement_timestamp() - interval '1 minute' WHERE id = %s", (delivery_id,))
+
+    def test_documentation_debounce_uses_latest_delivery_and_fresh_subject_after_restart(self) -> None:
+        self.enable_documentation()
+        first = self.register("pull_request", self.documentation_event())
+        second = self.register("pull_request", self.documentation_event())
+        github = _GitHub()
+        github.head_sha = "c" * 40
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            self.assertIsNone(self.processor(github).process_next(lease_owner="restart-before-settled"))
+            self.settle_documentation(second)
+            result = self.processor(github).process_next(lease_owner="restart-after-settled")
+        assert result is not None and result.run_id is not None
+        self.assertEqual(result.delivery_id, second)
+        self.assertEqual(result.status, "accepted")
+        self.assertFalse(any(endpoint.endswith("/permission") for endpoint in github.endpoints))
+        with self.runtime.transaction() as connection:
+            older = webhook_deliveries.get_delivery(connection, first)
+            self.assertEqual(older.failure_code, "documentation_coalesced")
+            self.assertIsNotNone(older.normalized_payload)
+            scope = review_runs.get_run_scope(connection, result.run_id)
+            self.assertEqual(scope.run.purpose.value, "documentation")
+            self.assertEqual(scope.head_sha, github.head_sha)
+            receipt = connection.execute("SELECT trigger_kind, policy_json FROM review_agent.documentation_admissions WHERE review_run_id = %s", (result.run_id,)).fetchone()
+            self.assertEqual(receipt[0], "automatic")
+            self.assertEqual(receipt[1]["effective_mode"], "automatic")
+
+    def test_manual_docs_promotes_equivalent_automatic_and_survives_draft_control(self) -> None:
+        self.enable_documentation()
+        automatic = self.register("pull_request", self.documentation_event())
+        self.settle_documentation(automatic)
+        github = _GitHub()
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            original = self.processor(github).process_next(lease_owner="automatic")
+            payload = self.review_payload()
+            payload["comment"]["body"] = "/review docs"
+            manual = self.register("issue_comment", payload)
+            github.draft = True
+            explicit = self.processor(github).process_next(lease_owner="manual-draft")
+            assert explicit is not None and original is not None
+            self.assertEqual(explicit.run_id, original.run_id)
+            self.register("pull_request", self.documentation_event("converted_to_draft"))
+            control = self.processor(github).process_next(lease_owner="draft-control")
+            self.assertEqual(control.reason, "documentation_pull_ineligible")
+        with self.runtime.transaction() as connection:
+            run = review_runs.get_run(connection, original.run_id)
+            self.assertEqual(run.status.value, "running")
+            receipt = connection.execute("SELECT delivery_id, promoted_delivery_id FROM review_agent.documentation_admissions WHERE review_run_id = %s", (run.id,)).fetchone()
+            self.assertEqual(receipt, (automatic, manual))
+            job = connection.execute("SELECT priority FROM review_agent.review_jobs WHERE review_run_id = %s", (run.id,)).fetchone()
+            self.assertEqual(job[0], 0)
+            from review_agent_tools.postgres import retention
+            pruned = retention.prune_receipts(connection, target="terminal_webhook_deliveries",
+                before=datetime.now(timezone.utc) + timedelta(seconds=1), limit=100, apply=True)
+            self.assertGreater(pruned.deleted, 0)
+            retained = connection.execute("SELECT trigger_json, promotion_json FROM review_agent.documentation_admissions WHERE review_run_id = %s", (run.id,)).fetchone()
+            self.assertEqual(retained[0]["event"], "pull_request")
+            self.assertEqual(retained[1]["comment_id"], 6001)
+        github.state = "closed"
+        self.register("pull_request", self.documentation_event("closed"))
+        closed = self.processor(github).process_next(lease_owner="closed-control")
+        self.assertEqual(closed.reason, "documentation_pull_ineligible")
+        with self.runtime.transaction() as connection:
+            self.assertEqual(review_runs.get_run(connection, original.run_id).failure_code, "documentation_ineligible")
+
+    def test_leased_automatic_event_cannot_admit_after_a_newer_update(self) -> None:
+        self.enable_documentation()
+        first = self.register("pull_request", self.documentation_event())
+        self.settle_documentation(first)
+        def next_update() -> None:
+            self.register("pull_request", self.documentation_event())
+        github = _GitHub(before_pull=next_update)
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            result = self.processor(github).process_next(lease_owner="older-leased")
+        self.assertEqual(result.reason, "documentation_coalesced")
+        with self.runtime.transaction() as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM review_agent.review_runs").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT count(*) FROM review_agent.github_webhook_deliveries WHERE status = 'received'").fetchone()[0], 1)
+
+    def publish_documentation(self) -> tuple[int, int]:
+        from dataclasses import replace
+        from review_agent_tools.domain.documentation_review import DocumentationOutcome
+        from review_agent_tools.postgres import documentation_reviews
+        from review_agent_tools.review_publication_application import prepare_postgres_documentation_publication, publish_postgres_publication
+        from tests.test_postgres_documentation_reviews import scope
+        from tests.test_postgres_publications import FakePostgresPublicationGitHub
+        payload = self.review_payload()
+        payload["comment"]["body"] = "/review docs"
+        self.register("issue_comment", payload)
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            request = self.processor().process_next(lease_owner="manual-docs")
+        assert request is not None and request.run_id is not None
+        with self.runtime.transaction() as connection:
+            job = jobs.claim_next_job(connection, lease_owner="docs-execution", lease_duration=timedelta(minutes=5), priority_aging_interval=timedelta(minutes=15))
+            assert job is not None
+            documentation_reviews.initialize(connection, run_id=request.run_id, comparison_sha="c" * 40)
+            documentation_reviews.freeze_scope(connection, run_id=request.run_id, scope=replace(scope(), areas=(), documents=(), changed_files=()))
+            documentation_reviews.finalize(connection, run_id=request.run_id, outcome=DocumentationOutcome.NOT_NEEDED, semantic_inference_used=False, coverage_complete=True)
+        prepared = prepare_postgres_documentation_publication(self.runtime, run_id=request.run_id, max_comment_bytes=60_000, review_job_id=job.id, review_lease_generation=job.lease_generation)
+        published = publish_postgres_publication(self.runtime, publication_id=prepared.publication_id, github=FakePostgresPublicationGitHub(self.runtime), max_comment_bytes=60_000)
+        self.assertEqual(published.status, "posted")
+        with self.runtime.transaction() as connection:
+            check_id = connection.execute("SELECT external_id FROM review_agent.publication_parts WHERE publication_id = %s AND part_type = 'check_run'", (prepared.publication_id,)).fetchone()[0]
+        return request.run_id, check_id
+
+    def test_automatic_reuses_only_current_completed_subject_and_new_base_reassesses(self) -> None:
+        self.enable_documentation()
+        completed_run, _ = self.publish_documentation()
+        github = _GitHub()
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            unchanged = self.register("pull_request", self.documentation_event())
+            self.settle_documentation(unchanged)
+            reused = self.processor(github).process_next(lease_owner="unchanged")
+            self.assertEqual(reused.run_id, completed_run)
+            github.base_sha = "d" * 40
+            retargeted = self.register("pull_request", self.documentation_event("reopened"))
+            self.settle_documentation(retargeted)
+            newer = self.processor(github).process_next(lease_owner="new-base")
+            self.assertNotEqual(newer.run_id, completed_run)
+        with self.runtime.transaction() as connection:
+            scope = review_runs.get_run_scope(connection, newer.run_id)
+            self.assertEqual(scope.base_sha, github.base_sha)
+            self.assertEqual(scope.head_sha, github.head_sha)
+
+    def test_check_rerun_uses_stored_app_owned_pr_and_reauthorizes_requester(self) -> None:
+        self.enable_documentation("manual")
+        completed_run, check_id = self.publish_documentation()
+        payload = {"action": "rerequested", "installation": {"id": 7001},
+            "repository": {"id": 9001, "full_name": "CCimen/review-agent"},
+            "sender": {"id": 5001, "login": "ccimen"},
+            "check_run": {"id": check_id, "app": {"id": 17}, "pull_requests": [{"number": 999}]}}
+        github = _GitHub()
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            self.register("check_run", payload)
+            rerun = self.processor(github).process_next(lease_owner="check-rerun")
+            self.assertEqual(rerun.status, "accepted")
+            self.assertNotEqual(rerun.run_id, completed_run)
+            self.assertIn("/repos/CCimen/review-agent/pulls/42", github.endpoints)
+            self.assertFalse(any("999" in endpoint for endpoint in github.endpoints))
+            github.permission = "read"
+            self.register("check_run", payload)
+            denied = self.processor(github).process_next(lease_owner="unauthorized-rerun")
+            self.assertEqual(denied.reason, "sender_not_authorized")
+            payload["check_run"]["app"]["id"] = 18
+            self.register("check_run", payload)
+            unowned = self.processor(github).process_next(lease_owner="other-app")
+            self.assertEqual(unowned.reason, "check_run_not_owned")
+
+    def test_manual_mode_retires_queued_automatic_and_off_preserves_only_code(self) -> None:
+        from review_agent_tools.domain.documentation_operating_policy import DocumentationMode
+        from review_agent_tools.postgres import documentation_admissions
+        self.enable_documentation()
+        github = _GitHub()
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            automatic_runs = []
+            for number in (42, 43):
+                payload = self.documentation_event()
+                payload["pull_request"]["number"] = number
+                event = self.register("pull_request", payload)
+                self.settle_documentation(event)
+                github.number = number
+                automatic_runs.append(self.processor(github).process_next(lease_owner=f"auto-{number}").run_id)
+            with self.runtime.transaction() as connection:
+                leased = jobs.claim_next_job(connection, lease_owner="already-running", lease_duration=timedelta(minutes=5), priority_aging_interval=timedelta(minutes=15))
+                self.assertEqual(leased.review_run_id, automatic_runs[0])
+            explicit_runs = []
+            for comment_id, body in ((6002, "/review docs"), (6003, "/review")):
+                payload = self.review_payload()
+                payload["comment"].update(id=comment_id, body=body)
+                payload["issue"]["number"] = 44
+                github.number = 44
+                self.register("issue_comment", payload)
+                explicit_runs.append(self.processor(github).process_next(lease_owner=f"explicit-{comment_id}").run_id)
+        pending = self.register("pull_request", self.documentation_event())
+        with self.runtime.transaction() as connection:
+            connection.execute("UPDATE review_agent.repositories SET documentation_mode = 'manual'")
+            documentation_admissions.cancel_ineligible(connection, effective_mode=DocumentationMode.MANUAL)
+            self.assertEqual(review_runs.get_run(connection, automatic_runs[0]).status.value, "running")
+            self.assertEqual(review_runs.get_run(connection, automatic_runs[1]).status.value, "failed")
+            self.assertTrue(all(review_runs.get_run(connection, run).status.value == "running" for run in explicit_runs))
+            self.assertEqual(webhook_deliveries.get_delivery(connection, pending).status.value, "ignored")
+            revision = deployment_settings.latest(connection)
+            deployment_settings.save(connection, settings=DeploymentSettings(documentation_review_enabled=False),
+                expected_revision=revision.id, actor="operator:test", reason="Stop documentation")
+            self.assertEqual(review_runs.get_run(connection, automatic_runs[0]).failure_code, "documentation_disabled")
+            self.assertEqual(review_runs.get_run(connection, explicit_runs[0]).failure_code, "documentation_disabled")
+            self.assertEqual(review_runs.get_run(connection, explicit_runs[1]).status.value, "running")
+            failure = review_runs.claim_next_failure_status(connection, lease_owner="failure-publisher", lease_duration=timedelta(minutes=5))
+            assert failure is not None
+        from review_agent_tools.github.publication_gateway import PublicationGatewayRequest, ReviewPublicationGateway
+        writer = Mock()
+        publication_gateway = ReviewPublicationGateway(postgres=self.runtime, tokens=cast(GitHubAppTokenService, self.tokens), profile="default-standard", github_factory=lambda _: writer)
+        with self.assertRaises(GitHubGatewayRejected) as rejected:
+            publication_gateway.execute(PublicationGatewayRequest.from_mapping({
+                "scope_kind": "failure_status", "scope_id": failure.target.run_id,
+                "lease_owner": "failure-publisher", "lease_generation": failure.target.delivery_lease_generation,
+                "operation": "get_pull",
+            }))
+        self.assertEqual(rejected.exception.reason, "documentation_disabled")
+        writer.get_pull.assert_not_called()
+
+    def test_documentation_fork_and_closed_manual_requests_are_rejected_before_admission(self) -> None:
+        self.enable_documentation("manual")
+        for index, expected in enumerate(("fork_source_not_supported", "pull_request_not_open", "documentation_checks_missing", "documentation_disabled")):
+            github = _GitHub(head_repository_id=9002 if index == 0 else 9001)
+            if index == 1:
+                github.state = "closed"
+            with self.runtime.transaction() as connection:
+                if index == 2:
+                    connection.execute("UPDATE review_agent.github_app_installations SET checks_permission = 'none'")
+                elif index == 3:
+                    connection.execute("UPDATE review_agent.github_app_installations SET checks_permission = 'write'")
+                    connection.execute("UPDATE review_agent.repositories SET documentation_mode = 'off'")
+            payload = self.review_payload()
+            payload["comment"].update(id=6100 + index, body="/review docs")
+            self.register("issue_comment", payload)
+            result = self.processor(github).process_next(lease_owner=f"ineligible-{index}")
+            self.assertEqual(result.reason, expected)
+        with self.runtime.transaction() as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM review_agent.review_runs").fetchone()[0], 0)
 
     def test_installation_created_grants_selected_repositories_disabled(self) -> None:
         payload = self.installation_payload()

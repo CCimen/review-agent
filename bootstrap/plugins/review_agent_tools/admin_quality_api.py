@@ -10,6 +10,7 @@ from .admin_auth import AdminAuth
 from .postgres.team_access import AccessRequest
 from .domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
 from .domain.finding import DecisionKind
+from .domain.review import ReviewPurpose
 from .postgres import admin_quality, quality_reporting, quality_triage, reporting
 from .postgres.runtime import PostgreSQLRuntime
 
@@ -61,10 +62,15 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Annotated[int, Query(ge=1, le=90)] = 30,
         repository: OptionalRepository = None,
+        purpose: ReviewPurpose = ReviewPurpose.CODE,
     ) -> quality_reporting.QualityReport:
         try:
             return admin_application.quality_report(
-                runtime, access=access, repository=repository, days=days
+                runtime,
+                access=access,
+                repository=repository,
+                purpose=purpose,
+                days=days,
             )
         except ValueError as exc:
             raise _input_error(exc) from exc
@@ -72,22 +78,32 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     def feedback(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         repository: OptionalRepository = None,
+        purpose: ReviewPurpose = ReviewPurpose.CODE,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         offset: Annotated[int, Query(ge=0, le=10000)] = 0,
     ) -> admin_quality.QualityFeedbackPage:
-        return admin_application.quality_feedback(runtime, access=access, repository=repository, limit=limit, offset=offset)
+        return admin_application.quality_feedback(runtime, access=access, repository=repository, purpose=purpose, limit=limit, offset=offset)
 
     def finding(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         fingerprint: Fingerprint,
         repository: Repository,
+        purpose: ReviewPurpose = ReviewPurpose.CODE,
         occurrence_id: Annotated[
             int | None, Query(ge=1, le=9223372036854775807)
         ] = None,
         decisions_before_id: Annotated[int | None, Query(ge=1)] = None,
     ) -> admin_quality.AdminFindingDetail:
         try:
-            return admin_application.show_finding(runtime, access=access, repository=repository, fingerprint=fingerprint, occurrence_id=occurrence_id, decisions_before_id=decisions_before_id)
+            return admin_application.show_finding(
+                runtime,
+                access=access,
+                repository=repository,
+                fingerprint=fingerprint,
+                purpose=purpose,
+                occurrence_id=occurrence_id,
+                decisions_before_id=decisions_before_id,
+            )
         except reporting.FindingNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:

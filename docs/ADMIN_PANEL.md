@@ -17,7 +17,7 @@ published reviews.
 
 The console requires a qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 28.
+an older migration image: the current admin API requires the migrations shipped with the same source revision.
 Releases through v0.4.0-rc.4 do not include the
 console. For a source build, build both images from the same checkout and run
 its migrations before starting the services.
@@ -26,6 +26,24 @@ After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
 the owner/admin boundary. Use a forward fix, or the coordinated image and verified
 database recovery procedure in [Deployment](./DEPLOYMENT.md#upgrade-and-roll-back-production).
+
+## Documentation review controls
+
+Owners enable documentation review in deployment **Settings**. Team maintainers
+choose Off, Manual, or Automatic in the team's **Documentation** tab. Repositories
+inherit that default or keep an explicit override. The console shows the effective
+mode, impacted repositories, and stale-save conflicts before applying changes.
+
+Repository **Documentation** settings show current App readiness and an explicit
+**Refresh** action for the default-branch configuration. The resulting read time,
+commit, mappings, exclusions, and syntax status are inspection evidence; reviews
+continue to resolve their own exact base policy. Ownership transfers preview
+changes to both documentation mode and model-account policy.
+
+Review history and usage separate Code and Documentation requests. A documentation
+request includes scope and evidence limitations alongside the existing recorded
+token counters, duration, and publication links. See the
+[documentation review guide](DOCUMENTATION_REVIEW.md) for adoption and result semantics.
 
 ## Teams, roles, and repository ownership
 
@@ -168,6 +186,14 @@ requests for that PR, including requests outside the overview filters. Selecting
 another request replaces the review. On narrow screens, use the request selector.
 Each request has a direct URL; returning to history preserves its filters and
 list position.
+
+Each request shows recorded token usage beside its duration: total, prompt and
+completion tokens, plus how many started attempts reported usage. Reported
+retries are included. Missing usage stays **Not reported**; a partial total is
+labeled **Partial**. The request list and history show compact totals for each
+request. A grouped PR row shows its latest matching request's usage, not a total
+across that PR. These details use the same team access as the review; the
+aggregate Usage report remains limited to owners and admins.
 
 The reader displays the stored original publication after every publication part
 has been delivered. It includes exact links to the GitHub review comments and any

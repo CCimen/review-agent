@@ -54,7 +54,7 @@ export function contextualTo(to: To, search: string): To {
   const target = typeof to === "string" ? parsePath(to) : to;
   const params = new URLSearchParams(target.search);
   const current = new URLSearchParams(search);
-  for (const name of ["team_id", "days", "start", "end"]) {
+  for (const name of ["team_id", "days", "start", "end", "purpose"]) {
     const value = current.get(name);
     if (value && !params.has(name)) params.set(name, value);
   }

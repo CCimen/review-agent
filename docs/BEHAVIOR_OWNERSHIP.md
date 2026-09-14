@@ -22,7 +22,7 @@ The effective review has three layers:
 | Layer | Scope | Owner |
 | --- | --- | --- |
 | Review engine | Every review | Deterministic authorization, snapshot, storage, tool, and publication code. Repository content cannot change it. |
-| Deployment profile | Every repository served by one environment | `SOUL.md` defines the neutral identity, `AGENTS.md` defines the fixed review contract, and `review-agent-pr/SKILL.md` defines the procedure. |
+| Deployment profile | Every repository served by one environment | `SOUL.md` defines the neutral identity, `AGENTS.md` defines the fixed review contract, and the managed `review-agent-pr` and `review-agent-docs` skills define each procedure. |
 | Repository package | One repository | `.review-agent/` adds local instructions, ordered platform context, and accepted decisions from the pull request's exact base commit. |
 
 The current deployment has one selected reviewer profile per environment.
@@ -44,6 +44,11 @@ conditionals or copying policy into runtime code.
 | Immutable repository guidance | `review_agent_tools.repository_guidance_context` and `review_guidance_snapshots` | Exact-base loading, bounds, degradation, hashing, or run provenance changes. |
 | Repository decision format and matching | `.review-agent/decisions.toml`, typed ADR headers, and `review_agent_tools.domain.repository_decisions` | A repository maps an accepted invariant to different paths or the shared typed contract changes. |
 | Immutable decision evidence | `review_agent_tools.repository_decision_context` and `review_decision_snapshots` | Loading, degradation, hashing, or run provenance changes. |
+| Documentation relationships and exclusions | `.review-agent/documentation.toml` and `domain/documentation_policy.py` | Maintained document mappings, intent, or the versioned repository contract changes. |
+| Documentation operating modes | `postgres/documentation_operating_policy.py`, deployment Settings, and team/repository controls | Off/Manual/Automatic precedence or scoped administration changes. |
+| Documentation scope and evidence | `documentation_scope.py`, `documentation_preflight.py`, `documentation_findings.py`, and `postgres/documentation_reviews.py` | Exact comparison, bounded reads, validation, or immutable evidence changes. |
+| Documentation procedure | `bootstrap/profiles/default-standard/skills/review-agent-docs/SKILL.md` | Semantic documentation assessment instructions change. |
+
 
 The [console source candidate](ADMIN_PANEL.md) records each admitted request's
 model route in its immutable review contract. Saved route changes affect new
@@ -68,7 +73,10 @@ Each profile contains:
 - one directory under `skills/` for each listed key.
 
 Every profile must include the skills named by the managed webhook review route,
-currently `review-agent-pr`. Additional skill files are trusted, code-reviewed
+currently `review-agent-pr` and `review-agent-docs`. Add the reviewed docs procedure
+and its manifest entry when upgrading a custom profile; a missing managed skill
+fails installation. Both procedures are part of the immutable execution receipt.
+Additional skill files are trusted, code-reviewed
 profile content. The installer validates their keys and presence; it does not
 interpret or authorize their prose or front matter.
 

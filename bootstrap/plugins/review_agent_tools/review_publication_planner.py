@@ -9,7 +9,11 @@ from dataclasses import asdict, dataclass
 from typing import Literal, cast
 
 from .domain.publication import (
+    CHECK_OUTPUT_MAX_BYTES,
+    DOCUMENTATION_CHECK_NAME,
     JsonValue,
+    publication_marker,
+    PublicationDomainError,
     PublicationFindingInput,
     PublicationFindingOutcome,
     PublicationPartInput,
@@ -17,6 +21,7 @@ from .domain.publication import (
     PublicationPlan,
     resolve_publication_plan,
 )
+from .domain.documentation_review import DocumentationResult
 from .memory_validation import (
     MAX_FINDINGS_PER_REVIEW,
     PRIOR_FINDING_VERDICTS,
@@ -551,3 +556,141 @@ def build_publication(
         resolved_count=sum(item["verdict"] == "resolved" for item in closed),
         ignored_previous_verdicts=ignored,
     )
+
+
+def build_documentation_publication(
+    context: PublicationPreparationContext,
+    result: "DocumentationResult",
+    *,
+    report_blocks: Sequence[ReviewBlock] = (),
+    max_comment_bytes: int,
+) -> PlannedPublication:
+    """Freeze the complete docs report and its deterministic check/overflow plan."""
+    from .domain.documentation_review import DocumentationOutcome
+    if not result.frozen or result.outcome is None:
+        raise PublicationPlanningError("documentation result must be finalized before publication")
+    if (int(result.run_id), result.base_sha, result.head_sha) != (context.run_id, context.base_sha, context.head_sha):
+        raise PublicationPlanningError("documentation result does not match its publication subject")
+    current = tuple(item for item in context.current if not item.suppressed and item.occurrence_id not in context.dropped_occurrence_ids)
+    if current and result.outcome is not DocumentationOutcome.FINDINGS:
+        raise PublicationPlanningError("retained documentation findings require the findings outcome")
+    labels = {
+        DocumentationOutcome.NOT_NEEDED: "No documentation review needed",
+        DocumentationOutcome.NO_MISMATCH_FOUND: "No documentation mismatch found",
+        DocumentationOutcome.FINDINGS: "Documentation changes recommended",
+        DocumentationOutcome.INCOMPLETE: "Documentation review incomplete",
+        DocumentationOutcome.NOT_CONFIGURED: "Documentation rules not configured",
+        DocumentationOutcome.INVALID_CONFIGURATION: "Documentation configuration needs attention",
+        DocumentationOutcome.UNAVAILABLE: "Documentation review unavailable",
+    }
+    title = labels[result.outcome]
+    conclusion = "skipped" if result.outcome is DocumentationOutcome.NOT_NEEDED else (
+        "success" if result.outcome is DocumentationOutcome.NO_MISMATCH_FOUND and result.coverage_complete else "neutral"
+    )
+    scope = result.scope
+    details = (
+        f"## Documentation review\n\n**{title}**\n\n"
+        f"Reviewed commit: `{result.head_sha}`\n\n"
+        f"Coverage: {'complete for the selected scope' if result.coverage_complete else 'incomplete'}. "
+        f"{len(scope.areas) if scope else 0} selected areas; "
+        f"{len(scope.documents) if scope else 0} documentation paths. "
+        f"Semantic assessment: {'used' if result.semantic_inference_used else 'not used'}."
+    )
+    if result.incomplete_reasons:
+        details += "\n\nLimitations:\n" + "\n".join(f"- {reason}" for reason in result.incomplete_reasons)
+    blocks = [ReviewBlock(kind="header", markdown=details), *report_blocks]
+    # Findings always render from persisted records; caller prose cannot omit one.
+    for item in current:
+        blocks.append(ReviewBlock(kind="finding", markdown=(
+            f"### {item.local_reference} · {item.title}\n\n"
+            f"`{item.path}:{item.line}`\n\n{item.evidence}\n\n"
+            f"**Impact:** {item.impact}\n\n**Suggested correction:** {item.smallest_fix}"
+        )))
+    publication_findings = [PublicationFindingInput(
+        finding_id=item.finding_id, source_finding_occurrence_id=item.occurrence_id,
+        source_review_run_id=context.run_id, local_reference=item.local_reference,
+        outcome=PublicationFindingOutcome.CURRENT,
+    ) for item in current]
+    prior_verdicts = {item.local_reference: item for item in result.assessment.previous} if result.assessment else {}
+    current_fingerprints = {item.fingerprint for item in current}
+    resolved_count = 0
+    for previous in context.previous:
+        if previous.fingerprint in current_fingerprints:
+            continue
+        supplied = prior_verdicts.get(previous.local_reference)
+        if supplied is not None and (supplied.fingerprint != previous.fingerprint or supplied.occurrence_id != previous.occurrence_id):
+            raise PublicationPlanningError("documentation prior verdict no longer matches the published occurrence")
+        resolved = not previous.suppressed and supplied is not None and supplied.verdict == "resolved"
+        outcome = (PublicationFindingOutcome.SUPPRESSED if previous.suppressed else
+                   PublicationFindingOutcome.RESOLVED if resolved else PublicationFindingOutcome.NOT_CHECKED)
+        explanation = ("A current human suppression matches this evidence version." if previous.suppressed else
+                       supplied.rationale if supplied else "Not rechecked in this documentation review.")
+        label = "Suppressed" if previous.suppressed else "Resolved" if resolved else "Not checked"
+        if resolved:
+            resolved_count += 1
+        blocks.append(ReviewBlock(kind="closed_history" if resolved or previous.suppressed else "unchecked_history", markdown=(
+            f"### {previous.local_reference} · {label} · {previous.title}\n\n{explanation}"
+        )))
+        publication_findings.append(PublicationFindingInput(
+            finding_id=previous.finding_id, source_finding_occurrence_id=previous.occurrence_id,
+            source_review_run_id=previous.source_run_id, local_reference=previous.local_reference,
+            outcome=outcome, outcome_evidence=explanation,
+        ))
+    blocks.append(ReviewBlock(kind="feedback_help", markdown=(
+        "Post `/review docs` as a new top-level PR comment after updating the documents. "
+        "To correct a finding, use `/review docs false-positive F1 <reason>`. "
+        "Report scope problems with `/review docs feedback scope <reason>` or missed gaps "
+        "with `/review docs feedback missed <reason>`. Replace F1 with the finding reference."
+    )))
+    markdown = review_markdown_from_blocks(blocks)
+    key = _publication_key(context, markdown)
+    blocks.append(ReviewBlock(kind="metadata", markdown=f"<!-- {publication_marker(key)} -->"))
+    markdown = review_markdown_from_blocks(blocks)
+    parts: list[PublicationPartInput] = []
+    summary = markdown
+    report_numbers: list[JsonValue] = []
+    if len(markdown.encode("utf-8")) > CHECK_OUTPUT_MAX_BYTES:
+        try:
+            overflow = split_publication_body(
+                markdown, publication_key=key, max_comment_bytes=max_comment_bytes,
+                rendered_blocks_json=review_blocks_to_json(blocks),
+            )
+        except PublicationDomainError as exc:
+            if exc.code != "body_too_large":
+                raise
+            overflow = []
+            conclusion = "neutral"
+        for part in overflow:
+            parts.append(PublicationPartInput(
+                part_type=PublicationPartType.SUMMARY if part.part_number == 1 else PublicationPartType.CONTINUATION,
+                part_number=part.part_number, payload_schema_version=1, payload={"body": part.body},
+            ))
+            report_numbers.append(part.part_number)
+        summary = (
+            f"## Documentation review\n\n**{title}**\n\nReviewed commit: `{result.head_sha}`. "
+            f"Coverage: {'complete for the selected scope' if result.coverage_complete else 'incomplete'}.\n\n"
+        )
+        if overflow:
+            summary += "The complete report is available in the linked report parts."
+        else:
+            summary += (
+                "Delivery limitation: a report block exceeds GitHub's comment limit. "
+                "The complete report and findings are retained in review history; "
+                "this check does not claim that the complete report was delivered to GitHub."
+            )
+        if len(summary.encode("utf-8")) + len(report_numbers) * 300 > CHECK_OUTPUT_MAX_BYTES:
+            raise PublicationPlanningError("documentation overflow index exceeds the check output limit")
+    parts.append(PublicationPartInput(
+        part_type=PublicationPartType.CHECK_RUN, part_number=1, payload_schema_version=1,
+        payload={"name": DOCUMENTATION_CHECK_NAME, "head_sha": result.head_sha,
+                 "external_id": publication_marker(key), "status": "completed",
+                 "conclusion": conclusion, "title": title, "summary": summary,
+                 "report_part_numbers": report_numbers},
+    ))
+    plan = resolve_publication_plan(
+        publication_key=key, rendered_markdown=markdown, rendered_blocks_schema_version=1,
+        rendered_blocks=tuple({"kind": b.kind, "markdown": b.markdown} for b in blocks),
+        parts=parts,
+        findings=tuple(publication_findings),
+    )
+    return PlannedPublication(plan, len(current), 0, resolved_count, ())

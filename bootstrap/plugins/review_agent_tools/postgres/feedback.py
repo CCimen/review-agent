@@ -12,8 +12,7 @@ from psycopg.rows import TupleRow, class_row
 from ..domain.feedback import FeedbackStatus
 from ..domain.finding import FindingId, FindingOccurrenceId
 from ..domain.publication import PublicationId
-from ..domain.review import PullRequestId
-from ..domain.review import ReviewRunId
+from ..domain.review import PullRequestId, ReviewPurpose, ReviewRunId
 from ..feedback_commands import ReviewQualityFeedbackCommand
 
 
@@ -119,6 +118,7 @@ def current_publication(
     *,
     repository: str,
     pr_number: int,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> PublicationTarget | None:
     """Lock the current posted GitHub publication for one repository pull request."""
     _require_transaction(connection)
@@ -147,10 +147,11 @@ def current_publication(
               AND lower(repository.full_name) = lower(%s)
               AND pull_request.number = %s
               AND publication.status = 'posted'
+              AND publication.purpose = %s
               AND publication.superseded_by_publication_id IS NULL
             FOR SHARE OF publication
             """,
-            (repository, pr_number),
+            (repository, pr_number, purpose.value),
         ).fetchone()
     if row is None:
         return None

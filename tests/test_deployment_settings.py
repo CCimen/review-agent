@@ -73,11 +73,18 @@ class DeploymentSettingsTests(unittest.TestCase):
             "initial",
             datetime.now(timezone.utc),
         )
-        with patch.dict(os.environ, {"REVIEW_AGENT_JOB_RETRY_SECONDS": "47"}):
+        with patch.dict(
+            os.environ,
+            {
+                "REVIEW_AGENT_JOB_RETRY_SECONDS": "47",
+                "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED": "true",
+            },
+        ):
             revision = store.latest(connection)
         assert revision is not None
         self.assertEqual(revision.settings.job_retry_seconds, 47)
         self.assertEqual(revision.settings.worker_concurrency, 4)
+        self.assertFalse(revision.settings.documentation_review_enabled)
         legacy["API_SERVER_KEY"] = "must not be stored"
         with self.assertRaisesRegex(ValueError, "Stored deployment"):
             store.latest(connection)
@@ -104,7 +111,9 @@ class DeploymentSettingsTests(unittest.TestCase):
             review_contract.queued_contract({**frozen, "profile": "other"})
 
     def test_policy_rejects_unsafe_lease_and_round_trips(self) -> None:
-        values = DeploymentSettings(worker_concurrency=8, model="test-model")
+        values = DeploymentSettings(
+            worker_concurrency=8, model="test-model", documentation_review_enabled=True
+        )
         self.assertEqual(
             values, DeploymentSettings.from_environment(values.environment())
         )

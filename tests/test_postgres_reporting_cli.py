@@ -31,7 +31,7 @@ from review_agent_tools.domain.publication import (  # noqa: E402
     PublicationPartType,
     resolve_publication_plan,
 )
-from review_agent_tools.domain.review import DiffState, ReviewPhase  # noqa: E402
+from review_agent_tools.domain.review import DiffState, ReviewPhase, ReviewPurpose  # noqa: E402
 from review_agent_tools.postgres import (  # noqa: E402
     publications,
     quality_reporting,
@@ -342,6 +342,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         paths: tuple[str, ...] = ("src/flags.py",),
         policy_revision: str = "profile@1",
         resolved_config: dict[str, object] | None = None,
+        purpose: ReviewPurpose = ReviewPurpose.CODE,
     ) -> review_runs.StartedRun:
         selected_head = head_sha or self.head_sha
         result = review_run_application.start_postgres_review(
@@ -363,6 +364,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     else {"profile": "default-standard"}
                 ),
                 request_key=f"github:issue-comment:{request_suffix}",
+                purpose=purpose,
             ),
         )
         assert isinstance(result, review_runs.StartedRun)
@@ -489,6 +491,121 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 connection, run.run.id, findings_count=len(batch.items)
             )
         return posted
+
+    def test_admin_purpose_filters_keep_counts_and_selected_evidence_separate(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application
+        from review_agent_tools.documentation_scope import (
+            ChangedPath,
+            DocumentationScope,
+        )
+        from review_agent_tools.domain.documentation_review import DocumentationOutcome
+        from review_agent_tools.postgres import documentation_reviews
+
+        code = self.start(pr_number=17, request_suffix="purpose-code")
+        batch = self.record_finding(code, findings=())
+        self.publish_run(code, batch, key_character="c")
+        docs = self.start(
+            pr_number=17,
+            request_suffix="purpose-docs",
+            purpose=ReviewPurpose.DOCUMENTATION,
+        )
+        with self.runtime.transaction() as connection:
+            documentation_reviews.initialize(
+                connection, run_id=docs.run.id, comparison_sha=None
+            )
+            documentation_reviews.freeze_scope(
+                connection,
+                run_id=docs.run.id,
+                scope=DocumentationScope(
+                    base_sha="b" * 40,
+                    comparison_sha=None,
+                    head_sha=self.head_sha,
+                    status="not_configured",
+                    active_policy=False,
+                    policy_hash=None,
+                    proposal_status="unchanged",
+                    proposal_detail=None,
+                    changed_files=(ChangedPath("modified", "src/flags.py"),),
+                    areas=(),
+                    documents=(),
+                    exclusions=(),
+                    unmapped_paths=(),
+                    incomplete_reasons=("comparison_unavailable",),
+                ),
+            )
+            documentation_reviews.finalize(
+                connection,
+                run_id=docs.run.id,
+                outcome=DocumentationOutcome.NOT_CONFIGURED,
+                semantic_inference_used=False,
+            )
+
+        all_requests = admin_application.history(self.runtime, access=self.admin_access)
+        self.assertEqual(all_requests.total, 2)
+        for purpose, expected in (
+            (ReviewPurpose.CODE, code),
+            (ReviewPurpose.DOCUMENTATION, docs),
+        ):
+            with self.subTest(purpose=purpose):
+                history = admin_application.history(
+                    self.runtime, access=self.admin_access, purpose=purpose
+                )
+                self.assertEqual([item.id for item in history.items], [expected.run.id])
+                groups = admin_application.pull_requests(
+                    self.runtime, access=self.admin_access, purpose=purpose
+                )
+                self.assertEqual(
+                    (
+                        groups.total,
+                        groups.items[0].total_requests,
+                        groups.items[0].latest.id,
+                    ),
+                    (1, 1, expected.run.id),
+                )
+                overview = admin_application.overview(
+                    self.runtime, access=self.admin_access, purpose=purpose
+                )
+                self.assertEqual(overview.window.requests, 1)
+                self.assertEqual(
+                    overview.active_requests,
+                    int(purpose is ReviewPurpose.DOCUMENTATION),
+                )
+                usage = admin_application.usage(
+                    self.runtime, access=self.admin_access, purpose=purpose
+                )
+                self.assertEqual(usage.totals.requests, 1)
+                self.assertEqual(
+                    usage.totals.published_requests, int(purpose is ReviewPurpose.CODE)
+                )
+                quality = admin_application.quality_report(
+                    self.runtime,
+                    access=self.admin_access,
+                    repository=None,
+                    days=30,
+                    purpose=purpose,
+                )
+                self.assertEqual(
+                    quality.completed_reviews, int(purpose is ReviewPurpose.CODE)
+                )
+
+        detail = admin_application.review_detail(
+            self.runtime,
+            access=self.admin_access,
+            run_id=docs.run.id,
+            purpose=ReviewPurpose.DOCUMENTATION,
+        )
+        assert detail is not None and detail.documentation is not None
+        self.assertEqual([item.id for item in detail.requests], [docs.run.id])
+        self.assertEqual(
+            detail.documentation.outcome, DocumentationOutcome.NOT_CONFIGURED
+        )
+        self.assertFalse(detail.documentation.semantic_inference_used)
+        self.assertFalse(detail.documentation.coverage_complete)
+        self.assertIsNone(detail.documentation.comparison_sha)
+        self.assertEqual(detail.documentation.base_sha, "b" * 40)
+        self.assertEqual(detail.documentation.head_sha, self.head_sha)
 
     def test_admin_counts_requests_separately_and_keeps_recovered_failures(
         self,

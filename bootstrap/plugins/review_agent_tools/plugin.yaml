@@ -2,6 +2,10 @@ name: review-agent-tools
 version: 2.1.0
 description: Bounded GitHub PR context plus durable PostgreSQL review state
 provides_tools:
+  - review_agent_docs_begin
+  - review_agent_docs_scope
+  - review_agent_docs_file
+  - review_agent_docs_deliver
   - review_agent_begin
   - review_agent_pr_diff
   - review_agent_pr_files

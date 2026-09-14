@@ -197,6 +197,7 @@ def _definition(
             pull_requests_permission=_permission(
                 permissions.get("pull_requests"), "pull request permission"
             ),
+            checks_permission=_permission(permissions.get("checks"), "checks permission"),
         ),
         (
             github_app.InstallationStatus.SUSPENDED

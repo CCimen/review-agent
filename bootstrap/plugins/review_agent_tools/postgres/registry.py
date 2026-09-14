@@ -15,6 +15,7 @@ from ..domain.review import (
     PullRequestId,
     RepositoryId,
     ReviewDomainError,
+    ReviewPurpose,
     ReviewSubjectDefinition,
     ReviewSubjectId,
     decode_resolved_config,
@@ -83,6 +84,7 @@ class _ReviewSubjectRow:
     resolved_config_json: str
     resolved_config_hash: str
     created_at: datetime
+    purpose: str
 
 
 def _require_transaction(connection: psycopg.Connection[TupleRow]) -> None:
@@ -229,13 +231,13 @@ def create_or_get_subject(
             INSERT INTO review_agent.review_subjects (
                 pull_request_id, base_sha, head_sha, policy_revision,
                 resolved_config_schema_version, resolved_config,
-                resolved_config_hash, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, CURRENT_TIMESTAMP)
+                resolved_config_hash, created_at, purpose
+            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, CURRENT_TIMESTAMP, %s)
             ON CONFLICT ON CONSTRAINT review_subjects_identity_uk DO NOTHING
             RETURNING id, pull_request_id, base_sha, head_sha, policy_revision,
                       resolved_config_schema_version,
                       resolved_config::text AS resolved_config_json,
-                      resolved_config_hash, created_at
+                      resolved_config_hash, created_at, purpose
             """,
             (
                 pull_request_id,
@@ -245,6 +247,7 @@ def create_or_get_subject(
                 config.schema_version,
                 config.canonical_json,
                 config.sha256,
+                definition.purpose.value,
             ),
         ).fetchone()
         if row is None:
@@ -253,7 +256,7 @@ def create_or_get_subject(
                 SELECT id, pull_request_id, base_sha, head_sha, policy_revision,
                        resolved_config_schema_version,
                        resolved_config::text AS resolved_config_json,
-                       resolved_config_hash, created_at
+                       resolved_config_hash, created_at, purpose
                 FROM review_agent.review_subjects
                 WHERE pull_request_id = %s
                   AND base_sha = %s
@@ -261,6 +264,7 @@ def create_or_get_subject(
                   AND policy_revision = %s
                   AND resolved_config_schema_version = %s
                   AND resolved_config_hash = %s
+                  AND purpose = %s
                 """,
                 (
                     pull_request_id,
@@ -269,6 +273,7 @@ def create_or_get_subject(
                     definition.policy_revision,
                     config.schema_version,
                     config.sha256,
+                    definition.purpose.value,
                 ),
             ).fetchone()
     if row is None:
@@ -287,6 +292,7 @@ def create_or_get_subject(
         head_sha=row.head_sha,
         policy_revision=row.policy_revision,
         resolved_config=stored_config,
+        purpose=ReviewPurpose(row.purpose),
     )
     if stored_definition != definition:
         raise SubjectConflict("stored review subject does not match the request")

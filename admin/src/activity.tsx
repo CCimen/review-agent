@@ -23,11 +23,18 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import type { HistoryItem, HistoryPage, Overview } from "./api";
 import { read } from "./api";
-import { ReviewProgress, reviewStateLabel } from "./reviewProgress";
+import { ReviewPurposeFilter, selectedReviewPurpose, reviewPurposeLabel } from "./reviewPurpose";
+import {
+  ReviewProgress,
+  reviewStateLabel,
+  reviewStateTone,
+} from "./reviewProgress";
+import { ReviewUsageSummary } from "./reviewUsage";
 import { ScopedLink as Link, ScopedAnchor, useScope } from "./scope";
 import {
   Empty,
   Freshness,
+  Loading,
   Period,
   Stat,
   failureSentence,
@@ -73,6 +80,7 @@ export function ActivityTabs() {
 export function ActivityPage() {
   const scope = useScope();
   const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   const status = params.get("status") ?? "all";
   const {
     draft: repository,
@@ -90,6 +98,7 @@ export function ActivityPage() {
     status,
     limit: "50",
   });
+  if (purpose) queryParams.set("purpose", purpose);
   for (const key of ["repository", "pr_number", "before_id"]) {
     const value = params.get(key);
     if (value) queryParams.set(key, value);
@@ -98,7 +107,7 @@ export function ActivityPage() {
     document.title = "Review Agent · Activity";
   }, []);
   const filtered =
-    status !== "all" ||
+    !!purpose || status !== "all" ||
     params.has("repository") ||
     params.has("pr_number") ||
     params.has("before_id");
@@ -108,9 +117,9 @@ export function ActivityPage() {
       read<HistoryPage>(scope.path(`/api/history?${queryParams}`), signal),
   });
   const overview = useQuery({
-    queryKey: ["overview", days, "scoped", scope.key],
+    queryKey: ["overview", days, ...(purpose ? [purpose] : []), "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<Overview>(scope.path(`/api/overview?days=${days}`), signal),
+      read<Overview>(scope.path(`/api/overview?days=${days}${purpose ? `&purpose=${purpose}` : ""}`), signal),
   });
   const data = overview.data;
   const columns: TableColumn<HistoryItem>[] = [
@@ -123,6 +132,7 @@ export function ActivityPage() {
           <Link to={`/history/${item.id}?${params}`}>
             {item.repository} <Text>#{item.pr_number}</Text>
           </Link>
+          <Text type="supporting" color="secondary">{reviewPurposeLabel(item.purpose)}</Text>
           <Text type="supporting">
             Request #{item.id} · {time(item.started_at)}
           </Text>
@@ -144,19 +154,7 @@ export function ActivityPage() {
           <StatusDot
             label={reviewStateLabel(item)}
             aria-hidden="true"
-            variant={
-              item.state === "published"
-                ? item.coverage.state === "complete"
-                  ? "success"
-                  : "warning"
-                : item.state === "stalled"
-                  ? "warning"
-                  : item.state === "failed"
-                    ? "error"
-                    : item.state === "running" || item.state === "publishing"
-                      ? "accent"
-                      : "neutral"
-            }
+            variant={reviewStateTone(item)}
           />
           <Text>{reviewStateLabel(item)}</Text>
         </HStack>
@@ -197,6 +195,12 @@ export function ActivityPage() {
           : `${item.attempt_count} of ${item.max_attempts}`,
     },
     {
+      key: "usage",
+      header: "Recorded tokens",
+      width: proportional(1, { minWidth: 190 }),
+      renderCell: (item) => <ReviewUsageSummary usage={item.usage} />,
+    },
+    {
       key: "last_heartbeat_at",
       header: "Last activity",
       width: pixel(150),
@@ -222,31 +226,35 @@ export function ActivityPage() {
         <Period days={days} change={(value) => update({ days: value })} />
       </HStack>
       <ActivityTabs />
-      <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
-        <Stat
-          label="Active requests"
-          value={data?.active_requests}
-          hint="Across all reporting periods"
-        />
-        <Stat
-          label="Published"
-          value={data?.window.published_reviews}
-          hint={`Last ${days} days`}
-        />
-        <Stat
-          label="Failed"
-          value={data?.window.failed_requests}
-          hint="Includes earlier failures followed by a successful review"
-          attention={(data?.window.failed_requests ?? 0) > 0}
-        />
-        {data?.live_review_workers != null ? (
+      {/* Once the request has failed with nothing cached, a shimmering tile
+          promises a figure that is not coming. */}
+      {overview.isError && !data ? null : (
+        <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
           <Stat
-            label="Review workers online"
-            value={data.live_review_workers}
-            hint={`${data.review_capacity} slots reported by online workers`}
+            label="Active requests"
+            value={data?.active_requests}
+            hint="Across all reporting periods"
           />
-        ) : null}
-      </Grid>
+          <Stat
+            label="Published"
+            value={data?.window.published_reviews}
+            hint={`Last ${days} days`}
+          />
+          <Stat
+            label="Failed"
+            value={data?.window.failed_requests}
+            hint="Includes earlier failures followed by a successful review"
+            attention={(data?.window.failed_requests ?? 0) > 0}
+          />
+          {data?.live_review_workers != null ? (
+            <Stat
+              label="Review workers online"
+              value={data.live_review_workers}
+              hint={`${data.review_capacity} slots reported by online workers`}
+            />
+          ) : null}
+        </Grid>
+      )}
       <Freshness query={overview} quiet />
       <VStack gap={4}>
         {/* One filter bar. The state segments already applied on click while
@@ -255,6 +263,7 @@ export function ActivityPage() {
             because pushing the groups to opposite edges opened a gap the
             width of the console between controls that filter one list. */}
         <HStack gap={4} align="end" wrap="wrap">
+          <ReviewPurposeFilter value={purpose} onChange={(value) => update({ purpose: value })} />
           <SegmentedControl
             label="Filter request state"
             value={status}
@@ -311,12 +320,15 @@ export function ActivityPage() {
               onClick={() =>
                 // The state segments are filters too, so the control that
                 // offers to clear filters clears them as well.
-                update({ status: "", repository: "", pr_number: "" })
+                update({ status: "", repository: "", pr_number: "", purpose: "" })
               }
             />
           ) : null}
         </HStack>
         <Freshness query={query} />
+        {query.isPending && (
+          <Loading label="Loading review requests" rows={8} />
+        )}
         {query.data &&
           (query.data.items.length ? (
             <VStack gap={3}>

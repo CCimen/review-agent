@@ -11,6 +11,7 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
+from ..domain.review import ReviewPurpose
 from .team_access import ReadScope, repository_source, run_source
 
 WorkerKind = Literal["review", "publisher", "webhook"]
@@ -65,7 +66,7 @@ def _counts(
     connection: psycopg.Connection[TupleRow],
     start: datetime | None,
     end: datetime,
-    scope: ReadScope | None,
+    runs: sql.Composable,
 ) -> ActivityCounts:
     with connection.cursor(row_factory=class_row(ActivityCounts)) as cursor:
         result = cursor.execute(
@@ -93,7 +94,7 @@ def _counts(
                   AND (%(start)s::timestamptz IS NULL OR u.recorded_at >= %(start)s)
             )
             SELECT review_counts.*, usage.* FROM review_counts CROSS JOIN usage
-        """).format(runs=run_source(scope), repositories=repository_source(scope)),
+        """).format(runs=runs),
             {"start": start, "end": end},
         ).fetchone()
     assert result is not None
@@ -107,7 +108,13 @@ def overview(
     start: datetime,
     end: datetime,
     now: datetime,
+    purpose: ReviewPurpose | None = None,
 ) -> Overview:
+    runs = run_source(scope)
+    if purpose is not None:
+        runs = sql.SQL(
+            "(SELECT purpose_run.* FROM {} purpose_run WHERE purpose_run.purpose = {})"
+        ).format(runs, sql.Literal(purpose.value))
     totals = connection.execute(
         sql.SQL("""
         SELECT (SELECT min(started_at) FROM {runs} r),
@@ -118,7 +125,7 @@ def overview(
             count(*) FILTER (WHERE kind = 'review' AND state = 'running' AND last_seen_at > %(now)s - %(stale_seconds)s * interval '1 second'),
             coalesce(sum(capacity) FILTER (WHERE kind = 'review' AND state = 'running' AND last_seen_at > %(now)s - %(stale_seconds)s * interval '1 second'), 0)::bigint
         FROM review_agent.worker_instances
-    """).format(runs=run_source(scope), repositories=repository_source(scope)),
+    """).format(runs=runs, repositories=repository_source(scope)),
         {"now": now, "stale_seconds": WORKER_STALE_SECONDS},
     ).fetchone()
     assert totals is not None
@@ -128,7 +135,7 @@ def overview(
             SELECT date_trunc('day', posted_at, 'UTC') AS date, count(*) AS published_reviews
             FROM review_agent.publications p JOIN {runs} r ON r.id = p.review_run_id WHERE posted_at >= %s AND posted_at < %s
             GROUP BY 1 ORDER BY 1
-        """).format(runs=run_source(scope), repositories=repository_source(scope)),
+        """).format(runs=runs, repositories=repository_source(scope)),
             (start, end),
         ).fetchall()
     with connection.cursor(row_factory=class_row(FailureCount)) as cursor:
@@ -138,7 +145,7 @@ def overview(
             FROM {runs} r
             WHERE status = 'failed' AND completed_at >= %s AND completed_at < %s
             GROUP BY 1 ORDER BY requests DESC, failure_code LIMIT 10
-        """).format(runs=run_source(scope), repositories=repository_source(scope)),
+        """).format(runs=runs, repositories=repository_source(scope)),
             (start, end),
         ).fetchall()
     return Overview(
@@ -156,8 +163,8 @@ def overview(
         totals[6]
         if scope is None or (scope.global_read and scope.team_id is None)
         else None,
-        _counts(connection, None, now, scope),
-        _counts(connection, start, end, scope),
+        _counts(connection, None, now, runs),
+        _counts(connection, start, end, runs),
         tuple(days),
         tuple(failures),
     )

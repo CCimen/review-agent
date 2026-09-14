@@ -24,7 +24,7 @@ except ImportError as exc:  # Hermes ships PyYAML; fail clearly on unexpected im
 SOURCE = Path(__file__).resolve().parent
 PROFILES_SOURCE = SOURCE / "profiles"
 DEFAULT_PROFILE = "default-standard"
-REQUIRED_PROFILE_SKILLS = ("review-agent-pr",)
+REQUIRED_PROFILE_SKILLS = ("review-agent-pr", "review-agent-docs")
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/opt/data")).resolve()
 PROFILE_RECEIPT = review_contract.RECEIPT_NAME
 _PROFILE_KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")

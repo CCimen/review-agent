@@ -2,20 +2,6 @@ name: Documentation check
 
 on:
   pull_request:
-    paths:
-      - '.github/workflows/docs-check.yml'
-      - '.github/workflows/docs-pages.yml'
-      - 'docs/**'
-      - '!docs/goals/**'
-      - '.agents/skills/install-review-agent/**'
-      - '.claude/skills/install-review-agent/**'
-      - 'examples/comments/**'
-      - 'install/**'
-      - 'scripts/check_docs.py'
-      - 'scripts/generate_llms_docs.py'
-      - 'scripts/sync_install_skill.py'
-      - 'skills/install-review-agent/**'
-      - 'website/**'
   workflow_dispatch:
 
 permissions:

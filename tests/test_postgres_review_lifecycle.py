@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
@@ -18,6 +19,7 @@ from review_agent_tools.domain.review import (  # noqa: E402
     JsonObject,
     ReviewDomainError,
     ReviewPhase,
+    ReviewPurpose,
     ReviewStatus,
     resolve_review_subject,
 )
@@ -33,6 +35,26 @@ DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 
 
 class ReviewSubjectContractTests(unittest.TestCase):
+    def test_purpose_separates_subjects_without_changing_code_configuration(self) -> None:
+        code = resolve_review_subject(
+            base_sha="b" * 40,
+            head_sha="a" * 40,
+            policy_revision="profile@1",
+            resolved_config_schema_version=1,
+            resolved_config={},
+        )
+        docs = resolve_review_subject(
+            base_sha="b" * 40,
+            head_sha="a" * 40,
+            policy_revision="profile@1",
+            resolved_config_schema_version=1,
+            resolved_config={},
+            purpose=ReviewPurpose.DOCUMENTATION,
+        )
+        self.assertEqual(code.purpose, ReviewPurpose.CODE)
+        self.assertNotEqual(code, docs)
+        self.assertEqual(code.resolved_config, docs.resolved_config)
+
     def test_resolved_config_is_canonical_versioned_and_hashed(self) -> None:
         first = resolve_review_subject(
             base_sha="b" * 40,
@@ -239,6 +261,24 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
             trigger_user="reviewer",
         )
 
+    def test_code_and_docs_coexist_and_supersede_only_their_own_purpose(self) -> None:
+        code = review_run_application.start_postgres_review(self.runtime, self.request())
+        request = replace(
+            self.request(request_key="docs:1"),
+            purpose=ReviewPurpose.DOCUMENTATION,
+        )
+        docs = review_run_application.start_postgres_review(self.runtime, request)
+        self.assertNotEqual(code.run.review_subject_id, docs.run.review_subject_id)
+        self.assertEqual(docs.run.purpose, ReviewPurpose.DOCUMENTATION)
+        changed = review_run_application.start_postgres_review(
+            self.runtime, replace(request, request_key="docs:2", base_sha="c" * 40)
+        )
+        with self.runtime.transaction() as connection:
+            self.assertEqual(postgres_review_runs.get_run(connection, code.run.id).status, ReviewStatus.RUNNING)
+            self.assertEqual(postgres_review_runs.get_run(connection, docs.run.id).status, ReviewStatus.SUPERSEDED)
+            self.assertEqual(postgres_review_runs.get_run_scope(connection, changed.run.id).run.purpose, ReviewPurpose.DOCUMENTATION)
+        self.assertNotEqual(changed.run.review_subject_id, docs.run.review_subject_id)
+
     def test_start_is_idempotent_and_cross_scope_key_conflict_rolls_back(self) -> None:
         first = review_run_application.start_postgres_review(
             self.runtime, self.request()
@@ -363,6 +403,39 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
             )
         self.assertIsNone(cleared.comment_id)
         self.assertEqual(comments, ())
+
+    def test_documentation_activity_does_not_hide_a_code_failure(self) -> None:
+        code = review_run_application.start_postgres_review(self.runtime, self.request())
+        assert isinstance(code, postgres_review_runs.StartedRun)
+        with self.runtime.transaction() as connection:
+            postgres_review_runs.fail_run(connection, code.run.id, failure_code="review_failed")
+        docs = review_run_application.start_postgres_review(
+            self.runtime,
+            replace(self.request(request_key="docs:failure-isolation"), purpose=ReviewPurpose.DOCUMENTATION),
+        )
+        assert isinstance(docs, postgres_review_runs.StartedRun)
+        with self.runtime.transaction() as connection:
+            postgres_review_runs.suppress_unposted_failure_statuses_for_pull_request(
+                connection, repository="team/reviewer", pr_number=14,
+                purpose=ReviewPurpose.DOCUMENTATION,
+            )
+            claim = postgres_review_runs.claim_failure_status(
+                connection, run_id=code.run.id, lease_owner="purpose-test",
+                lease_duration=timedelta(minutes=5),
+            )
+            postgres_review_runs.complete_failure_status(
+                connection, run_id=code.run.id, lease_owner="purpose-test",
+                lease_generation=claim.target.delivery_lease_generation, comment_id=8802,
+            )
+            code_comments = postgres_review_runs.failure_status_comments_for_pull_request(
+                connection, repository="team/reviewer", pr_number=14,
+            )
+            docs_comments = postgres_review_runs.failure_status_comments_for_pull_request(
+                connection, repository="team/reviewer", pr_number=14,
+                purpose=ReviewPurpose.DOCUMENTATION,
+            )
+        self.assertEqual([item.run_id for item in code_comments], [code.run.id])
+        self.assertEqual(docs_comments, ())
 
     def test_render_validation_can_reopen_finding_collection_only(self) -> None:
         started = review_run_application.start_postgres_review(

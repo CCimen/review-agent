@@ -22,13 +22,20 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { Account, RepositoryPage } from "./api";
 import { APIError, read, write } from "./api";
 import { AuditLog } from "./audit";
-import { ScopedLink as Link, ScopeProvider, isAdmin, useScope } from "./scope";
+import {
+  ScopedLink as Link,
+  ScopedAnchor,
+  ScopeProvider,
+  isAdmin,
+  useScope,
+} from "./scope";
 import { RepositoryRequests, TeamDetail, TeamsPage } from "./teams";
 
 import { Access, RepositoryTabs } from "./access";
 import { Login, MyAccount, Users } from "./accounts";
 import { ActivityPage } from "./activity";
 import { ConsoleLayout } from "./console";
+import { RepositoryDocumentationSection } from "./documentation";
 import { History, ReviewPage } from "./history";
 import { OperationsPage } from "./operations";
 import { OverviewPage } from "./overview";
@@ -38,6 +45,7 @@ import { UsagePage } from "./usage";
 import {
   Empty,
   Freshness,
+  Loading,
   Period,
   Prose,
   Stat,
@@ -63,10 +71,43 @@ const ModelConnectionsPage = lazy(() =>
   })),
 );
 
+function NotFound() {
+  useEffect(() => {
+    document.title = "Review Agent · Page not found";
+  }, []);
+  return (
+    <>
+      <VStack gap={3}>
+        <Heading level={1}>Page not found</Heading>
+        <Text as="p" color="secondary">
+          The console has no page at this address.
+        </Text>
+      </VStack>
+      <Empty title="Nothing here">
+        <VStack gap={3} hAlign="center">
+          <Text color="secondary">
+            The link may be out of date, or the page may have moved. Everything
+            the console can show is in the navigation.
+          </Text>
+          <Button
+            label="Go to activity"
+            variant="secondary"
+            href="/"
+            as={ScopedAnchor}
+          />
+        </VStack>
+      </Empty>
+    </>
+  );
+}
+
 function Repositories({ current }: { current: Account }) {
   const scope = useScope();
   const { params, days, update } = useFilters();
   const search = params.get("search") ?? "";
+  const documentationRepositoryId = Number(params.get("documentation_repository"));
+  const documentationRepository = Number.isSafeInteger(documentationRepositoryId) && documentationRepositoryId > 0
+    ? documentationRepositoryId : null;
   const offset = Math.max(0, Number(params.get("offset")) || 0);
   const { draft, setDraft, flush } = useLiveSearch(search, (value) =>
     update({ search: value }, { replace: true }),
@@ -103,6 +144,7 @@ function Repositories({ current }: { current: Account }) {
       renderCell: (repo) => (
         <VStack gap={1}>
           <Link to={historyURL(repo.repository)}>{repo.repository}</Link>
+          <Link to={`/repositories?documentation_repository=${repo.repository_id}`}>Documentation settings</Link>
           <Text type="supporting">
             {repo.last_activity_at
               ? `Last activity ${time(repo.last_activity_at)}`
@@ -188,16 +230,25 @@ function Repositories({ current }: { current: Account }) {
   ];
   return (
     <>
-      <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-        <VStack gap={3}>
-          <Heading level={1}>Repositories &amp; access</Heading>
-          <Text as="p">
-            Review activity across your registered repositories.
-          </Text>
-        </VStack>
-        <Link to={`/history?days=${days}`}>View all reviews</Link>
-      </HStack>
+      <VStack gap={3}>
+        <Heading level={1}>Repositories &amp; access</Heading>
+        <Text as="p" color="secondary">
+          Review activity across your registered repositories.
+        </Text>
+        {/* The same treatment the team page gives its reporting links: a
+            labelled action near the title rather than a bare link pinned to
+            the far edge of a header the width of the screen. */}
+        <HStack gap={3} wrap="wrap" align="center">
+          <Button
+            label="View all reviews"
+            variant="secondary"
+            href={`/history?days=${days}`}
+            as={ScopedAnchor}
+          />
+        </HStack>
+      </VStack>
       <RepositoryTabs role={current.role} />
+      {documentationRepository !== null && <RepositoryDocumentationSection repositoryId={documentationRepository} close={() => update({ documentation_repository: "" })} />}
       <HStack gap={4} wrap="wrap" align="end">
         <TextInput
           label={"Find a repository"}
@@ -222,11 +273,14 @@ function Repositories({ current }: { current: Account }) {
         <Period days={days} change={(value) => update({ days: value })} />
       </HStack>
       <Freshness query={query} />
+      {query.isPending && <Loading label="Loading repositories" rows={6} />}
       {/* With nothing matching, six zeroes and a sentence explaining what
           they would have counted say less than the empty state below. */}
       {query.data && totals && query.data.total > 0 && (
         <>
-          <Grid gap={4} columns={{ minWidth: 160, max: 3, repeat: "fit" }}>
+          {/* One row, as on Activity; three columns left half the width
+              between figures that belong together. */}
+          <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
             <Stat label="Repositories" value={query.data.total} />
             <Stat label="PRs reviewed" value={totals.prs_reviewed} />
             <Stat label="Published reviews" value={totals.published_requests} />
@@ -421,7 +475,15 @@ function Application({
         logout={() => logout.mutate()}
         signingOut={logout.isPending}
       >
-        <Section padding={0} maxWidth={1440}>
+        {/* Keyed by path so a new page enters rather than snapping into
+            the old one's place; filter changes keep the same key and move
+            nothing. */}
+        <Section
+          padding={0}
+          maxWidth={1440}
+          className="console-page"
+          key={pathname}
+        >
           <VStack gap={6} padding={6} paddingInline={isNarrow ? 4 : 6}>
             {logout.isError && (
               <Text as="p" role="alert">
@@ -545,6 +607,7 @@ function Application({
                 path="/account"
                 element={<MyAccount current={current} />}
               />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </VStack>
         </Section>

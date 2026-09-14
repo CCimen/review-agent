@@ -21,6 +21,7 @@ from .domain.review import (
     PullRequestId,
     ReviewDomainError,
     ReviewMode,
+    ReviewPurpose,
     ReviewPhase,
     ReviewRunId,
     ReviewStatus,
@@ -91,6 +92,7 @@ class PostgresRunRequest:
     request_key: str
     trigger_comment_id: int | None = None
     trigger_user: str = ""
+    purpose: ReviewPurpose = ReviewPurpose.CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,9 +380,29 @@ def admit_postgres_review_in_transaction(
     priority: int,
     max_attempts: int,
     active_job_limit: int,
+    reuse_completed_documentation: bool = False,
 ) -> AdmittedReview:
     """Admit one review through an existing caller-owned transaction."""
     pull_request_id, subject_id = _ensure_review_scope(connection, request)
+    if reuse_completed_documentation:
+        if request.purpose is not ReviewPurpose.DOCUMENTATION:
+            raise ReviewRunError("completed-result reuse is only available for automatic documentation")
+        connection.execute("SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE", (pull_request_id,))
+        completed = connection.execute("""SELECT run.id FROM review_agent.review_runs run
+            JOIN review_agent.publications publication ON publication.review_run_id = run.id
+            JOIN review_agent.documentation_reviews result ON result.review_run_id = run.id
+            WHERE run.review_subject_id = %s AND run.status = 'completed'
+              AND publication.status = 'posted' AND publication.superseded_by_publication_id IS NULL
+              AND result.outcome IN ('not_needed', 'no_mismatch_found', 'findings') AND result.coverage_complete
+              AND NOT EXISTS (SELECT 1 FROM review_agent.review_runs active WHERE active.pull_request_id = %s
+                              AND active.purpose = 'documentation' AND active.status = 'running')
+            ORDER BY run.id DESC LIMIT 1""", (subject_id, pull_request_id)).fetchone()
+        if completed is not None:
+            run_id = ReviewRunId(completed[0])
+            run = postgres_review_runs.DuplicateRun(postgres_review_runs.get_run(connection, run_id), reason="completed_subject")
+            job = postgres_jobs.enqueue_run(connection, review_run_id=run_id, priority=priority,
+                max_attempts=max_attempts, active_job_limit=active_job_limit)
+            return AdmittedReview(run=run, job=job)
     run = start_run_in_transaction(
         connection,
         pull_request_id=pull_request_id,
@@ -411,6 +433,7 @@ def _ensure_review_scope(
         )
     )
     subject_definition = resolve_review_subject(
+        purpose=request.purpose,
         base_sha=request.base_sha,
         head_sha=request.head_sha,
         policy_revision=request.policy_revision,

@@ -19,6 +19,7 @@ from ..domain.review import (
     JsonObject,
     PullRequestId,
     ReviewPhase,
+    ReviewPurpose,
     ReviewRunId,
     ReviewStatus,
     ReviewSubjectId,
@@ -27,7 +28,7 @@ from ..domain.review import (
 )
 
 
-DuplicateReason: TypeAlias = Literal["request_key", "active_run"]
+DuplicateReason: TypeAlias = Literal["request_key", "active_run", "completed_subject"]
 
 
 class ReviewRunError(ValueError):
@@ -69,6 +70,7 @@ class ReviewRun:
     started_at: datetime
     last_heartbeat_at: datetime
     completed_at: datetime | None
+    purpose: ReviewPurpose = ReviewPurpose.CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +106,7 @@ class _ReviewRunScopeRow:
     head_sha: str
     resolved_config_schema_version: int
     resolved_config_json: str
+    purpose: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,12 +184,13 @@ class _ReviewRunRow:
     started_at: datetime
     last_heartbeat_at: datetime
     completed_at: datetime | None
+    purpose: str
 
 
 _RUN_COLUMNS = """
     id, pull_request_id, review_subject_id, request_key, trigger_comment_id,
     trigger_user, status, phase, findings_count, failure_code, started_at,
-    last_heartbeat_at, completed_at
+    last_heartbeat_at, completed_at, purpose
 """
 
 _NEXT_PHASE = {
@@ -221,6 +225,7 @@ def _run(row: _ReviewRunRow) -> ReviewRun:
     try:
         status = ReviewStatus(row.status)
         phase = ReviewPhase(row.phase)
+        purpose = ReviewPurpose(row.purpose)
     except ValueError as exc:
         raise ReviewRunError("stored review run has an unknown lifecycle value") from exc
     return ReviewRun(
@@ -237,6 +242,7 @@ def _run(row: _ReviewRunRow) -> ReviewRun:
         started_at=row.started_at,
         last_heartbeat_at=row.last_heartbeat_at,
         completed_at=row.completed_at,
+        purpose=purpose,
     )
 
 
@@ -281,13 +287,14 @@ def find_request_config(
 
 
 def _active_run(
-    connection: psycopg.Connection[TupleRow], pull_request_id: PullRequestId
+    connection: psycopg.Connection[TupleRow], pull_request_id: PullRequestId,
+    purpose: ReviewPurpose,
 ) -> ReviewRun | None:
     with connection.cursor(row_factory=class_row(_ReviewRunRow)) as cursor:
         row = cursor.execute(
             f"SELECT {_RUN_COLUMNS} FROM review_agent.review_runs "
-            "WHERE pull_request_id = %s AND status = 'running'",
-            (pull_request_id,),
+            "WHERE pull_request_id = %s AND purpose = %s AND status = 'running'",
+            (pull_request_id, purpose.value),
         ).fetchone()
     return _run(row) if row is not None else None
 
@@ -345,7 +352,7 @@ def get_run_scope(
             SELECT run.id, run.pull_request_id, run.review_subject_id,
                    run.request_key, run.trigger_comment_id, run.trigger_user,
                    run.status, run.phase, run.findings_count, run.failure_code,
-                   run.started_at, run.last_heartbeat_at, run.completed_at,
+                   run.started_at, run.last_heartbeat_at, run.completed_at, run.purpose,
                    repository.provider_repository_id,
                    repository.full_name AS repository,
                    pull_request.number AS pr_number,
@@ -381,6 +388,7 @@ def get_run_scope(
                 started_at=row.started_at,
                 last_heartbeat_at=row.last_heartbeat_at,
                 completed_at=row.completed_at,
+                purpose=row.purpose,
             )
         ),
         provider_repository_id=row.provider_repository_id,
@@ -557,6 +565,7 @@ def claim_next_failure_status(
               AND NOT EXISTS (
                   SELECT 1 FROM review_agent.review_runs AS newer
                   WHERE newer.pull_request_id = review_runs.pull_request_id
+                    AND newer.purpose = review_runs.purpose
                     AND newer.id > review_runs.id
               )
             ORDER BY failure_status_delivery_available_at, id
@@ -611,7 +620,7 @@ def claim_failure_status(
           )
           AND NOT EXISTS (
               SELECT 1 FROM review_agent.review_runs AS newer
-              WHERE newer.pull_request_id = run.pull_request_id
+              WHERE newer.pull_request_id = run.pull_request_id AND newer.purpose = run.purpose
                 AND newer.id > run.id
           )""",
         (owner, lease_duration, run_id),
@@ -638,7 +647,7 @@ def require_live_failure_status_lease(
            AND failure_status_delivery_lease_expires_at > statement_timestamp()
            AND NOT EXISTS (
                 SELECT 1 FROM review_agent.review_runs AS newer
-                WHERE newer.pull_request_id = run.pull_request_id
+                WHERE newer.pull_request_id = run.pull_request_id AND newer.purpose = run.purpose
                   AND newer.id > run.id
            )
         FROM review_agent.review_runs AS run WHERE run.id = %s
@@ -690,7 +699,7 @@ def complete_failure_status(
           AND failure_status_delivery_lease_generation = %s
           AND failure_status_delivery_lease_expires_at > statement_timestamp()
           AND NOT EXISTS (SELECT 1 FROM review_agent.review_runs AS newer
-              WHERE newer.pull_request_id = run.pull_request_id
+              WHERE newer.pull_request_id = run.pull_request_id AND newer.purpose = run.purpose
                 AND newer.id > run.id)""",
         (comment_id, run_id, lease_owner, lease_generation),
     ).rowcount
@@ -752,7 +761,7 @@ def failed_runs_needing_status(
         "(run.failure_status_delivery_status = 'failed' OR "
         "run.failure_status_delivery_available_at <= statement_timestamp())",
         "NOT EXISTS (SELECT 1 FROM review_agent.review_runs AS newer "
-        "WHERE newer.pull_request_id = run.pull_request_id AND newer.id > run.id)",
+        "WHERE newer.pull_request_id = run.pull_request_id AND newer.purpose = run.purpose AND newer.id > run.id)",
     ]
     parameters: list[object] = []
     if repository is not None:
@@ -795,6 +804,7 @@ def suppress_unposted_failure_statuses_for_pull_request(
     repository: str,
     pr_number: int,
     exclude_run_id: ReviewRunId | None = None,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> None:
     """Suppress unposted terminal statuses superseded by another PR outcome."""
     _require_transaction(connection)
@@ -817,12 +827,13 @@ def suppress_unposted_failure_statuses_for_pull_request(
           AND repository.provider = 'github'
           AND lower(repository.full_name) = lower(%s)
           AND pull_request.number = %s
+          AND run.purpose = %s
           AND run.status IN ('failed', 'superseded')
           AND run.failure_status_comment_id IS NULL
           AND run.failure_status_delivery_status NOT IN ('suppressed', 'posted')
           AND (%s::bigint IS NULL OR run.id <> %s::bigint)
         """,
-        (repository.strip(), pr_number, exclude_run_id, exclude_run_id),
+        (repository.strip(), pr_number, purpose.value, exclude_run_id, exclude_run_id),
     )
 
 
@@ -865,6 +876,7 @@ def failure_status_comments_for_pull_request(
     repository: str,
     pr_number: int,
     exclude_run_id: ReviewRunId | None = None,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> tuple[StoredFailureStatusComment, ...]:
     """List stored failure-status comments for one GitHub pull request."""
     _require_transaction(connection)
@@ -883,11 +895,12 @@ def failure_status_comments_for_pull_request(
             WHERE repository.provider = 'github'
               AND lower(repository.full_name) = lower(%s)
               AND pull_request.number = %s
+          AND run.purpose = %s
               AND run.failure_status_comment_id IS NOT NULL
               AND (%s::bigint IS NULL OR run.id <> %s::bigint)
             ORDER BY run.id
             """,
-            (repository.strip(), pr_number, exclude_run_id, exclude_run_id),
+            (repository.strip(), pr_number, purpose.value, exclude_run_id, exclude_run_id),
         ).fetchall()
     return tuple(rows)
 
@@ -937,6 +950,15 @@ def start_run(
     if pull_request is None:
         raise ReviewRunError("pull request does not exist")
 
+    subject = connection.execute(
+        "SELECT purpose FROM review_agent.review_subjects "
+        "WHERE id = %s AND pull_request_id = %s",
+        (review_subject_id, pull_request_id),
+    ).fetchone()
+    if subject is None:
+        raise ReviewRunError("review subject does not belong to this pull request")
+    purpose = ReviewPurpose(subject[0])
+
     existing_request = _by_request_key(connection, request_key)
     if existing_request is not None:
         return _same_request(
@@ -946,7 +968,7 @@ def start_run(
         )
 
     superseded_run_id: ReviewRunId | None = None
-    active = _active_run(connection, pull_request_id)
+    active = _active_run(connection, pull_request_id, purpose)
     if active is not None:
         if active.review_subject_id == review_subject_id:
             return DuplicateRun(run=active, reason="active_run")
@@ -957,10 +979,10 @@ def start_run(
             f"""
             INSERT INTO review_agent.review_runs (
                 pull_request_id, review_subject_id, request_key,
-                trigger_comment_id, trigger_user, status, phase,
+                trigger_comment_id, trigger_user, purpose, status, phase,
                 started_at, last_heartbeat_at
             ) VALUES (
-                %s, %s, %s, %s, %s, 'running', 'accepted',
+                %s, %s, %s, %s, %s, %s, 'running', 'accepted',
                 statement_timestamp(), statement_timestamp()
             )
             ON CONFLICT DO NOTHING
@@ -972,6 +994,7 @@ def start_run(
                 request_key,
                 trigger_comment_id,
                 user,
+                purpose.value,
             ),
         ).fetchone()
     if row is not None:
@@ -986,7 +1009,7 @@ def start_run(
             pull_request_id=pull_request_id,
             review_subject_id=review_subject_id,
         )
-    active = _active_run(connection, pull_request_id)
+    active = _active_run(connection, pull_request_id, purpose)
     if active is not None:
         return DuplicateRun(run=active, reason="active_run")
     raise ReviewRunError("review run could not be resolved after insert")

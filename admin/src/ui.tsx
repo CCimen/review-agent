@@ -3,11 +3,14 @@ import { Button } from "@astryxdesign/core/Button";
 import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Section as AstryxSection } from "@astryxdesign/core/Section";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Heading, Text } from "@astryxdesign/core/Text";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import type { UseQueryResult } from "@tanstack/react-query";
+import { Check, Copy as CopyIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -123,14 +126,16 @@ export const day = (value: string) => dayOnly.format(new Date(value));
 export function duration(seconds: number | null | undefined) {
   if (seconds === null || seconds === undefined) return null;
   if (seconds < 1) return `${seconds.toFixed(2)} s`;
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
-  if (seconds < 3600) {
-    const minutes = Math.floor(seconds / 60);
-    const rest = Math.round(seconds % 60);
+  const rounded = Math.round(seconds);
+  if (rounded < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  if (rounded < 3600) {
+    const minutes = Math.floor(rounded / 60);
+    const rest = rounded % 60;
     return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
   }
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.round((seconds % 3600) / 60);
+  const roundedMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
   return minutes ? `${hours} h ${minutes} min` : `${hours} h`;
 }
 
@@ -171,7 +176,12 @@ export const failureSentence = (code: string) =>
     : "No cause recorded";
 
 /** Request IDs, commit SHAs and worker IDs exist to be pasted into another
- *  tool. Selecting a wrapped <code> by hand is the friction this removes. */
+ *  tool. Selecting a wrapped <code> by hand is the friction this removes.
+ *
+ *  The value stays plain text beside an icon-only button rather than inside
+ *  it, so a chip, a pill and an underline no longer stack on one token. The
+ *  icon swaps to a check on success (transitions.dev 09) and the change is
+ *  announced for readers who cannot see it. */
 export function Copy({
   value,
   children,
@@ -190,13 +200,24 @@ export function Copy({
   }, [done]);
   if (typeof navigator === "undefined" || !navigator.clipboard)
     return <>{children}</>;
+  const iconProps = { size: "1em", "aria-hidden": true } as const;
   return (
-    <>
+    <HStack as="span" gap={1} vAlign="center" className="console-inline">
+      {children}
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        label={done ? `${label} copied to clipboard` : `Copy ${label}`}
+        isIconOnly
+        label={done ? `${label} copied` : `Copy ${label}`}
+        tooltip={done ? "Copied" : `Copy ${label}`}
+        icon={
+          // Both icons share one slot; data-state picks which is visible.
+          <span className="t-icon-swap" data-state={done ? "b" : "a"}>
+            <CopyIcon className="t-icon" data-icon="a" {...iconProps} />
+            <Check className="t-icon" data-icon="b" {...iconProps} />
+          </span>
+        }
         onClick={() => {
           setFailed(false);
           void navigator.clipboard
@@ -204,19 +225,18 @@ export function Copy({
             .then(() => setDone(true))
             .catch(() => setFailed(true));
         }}
-      >
-        <HStack as="span" gap={2} vAlign="center">
-          {children}
-          <Text aria-hidden="true">{done ? "Copied" : "Copy"}</Text>
-        </HStack>
-      </Button>
-      {failed && (
+      />
+      <VisuallyHidden>
         <Text as="span" role="status">
-          {" "}
+          {done ? `${label} copied to clipboard` : ""}
+        </Text>
+      </VisuallyHidden>
+      {failed && (
+        <Text as="span" role="status" type="supporting">
           Could not copy. Select the value to copy it manually.
         </Text>
       )}
-    </>
+    </HStack>
   );
 }
 
@@ -264,13 +284,21 @@ export function Stat({
           <Skeleton width={72} height={24} radius={2} />
         </HStack>
       ) : (
-        <Text
-          size="2xl"
-          weight="semibold"
-          color={missing ? "secondary" : "primary"}
+        // The figure settles into the slot the shimmer held; see theme.css.
+        <AstryxSection
+          variant="transparent"
+          padding={0}
+          className="console-arrive"
         >
-          {text}
-        </Text>
+          <Text
+            size="2xl"
+            weight="semibold"
+            hasTabularNumbers
+            color={missing ? "secondary" : "primary"}
+          >
+            {text}
+          </Text>
+        </AstryxSection>
       )}
       {hint ? <Text type="supporting">{hint}</Text> : null}
     </VStack>
@@ -369,6 +397,19 @@ export function Freshness<T>({
             : `Updated ${time(new Date(query.dataUpdatedAt).toISOString())}${interval ? ` · refreshes every ${interval} seconds` : ""}`}
         </Text>
       )}
+    </VStack>
+  );
+}
+
+/** Holds the space a list will take while its first answer is on the way, so
+ *  the page does not grow by a table's height the moment it lands. The rows
+ *  are announced once, as one status, rather than as a run of shimmers. */
+export function Loading({ rows = 5, label }: { rows?: number; label: string }) {
+  return (
+    <VStack gap={3} role="status" aria-label={label} width="100%">
+      {Array.from({ length: rows }, (_, index) => (
+        <Skeleton key={index} height={44} radius={2} index={index} />
+      ))}
     </VStack>
   );
 }

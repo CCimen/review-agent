@@ -1,7 +1,9 @@
+import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { Grid } from "@astryxdesign/core/Grid";
+import { Grid, GridSpan } from "@astryxdesign/core/Grid";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import {
   MetadataList,
@@ -21,6 +23,7 @@ import {
   type TableColumn,
 } from "@astryxdesign/core/Table";
 import { Selector } from "@astryxdesign/core/Selector";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -39,8 +42,15 @@ import type {
   ReviewDetail,
 } from "./api";
 import { APIError, read } from "./api";
+import { ReviewPurposeFilter, selectedReviewPurpose, reviewPurposeLabel } from "./reviewPurpose";
 import { ReviewFindings } from "./reviewFindings";
-import { ReviewProgress, reviewStateLabel } from "./reviewProgress";
+import { DocumentationReviewEvidence } from "./documentation";
+import { ReviewUsageSummary } from "./reviewUsage";
+import {
+  ReviewProgress,
+  reviewStateLabel,
+  reviewStateTone,
+} from "./reviewProgress";
 import { RunControls } from "./runControls";
 import { ScopedLink as Link, useScope } from "./scope";
 import {
@@ -49,6 +59,7 @@ import {
   Empty,
   failureSentence,
   Freshness,
+  Loading,
   number,
   Period,
   time,
@@ -66,7 +77,14 @@ const pullRequestURL = (item: Pick<HistoryItem, "repository" | "pr_number">) =>
 function Result({ item }: { item: HistoryItem }) {
   return (
     <VStack gap={1}>
-      <Text>{reviewStateLabel(item)}</Text>
+      <HStack gap={2} vAlign="center">
+        <StatusDot
+          variant={reviewStateTone(item)}
+          label={reviewStateLabel(item)}
+          aria-hidden="true"
+        />
+        <Text>{reviewStateLabel(item)}</Text>
+      </HStack>
       {item.posted_at !== null ? (
         <Text type="supporting">
           {item.findings_count === null
@@ -79,6 +97,7 @@ function Result({ item }: { item: HistoryItem }) {
       ) : (
         <ReviewProgress item={item} />
       )}
+      <ReviewUsageSummary usage={item.usage} />
     </VStack>
   );
 }
@@ -116,7 +135,7 @@ function pullRequestColumns(filters: string): TableColumn<PullRequestGroup>[] {
       key: "result",
       header: "Latest matching result",
       width: proportional(1, { minWidth: 200 }),
-      renderCell: (group) => <Result item={group.latest} />,
+      renderCell: (group) => <VStack gap={1}><Text type="supporting">{reviewPurposeLabel(group.latest.purpose)}</Text><Result item={group.latest} /></VStack>,
     },
     {
       key: "started",
@@ -155,45 +174,65 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
           a cause that is not there. The status beside this already names the
           state, and the reader below says which request to open instead. */}
       {item.failure_code && !superseded && (
-        <VStack gap={3}>
-          <strong>
-            {item.recovered
-              ? "Earlier failure; a later request published a review."
+        <Banner
+          status={item.recovered ? "info" : "error"}
+          title={
+            item.recovered
+              ? "A later request published a review"
               : item.is_latest
-                ? "The latest review request failed."
-                : "This earlier request failed."}
-          </strong>
-          <Text as="p">
-            {failureSentence(item.failure_code)}.{" "}
-            <Copy value={item.failure_code} label="failure code">
-              <Code>{item.failure_code}</Code>
-            </Copy>
-            {item.job_failure_code ? (
+                ? "The pull request needs a new review request"
+                : "An earlier request; a later one may have published"
+          }
+          description={
+            item.recovered ? (
+              "Nothing is waiting on this failure. The cause is kept for the record."
+            ) : (
               <>
-                {" "}
-                · Worker cause:{" "}
-                <Copy value={item.job_failure_code} label="worker failure code">
-                  <Code>{item.job_failure_code}</Code>
-                </Copy>
+                Check the review result on GitHub and the operator logs for
+                request #{item.id}. After resolving the cause, request{" "}
+                <Code>{item.purpose === "documentation" ? "/review docs" : "/review"}</Code> on the PR again.
               </>
-            ) : null}
-          </Text>
-          <Text as="p">
-            Check the review result on GitHub and the operator logs for request
-            #{item.id}. After resolving the cause, request <Code>/review</Code>{" "}
-            on the PR again.
-          </Text>
-        </VStack>
+            )
+          }
+        >
+          <VStack gap={2}>
+            {/* The recorded token is what an operator greps for; it sits
+                under the sentence rather than inside it. When the worker
+                recorded the same cause, one token is enough. */}
+            <Text as="p" type="supporting">
+              Recorded cause{" "}
+              <Copy value={item.failure_code} label="failure code">
+                <Code>{item.failure_code}</Code>
+              </Copy>
+              {item.job_failure_code &&
+              item.job_failure_code !== item.failure_code ? (
+                <>
+                  {" "}
+                  · Worker cause{" "}
+                  <Copy
+                    value={item.job_failure_code}
+                    label="worker failure code"
+                  >
+                    <Code>{item.job_failure_code}</Code>
+                  </Copy>
+                </>
+              ) : null}
+            </Text>
+          </VStack>
+        </Banner>
       )}
-      {item.coverage.state !== "complete" &&
+      {item.purpose !== "documentation" && item.coverage.state !== "complete" &&
         (item.posted_at !== null ||
           (item.state !== "queued" && item.coverage.registration_complete)) && (
-          <Text as="p">
-            {item.coverage.state === "unknown"
-              ? "Coverage has not been established."
-              : `Complete diffs were available for ${item.coverage.changed_paths_with_complete_diff} of ${item.coverage.changed_files_reported ?? "an unknown number of"} changed files.`}{" "}
-            A published result may leave changes unreviewed.
-          </Text>
+          <Banner
+            status="warning"
+            title="Some changes may not have been reviewed"
+            description={
+              item.coverage.state === "unknown"
+                ? "Coverage has not been established. A published result may leave changes unreviewed."
+                : `Complete diffs were available for ${item.coverage.changed_paths_with_complete_diff} of ${item.coverage.changed_files_reported ?? "an unknown number of"} changed files. A published result may leave changes unreviewed.`
+            }
+          />
         )}
     </>
   );
@@ -211,16 +250,20 @@ export function ReviewPage() {
 function ReviewReader({ runId, search }: { runId: string; search: string }) {
   const scope = useScope();
   const [params, setParams] = useSearchParams();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   const navigate = useNavigate();
   const before = params.get("requests_before");
   const cursor = before && /^[1-9]\d*$/.test(before) ? before : null;
+  const detailParams = new URLSearchParams();
+  if (cursor) detailParams.set("before_id", cursor);
+  if (purpose) detailParams.set("purpose", purpose);
   const query = useQuery({
-    queryKey: ["review", runId, cursor, "scoped", scope.key],
+    queryKey: ["review", runId, cursor, ...(purpose ? [purpose] : []), "scoped", scope.key],
     placeholderData: keepPreviousData,
     queryFn: ({ signal }) =>
       read<ReviewDetail>(
         scope.path(
-          `/api/history/${encodeURIComponent(runId)}${cursor ? `?before_id=${cursor}` : ""}`,
+          `/api/history/${encodeURIComponent(runId)}${detailParams.size ? `?${detailParams}` : ""}`,
         ),
         signal,
       ),
@@ -241,6 +284,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
     setParams(next, { preventScrollReset: true });
   }
   const selectedURL = (id: number) => `/history/${id}${search}`;
+  const wide = useMediaQuery("(min-width: 1024px)");
   const data = query.data;
   const missing = query.error instanceof APIError && query.error.status === 404;
   return (
@@ -251,9 +295,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
           It may have been removed by retention. Return to history to find an
           available review.
         </Empty>
-      ) : (
-        <Freshness query={query} />
-      )}
+      ) : null}
       {!missing && item && data ? (
         <>
           <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -261,10 +303,11 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
               <Heading level={1}>
                 {item.repository} PR #{item.pr_number}
               </Heading>
-              <Text as="p">
-                Request #{item.id} · {time(item.started_at)}
+              <Text as="p" color="secondary">
+                {reviewPurposeLabel(item.purpose)} · Request #{item.id} · {time(item.started_at)}
                 {item.is_latest ? " · Latest request" : " · Earlier request"}
               </Text>
+              <Freshness query={query} />
             </VStack>
             <AstryxLink
               href={pullRequestURL(item)}
@@ -275,136 +318,64 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
               <VisuallyHidden> on GitHub (opens in a new tab)</VisuallyHidden>
             </AstryxLink>
           </HStack>
-          <Grid columns={{ minWidth: 300, max: 2, repeat: "fit" }} gap={6}>
-            <VStack as="aside" gap={3} aria-labelledby="request-history-title">
-              <Heading level={2} id="request-history-title">
-                Review history
-              </Heading>
-              <Text as="p" color="secondary">
-                All retained requests for this PR.
-              </Text>
-              <Selector
-                label={"Selected request"}
-                options={[
-                  !data.requests.some((request) => request.id === item.id)
-                    ? {
-                        value: String(item.id),
-                        label:
-                          "#" +
-                          String(item.id) +
-                          " · " +
-                          time(item.started_at) +
-                          " · " +
-                          " " +
-                          reviewStateLabel(item),
-                      }
-                    : null,
-                  data.requests.map((request) => ({
-                    value: String(request.id),
-                    label:
-                      "#" +
-                      String(request.id) +
-                      " · " +
-                      time(request.started_at) +
-                      " · " +
-                      " " +
-                      reviewStateLabel(request),
-                  })),
-                ]
-                  .flat()
-                  .filter((option) => option != null)}
-                value={String(item.id)}
-                onChange={(value) => navigate(selectedURL(Number(value)))}
-              />
-
-              <Table
-                density="compact"
-                dividers="rows"
-                aria-label="Requests, newest first"
-              >
-                <TableHeader>
-                  <TableRow>
-                    <TableHeaderCell>Request</TableHeaderCell>
-                    <TableHeaderCell>Result</TableHeaderCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.requests.map((request) => (
-                    <TableRow key={request.id}>
-                      <TableHeaderCell scope="row">
-                        <VStack gap={1}>
-                          <Link
-                            to={selectedURL(request.id)}
-                            aria-current={
-                              request.id === item.id ? "page" : undefined
-                            }
-                          >
-                            Request #{request.id}
-                          </Link>
-                          <Text color="secondary" type="supporting">
-                            <time dateTime={request.started_at}>
-                              {time(request.started_at)}
-                            </time>
-                          </Text>
-                          <Text color="secondary" type="supporting">
-                            <Code>{request.head_sha.slice(0, 10)}</Code>
-                            {request.previous_head_sha === null
-                              ? " · First request"
-                              : request.previous_head_sha === request.head_sha
-                                ? " · Same head"
-                                : " · New head"}
-                          </Text>
-                        </VStack>
-                      </TableHeaderCell>
-                      <TableCell>
-                        <Result item={request} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              {data.requests.length === 0 ? (
-                <Text as="p">No older retained requests.</Text>
-              ) : null}
-              {cursor || data.next_cursor !== null ? (
-                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
-                  <Button
-                    label={"Newest"}
-                    variant="secondary"
-                    type="submit"
-                    isDisabled={!cursor || query.isFetching}
-                    onClick={() => page(null)}
-                  />
-                  <Button
-                    label={"Older"}
-                    variant="secondary"
-                    type="submit"
-                    isDisabled={data.next_cursor === null || query.isFetching}
-                    onClick={() => page(data.next_cursor)}
-                  />
-                </HStack>
-              ) : null}
-            </VStack>
+          {/* The published review is what the reader came for, so it takes
+              the first two of three columns; the request history is the
+              rail beside it and drops below on a narrow screen. Reading and
+              focus order match: review first, then its history. */}
+          <Grid columns={wide ? 3 : 1} gap={6}>
+            <GridSpan columns={wide ? 2 : 1}>
             <VStack
               gap={4}
               as="section"
               aria-label={`Review request ${item.id}`}
             >
               <VStack gap={4}>
-                <HStack gap={3} wrap="wrap" hAlign="between" vAlign="start">
-                  <Result item={item} />
+                <HStack gap={3} wrap="wrap" hAlign="between" vAlign="center">
+                  <Heading level={2}>Result</Heading>
                   {data.can_maintain && <RunControls runId={item.id} />}
                 </HStack>
-                <Text as="p">
-                  Request head{" "}
-                  <Copy value={item.head_sha} label="reviewed head SHA">
-                    <Code>{item.head_sha.slice(0, 12)}</Code>
-                  </Copy>
+                {/* The outcome is the one thing the reader came to learn, so
+                    it leads at a weight the body text does not use, with its
+                    qualifier beside it; the facts about the request follow
+                    as a labelled row instead of a sentence of chips. */}
+                <HStack gap={2} wrap="wrap" vAlign="center">
+                  <StatusDot
+                    variant={reviewStateTone(item)}
+                    label={reviewStateLabel(item)}
+                    aria-hidden="true"
+                  />
+                  <Text size="lg" weight="semibold">
+                    {reviewStateLabel(item)}
+                  </Text>
+                  <Text color="secondary">
+                    {item.posted_at !== null
+                      ? `${
+                          item.findings_count === null
+                            ? "Unknown"
+                            : number.format(item.findings_count)
+                        } finding${item.findings_count === 1 ? "" : "s"}`
+                      : item.recovered
+                        ? "A later review published"
+                        : item.failure_code
+                          ? failureSentence(item.failure_code)
+                          : null}
+                  </Text>
+                </HStack>
+                {item.posted_at === null && !item.failure_code ? (
+                  <ReviewProgress item={item} />
+                ) : null}
+                <MetadataList
+                  orientation="horizontal"
+                  columns="multi"
+                  label={{ position: "top" }}
+                >
+                  <MetadataListItem label="Reviewed commit">
+                    <Copy value={item.head_sha} label="reviewed head SHA">
+                      <Code>{item.head_sha.slice(0, 12)}</Code>
+                    </Copy>
+                  </MetadataListItem>
                   {item.completed_at ? (
-                    <Text>
-                      {" "}
-                      ·{" "}
+                    <MetadataListItem label="Duration">
                       {duration(
                         Math.max(
                           0,
@@ -413,23 +384,29 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                             1000,
                         ),
                       )}
-                    </Text>
+                    </MetadataListItem>
                   ) : null}
-                </Text>
-                {item.previous_head_sha &&
-                item.previous_head_sha !== item.head_sha ? (
-                  <AstryxLink
-                    href={`https://github.com/${item.repository}/compare/${item.previous_head_sha}...${item.head_sha}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Compare commits with previous request
-                    <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
-                  </AstryxLink>
-                ) : null}
+                  <MetadataListItem label="Recorded tokens">
+                    <ReviewUsageSummary usage={item.usage} details />
+                  </MetadataListItem>
+                  {item.previous_head_sha &&
+                  item.previous_head_sha !== item.head_sha ? (
+                    <MetadataListItem label="Since previous request">
+                      <AstryxLink
+                        href={`https://github.com/${item.repository}/compare/${item.previous_head_sha}...${item.head_sha}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Compare commits
+                        <VisuallyHidden> on GitHub (opens in a new tab)</VisuallyHidden>
+                      </AstryxLink>
+                    </MetadataListItem>
+                  ) : null}
+                </MetadataList>
               </VStack>
               <ReviewOutcome item={item} />
-              <ReviewFindings runId={item.id} repository={item.repository} />
+              {data.documentation && <DocumentationReviewEvidence result={data.documentation} repository={item.repository} />}
+              <ReviewFindings runId={item.id} repository={item.repository} purpose={item.purpose} />
               {data.markdown !== null ? (
                 <>
                   <VStack gap={3}>
@@ -513,9 +490,123 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                 </VStack>
               </Collapsible>
             </VStack>
+            </GridSpan>
+            <VStack as="aside" gap={3} aria-labelledby="request-history-title">
+              <Heading level={2} id="request-history-title">
+                Review history
+              </Heading>
+              <Text as="p" color="secondary">
+                {purpose ? `${purpose === "documentation" ? "Documentation" : "Code"} requests for this PR.` : "All retained requests for this PR."}
+              </Text>
+              <ReviewPurposeFilter value={purpose} onChange={(value) => { const next = new URLSearchParams(params); value ? next.set("purpose", value) : next.delete("purpose"); next.delete("requests_before"); setParams(next, { preventScrollReset: true }); }} />
+              <Selector
+                label={"Selected request"}
+                options={[
+                  !data.requests.some((request) => request.id === item.id)
+                    ? {
+                        value: String(item.id),
+                        label:
+                          "#" +
+                          String(item.id) +
+                          " · " +
+                          reviewPurposeLabel(item.purpose) + " · " + time(item.started_at) +
+                          " · " +
+                          " " +
+                          reviewStateLabel(item),
+                      }
+                    : null,
+                  data.requests.map((request) => ({
+                    value: String(request.id),
+                    label:
+                      "#" +
+                      String(request.id) +
+                      " · " +
+                      reviewPurposeLabel(request.purpose) + " · " + time(request.started_at) +
+                      " · " +
+                      " " +
+                      reviewStateLabel(request),
+                  })),
+                ]
+                  .flat()
+                  .filter((option) => option != null)}
+                value={String(item.id)}
+                onChange={(value) => navigate(selectedURL(Number(value)))}
+              />
+
+              <Table
+                density="compact"
+                dividers="rows"
+                aria-label="Requests, newest first"
+              >
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell>Request</TableHeaderCell>
+                    <TableHeaderCell>Result</TableHeaderCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.requests.map((request) => (
+                    <TableRow key={request.id}>
+                      <TableHeaderCell scope="row">
+                        <VStack gap={1}>
+                          <Link
+                            to={selectedURL(request.id)}
+                            aria-current={
+                              request.id === item.id ? "page" : undefined
+                            }
+                          >
+                            {reviewPurposeLabel(request.purpose)} · Request #{request.id}
+                          </Link>
+                          <Text color="secondary" type="supporting">
+                            <time dateTime={request.started_at}>
+                              {time(request.started_at)}
+                            </time>
+                          </Text>
+                          <Text color="secondary" type="supporting">
+                            <Code>{request.head_sha.slice(0, 10)}</Code>
+                            {request.previous_head_sha === null
+                              ? " · First request"
+                              : request.previous_head_sha === request.head_sha
+                                ? " · Same head"
+                                : " · New head"}
+                          </Text>
+                        </VStack>
+                      </TableHeaderCell>
+                      <TableCell>
+                        <Result item={request} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {data.requests.length === 0 ? (
+                <Text as="p">No older retained requests.</Text>
+              ) : null}
+              {cursor || data.next_cursor !== null ? (
+                <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+                  <Button
+                    label={"Newest"}
+                    variant="secondary"
+                    type="submit"
+                    isDisabled={!cursor || query.isFetching}
+                    onClick={() => page(null)}
+                  />
+                  <Button
+                    label={"Older"}
+                    variant="secondary"
+                    type="submit"
+                    isDisabled={data.next_cursor === null || query.isFetching}
+                    onClick={() => page(data.next_cursor)}
+                  />
+                </HStack>
+              ) : null}
+            </VStack>
           </Grid>
         </>
-      ) : null}
+      ) : missing ? null : (
+        <Freshness query={query} />
+      )}
     </>
   );
 }
@@ -591,6 +682,7 @@ function RunDetails({ item }: { item: HistoryItem }) {
 export function History() {
   const scope = useScope();
   const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   const repository = params.get("repository") ?? "";
   const status = params.get("status") ?? "all";
   const { draft: prDraft, setDraft: setPrDraft } = useLiveSearch(
@@ -598,7 +690,7 @@ export function History() {
     (value) => update({ pr_number: value }, { replace: true }),
   );
   const filtered =
-    status !== "all" ||
+    !!purpose || status !== "all" ||
     params.has("repository") ||
     params.has("pr_number") ||
     params.has("before_id");
@@ -607,6 +699,7 @@ export function History() {
     status,
     limit: "50",
   });
+  if (purpose) queryParams.set("purpose", purpose);
   for (const key of ["repository", "pr_number", "before_id"]) {
     const value = params.get(key);
     if (value) queryParams.set(key, value);
@@ -638,6 +731,7 @@ export function History() {
       </HStack>
       <ActivityTabs />
       <HStack gap={3} wrap="wrap" vAlign="end">
+        <ReviewPurposeFilter value={purpose} onChange={(value) => update({ purpose: value })} />
         <Selector
           label={"Review state"}
           options={[
@@ -668,7 +762,7 @@ export function History() {
           <Button
             label={"Reset filters"}
             variant="ghost"
-            onClick={() => update({ status: "", pr_number: "", days: "" })}
+            onClick={() => update({ status: "", pr_number: "", days: "", purpose: "" })}
           />
         ) : null}
       </HStack>
@@ -679,6 +773,7 @@ export function History() {
         </Text>
       )}
       <Freshness query={query} />
+      {query.isPending && <Loading label="Loading pull requests" rows={8} />}
       {query.data && (
         <Text as="p">
           Showing {number.format(query.data.items.length)} of{" "}

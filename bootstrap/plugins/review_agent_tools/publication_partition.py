@@ -93,7 +93,7 @@ def _publication_blocks(
 def _publication_heading(body: str) -> str:
     default = f"## {REVIEW_COMMENT_TITLE}"
     first_line = body.splitlines()[0].strip() if body.strip() else ""
-    return first_line if first_line.startswith(default) else default
+    return first_line if first_line.startswith((default, "## Documentation review")) else default
 
 
 def _part_heading(heading: str, part_number: int, total_parts: int) -> str:

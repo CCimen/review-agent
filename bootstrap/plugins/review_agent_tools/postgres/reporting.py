@@ -34,6 +34,7 @@ from ..domain.review import (
     JsonObject,
     JsonValue,
     RepositoryId,
+    ReviewPurpose,
     ReviewRunId,
 )
 from . import coverage as postgres_coverage
@@ -497,11 +498,12 @@ def list_findings(
     limit: int,
     include_suppressed: bool,
     now: datetime,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> tuple[FindingReport, ...]:
     """List latest finding state with one set-oriented decision lookup."""
     _require_transaction(connection)
-    conditions: list[str] = []
-    parameters: list[object] = []
+    conditions: list[str] = ["identity.purpose = %s"]
+    parameters: list[object] = [purpose.value]
     if repository is not None:
         conditions.append("lower(repository.full_name) = lower(%s)")
         parameters.append(repository)
@@ -537,11 +539,12 @@ def list_finding_context(
     paths: Sequence[str],
     limit: int,
     now: datetime,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> tuple[FindingReport, ...]:
     """Return bounded reviewer history after applying its exact path scope."""
     _require_transaction(connection)
-    conditions = ["identity.repository_id = %s"]
-    parameters: list[object] = [repository_id]
+    conditions = ["identity.repository_id = %s", "identity.purpose = %s"]
+    parameters: list[object] = [repository_id, purpose.value]
     # An empty path scope intentionally asks for bounded repository-wide context.
     if paths:
         conditions.append("identity.path = ANY(%s::text[])")
@@ -581,11 +584,14 @@ def active_repeat_suppressions(
         JOIN review_agent.finding_identities AS identity
           ON identity.repository_id = %s
          AND identity.fingerprint = target.fingerprint
+        JOIN review_agent.review_runs AS current_run
+          ON current_run.id = %s AND current_run.purpose = identity.purpose
         """,
         (
             list(fingerprints),
             list(context_hashes),
             repository_id,
+            current_run_id,
         ),
     ).fetchall()
     decisions = postgres_decisions.latest_suppression_decisions(
@@ -619,11 +625,12 @@ def finding_detail(
     occurrence_id: FindingOccurrenceId | None = None,
     decision_limit: int | None = None,
     decision_before_id: FindingDecisionId | None = None,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> FindingDetail:
     """Return latest evidence and the complete decision chain for one identity."""
     _require_transaction(connection)
     select_sql = _FINDING_SELECT
-    parameters: tuple[object, ...] = (repository_id, fingerprint)
+    parameters: tuple[object, ...] = (repository_id, fingerprint, purpose.value)
     if occurrence_id is not None:
         select_sql = select_sql.replace(
             "WHERE occurrence.finding_id = identity.id",
@@ -633,7 +640,7 @@ def finding_detail(
     with connection.cursor(row_factory=class_row(_FindingRow)) as cursor:
         row = cursor.execute(
             f"{select_sql} WHERE identity.repository_id = %s "
-            "AND identity.fingerprint = %s",
+            "AND identity.fingerprint = %s AND identity.purpose = %s",
             parameters,
         ).fetchone()
     if row is None:
@@ -649,6 +656,21 @@ def finding_detail(
     )
 
 
+def occurrence_purpose(
+    connection: psycopg.Connection[TupleRow], *, repository_id: RepositoryId,
+    occurrence_id: FindingOccurrenceId,
+) -> ReviewPurpose:
+    row = connection.execute(
+        """SELECT identity.purpose FROM review_agent.finding_occurrences occurrence
+           JOIN review_agent.finding_identities identity ON identity.id = occurrence.finding_id
+           WHERE occurrence.id = %s AND identity.repository_id = %s""",
+        (occurrence_id, repository_id),
+    ).fetchone()
+    if row is None:
+        raise FindingNotFound("finding occurrence is not registered in the repository")
+    return ReviewPurpose(row[0])
+
+
 def decision_target(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -658,6 +680,7 @@ def decision_target(
     pr_number: int | None,
     local_reference: str | None,
     latest: bool,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> DecisionTarget:
     """Resolve one explicit operator target without guessing between occurrences."""
     _require_transaction(connection)
@@ -672,8 +695,8 @@ def decision_target(
         raise ReportingError(str(exc)) from exc
     identity = connection.execute(
         "SELECT id, path FROM review_agent.finding_identities "
-        "WHERE repository_id = %s AND fingerprint = %s",
-        (repository_id, fingerprint),
+        "WHERE repository_id = %s AND fingerprint = %s AND purpose = %s",
+        (repository_id, fingerprint, purpose.value),
     ).fetchone()
     if identity is None:
         raise FindingNotFound("finding is not registered in the repository")
@@ -743,6 +766,7 @@ def finding_stats(
     expiring_at: datetime,
     expiring_within_days: int,
     now: datetime,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> FindingStats:
     """Compute repository finding and feedback metrics in set-oriented queries."""
     _require_transaction(connection)
@@ -750,6 +774,8 @@ def finding_stats(
         "" if repository is None else "AND lower(repository.full_name) = lower(%s)"
     )
     parameters: tuple[object, ...] = () if repository is None else (repository,)
+    repository_filter += " AND identity.purpose = %s"
+    parameters = (*parameters, purpose.value)
     with connection.cursor(row_factory=class_row(_FindingTotalsRow)) as cursor:
         totals = cursor.execute(
             sql.SQL(f"""
@@ -872,11 +898,13 @@ def finding_stats(
     feedback_filter = (
         "" if repository is None else "WHERE lower(repository.full_name) = lower(%s)"
     )
+    feedback_filter = (feedback_filter or "WHERE true") + " AND publication.purpose = %s"
     feedback = _counts(
         connection,
         sql.SQL(f"""
         SELECT feedback.category AS value, count(*)::integer AS count
         FROM review_agent.review_quality_feedback AS feedback
+        JOIN review_agent.publications AS publication ON publication.id = feedback.publication_id
         JOIN review_agent.pull_requests AS pull_request
           ON pull_request.id = feedback.pull_request_id
         JOIN {{repositories}} AS repository

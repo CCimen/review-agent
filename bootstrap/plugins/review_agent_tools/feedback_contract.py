@@ -89,10 +89,14 @@ def feedback_templates(
     )
 
 
-def usage_lines() -> tuple[str, ...]:
+def usage_lines(*, documentation: bool = False) -> tuple[str, ...]:
     templates = feedback_templates("<F-reference>")
+    if documentation:
+        templates = tuple(FeedbackCommandTemplate(template.title,
+            template.command.replace(CANONICAL_TRIGGER, f"{CANONICAL_TRIGGER} docs", 1))
+            for template in templates if not template.command.startswith(f"{CANONICAL_TRIGGER} intentional "))
     return (
-        "Use `/review` alone to request a review, or:",
+        f"Use `{'/review docs' if documentation else '/review'}` alone to request a review, or:",
         "",
         *(f"- `{template.command}`" for template in templates),
         "",

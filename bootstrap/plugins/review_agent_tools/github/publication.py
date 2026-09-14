@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Protocol, cast
 
+from ..domain.publication import CHECK_OUTPUT_MAX_BYTES, CheckConclusion, CheckRunDelivery
 from ..source_control import (
     SameOriginHttpsRedirectHandler,
     is_github_rate_limit_error,
@@ -79,7 +80,48 @@ class PullRequestReviewComment:
     start_side: ReviewCommentSide | None
 
 
+@dataclass(frozen=True, slots=True)
+class CheckRun:
+    check_run_id: int
+    name: str
+    head_sha: str
+    external_id: str
+    app_id: int
+    status: str
+    conclusion: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CheckRunScan:
+    check_runs: tuple[CheckRun, ...]
+    complete: bool
+    app_id: int
+
+
+def check_run_from_json(value: object) -> CheckRun:
+    code = "github_bad_check_run_response"
+    root = _json_object(value, code)
+    app = _json_object(root.get("app"), code)
+    external_id = root.get("external_id")
+    conclusion = root.get("conclusion")
+    if external_id is not None and not isinstance(external_id, str):
+        raise GitHubPublicationError(code)
+    if conclusion is not None and not isinstance(conclusion, str):
+        raise GitHubPublicationError(code)
+    return CheckRun(
+        _positive_int(root.get("id"), code), _nonempty_string(root.get("name"), code),
+        _nonempty_string(root.get("head_sha"), code), external_id or "",
+        _positive_int(app.get("id"), code), _nonempty_string(root.get("status"), code), conclusion,
+    )
+
+
 class GitHubPublicationGateway(Protocol):
+    def list_check_runs(self, repository: str, *, max_pages: int = PUBLICATION_DEFAULT_MAX_PAGES) -> CheckRunScan: ...
+
+    def create_check_run(self, repository: str) -> CheckRun: ...
+
+    def update_check_run(self, repository: str, check_run_id: int, *, cancelled: bool = False) -> CheckRun: ...
+
     def current_user_login(self) -> str: ...
 
     def get_pull_request(self, repository: str, pr_number: int) -> PullRequestState: ...
@@ -395,6 +437,63 @@ class GitHubIssueCommentGateway:
         raise GitHubPublicationError(
             "github_unreachable", operation=operation, retryable=True
         )
+
+    def list_check_runs(
+        self, repository: str, *, head_sha: str, name: str, app_id: int,
+        max_pages: int = PUBLICATION_DEFAULT_MAX_PAGES,
+    ) -> CheckRunScan:
+        if not 1 <= max_pages <= PUBLICATION_REQUEST_MAX_PAGES:
+            raise GitHubPublicationError("invalid_check_scan_bound")
+        found: list[CheckRun] = []
+        total: int | None = None
+        for page in range(1, max_pages + 1):
+            query = urllib.parse.urlencode({"check_name": name, "app_id": app_id, "filter": "all", "per_page": 100, "page": page})
+            root = _json_object(self._request_json(
+                "GET", f"/repos/{_owner_repo(repository)}/commits/{urllib.parse.quote(head_sha, safe='')}/check-runs?{query}",
+                operation="list_check_runs",
+            ), "github_bad_check_runs_response")
+            count = root.get("total_count")
+            if type(count) is not int or count < 0:
+                raise GitHubPublicationError("github_bad_check_runs_response")
+            if total is not None and count != total:
+                return CheckRunScan(tuple(found), False, app_id)
+            total = count
+            values = _json_list(root.get("check_runs"), "github_bad_check_runs_response")
+            if len(values) > 100:
+                raise GitHubPublicationError("github_bad_check_runs_response")
+            found.extend(check_run_from_json(value) for value in values)
+            if len({item.check_run_id for item in found}) != len(found):
+                return CheckRunScan(tuple(found), False, app_id)
+            if len(values) < 100 or len(found) >= total:
+                return CheckRunScan(tuple(found), len(found) == total, app_id)
+        return CheckRunScan(tuple(found), False, app_id)
+
+    def create_check_run(self, repository: str, *, delivery: CheckRunDelivery, summary: str) -> CheckRun:
+        return check_run_from_json(self._request_json(
+            "POST", f"/repos/{_owner_repo(repository)}/check-runs",
+            payload=self._check_payload(delivery, summary=summary, create=True), operation="create_check_run",
+        ))
+
+    def update_check_run(self, repository: str, check_run_id: int, *, delivery: CheckRunDelivery, summary: str, cancelled: bool = False) -> CheckRun:
+        return check_run_from_json(self._request_json(
+            "PATCH", f"/repos/{_owner_repo(repository)}/check-runs/{check_run_id}",
+            payload=self._check_payload(delivery, summary=summary, create=False, cancelled=cancelled), operation="update_check_run",
+        ))
+
+    @staticmethod
+    def _check_payload(delivery: CheckRunDelivery, *, summary: str, create: bool, cancelled: bool = False) -> dict[str, object]:
+        if len(summary.encode("utf-8")) > CHECK_OUTPUT_MAX_BYTES:
+            raise GitHubPublicationError("check_output_too_large")
+        conclusion: CheckConclusion = "cancelled" if cancelled else delivery.conclusion
+        payload: dict[str, object] = {
+            "name": delivery.name, "external_id": delivery.external_id,
+            "status": "completed", "conclusion": conclusion,
+            "output": {"title": "Documentation review superseded" if cancelled else delivery.title,
+                       "summary": "This review snapshot is no longer current." if cancelled else summary},
+        }
+        if create:
+            payload["head_sha"] = delivery.head_sha
+        return payload
 
     def get_pull_request(self, repository: str, pr_number: int) -> PullRequestState:
         root = _json_object(

@@ -3,6 +3,7 @@ WORKDIR /build
 COPY admin/package.json admin/package-lock.json ./
 RUN npm ci
 COPY admin/ ./
+COPY examples/repository-context/.review-agent/documentation.toml /examples/repository-context/.review-agent/documentation.toml
 RUN npm run build \
     && npm sbom --sbom-format=cyclonedx --package-lock-only > frontend.cyclonedx.json \
     && sha256sum package-lock.json > frontend-lock.sha256

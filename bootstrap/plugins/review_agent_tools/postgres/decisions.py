@@ -404,6 +404,9 @@ def latest_suppression_decisions(
             SELECT requested.finding_id AS target_finding_id, decision.*
             FROM unnest(%s::bigint[]) AS requested(finding_id)
             JOIN review_agent.review_runs AS run ON run.id = %s
+            JOIN review_agent.finding_identities AS requested_identity
+              ON requested_identity.id = requested.finding_id
+             AND requested_identity.purpose = run.purpose
             LEFT JOIN review_agent.pull_request_finding_groups AS member
               ON member.pull_request_id = run.pull_request_id AND member.finding_id = requested.finding_id
             LEFT JOIN review_agent.finding_group_changes AS pending

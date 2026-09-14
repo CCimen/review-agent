@@ -22,6 +22,19 @@ const phaseLabels: Record<string, string> = {
   publishing: "Preparing publication",
 };
 
+/** The status dot hue for a request, shared by every place a state is named
+ *  so a list row and the reader agree on what "Incomplete" looks like. */
+export function reviewStateTone(
+  item: HistoryItem,
+): "success" | "warning" | "error" | "accent" | "neutral" {
+  if (item.state === "published")
+    return item.coverage.state === "complete" ? "success" : "warning";
+  if (item.state === "stalled") return "warning";
+  if (item.state === "failed") return "error";
+  if (item.state === "running" || item.state === "publishing") return "accent";
+  return "neutral";
+}
+
 export function reviewStateLabel(item: HistoryItem): string {
   if (item.state === "published" && item.coverage.state !== "complete")
     return "Incomplete";
@@ -30,8 +43,16 @@ export function reviewStateLabel(item: HistoryItem): string {
   return stateLabels[item.state];
 }
 
+/** What the state column cannot already say.
+ *
+ *  Four of the eight states had a progress cell that only re-worded the state
+ *  beside it — "Superseded" next to "A newer request or commit replaced this
+ *  review" — and those four are the states most rows settle in, so a table of
+ *  fifty requests carried fifty sentences that added nothing. A transient
+ *  state says what it is waiting on, a failure says its cause, an incomplete
+ *  review says how incomplete, and the rest say nothing. */
 export function ReviewProgress({ item }: { item: HistoryItem }) {
-  let detail: string;
+  let detail: string | null;
   switch (item.state) {
     case "queued":
       detail = item.quota_wait_until
@@ -55,17 +76,20 @@ export function ReviewProgress({ item }: { item: HistoryItem }) {
       detail = failureSentence(item.failure_code ?? "");
       break;
     case "superseded":
-      detail = "A newer request or commit replaced this review";
+      detail = null;
       break;
     case "published":
-      detail = item.coverage.state === "complete"
-        ? "Review published for this commit"
-        : "Coverage is incomplete; findings may be missing";
+      detail =
+        item.coverage.state === "complete"
+          ? null
+          : item.coverage.changed_files_reported === null
+            ? "Coverage was not established"
+            : `Complete diffs for ${item.coverage.changed_paths_with_complete_diff} of ${item.coverage.changed_files_reported} changed files`;
       break;
   }
   return (
     <VStack gap={1}>
-      <Text type="supporting">{detail}</Text>
+      {detail ? <Text type="supporting">{detail}</Text> : null}
       {item.quota_wait_until ? (
         <Text type="supporting">
           The next quota check is due {time(item.quota_wait_until)}.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -217,7 +217,7 @@ class PostgreSQLRuntime:
         )
 
     @contextmanager
-    def transaction(self) -> Iterator[psycopg.Connection[TupleRow]]:
+    def transaction(self) -> Generator[psycopg.Connection[TupleRow], None, None]:
         """Yield one checked-out connection inside one short transaction."""
         if self._pool.closed:
             raise PostgreSQLNotReady("PostgreSQL runtime is not open")

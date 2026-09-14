@@ -14,7 +14,8 @@ import { useEffect, useState } from "react";
 import { ActivityTabs } from "./activity";
 import type { ActivityCounts, ActivityDay, Overview } from "./api";
 import { read } from "./api";
-import { ScopedLink as Link, useScope } from "./scope";
+import { ReviewPurposeFilter, selectedReviewPurpose } from "./reviewPurpose";
+import { ScopedLink as Link, isAdmin, useScope } from "./scope";
 import {
   Freshness,
   Period,
@@ -219,6 +220,15 @@ function Latency({ counts }: { counts: ActivityCounts }) {
   // this panel does not overclaim anywhere else.
   const enough = counts.published_reviews >= 20;
   const p95 = enough ? duration(counts.p95_publication_seconds) : null;
+  /** Only worth saying when the tail is actually longer than the middle; a
+   *  multiple of one is the same sentence as the two figures above it. */
+  const ratio =
+    enough &&
+    counts.median_publication_seconds &&
+    counts.p95_publication_seconds
+      ? counts.p95_publication_seconds / counts.median_publication_seconds
+      : null;
+  const spread = ratio && ratio >= 2 ? Math.round(ratio) : null;
   return (
     <VStack gap={4}>
       <Heading level={3}>Request to publication</Heading>
@@ -236,6 +246,11 @@ function Latency({ counts }: { counts: ActivityCounts }) {
           )}
         </MetadataListItem>
       </MetadataList>
+      {spread ? (
+        <Text as="p" color="secondary">
+          {`The slowest one in twenty took about ${spread} times the median.`}
+        </Text>
+      ) : null}
       <Text as="p" color="secondary">
         {`Across ${number.format(counts.published_reviews)} published review${counts.published_reviews === 1 ? "" : "s"}, measured from the request to a result reaching GitHub, including queueing, retries and delivery.`}
         {enough ? "" : " A 95th percentile needs at least 20 to mean anything."}
@@ -313,14 +328,15 @@ function Activity({ counts }: { counts: ActivityCounts }) {
 
 export function OverviewPage() {
   const scope = useScope();
-  const { days, update } = useFilters();
+  const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   useEffect(() => {
     document.title = "Review Agent · Statistics";
   }, []);
   const query = useQuery({
-    queryKey: ["overview", days, "scoped", scope.key],
+    queryKey: ["overview", days, ...(purpose ? [purpose] : []), "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<Overview>(scope.path(`/api/overview?days=${days}`), signal),
+      read<Overview>(scope.path(`/api/overview?days=${days}${purpose ? `&purpose=${purpose}` : ""}`), signal),
   });
   const data = query.data;
   /** A deployment younger than the reporting period holds every record inside
@@ -340,9 +356,19 @@ export function OverviewPage() {
     <>
       <VStack gap={2}>
         <Heading level={1}>Statistics</Heading>
-        <Text as="p" color="secondary">
-          Review activity and delivery for this deployment.
-        </Text>
+        <Prose>
+          <Text as="p" color="secondary">
+            How reviews are going here: what was asked for, what reached GitHub,
+            how long it took and what failed.
+            {isAdmin(scope.current.role) ? (
+              <>
+                {" "}
+                To compare teams, repositories or the GitHub users who asked,
+                read <Link to="/usage">Usage</Link>.
+              </>
+            ) : null}
+          </Text>
+        </Prose>
       </VStack>
 
       <ActivityTabs />
@@ -352,32 +378,37 @@ export function OverviewPage() {
         title="Right now"
         description="Current work and worker presence, independent of the reporting period below."
       >
-        <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
-          <Stat
-            label="Active requests"
-            value={data?.active_requests}
-            hint="Queued and running now"
-          />
-          {data?.live_review_workers != null ? (
-            <>
-              <Stat
-                label="Online review workers"
-                value={data.live_review_workers}
-                hint="Sent a heartbeat in the last 90 seconds"
-              />
-              <Stat
-                label="Review capacity"
-                value={data.review_capacity}
-                hint="Concurrent reviews reported"
-              />
-            </>
-          ) : null}
-          <Stat
-            label="Repositories"
-            value={data?.repository_count}
-            hint="Known to this deployment"
-          />
-        </Grid>
+        {/* Shimmering placeholders promise a figure that is still coming. Once
+            the request has failed with nothing cached, the banner below is the
+            whole story and the promise is a false one. */}
+        {query.isError && !data ? null : (
+          <Grid gap={4} columns={{ minWidth: 160, max: 6, repeat: "fit" }}>
+            <Stat
+              label="Active requests"
+              value={data?.active_requests}
+              hint="Queued and running now"
+            />
+            {data?.live_review_workers != null ? (
+              <>
+                <Stat
+                  label="Online review workers"
+                  value={data.live_review_workers}
+                  hint="Sent a heartbeat in the last 90 seconds"
+                />
+                <Stat
+                  label="Review capacity"
+                  value={data.review_capacity}
+                  hint="Concurrent reviews reported"
+                />
+              </>
+            ) : null}
+            <Stat
+              label="Repositories"
+              value={data?.repository_count}
+              hint="Known to this deployment"
+            />
+          </Grid>
+        )}
         {data && data.live_review_workers === 0 && data.active_requests > 0 && (
           <Banner
             status="warning"
@@ -394,17 +425,23 @@ export function OverviewPage() {
         )}
       </Section>
 
-      <HStack gap={3} wrap="wrap" vAlign="center">
-        <Period days={days} change={(value) => update({ days: value })} />
-      </HStack>
-      <Freshness query={query} />
-
-      {data && (
-        <>
-          <Section
-            title={`Last ${days} days`}
-            description={`${time(data.window_start)} to ${time(data.window_end)}. Requests are counted from when they started; publications from when the result reached GitHub.`}
-          >
+      <Section
+        title={`Last ${days} days`}
+        description={
+          data
+            ? `${time(data.window_start)} to ${time(data.window_end)}. Requests are counted from when they started; publications from when the result reached GitHub.`
+            : undefined
+        }
+        actions={
+          <HStack gap={3} wrap="wrap" vAlign="end">
+          <ReviewPurposeFilter value={purpose} onChange={(value) => update({ purpose: value })} />
+          <Period days={days} change={(value) => update({ days: value })} />
+          </HStack>
+        }
+      >
+        <Freshness query={query} />
+        {data ? (
+          <>
             <Activity counts={data.window} />
             <Grid gap={6} columns={{ minWidth: 300, max: 2, repeat: "fit" }}>
               {series.filter((entry) => entry.published_reviews > 0).length >
@@ -423,8 +460,12 @@ export function OverviewPage() {
               )}
               <Latency counts={data.window} />
             </Grid>
-          </Section>
+          </>
+        ) : null}
+      </Section>
 
+      {data && (
+        <>
           <Section
             title="Why requests failed"
             description="The most common recorded causes in this period. A later request can still have published a review for the same pull request."
@@ -451,6 +492,19 @@ export function OverviewPage() {
             }
           >
             <Tokens counts={data.window} />
+            {/* Before any attempt has run, "0 of 0 reported token usage" and
+                the reasons a figure might be missing describe nothing. */}
+            {data.started_attempts > 0 ? (
+              <Prose>
+                <Text as="p" color="secondary">
+                  {number.format(data.reported_attempts)} of{" "}
+                  {number.format(data.started_attempts)} job attempts recorded
+                  their usage since this deployment began keeping records. What
+                  the rest used is unknown rather than nought; a lease can
+                  finish before it calls the model.
+                </Text>
+              </Prose>
+            ) : null}
           </Section>
 
           <Section
@@ -489,19 +543,6 @@ export function OverviewPage() {
                 </MetadataList>
               </>
             )}
-            {/* Before any attempt has run, "0 of 0 reported token usage" and
-                the reasons a figure might be missing describe nothing. */}
-            {data.started_attempts > 0 ? (
-              <Prose>
-                <Text as="p" color="secondary">
-                  {number.format(data.reported_attempts)} of{" "}
-                  {number.format(data.started_attempts)} lifetime job attempts
-                  reported token usage. Missing usage remains unknown; some
-                  leases can finish before calling the model. Recording
-                  coverage does not verify provider billing.
-                </Text>
-              </Prose>
-            ) : null}
           </Section>
         </>
       )}

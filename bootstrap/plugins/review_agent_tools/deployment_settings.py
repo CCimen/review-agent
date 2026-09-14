@@ -38,6 +38,7 @@ class DeploymentSettings:
     admission_request_timeout_seconds: int = 30
     github_gateway_max_concurrent_requests: int = 8
     feedback_enabled: bool = False
+    documentation_review_enabled: bool = False
     code_graph_enabled: bool = False
     code_graph_embeddings: Literal["none", "openai"] = "none"
     model_provider: Literal["openai-codex", "anthropic"] = "openai-codex"
@@ -47,6 +48,8 @@ class DeploymentSettings:
     ] = "xhigh"
 
     def __post_init__(self) -> None:
+        if type(self.documentation_review_enabled) is not bool:
+            raise ValueError("Documentation review enabled must be a boolean")
         for name, value in self.environment().items():
             if name in _INTEGER_ENV and (not value.isdecimal() or int(value) < 1):
                 raise ValueError(f"{name} must be a positive integer")
@@ -125,6 +128,9 @@ class DeploymentSettings:
                 self.github_gateway_max_concurrent_requests
             ),
             "REVIEW_AGENT_FEEDBACK_ENABLED": str(self.feedback_enabled).lower(),
+            "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED": str(
+                self.documentation_review_enabled
+            ).lower(),
             "REVIEW_AGENT_CODE_GRAPH_ENABLED": str(self.code_graph_enabled).lower(),
             "REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS": self.code_graph_embeddings,
             "REVIEW_AGENT_MODEL_PROVIDER": self.model_provider,
@@ -138,6 +144,13 @@ class DeploymentSettings:
     ) -> DeploymentSettings:
         env = os.environ if environment is None else environment
         core = ReviewAgentSettings(env)
+        docs_enabled = env.get(
+            "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED", "false"
+        ).lower()
+        if docs_enabled not in {"true", "false"}:
+            raise ValueError(
+                "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED must be true or false"
+            )
         provider = env.get("REVIEW_AGENT_MODEL_PROVIDER", "openai-codex")
         effort = env.get("REVIEW_AGENT_REASONING_EFFORT", "xhigh")
         embeddings = env.get("REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS", "none")
@@ -205,6 +218,7 @@ class DeploymentSettings:
                 env.get("REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS", "8")
             ),
             feedback_enabled=core.feedback_enabled,
+            documentation_review_enabled=docs_enabled == "true",
             code_graph_enabled=env.get(
                 "REVIEW_AGENT_CODE_GRAPH_ENABLED", "false"
             ).lower()

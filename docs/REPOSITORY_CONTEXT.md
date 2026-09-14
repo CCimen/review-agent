@@ -2,9 +2,9 @@
 sidebar_label: Repository context
 slug: /repository-context
 title: Configure reviews in a repository
-description: Add optional team instructions, ordered platform context, and typed design decisions without changing the shared safety contract.
+description: Add optional team instructions, ordered platform context, typed design decisions, and maintained-document mappings without changing the shared safety contract.
 status: current
-last_verified: 2026-09-02
+last_verified: 2026-09-14
 ---
 
 # Configure reviews in a repository
@@ -29,7 +29,7 @@ Deployment
 ├── bootstrap/profiles/default-standard/
 │   ├── SOUL.md                 Neutral reviewer identity and baseline tone
 │   ├── workspace/AGENTS.md     Non-overridable review and evidence contract
-│   └── skills/review-agent-pr/ Review procedure
+│   └── skills/               Code and documentation review procedures
 └── Environment
     ├── Provider and model
     ├── Reasoning effort
@@ -39,6 +39,7 @@ Deployment
 Repository
 └── .review-agent/
     ├── config.toml             Enables the package and orders context files
+    ├── documentation.toml      Maps maintained documents to source areas
     ├── instructions.md         Engineering principles, focus, and response style
     ├── context/
     │   ├── backend.md
@@ -64,6 +65,7 @@ rules.
 ```text
 .review-agent/
 ├── config.toml
+├── documentation.toml
 ├── instructions.md
 ├── context/
 │   ├── platform.md
@@ -105,13 +107,14 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.4.0-rc.6 \
+  ghcr.io/ccimen/review-agent:v0.4.0-rc.7 \
   repository-context validate /repo
 ```
 
 The validator is offline: it does not need GitHub, PostgreSQL, Hermes, a model,
-or secrets. Its JSON receipt contains paths, hashes, counts, and validation
-status, never Markdown bodies.
+or secrets. It validates optional `documentation.toml` mappings even when the
+repository has no guidance configuration or ADR index. Its JSON receipt contains
+paths, hashes, area IDs, counts, and validation status, never Markdown bodies.
 
 ## Select files explicitly
 
@@ -188,6 +191,78 @@ Decisions are separate from general context. Use an ADR when changing one
 accepted invariant needs explicit downstream checks and evidence. Use a context
 file when the information is a reusable platform fact or review aid.
 
+## Map maintained documentation
+
+Use `.review-agent/documentation.toml` to declare which exact documents explain
+an area of the repository. The mapping stands on its own: a repository does not
+need to enable optional guidance or add ADRs to validate it.
+
+```toml title=".review-agent/documentation.toml"
+version = 1
+
+[[area]]
+id = "configuration"
+sources = ["src/config/**", "deploy/**"]
+documents = ["docs/configuration.md", "docs/upgrading.md"]
+intent = "Keep required settings, defaults, migration order and recovery steps accurate."
+
+[[ignore_changes]]
+paths = ["tests/fixtures/internal/**"]
+reason = "Internal fixtures are not shipped or published as examples."
+
+[[ignore_documents]]
+paths = ["docs/archive/**"]
+reason = "These guides intentionally describe previous releases."
+```
+
+Each area has a unique ID, one or more source globs, one or more exact document
+paths, and a reader-facing intent. Source and exclusion globs support `*` and `?` within a path segment,
+and `**` as a complete path segment. Paths are normalized repository-relative
+paths. An exclusion needs a reason, and a document cannot be both explicitly
+listed and ignored. The validator also rejects unknown fields, duplicate values,
+escaping paths, unsupported glob syntax, oversized policy data, symlinks,
+submodules, and missing listed documents.
+
+`ignore_changes` removes only otherwise-unmapped changes. An explicit area
+mapping wins when both match. `ignore_documents` records why current-version
+freshness does not apply to a document; it does not exempt policy files or other
+deterministic checks.
+
+The copyable starter maps a generic platform source area to its existing
+`context/platform.md` file so the copied package validates immediately. Replace
+that example with the source and document relationships maintained by the target
+repository.
+
+## Preview documentation scope from committed revisions
+
+After committing a proposed change locally, preview its exact documentation
+scope without GitHub, PostgreSQL, a model, or repository command execution:
+
+```bash
+.venv/bin/python tools/review_agent_admin.py repository-context docs-scope \
+  /path/to/repository \
+  --base <target-base-commit> \
+  --head <pull-request-head-commit>
+```
+
+Both `--base` and `--head` must resolve to local commits. The command resolves
+their merge base separately and emits a JSON receipt with all three commit IDs,
+the changed-file inventory, previous rename paths, selected areas and intents,
+deduplicated documents, explained exclusions, unmapped paths, proposal status,
+and incomplete inputs. It reads local Git objects with literal paths and bounded
+output. Dirty working-tree edits do not affect the receipt.
+
+The target-base copy of `documentation.toml` is the accepted policy. A head edit
+is reported as a proposal and cannot replace or weaken valid base rules. When the
+head first adds the file, the command can show its proposed scope but reports the
+repository as `not_configured`; it makes no semantic verification claim. An
+invalid head proposal is reported separately while valid base scope remains
+active. An invalid accepted policy reports `invalid_configuration`.
+
+Use this preview before requesting a [live documentation review](DOCUMENTATION_REVIEW.md).
+The live workflow uses the same relationship rules, with team/repository operating
+modes, exact GitHub source reads, and an advisory check on the reviewed commit.
+
 ## Know when changes become active
 
 Review Agent reads the package from the pull request's exact **base commit** and
@@ -196,8 +271,9 @@ its own active review instructions. Changes to `.review-agent/` become active
 after they are reviewed and merged, when a later pull request uses that commit
 as its base.
 
-Protect `config.toml`, `instructions.md`, `context/`, `decisions.toml`, and
-`decisions/` with normal branch review and CODEOWNERS where appropriate.
+Protect `config.toml`, `documentation.toml`, `instructions.md`, `context/`,
+`decisions.toml`, and `decisions/` with normal branch review and CODEOWNERS where
+appropriate.
 
 The current contract accepts ADRs only under `.review-agent/decisions/`; it has
 no compatibility path for other locations. New deployments should follow the

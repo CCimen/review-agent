@@ -25,6 +25,8 @@ let ConnectionQuota;
 let IntegrationsPage;
 let OperationsPage;
 let UsagePage;
+let TeamDocumentationSection;
+let RepositoryDocumentationSection;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -57,6 +59,7 @@ before(async () => {
   ({ IntegrationsPage } = await server.ssrLoadModule("/src/integrations.tsx"));
   ({ OperationsPage } = await server.ssrLoadModule("/src/operations.tsx"));
   ({ UsagePage } = await server.ssrLoadModule("/src/usage.tsx"));
+  ({ TeamDocumentationSection, RepositoryDocumentationSection } = await server.ssrLoadModule("/src/documentation.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -159,20 +162,27 @@ test("usage hides cached private data from global viewers and distinguishes load
   assert.doesNotMatch(denied, /example\/api|Recorded tokens|Known GitHub users/);
   const pending = renderConsolePage(createElement(UsagePage), [], "/usage");
   assert.match(pending, /Recorded tokens, loading/);
-  assert.doesNotMatch(pending, /Not recorded|No matching usage/);
+  assert.doesNotMatch(pending, /Not recorded|No matching usage|Nothing recorded yet/);
+  const emptyReport = {
+    ...usage, items: [], totals: {
+      groups: 0, requests: 0, published_requests: 0, failed_requests: 0,
+      repository_count: 0, requester_count: 0, unknown_requester_requests: 0,
+      started_attempts: 0, reported_attempts: 0,
+      prompt_tokens: null, completion_tokens: null, total_tokens: null,
+    },
+  };
   const empty = renderConsolePage(createElement(UsagePage), [
-    [scopedKey(["usage", params], "owner"), {
-      ...usage, items: [], totals: {
-        groups: 0, requests: 0, published_requests: 0, failed_requests: 0,
-        repository_count: 0, requester_count: 0, unknown_requester_requests: 0,
-        started_attempts: 0, reported_attempts: 0,
-        prompt_tokens: null, completion_tokens: null, total_tokens: null,
-      },
-    }],
+    [scopedKey(["usage", params], "owner"), emptyReport],
   ], "/usage");
-  assert.match(empty, /No matching usage/);
-  assert.ok(button(empty, "Reset filters"));
+  assert.match(empty, /Nothing recorded yet/);
+  assert.equal(button(empty, "Reset filters"), "");
   assert.doesNotMatch(empty, /Tokens reported for/);
+  const filteredParams = params.replace("search=&", "search=missing&");
+  const filtered = renderConsolePage(createElement(UsagePage), [
+    [scopedKey(["usage", filteredParams], "owner"), emptyReport],
+  ], "/usage?search=missing");
+  assert.match(filtered, /No matching usage/);
+  assert.ok(button(filtered, "Reset filters"));
 });
 
 test("queue health uses all worker reports and explains capacity waits with a truncated worker list", () => {
@@ -479,7 +489,7 @@ test("quality shows feedback denominators and an empty report state without impl
     createElement(QualityPage, { current: { role: "viewer" } }),
     [
       [
-        ["quality", "report", "days=30"],
+        ["quality", "report", "days=30&purpose=code"],
         {
           published_findings: 12,
           false_positive_signals: { count: 0, denominator: 12 },
@@ -491,7 +501,7 @@ test("quality shows feedback denominators and an empty report state without impl
         },
       ],
       [
-        ["quality", "feedback", "limit=50&offset=0"],
+        ["quality", "feedback", "limit=50&offset=0&purpose=code"],
         { items: [], total: 0, pending: 0, next_offset: null, offset: 0 },
       ],
     ],
@@ -500,7 +510,7 @@ test("quality shows feedback denominators and an empty report state without impl
   assert.match(html, /3 completed reviews in this period/);
   assert.match(html, /No missed issues reported/);
   assert.match(html, /without feedback have not been assessed/);
-  assert.match(html, /href="\/history\?days=30&amp;status=published"/);
+  assert.match(html, /href="\/history\?days=30&amp;status=published&amp;purpose=code"/);
 });
 
 test("engine readiness remains distinct from a successful provider request", () => {
@@ -557,6 +567,7 @@ test("untrusted published content cannot execute HTML, submit forms or load remo
 });
 
 const request = {
+  purpose: "code",
   id: 24,
   repository: "example/repository",
   pr_number: 721,
@@ -580,6 +591,13 @@ const request = {
   publication_superseded: false,
   attempt_count: 1,
   max_attempts: 3,
+  usage: {
+    started_attempts: 2,
+    reported_attempts: 1,
+    prompt_tokens: 8000,
+    completion_tokens: 4345,
+    total_tokens: 12345,
+  },
   coverage: {
     state: "partial",
     registration_complete: true,
@@ -691,6 +709,13 @@ test("review destination leads with publication and coverage, preserves filters 
   assert.match(html, /#issuecomment-123/);
   assert.match(html, /Incomplete/);
   assert.match(html, /46 min 24 s/);
+  assert.match(html, /Recorded tokens/);
+  assert.match(html, /12,345 total/);
+  assert.match(textContent(html), /8,000 prompt · 4,345 completion/);
+  assert.match(
+    textContent(html),
+    /Partial · 1 of 2 attempts reported · Reported retries included/,
+  );
   assert.match(html, /aria-current="page"/);
   assert.match(button(html, "Execution details"), /aria-expanded="false"/);
   assert.ok(
@@ -946,6 +971,7 @@ test("activity keeps request metadata and does not report unpublished findings",
     "Commit",
     "Findings",
     "Attempts used",
+    "Recorded tokens",
     "Last activity",
   ])
     assert.match(html, new RegExp(`>${label}<`));
@@ -956,6 +982,7 @@ test("activity keeps request metadata and does not report unpublished findings",
   assert.doesNotMatch(html, />99<\/td>/);
   assert.match(html, /The model provider returned an error/);
   assert.match(html, /Recovered: a later review published/);
+  assert.match(html, /12,345 tokens/);
   assert.match(html, /Older requests/);
 });
 
@@ -1111,4 +1138,100 @@ test("pull request results use aligned table columns", async () => {
   assert.match(html, /<table[^>]*aria-label="Pull requests"/);
   assert.match(html, /<thead[\s\S]*?Pull request[\s\S]*?Latest matching result[\s\S]*?Started[\s\S]*?Action[\s\S]*?<\/thead>/);
   assert.match(html, /<tbody[\s\S]*?PR #/);
+  assert.match(html, /12,345 tokens/);
+});
+
+test("duration carries rounded seconds and minutes across unit boundaries", async () => {
+  const { duration } = await server.ssrLoadModule("/src/ui.tsx");
+  assert.equal(duration(59.5), "1 min");
+  assert.equal(duration(299.6), "5 min");
+  assert.equal(duration(3599.5), "1 h");
+  assert.equal(duration(7199), "2 h");
+});
+
+test("request usage distinguishes missing, partial and reported zero totals", async () => {
+  const { ReviewUsageSummary } = await server.ssrLoadModule(
+    "/src/reviewUsage.tsx",
+  );
+  const renderedUsage = (usage) =>
+    textContent(renderConsolePage(createElement(ReviewUsageSummary, { usage }), []));
+  assert.match(
+    renderedUsage({
+      started_attempts: 1,
+      reported_attempts: 0,
+      prompt_tokens: null,
+      completion_tokens: null,
+      total_tokens: null,
+    }),
+    /Not reportedPartial · 0 of 1 attempts reported/,
+  );
+  assert.match(
+    renderedUsage({
+      started_attempts: 1,
+      reported_attempts: 1,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
+    }),
+    /^0 tokens$/,
+  );
+});
+
+test("documentation policies distinguish deployment stop, inheritance, overrides and read-only access", () => {
+  const resolved = { configured_mode: "automatic", effective_mode: "off", source: "team", deployment_enabled: false };
+  const repository = {
+    repository_id: 7, repository: "example/api", team_id: 2, team_name: "Platform",
+    repository_override: null, team_default: "automatic", resolved,
+    revision: "revision", repository_revision: 1, team_revision: 1, deployment_revision: 1,
+    capability: "not_checked", configuration: "not_checked", can_manage: false,
+  };
+  const html = renderConsolePage(createElement(RepositoryDocumentationSection, { repositoryId: 7 }), [
+    [scopedKey(["repository-documentation", 7], "viewer"), repository],
+  ], "/repositories?documentation_repository=7", "viewer");
+  assert.match(html, /Effective mode/);
+  assert.match(html, /Team default/);
+  assert.match(html, /Automatic when enabled/);
+  assert.match(html, /Documentation reviews are disabled for this deployment/);
+  assert.match(html, /Not checked/);
+  assert.match(html, /A team maintainer or platform administrator can change this mode/);
+  assert.doesNotMatch(html, /Save repository mode/);
+  assert.match(html, /https:\/\/github.com\/example\/api\/blob\/HEAD\/\.review-agent\/documentation.toml/);
+
+  const team = {
+    team_id: 2, default_mode: "automatic", proposed_mode: "automatic", revision: "revision",
+    deployment_enabled: false, inherited_count: 1, exception_count: 1, next_after_id: null,
+    can_manage: true, repositories: [
+      { repository_id: 7, repository: "example/api", repository_override: null, before: resolved, after: resolved },
+      { repository_id: 8, repository: "example/private", repository_override: "manual", before: { ...resolved, configured_mode: "manual", source: "repository" }, after: { ...resolved, configured_mode: "manual", source: "repository" } },
+    ],
+  };
+  const teamHtml = renderConsolePage(createElement(TeamDocumentationSection, { teamId: 2 }), [
+    [scopedKey(["team-documentation", 2], "owner"), team],
+  ], "/repositories");
+  assert.match(teamHtml, /Inherits team default/);
+  assert.match(teamHtml, /Exception · Manual/);
+  assert.match(teamHtml, /Current effective mode/);
+  assert.match(teamHtml, /After saving/);
+  assert.match(button(teamHtml, "Save team default"), /disabled/);
+  assert.match(teamHtml, /documentation_repository=8/);
+});
+
+test("documentation reader distinguishes incomplete assessment and links the recorded GitHub Check", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  const item = { ...request, purpose: "documentation", findings_count: 0 };
+  client.setQueryData(scopedKey(["review", "24", null]), {
+    ...review, item, requests: [item], markdown: "Documentation review could not cover every selected claim.",
+    publication_links: [{ label: "Open Documentation check on GitHub", url: "https://github.com/example/repository/runs/456" }],
+    documentation: { base_sha: item.base_sha, comparison_sha: null, head_sha: item.head_sha, outcome: "incomplete", semantic_inference_used: false, coverage_complete: false, incomplete_reasons: ["comparison_unavailable"], scope: null, evidence: [] },
+  });
+  const html = await renderReader(client);
+  assert.match(textContent(html), /Documentation review · Request #24/);
+  assert.match(html, /Documentation review incomplete/);
+  assert.match(html, /comparison unavailable/);
+  assert.match(html, /No model-assisted assessment was used/);
+  assert.match(html, /Documentation scope and evidence/);
+  assert.match(html, /https:\/\/github.com\/example\/repository\/runs\/456/);
+  assert.doesNotMatch(html, /Some changes may not have been reviewed/);
+  assert.match(html, /12,345 total/);
+  client.clear();
 });

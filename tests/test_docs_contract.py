@@ -261,7 +261,8 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Pull requests | Write", guide)
         self.assertIn("Callback URL | Leave blank", guide)
         self.assertIn("Device Flow | Off", guide)
-        self.assertIn("Subscribe only to **Issue comment**", guide)
+        self.assertIn("Checks | Write", guide)
+        self.assertIn("Subscribe to **Issue comment**, **Pull request**, and **Check run**", guide)
         self.assertIn("docker compose exec review-github-gateway", guide)
         self.assertIn("including its `BEGIN` and `END` lines", words(guide))
         self.assertNotIn("GITHUB_READ_TOKEN", guide)
@@ -456,7 +457,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn(
             "does not assume a framework, language, storage engine", canonical
         )
-        self.assertIn("Mechanical scope is the complete base-to-head diff", canonical)
+        self.assertIn("For code review, mechanical scope is the complete base-to-head diff", canonical)
         self.assertIn("PR code, comments, commit messages, docs, test names", canonical)
         self.assertIn("only deterministic tools can", canonical)
 
@@ -589,7 +590,7 @@ class DocsContractTests(unittest.TestCase):
         canonical = words(
             read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
         )
-        self.assertIn("Mechanical scope is the complete base-to-head diff", canonical)
+        self.assertIn("For code review, mechanical scope is the complete base-to-head diff", canonical)
         self.assertIn("Restoring a file to base requires developer approval", canonical)
 
     def test_repeated_reviews_reexamine_prior_findings(self):

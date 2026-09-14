@@ -9,12 +9,15 @@ import hashlib
 import re
 from typing import Literal, TypeVar, cast
 import urllib.parse
+import psycopg
+from psycopg.rows import TupleRow
 
 from .. import capacity, changed_files, memory_validation, schemas
 from ..code_graph_contract import ARCHIVE_MAX_BYTES, GraphError, GraphIdentity, GraphPolicy, GraphSubject
 from ..code_graph_embeddings import embedding_inputs, openai_embeddings
-from ..domain.review import ReviewRunId
-from ..postgres import github_app, jobs, review_runs, webhook_deliveries
+from ..domain.review import ReviewPurpose, ReviewRunId
+from ..domain.documentation_review import DocumentationReviewError, EvidenceRead, EvidenceRole
+from ..postgres import documentation_reviews, github_app, jobs, review_runs, webhook_deliveries
 from ..postgres.runtime import PostgreSQLRuntime
 from ..source_control import (
     GitHubReadClient,
@@ -37,6 +40,9 @@ from .app_auth import (
 )
 from .source import (
     GitHubSourceError,
+    GitHubComparisonUnavailable,
+    ReviewComparison,
+    ReviewPolicySource,
     ReviewFilePage,
     ReviewFileCache,
     ReviewPullSource,
@@ -45,6 +51,8 @@ from .source import (
     read_review_diff,
     read_review_file_page,
     read_review_pull,
+    read_review_comparison,
+    read_documentation_policy,
 )
 from .publication import GitHubIssueCommentGateway, GitHubPublicationError
 
@@ -293,14 +301,14 @@ class OperatorAppStatus:
 class ReviewSourceRequest:
     """Closed source operation plus durable run and worker lease identity."""
 
-    operation: Literal["pull", "changed_files", "diff", "file", "graph_subject", "archive"]
+    operation: Literal["pull", "changed_files", "diff", "file", "graph_subject", "archive", "documentation_comparison", "documentation_file", "documentation_policy"]
     run_id: int
     job_id: int
     lease_generation: int
     per_page: int | None = None
     page: int | None = None
     path: str | None = None
-    side: Literal["head", "base"] | None = None
+    side: Literal["head", "base", "comparison"] | None = None
     start_line: int | None = None
     max_lines: int | None = None
     max_chars: int | None = None
@@ -315,9 +323,13 @@ class ReviewSourceRequest:
             "pull": common,
             "graph_subject": common,
             "archive": common,
+            "documentation_comparison": common,
+            "documentation_policy": common | {"side"},
             "changed_files": common | {"per_page", "page"},
             "diff": common,
             "file": common
+            | {"path", "side", "start_line", "max_lines", "max_chars"},
+            "documentation_file": common
             | {"path", "side", "start_line", "max_lines", "max_chars"},
         }.get(operation)
         if expected is None or set(value) != expected:
@@ -326,7 +338,7 @@ class ReviewSourceRequest:
             )
         request = cls(
             operation=cast(
-                Literal["pull", "changed_files", "diff", "file", "graph_subject", "archive"], operation
+                Literal["pull", "changed_files", "diff", "file", "graph_subject", "archive", "documentation_comparison", "documentation_file", "documentation_policy"], operation
             ),
             run_id=_positive(value.get("run_id"), "run_id"),
             job_id=_positive(value.get("job_id"), "job_id"),
@@ -334,6 +346,13 @@ class ReviewSourceRequest:
                 value.get("lease_generation"), "lease_generation"
             ),
         )
+        if operation == "documentation_policy":
+            policy_side = value.get("side")
+            if policy_side not in {"head", "base"}:
+                raise GitHubGatewayProtocolError("policy side must be head or base")
+            return cls(operation="documentation_policy", run_id=request.run_id,
+                       job_id=request.job_id, lease_generation=request.lease_generation,
+                       side=cast(Literal["head", "base"], policy_side))
         if operation == "changed_files":
             per_page = _positive(value.get("per_page"), "per_page")
             allowed_page_sizes = frozenset(
@@ -352,7 +371,7 @@ class ReviewSourceRequest:
                 per_page=per_page,
                 page=page,
             )
-        if operation == "file":
+        if operation in {"file", "documentation_file"}:
             raw_path = value.get("path")
             if not isinstance(raw_path, str):
                 raise GitHubGatewayProtocolError("path must be text")
@@ -361,8 +380,9 @@ class ReviewSourceRequest:
             except memory_validation.ReviewMemoryError as exc:
                 raise GitHubGatewayProtocolError(str(exc)) from exc
             side = value.get("side")
-            if side not in {"head", "base"}:
-                raise GitHubGatewayProtocolError("side must be head or base")
+            allowed_sides = {"head", "base", "comparison"} if operation == "documentation_file" else {"head", "base"}
+            if side not in allowed_sides:
+                raise GitHubGatewayProtocolError("side is not supported by this source operation")
             start_line = _positive(value.get("start_line"), "start_line")
             max_lines = _positive(value.get("max_lines"), "max_lines")
             if max_lines > schemas.SOURCE_PAGE_MAX_LINES:
@@ -375,12 +395,12 @@ class ReviewSourceRequest:
             ):
                 raise GitHubGatewayProtocolError("max_chars is outside the source page limit")
             return cls(
-                operation="file",
+                operation=cast(Literal["file", "documentation_file"], operation),
                 run_id=request.run_id,
                 job_id=request.job_id,
                 lease_generation=request.lease_generation,
                 path=path,
-                side=cast(Literal["head", "base"], side),
+                side=cast(Literal["head", "base", "comparison"], side),
                 start_line=start_line,
                 max_lines=max_lines,
                 max_chars=max_chars,
@@ -388,11 +408,11 @@ class ReviewSourceRequest:
         return request
 
 
-SourceResult = ReviewPullSource | ReviewSourceBytes | ReviewFilePage | GraphSubject | bytes
+SourceResult = ReviewPullSource | ReviewSourceBytes | ReviewFilePage | ReviewComparison | ReviewPolicySource | GraphSubject | bytes
 ProviderResult = TypeVar("ProviderResult")
 
 
-def _feedback_status_message(status: FeedbackAcknowledgementStatus) -> str:
+def _feedback_status_message(status: FeedbackAcknowledgementStatus, *, purpose: ReviewPurpose = ReviewPurpose.CODE) -> str:
     if status == "no_mapping":
         return FEEDBACK_NO_CURRENT_REVIEW
     if status == "not_current":
@@ -402,7 +422,7 @@ def _feedback_status_message(status: FeedbackAcknowledgementStatus) -> str:
     if status == "unsupported":
         return FEEDBACK_UNSUPPORTED_COMMAND
     if status == "invalid":
-        return "\n".join((FEEDBACK_COMMAND_NOT_RECOGNIZED, "", *usage_lines()))
+        return "\n".join((FEEDBACK_COMMAND_NOT_RECOGNIZED, "", *usage_lines(documentation=purpose is ReviewPurpose.DOCUMENTATION)))
     raise GitHubGatewayProtocolError("recorded feedback has no status message")
 
 
@@ -418,10 +438,15 @@ class AuthorizedReviewSnapshot:
     provider_repository_id: int
     repository: str
     pr_number: int
-    comment_id: int
+    comment_id: int | None
     sender_login: str
     base_sha: str
     head_sha: str
+    purpose: ReviewPurpose = ReviewPurpose.CODE
+    trigger: Literal["manual", "automatic", "check_rerun"] = "manual"
+    state: str = "open"
+    draft: bool | None = None
+    base_ref: str | None = None
 
     @classmethod
     def from_mapping(
@@ -437,10 +462,22 @@ class AuthorizedReviewSnapshot:
             "base_sha",
             "head_sha",
         }
+        try:
+            purpose = ReviewPurpose(str(value.get("purpose", "code")))
+        except ValueError as exc:
+            raise GitHubGatewayProtocolError("review purpose is invalid") from exc
+        if purpose is ReviewPurpose.DOCUMENTATION:
+            expected |= {"purpose", "trigger", "state", "draft", "base_ref"}
+            if value.get("trigger") not in {"manual", "automatic", "check_rerun"} or (value.get("draft") is not None and type(value["draft"]) is not bool):
+                raise GitHubGatewayProtocolError("documentation snapshot trigger/readiness is invalid")
         if set(value) != expected:
             raise GitHubGatewayProtocolError(
                 "gateway response fields do not match the authorize contract"
             )
+        if (value.get("trigger", "manual") == "manual") != (value.get("comment_id") is not None):
+            raise GitHubGatewayProtocolError("review trigger and comment identity do not agree")
+        if value.get("state", "open") not in {"open", "closed"}:
+            raise GitHubGatewayProtocolError("pull request state is invalid")
         return cls(
             provider_installation_id=_positive(
                 value.get("provider_installation_id"), "provider_installation_id"
@@ -450,14 +487,18 @@ class AuthorizedReviewSnapshot:
             ),
             repository=_text(value.get("repository"), "repository", 260),
             pr_number=_positive(value.get("pr_number"), "pr_number"),
-            comment_id=_positive(value.get("comment_id"), "comment_id"),
+            comment_id=_positive(value["comment_id"], "comment_id") if value.get("comment_id") is not None else None,
             sender_login=_text(value.get("sender_login"), "sender_login", 120),
             base_sha=_text(value.get("base_sha"), "base_sha", 128),
             head_sha=_text(value.get("head_sha"), "head_sha", 128),
+            purpose=purpose, trigger=cast(Literal["manual", "automatic", "check_rerun"], value.get("trigger", "manual")),
+            state=_text(value.get("state", "open"), "state", 20),
+            draft=cast(bool | None, value.get("draft")),
+            base_ref=_text(value["base_ref"], "base_ref", 255) if value.get("base_ref") is not None else None,
         )
 
     def to_mapping(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "provider_installation_id": self.provider_installation_id,
             "provider_repository_id": self.provider_repository_id,
             "repository": self.repository,
@@ -467,6 +508,10 @@ class AuthorizedReviewSnapshot:
             "base_sha": self.base_sha,
             "head_sha": self.head_sha,
         }
+
+        if self.purpose is ReviewPurpose.DOCUMENTATION:
+            result.update(purpose=self.purpose.value, trigger=self.trigger, state=self.state, draft=self.draft, base_ref=self.base_ref)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,10 +588,13 @@ class _IssueCommentCommand:
     provider_repository_id: int
     repository: str
     pr_number: int
-    comment_id: int
+    comment_id: int | None
     sender_id: int
     sender_login: str
     author_association: str
+
+    purpose: ReviewPurpose = ReviewPurpose.CODE
+    trigger: Literal["manual", "automatic", "check_rerun"] = "manual"
 
 
 @dataclass(frozen=True, slots=True)
@@ -589,6 +637,7 @@ def _issue_comment_command(
             author_association=_text(
                 payload.get("author_association"), "author_association", 80
             ),
+            purpose=ReviewPurpose(str(payload.get("purpose", "code"))),
         )
     except GitHubGatewayProtocolError as exc:
         raise GitHubGatewayRejected("invalid_normalized_payload") from exc
@@ -628,7 +677,9 @@ class ReviewGitHubGateway:
             lease_generation=lease_generation,
         )
         snapshot = self._provider_snapshot(command)
-        self._validate_snapshot(command, snapshot)
+        self._validate_pull_snapshot(snapshot, provider_repository_id=command.provider_repository_id,
+            repository=command.repository, pr_number=command.pr_number,
+            allow_closed=command.trigger == "automatic")
         self._require_authority(
             delivery_id=delivery_id,
             lease_owner=lease_owner,
@@ -643,6 +694,8 @@ class ReviewGitHubGateway:
             sender_login=command.sender_login,
             base_sha=snapshot.base_sha,
             head_sha=snapshot.head_sha,
+            purpose=command.purpose, trigger=command.trigger, state=snapshot.state,
+            draft=snapshot.draft, base_ref=snapshot.base_ref,
         )
 
     def authorize_feedback_delivery(
@@ -666,6 +719,7 @@ class ReviewGitHubGateway:
             lease_generation=lease_generation,
             command_category=webhook_deliveries.CommandCategory.FEEDBACK,
         )
+        assert command.comment_id is not None
         return AuthorizedFeedback(
             provider_installation_id=command.provider_installation_id,
             provider_repository_id=command.provider_repository_id,
@@ -715,6 +769,7 @@ class ReviewGitHubGateway:
         def operation(token: str) -> bool:
             github = self._feedback_factory(token)
             reaction = "+1" if status == "recorded" else "confused"
+            assert command.comment_id is not None
             marker = _feedback_acknowledgement_marker(command.comment_id)
             comment_exists = False
             if status != "recorded":
@@ -737,7 +792,7 @@ class ReviewGitHubGateway:
                 github.create_issue_comment(
                     command.repository,
                     command.pr_number,
-                    f"{_feedback_status_message(status)}\n\n{marker}",
+                    f"{_feedback_status_message(status, purpose=command.purpose)}\n\n{marker}",
                 )
             github.create_issue_comment_reaction(
                 command.repository, command.comment_id, reaction
@@ -752,6 +807,25 @@ class ReviewGitHubGateway:
             job_id=request.job_id,
             lease_generation=request.lease_generation,
         )
+        if request.operation in {"documentation_comparison", "documentation_file", "documentation_policy"}:
+            if scope.run.purpose is not ReviewPurpose.DOCUMENTATION:
+                raise GitHubGatewayRejected("documentation_review_required")
+        comparison_sha = None
+        if request.operation == "documentation_comparison":
+            with self._postgres.transaction() as connection:
+                stored = documentation_reviews.get_result(connection, run_id=scope.run.id)
+            if stored is not None:
+                if stored.comparison_sha is None:
+                    raise GitHubGatewayRejected("documentation_comparison_unavailable")
+                return ReviewComparison(stored.base_sha, stored.head_sha, stored.comparison_sha)
+        elif request.operation in {"documentation_file", "documentation_policy"}:
+            with self._postgres.transaction() as connection:
+                stored = documentation_reviews.get_result(connection, run_id=scope.run.id)
+            if stored is None or stored.frozen:
+                raise GitHubGatewayRejected("documentation_evidence_not_writable")
+            comparison_sha = stored.comparison_sha
+            if request.side == "comparison" and comparison_sha is None:
+                raise GitHubGatewayRejected("documentation_comparison_unavailable")
         if request.operation in {"graph_subject", "archive"}:
             subject = GraphSubject(
                 scope.provider_repository_id, scope.repository, scope.head_sha,
@@ -776,6 +850,14 @@ class ReviewGitHubGateway:
         if request.operation == "pull":
             def operation(github: GitHubReadClient) -> SourceResult:
                 return read_review_pull(github, scope)
+        elif request.operation == "documentation_comparison":
+            def operation(github: GitHubReadClient) -> SourceResult:
+                return read_review_comparison(github, scope)
+        elif request.operation == "documentation_policy":
+            assert request.side is not None
+            policy_side = request.side
+            def operation(github: GitHubReadClient) -> SourceResult:
+                return read_documentation_policy(github, scope, side=policy_side)
         elif request.operation == "changed_files":
             assert request.per_page is not None and request.page is not None
             per_page = request.per_page
@@ -812,6 +894,8 @@ class ReviewGitHubGateway:
                     max_lines=max_lines,
                     max_chars=max_chars,
                     cache=self._file_cache,
+                    comparison_sha=comparison_sha,
+                    require_regular=request.operation == "documentation_file",
                 )
         result = self._provider_source(scope.provider_repository_id, operation)
         self._require_source_authority(
@@ -819,6 +903,40 @@ class ReviewGitHubGateway:
             job_id=request.job_id,
             lease_generation=request.lease_generation,
         )
+        if request.operation in {"documentation_comparison", "documentation_file"}:
+            try:
+                with self._postgres.transaction() as connection:
+                    review_runs.lock_run(connection, scope.run.id)
+                    jobs.require_live_lease(
+                        connection, job_id=request.job_id, review_run_id=scope.run.id,
+                        lease_generation=request.lease_generation,
+                    )
+                    if isinstance(result, ReviewComparison):
+                        documentation_reviews.initialize(
+                            connection, run_id=scope.run.id, comparison_sha=result.comparison_sha,
+                        )
+                    elif isinstance(result, ReviewFilePage):
+                        assert request.path is not None and request.side is not None
+                        role = EvidenceRole.POLICY if request.side == "base" else EvidenceRole(request.side)
+                        has_lines = result.complete_lines > 0
+                        reason = (
+                            result.state if result.state != "ok" else
+                            "partial_line" if result.partial_line else
+                            "range_unavailable" if result.total_lines > 0 and not has_lines else None
+                        )
+                        documentation_reviews.record_evidence(
+                            connection, run_id=scope.run.id, evidence=EvidenceRead(
+                                path=request.path, role=role, revision=result.revision,
+                                blob_sha=result.blob_sha,
+                                start_line=result.start_line if has_lines else None,
+                                end_line=result.start_line + result.complete_lines - 1 if has_lines else None,
+                                content_sha256=hashlib.sha256(result.content.encode("utf-8")).hexdigest(),
+                                total_lines=result.total_lines if result.state == "ok" else None,
+                                unavailable_reason=reason,
+                            ),
+                        )
+            except DocumentationReviewError as exc:
+                raise GitHubGatewayRejected("documentation_evidence_rejected") from exc
         return result
 
     def embed_code_graph(
@@ -875,7 +993,7 @@ class ReviewGitHubGateway:
         except GitHubAppTokenPermanent as exc:
             raise GitHubGatewayRejected("provider_authorization_denied") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected("repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
         current = self._require_operator_repository(resolved_repository)
         if current.provider_repository_id != access.provider_repository_id:
             raise GitHubGatewayRejected("repository_not_authorized")
@@ -924,7 +1042,7 @@ class ReviewGitHubGateway:
                 )
                 return access
         except github_app.GitHubAppStateError as exc:
-            raise GitHubGatewayRejected("repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
 
     def _require_source_authority(
         self,
@@ -950,6 +1068,10 @@ class ReviewGitHubGateway:
                     scope.provider_repository_id,
                     profile_key=self._profile,
                 )
+                if scope.run.purpose is ReviewPurpose.DOCUMENTATION:
+                    github_app.authorize_documentation_review(
+                        connection, scope.provider_repository_id, profile_key=self._profile,
+                    )
                 return scope
         except (
             jobs.ReviewJobError,
@@ -957,7 +1079,7 @@ class ReviewGitHubGateway:
         ) as exc:
             raise GitHubGatewayRejected("review_job_lease_lost") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected("repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
 
     def _provider_source(
         self,
@@ -974,7 +1096,7 @@ class ReviewGitHubGateway:
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
-                raise GitHubGatewayRejected("repository_not_authorized") from exc
+                raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
             except GitHubReadError as exc:
                 if exc.kind == "unauthorized" and attempt == 0:
                     self._tokens.invalidate(provider_repository_id)
@@ -987,6 +1109,8 @@ class ReviewGitHubGateway:
                         "provider_authorization_denied"
                     ) from exc
                 raise GitHubGatewayRejected("github_read_invalid") from exc
+            except GitHubComparisonUnavailable as exc:
+                raise GitHubGatewayRejected("documentation_comparison_unavailable") from exc
             except GitHubSourceError as exc:
                 raise GitHubGatewayRejected("github_read_invalid") from exc
 
@@ -1008,10 +1132,7 @@ class ReviewGitHubGateway:
                     lease_owner=lease_owner,
                     lease_generation=lease_generation,
                 )
-                command = _issue_comment_command(
-                    delivery,
-                    expected_category=command_category,
-                )
+                command = self._delivery_command(connection, delivery, command_category)
         except (
             webhook_deliveries.DeliveryLeaseLost,
             webhook_deliveries.DeliveryNotFound,
@@ -1025,8 +1146,15 @@ class ReviewGitHubGateway:
                     provider_installation_id=command.provider_installation_id,
                     profile_key=self._profile,
                 )
+                if command.purpose is ReviewPurpose.DOCUMENTATION:
+                    github_app.authorize_documentation_review(connection, command.provider_repository_id,
+                        profile_key=self._profile, automatic=command.trigger == "automatic")
             return command
+        except github_app.GitHubAppDocumentationUnauthorized as exc:
+            raise GitHubGatewayRejected(exc.reason) from exc
         except github_app.GitHubAppRepositoryUnauthorized:
+            if command.trigger == "automatic":
+                raise GitHubGatewayRejected("repository_not_authorized")
             self._activate_automatic_repository(command, delivery_id=delivery_id)
 
         try:
@@ -1037,10 +1165,7 @@ class ReviewGitHubGateway:
                     lease_owner=lease_owner,
                     lease_generation=lease_generation,
                 )
-                current = _issue_comment_command(
-                    current_delivery,
-                    expected_category=command_category,
-                )
+                current = self._delivery_command(connection, current_delivery, command_category)
                 if current != command:
                     raise GitHubGatewayRejected("delivery_subject_changed")
                 github_app.authorize_review_admission(
@@ -1049,6 +1174,9 @@ class ReviewGitHubGateway:
                     provider_installation_id=current.provider_installation_id,
                     profile_key=self._profile,
                 )
+                if current.purpose is ReviewPurpose.DOCUMENTATION:
+                    github_app.authorize_documentation_review(connection, current.provider_repository_id,
+                        profile_key=self._profile, automatic=current.trigger == "automatic")
                 return current
         except (
             webhook_deliveries.DeliveryLeaseLost,
@@ -1056,7 +1184,44 @@ class ReviewGitHubGateway:
         ) as exc:
             raise GitHubGatewayRejected("delivery_lease_lost") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected("repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
+
+    def _delivery_command(self, connection: psycopg.Connection[TupleRow], delivery: webhook_deliveries.WebhookDelivery,
+                          category: webhook_deliveries.CommandCategory) -> _IssueCommentCommand:
+        if delivery.event == "issue_comment":
+            return _issue_comment_command(delivery, expected_category=category)
+        payload = delivery.normalized_payload
+        if (category is not webhook_deliveries.CommandCategory.REVIEW
+            or delivery.command_category is not category or delivery.normalized_schema_version != 1
+            or not isinstance(payload, Mapping) or payload.get("purpose") != "documentation"
+            or payload.get("kind") not in {"pull_request", "check_run"}):
+            raise GitHubGatewayRejected("invalid_normalized_payload")
+        repository_id = _positive(delivery.provider_repository_id, "provider_repository_id")
+        repository = _text(delivery.repository_full_name, "repository", 260)
+        trigger: Literal["automatic", "check_rerun"] = "automatic" if delivery.event == "pull_request" else "check_rerun"
+        if trigger == "automatic":
+            pr_number = _positive(payload.get("pr_number"), "pr_number")
+        else:
+            if _positive(payload.get("app_id"), "app_id") != self._tokens.app_identity().provider_app_id:
+                raise GitHubGatewayRejected("check_run_not_owned")
+            check_id = _positive(payload.get("check_run_id"), "check_run_id")
+            rows = connection.execute("""SELECT pull.number FROM review_agent.publication_parts part
+                JOIN review_agent.publications publication ON publication.id = part.publication_id
+                JOIN review_agent.pull_requests pull ON pull.id = publication.pull_request_id
+                JOIN review_agent.repositories repository ON repository.id = pull.repository_id
+                WHERE part.part_type = 'check_run' AND part.external_id = %s
+                  AND publication.purpose = 'documentation' AND repository.provider_repository_id = %s
+                LIMIT 2""", (check_id, repository_id)).fetchall()
+            if len(rows) != 1:
+                raise GitHubGatewayRejected("check_run_not_owned")
+            pr_number = _positive(rows[0][0], "pr_number")
+        return _IssueCommentCommand(
+            provider_installation_id=_positive(delivery.provider_installation_id, "provider_installation_id"),
+            provider_repository_id=repository_id, repository=repository, pr_number=pr_number, comment_id=None,
+            sender_id=_positive(payload.get("sender_id"), "sender_id"),
+            sender_login=_text(payload.get("sender_login"), "sender_login", 120), author_association="NONE",
+            purpose=ReviewPurpose.DOCUMENTATION, trigger=trigger,
+        )
 
     def _activate_automatic_repository(
         self,
@@ -1098,7 +1263,7 @@ class ReviewGitHubGateway:
         except GitHubAppTokenPermanent as exc:
             raise GitHubGatewayRejected("provider_authorization_denied") from exc
         except github_app.GitHubAppStateError as exc:
-            raise GitHubGatewayRejected("repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
 
     def _provider_feedback(
         self,
@@ -1117,7 +1282,7 @@ class ReviewGitHubGateway:
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
-                raise GitHubGatewayRejected("repository_not_authorized") from exc
+                raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
             except GitHubPublicationError as exc:
                 if exc.status == 401 and attempt == 0:
                     self._tokens.invalidate(
@@ -1143,6 +1308,14 @@ class ReviewGitHubGateway:
                     connection, ReviewRunId(_positive(run_id, "run_id"))
                 )
                 comment_id = scope.run.trigger_comment_id
+                if scope.run.purpose is ReviewPurpose.DOCUMENTATION:
+                    github_app.authorize_documentation_review(connection, scope.provider_repository_id, profile_key=self._profile)
+                    if comment_id is None:
+                        promoted = connection.execute("""SELECT admission.promotion_json->'comment_id'
+                            FROM review_agent.documentation_admissions admission
+                            WHERE admission.review_run_id = %s""", (scope.run.id,)).fetchone()
+                        if promoted is not None:
+                            comment_id = _positive(promoted[0], "comment_id")
                 if comment_id is None:
                     raise GitHubGatewayRejected(
                         "review_acknowledgement_unavailable"
@@ -1162,11 +1335,12 @@ class ReviewGitHubGateway:
                 "review_acknowledgement_unavailable"
             ) from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected("repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
 
     def _provider_snapshot(self, command: _IssueCommentCommand) -> PullSnapshot:
         def operation(github: GitHubReadClient) -> PullSnapshot:
-            self._authorize_sender(github, command)
+            if command.trigger != "automatic":
+                self._authorize_sender(github, command)
             return read_pull_snapshot(github, command.repository, command.pr_number)
 
         return self._provider_source(command.provider_repository_id, operation)
@@ -1226,6 +1400,7 @@ class ReviewGitHubGateway:
         provider_repository_id: int,
         repository: str,
         pr_number: int,
+        allow_closed: bool = False,
     ) -> None:
         if (
             snapshot.repository_id != provider_repository_id
@@ -1233,7 +1408,7 @@ class ReviewGitHubGateway:
             or snapshot.number != pr_number
         ):
             raise GitHubGatewayRejected("pull_request_identity_mismatch")
-        if snapshot.state != "open":
+        if snapshot.state != "open" and not allow_closed:
             raise GitHubGatewayRejected("pull_request_not_open")
         if (
             snapshot.head_repository_id != snapshot.repository_id

@@ -9,11 +9,12 @@ import hashlib
 import hmac
 from typing import cast
 
-from .domain.review import JsonObject, JsonValue
+from .domain.review import JsonObject, JsonValue, ReviewPurpose
 from .feedback_contract import COMPATIBLE_TRIGGERS
 from .feedback_commands import (
     FindingFeedbackCommand,
     parse_review_feedback_command,
+    review_command_purpose,
 )
 from .memory_validation import ReviewMemoryError
 
@@ -172,6 +173,7 @@ def _normalize_installation(root: Mapping[str, object]) -> NormalizedWebhook:
         "issues_permission": _permission(permissions, "issues"),
         "kind": "installation",
         "pull_requests_permission": _permission(permissions, "pull_requests"),
+        "checks_permission": _permission(permissions, "checks"),
         "repository_selection": selection,
     }
     if action == "created":
@@ -304,7 +306,10 @@ def _normalize_issue_comment(root: Mapping[str, object]) -> NormalizedWebhook:
             normalized=normalized,
             reason="not_review_command",
         )
-    if body.casefold() in _REVIEW_TRIGGERS:
+    purpose = review_command_purpose(body)
+    if purpose is ReviewPurpose.DOCUMENTATION:
+        normalized["purpose"] = purpose.value
+    if body.casefold() in _REVIEW_TRIGGERS or body.casefold() in {f"{trigger} docs" for trigger in _REVIEW_TRIGGERS}:
         command_kind = CommandKind.REVIEW
     else:
         try:
@@ -314,8 +319,8 @@ def _normalize_issue_comment(root: Mapping[str, object]) -> NormalizedWebhook:
             normalized["reason"] = "invalid_command"
         else:
             if command is None:
-                command_kind = CommandKind.IGNORED
-                normalized["reason"] = "not_review_command"
+                command_kind = CommandKind.INVALID if purpose is ReviewPurpose.DOCUMENTATION else CommandKind.IGNORED
+                normalized["reason"] = "invalid_command" if purpose is ReviewPurpose.DOCUMENTATION else "not_review_command"
             elif isinstance(command, FindingFeedbackCommand):
                 command_kind = CommandKind.FINDING_FEEDBACK
                 detail: dict[str, JsonValue] = {
@@ -345,6 +350,40 @@ def _normalize_issue_comment(root: Mapping[str, object]) -> NormalizedWebhook:
     )
 
 
+def _normalize_documentation_event(root: Mapping[str, object], event: str) -> NormalizedWebhook:
+    action = _action(root)
+    repository_id, repository = _repository(root.get("repository"))
+    installation_id = _installation_id(root)
+    sender = _object(root.get("sender"), "sender")
+    normalized: JsonObject = {
+        "kind": event, "purpose": "documentation",
+        "sender_id": _positive(sender.get("id"), "sender.id"),
+        "sender_login": _text(sender.get("login"), "sender.login", 100),
+    }
+    supported = False
+    if event == "pull_request":
+        pull = _object(root.get("pull_request"), "pull_request")
+        normalized["pr_number"] = _positive(pull.get("number"), "pull_request.number")
+        supported = action in {"opened", "reopened", "ready_for_review", "synchronize", "converted_to_draft", "closed"}
+        if action == "edited":
+            changes = _object(root.get("changes", {}), "changes")
+            supported = "base" in changes
+        normalized["trigger"] = "automatic"
+    else:
+        check = _object(root.get("check_run"), "check_run")
+        app = _object(check.get("app"), "check_run.app")
+        normalized.update({
+            "check_run_id": _positive(check.get("id"), "check_run.id"),
+            "app_id": _positive(app.get("id"), "check_run.app.id"),
+            "trigger": "check_rerun",
+        })
+        supported = action == "rerequested"
+    if not supported:
+        normalized["reason"] = "unsupported_action"
+    return NormalizedWebhook(1, event, action, installation_id, repository_id, repository,
+        CommandKind.REVIEW if supported else CommandKind.IGNORED, normalized)
+
+
 def normalize_event(event: str, payload: object) -> NormalizedWebhook:
     """Extract only the bounded fields required for durable processing."""
     event_name = _text(event, "X-GitHub-Event", 80).lower()
@@ -366,4 +405,6 @@ def normalize_event(event: str, payload: object) -> NormalizedWebhook:
         return _normalize_repositories(root)
     if event_name == "issue_comment":
         return _normalize_issue_comment(root)
+    if event_name in {"pull_request", "check_run"}:
+        return _normalize_documentation_event(root, event_name)
     raise UnsupportedGitHubEvent("unsupported GitHub event")

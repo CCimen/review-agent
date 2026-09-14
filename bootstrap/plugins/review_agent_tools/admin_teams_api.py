@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from . import admin_application
 from .admin_auth import AdminAuth
+from .domain.documentation_operating_policy import DocumentationMode
+from .postgres import documentation_operating_policy as docs_policy
 from .postgres import audit, teams
 from .postgres.runtime import PostgreSQLRuntime
 from .postgres.team_access import AccessRequest, TeamRole
@@ -34,6 +36,12 @@ class TeamUpdate(NewTeam):
 class TeamMemberUpdate(ChangeReason):
     email: EmailStr
     role: TeamRole
+
+
+class TeamDocumentationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: DocumentationMode
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
@@ -139,6 +147,40 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             before_id=before_id,
             access_id=audit_access_id,
         )
+
+    def documentation(
+        team_id: TeamId,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+        proposed_mode: DocumentationMode | None = None,
+        limit: Limit = 50,
+        after_id: Annotated[int, Query(ge=0, le=9223372036854775807)] = 0,
+    ) -> docs_policy.TeamDocumentationPolicy:
+        return admin_application.team_documentation_policy(
+            runtime,
+            access=access,
+            team_id=team_id,
+            proposed_mode=proposed_mode,
+            after_id=after_id,
+            limit=limit,
+        )
+
+    def save_documentation(
+        team_id: TeamId,
+        request: TeamDocumentationUpdate,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> docs_policy.TeamDocumentationPolicy:
+        return admin_application.save_team_documentation_policy(
+            runtime,
+            access=access,
+            team_id=team_id,
+            mode=request.mode,
+            expected_revision=request.expected_revision,
+        )
+
+    router.add_api_route("/{team_id}/documentation", documentation, methods=["GET"])
+    router.add_api_route(
+        "/{team_id}/documentation", save_documentation, methods=["PUT"]
+    )
 
     router.add_api_route(
         "",

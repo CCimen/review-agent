@@ -650,10 +650,10 @@ oc rollout restart deployment/hermes-review
 ```
 
 Only admission has a Route. The template mounts the App key into the private
-gateway pod and allows gateway ingress only from Hermes, the App delivery
-worker, and the publisher. It omits `runAsUser`, drops Linux capabilities, and
-uses PVC or `emptyDir` mounts for writable paths so OpenShift can assign an
-arbitrary UID under `restricted-v2`.
+gateway pod and allows gateway ingress only from Hermes, the review worker, the
+App delivery worker, and the publisher. It omits `runAsUser`, drops Linux
+capabilities, and uses PVC or `emptyDir` mounts for writable paths so OpenShift
+can assign an arbitrary UID under `restricted-v2`.
 
 
 ## Upgrade and roll back production
@@ -672,6 +672,14 @@ revision must match. Preserve `compose.admin.yaml` in Compose commands, stop
 Follow the [admin service procedure](ADMIN_PANEL.md#add-the-service) for the
 overlay, hostname, and post-upgrade version check. The platform examples below
 cover the main services.
+
+The review worker requires the private GitHub gateway at startup, even when
+documentation review is disabled. In Compose, set its `REVIEW_AGENT_GITHUB_GATEWAY_URL` to
+`http://review-github-gateway:8646` and attach it to `review-github-control`.
+In OpenShift, use `http://review-agent-github-gateway:8646` and permit the
+`review-agent-worker` pod in the gateway ingress policy. Both use the existing
+`API_SERVER_KEY`; no new secret or shared environment-file entry is needed.
+Include this wiring when upgrading an existing deployment, including rc.8.
 
 Drain every long-running Review Agent component before running a migration.
 This prevents an old process from writing against a schema that changed after
@@ -4746,8 +4754,14 @@ docker compose stop review-admission review-github-app-worker review-worker \
   review-publisher review-github-gateway hermes-review
 ```
 
-Restore with `pg_restore --exit-on-error`, set the restored database's owner and
-runtime URLs, run `review-agent-admin database prepare` and
+For a restore test on the production PostgreSQL cluster, use
+`pg_restore --no-owner --no-privileges --exit-on-error` and remove the temporary
+database after verification. Copying its grants gives the production runtime
+role access to another database, which `database prepare` correctly rejects.
+
+For production recovery into a separate PostgreSQL cluster, restore with
+`pg_restore --exit-on-error`, set the restored database's owner and runtime URLs,
+run `review-agent-admin database prepare` and
 `review-agent-admin database ready`, then point the environment at the restored
 database and redeploy. The canonical PostgreSQL gate exercises this sequence
 against a fresh restore. Recovery never converts or imports another database

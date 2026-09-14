@@ -698,8 +698,14 @@ docker compose stop review-admission review-github-app-worker review-worker \
   review-publisher review-github-gateway hermes-review
 ```
 
-Restore with `pg_restore --exit-on-error`, set the restored database's owner and
-runtime URLs, run `review-agent-admin database prepare` and
+For a restore test on the production PostgreSQL cluster, use
+`pg_restore --no-owner --no-privileges --exit-on-error` and remove the temporary
+database after verification. Copying its grants gives the production runtime
+role access to another database, which `database prepare` correctly rejects.
+
+For production recovery into a separate PostgreSQL cluster, restore with
+`pg_restore --exit-on-error`, set the restored database's owner and runtime URLs,
+run `review-agent-admin database prepare` and
 `review-agent-admin database ready`, then point the environment at the restored
 database and redeploy. The canonical PostgreSQL gate exercises this sequence
 against a fresh restore. Recovery never converts or imports another database

@@ -533,6 +533,8 @@ objects:
                       key: REVIEW_AGENT_RUNTIME_DATABASE_URL
                 - name: REVIEW_AGENT_HERMES_CHAT_URL
                   value: http://hermes-review:8642/v1/review-agent/review
+                - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
+                  value: http://review-agent-github-gateway:8646
                 - name: API_SERVER_KEY
                   valueFrom:
                     secretKeyRef:
@@ -595,6 +597,9 @@ objects:
             - podSelector:
                 matchLabels:
                   app: hermes-review
+            - podSelector:
+                matchLabels:
+                  app: review-agent-worker
             - podSelector:
                 matchLabels:
                   app: review-agent-github-app-worker

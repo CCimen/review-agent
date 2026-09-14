@@ -221,6 +221,7 @@ services:
     environment:
       REVIEW_AGENT_DATABASE_URL: "${REVIEW_AGENT_RUNTIME_DATABASE_URL:?set REVIEW_AGENT_RUNTIME_DATABASE_URL}"
       REVIEW_AGENT_HERMES_CHAT_URL: "http://hermes-review:8642/v1/review-agent/review"
+      REVIEW_AGENT_GITHUB_GATEWAY_URL: "http://review-github-gateway:8646"
       API_SERVER_KEY: "${API_SERVER_KEY:?set API_SERVER_KEY}"
       REVIEW_AGENT_WORKER_CONCURRENCY: "${REVIEW_AGENT_WORKER_CONCURRENCY:-4}"
       REVIEW_AGENT_JOB_LEASE_SECONDS: "${REVIEW_AGENT_JOB_LEASE_SECONDS:-120}"
@@ -237,6 +238,7 @@ services:
     networks:
       - review-database
       - review-runtime
+      - review-github-control
     volumes:
       - hermes_review_data:/opt/data:ro
     read_only: true

@@ -33,17 +33,102 @@ remain visible.
 
 A repository enables scope by adding `.review-agent/documentation.toml` in an ordinary PR. It
 does not need to add instructions, context files or ADRs merely to adopt this capability.
-Authorized operator settings own a docs mode of `off`, `manual` or `automatic`; initially retain
-manual capability for approved repositories and require explicit opt-in for automatic work. A
+Authorized settings resolve a team default and optional repository override to `off`, `manual`
+or `automatic`; start with Manual and require an explicit repo or team-default choice for
+automatic work. The console exposes the effective mode and its source. A
 typed boolean in the existing deployment-settings owner initially keeps docs disabled until the
 compatible worker, permission and publication path is qualified. Repository mode then controls
 manual or automatic admission. Disabling docs preserves code review and historical results.
 
 Extend the current repository access/operator owner. Do not repurpose the existing
 `trigger_mode` (how repository access was granted) as a docs review setting, infer spending
-permission from repository prose, or introduce a new settings service or dashboard. Use a
-supported operator command and existing diagnostic/reporting surfaces. Missing Checks permission
-is a capability-specific setup problem; it must not make ordinary code review unavailable.
+permission from repository prose, or introduce a new settings service or top-level dashboard.
+Expose the shared policy owner through supported operator controls and the existing console.
+Missing Checks permission is a capability-specific setup problem; it must not make ordinary
+code review unavailable.
+
+## Team and repository administration
+
+The console is part of V1 adoption, not a later optional dashboard. Extend existing Team detail,
+repository views, Settings, Activity, Quality and Usage. Preserve the Astryx Neutral design and
+current scope/navigation. The product UI contract belongs in [the console
+design](../../../admin/DESIGN.md#planned-documentation-review-controls).
+
+| Level | Proposed control | Meaning |
+| --- | --- | --- |
+| Platform Settings | Documentation review enabled/disabled | A global switch in existing owner-only Settings is a hard stop. It does not grant GitHub access or change code review. |
+| Team detail → Documentation review | Default: Off, Manual or Automatic | Applies to repositories using the team default. Start with Manual. Existing team model/account and capacity policy also serves docs reviews. |
+| Repository → Documentation review | Use team default, Off, Manual or Automatic | An explicit repo override wins over the team default. Show its source and offer a return to inheritance. |
+| Repository rules and decisions | Read-only current rules, intent, exclusions, guidance and indexed ADRs, with revision/source links | Repository files retain authority. Edits use a normal GitHub PR; the panel does not maintain another live copy of the rules. |
+
+A team default is a default, not a ceiling or team-wide pause: changing it to Off does not
+disable an explicitly Automatic repository. Label this clearly, show the number of inherited
+repositories affected and the exceptions before Save, and link to their settings. The platform
+disable always wins. Do not add another override-permission matrix, per-repo model selection,
+docs-specific budgets or scheduling controls in V1.
+
+For example, Platform team can default to Manual, while `payments-api` explicitly uses Automatic
+and `legacy-service` uses Off. Another repo can show “Manual · inherited from Platform team.” A
+single server-owned resolver returns configured override, team default, effective mode, source,
+applicable revisions and readiness reasons to both admission and the console. The browser must
+not recreate precedence. An unassigned repo uses the Manual fallback and only platform
+administrators can manage it; this does not override its existing App activation/access
+requirements.
+
+New repositories normally inherit. Changing ownership recomputes inherited mode; explicit
+repository overrides remain repository settings. The existing assignment/transfer action must
+show the resulting effective docs mode, including any move to Automatic and account/team context
+change. Audit that result. Recheck current ownership and maintainer authorization in the write
+transaction, so a stale page cannot edit a repository after transfer.
+
+Team maintainers can change their team's docs default and overrides for its assigned
+repositories; platform admins can manage those controls across teams. Team viewers can inspect
+permitted configuration and results but cannot save. Preserve the owner-only global Settings
+boundary, platform-admin App activation/installation control and current
+model-connection/capacity restrictions. Saving Automatic never grants installation access,
+enables a disabled repository, promotes a viewer or bypasses the global stop. GitHub permissions
+still govern editing the repository's actual rules and ADRs.
+
+Separate intended mode from readiness. Show “Automatic · waiting for merged documentation
+rules,” “Manual · ready,” “Automatic · Checks permission approval needed” or “Paused by platform
+settings,” with the precise next action. Optional guidance or missing ADRs alone must not appear
+as failed setup. Display the owning team, active/default-branch configuration revision, last
+refresh time and last review with coverage. A bounded authorized Refresh reads and validates
+repository configuration without a model; it does not run a repository-wide audit. A PR review
+still displays the exact base policy and ADR snapshots it used, which may differ from the latest
+default-branch view.
+
+Provide View rules in GitHub, Copy starter configuration, View pull request and Copy `/review
+docs` actions. These make adoption and manual requests usable without adding a new
+admin-initiated review authorization path or repository-write workflow in V1. A future editor
+may prepare a PR; it must not silently save different rules only in the database. Team-wide
+standards can be adopted through reviewed repository files; live inheritance of arbitrary team
+prose or team ADRs is outside V1.
+
+Use the existing settings save/revision and audit patterns. Preserve drafts on refresh and
+recoverable errors; reject stale revisions and unauthorized writes on the server. Show changed
+mode, actor, time and effective source in the relevant history. Save does not mass-review all
+currently open PRs: Automatic takes effect on subsequent eligible events or explicit requests.
+Moving effective mode to Manual cancels pending automatic work and prevents new automatic
+admission; already running authorized work can finish, and manual work remains eligible.
+Off/global disable stops docs work through the same
+admission/execution/publication checks. Retained reviews keep their original trigger and policy
+provenance.
+
+Monitoring follows the current team/repository/period navigation. Add Code/Documentation purpose
+selection to relevant Activity, reader, Quality and administrative Usage surfaces. Team/repo
+lists show mode, readiness, last result and items needing attention; a row links to the exact
+review. Distinguish waiting for the quiet period, queued, running, complete, skipped,
+incomplete, failed and superseded. “Not configured” and “not checked” are not successful
+reviews. Show selection/exclusion reasons and whether a model ran in the result details; never
+label a whole repo's documentation verified or turn these counts into an accuracy score.
+
+Keep costs/token use and model-reporting coverage on the existing owner/admin Usage page,
+filterable by team, repo and purpose. Team maintainers/viewers retain scoped Activity and
+Quality access; do not widen financial/operational permissions just to add a docs filter.
+Preserve current ownership semantics in Usage and separately retain admission-team/policy
+provenance on historical runs. Reuse existing refresh and failure displays; no separate
+monitoring service, alert stack or new top-level dashboard is required.
 
 ## Repository policy and accepted intent
 
@@ -371,8 +456,9 @@ compatible. A pilot requires explicit repository/operator enablement; planning d
 branch protection or production.
 
 Release-candidate consistency, autonomous patch application, fork support, external
-documentation systems, repository-wide recurring audits, cross-revision caching and new
-dashboards are outside this epic. A later release assessment should compare a trusted exact
+documentation systems, repository-wide recurring audits, cross-revision caching and a separate
+dashboard product are outside this epic. Settings and monitoring within the existing console
+are included as described above. A later release assessment should compare a trusted exact
 candidate with the previous supported release before publication, using the candidate's accepted
 policies. It must not fabricate a PR subject.
 
@@ -395,3 +481,5 @@ editing; rebase the plan's owner references if another branch changes them.
 | Operator capabilities | [Registration and doctor](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/bootstrap/plugins/review_agent_tools/operator_setup.py#L193), [Installation authorization](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/bootstrap/plugins/review_agent_tools/postgres/github_app.py#L785), [Installation permission schema](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/bootstrap/plugins/review_agent_tools/postgres_migrations/006_github_app_installations.sql), [Doctor tests](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/tests/test_operator_admin.py) |
 | Reporting and verification | [Latest-run reporting](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/bootstrap/plugins/review_agent_tools/postgres/admin_reporting.py), [Quality reporting](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/bootstrap/plugins/review_agent_tools/postgres/quality_reporting.py), [Replay tests](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/tests/test_review_replay.py), [Repository checks](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/scripts/check_bundle.sh) |
 | Documentation and release boundaries | [Documentation CI](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/.github/workflows/docs-check.yml), [Documentation checks](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/scripts/check_docs.py), [Release image workflow](https://github.com/CCimen/review-agent/blob/d2554c4d75083227a3d8672ba5bb8f21b3d04b52/.github/workflows/release-image.yml) |
+
+Admin planning was checked against `c2b3720d2abe712da00f5072d010b0b55a4036e9`. Relevant existing owners: [Team UI and scope](https://github.com/CCimen/review-agent/blob/c2b3720d2abe712da00f5072d010b0b55a4036e9/admin/src/teams.tsx), [Repository access UI](https://github.com/CCimen/review-agent/blob/c2b3720d2abe712da00f5072d010b0b55a4036e9/admin/src/access.tsx), [Console design](https://github.com/CCimen/review-agent/blob/c2b3720d2abe712da00f5072d010b0b55a4036e9/admin/DESIGN.md), [Team/repository authorization](https://github.com/CCimen/review-agent/blob/c2b3720d2abe712da00f5072d010b0b55a4036e9/bootstrap/plugins/review_agent_tools/postgres/team_access.py), [Team model-policy precedent](https://github.com/CCimen/review-agent/blob/c2b3720d2abe712da00f5072d010b0b55a4036e9/bootstrap/plugins/review_agent_tools/postgres/model_connections.py), [Ownership and transfer](https://github.com/CCimen/review-agent/blob/c2b3720d2abe712da00f5072d010b0b55a4036e9/bootstrap/plugins/review_agent_tools/postgres/repository_requests.py), [Global Settings permissions](https://github.com/CCimen/review-agent/blob/c2b3720d2abe712da00f5072d010b0b55a4036e9/bootstrap/plugins/review_agent_tools/admin_settings_api.py), [Usage scope and permissions](https://github.com/CCimen/review-agent/blob/c2b3720d2abe712da00f5072d010b0b55a4036e9/bootstrap/plugins/review_agent_tools/admin_api.py).

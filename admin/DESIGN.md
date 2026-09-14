@@ -100,3 +100,31 @@ and each service connection is a Card so uneven contents read as siblings. Hover
 palette get no added motion. Reduced motion keeps the fade and drops movement
 and blur. Lists that will hold a table show the shared `Loading` skeleton while
 their first answer is pending so the page does not grow when it lands.
+
+## Planned documentation review controls
+
+This is proposed behavior; implementation is tracked by Beads epic
+`ra-docs-review-ms1`. The [documentation review design](../docs/assessments/2026-09-14/documentation-review-design.md#team-and-repository-administration)
+owns policy and authority. Reuse this console's components and navigation.
+
+Team detail gains a Documentation review section for the team's default mode.
+Repository views expose a shared docs settings/detail section, reachable from team
+repositories and repository activity as well as platform administration. Team
+maintainers must not need the platform-only Access management page to change an
+authorized repo override. Lead with effective mode, its inherited/explicit source
+and readiness; keep rules, exclusions, ADR links and retained review evidence
+progressively disclosed. The global control stays in owner-only Settings.
+
+Show the affected inherited repositories and explicit exceptions before saving a
+team default. Preserve settings drafts on refresh, keep input after recoverable
+errors, and make read-only permissions clear. Mode and readiness have separate
+labels: Automatic can be configured while waiting for rules or App permissions.
+Repository rule/ADR changes go through GitHub; the panel provides source links and
+a starter, not a second live policy editor.
+
+Existing Activity, reader, Quality and authorized Usage views gain a purpose
+filter and links that retain team/repository/period context. Show exact selected
+coverage and failure/skip reasons instead of a repository accuracy percentage.
+Usage retains its platform-admin restriction and unknown token coverage. Reuse
+current loading, empty, retry, freshness, focus, narrow-screen, light/dark and
+reduced-motion behavior. No new top-level dashboard or visual system is planned.

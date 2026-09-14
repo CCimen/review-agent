@@ -11,19 +11,34 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@astryxdesign/core/SegmentedControl";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import {
   Table,
+  pixel,
   proportional,
   type TableColumn,
 } from "@astryxdesign/core/Table";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import documentationStarter from "../../examples/repository-context/.review-agent/documentation.toml?raw";
 import { APIError, read, write } from "./api";
+import type { RepositoryPage } from "./api";
 import type { components } from "./api.generated";
 import { ScopedLink as Link, useScope } from "./scope";
-import { Copy, ExternalLink, Form, Freshness, Saved, time } from "./ui";
+import {
+  Copy,
+  Empty,
+  ExternalLink,
+  Form,
+  Freshness,
+  Loading,
+  Saved,
+  time,
+  useFilters,
+  useLiveSearch,
+} from "./ui";
 
 type Mode = components["schemas"]["DocumentationMode"];
 type ResolvedMode = components["schemas"]["ResolvedDocumentationMode"];
@@ -1085,5 +1100,167 @@ export function ApprovalDocumentationSummary({ teamId }: { teamId: number }) {
         </Text>
       )}
     </VStack>
+  );
+}
+
+/** Where documentation reviews stand across the deployment.
+ *
+ *  The setting itself lives in three places by design: a deployment switch, a
+ *  team default, and a repository override. Until now each was reached from a
+ *  different corner of the console, so the one question an operator actually
+ *  asks — which repositories run documentation reviews, and why — had no
+ *  screen. This is that screen; it changes nothing on its own and hands each
+ *  repository to the editor that already owns it. */
+export function DocumentationOverviewPage() {
+  const scope = useScope();
+  const { params, update } = useFilters();
+  const search = params.get("search") ?? "";
+  const offset = Math.max(0, Number(params.get("offset")) || 0);
+  const { draft, setDraft, flush } = useLiveSearch(search, (value) =>
+    update({ search: value }, { replace: true }),
+  );
+  useEffect(() => {
+    document.title = "Review Agent · Documentation reviews";
+  }, []);
+  const queryParams = new URLSearchParams({
+    search,
+    offset: String(offset),
+    limit: "50",
+  });
+  const query = useQuery({
+    queryKey: ["repositories", queryParams.toString(), "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<RepositoryPage>(
+        scope.path(`/api/repositories?${queryParams}`),
+        signal,
+      ),
+  });
+  const data = query.data;
+  const deploymentEnabled = data?.items[0]?.documentation.deployment_enabled;
+  const columns: TableColumn<RepositoryPage["items"][number]>[] = [
+    {
+      key: "repository",
+      header: "Repository",
+      width: proportional(2, { minWidth: 240 }),
+      renderCell: (repo) => (
+        <VStack gap={1}>
+          <Text weight="medium">{repo.repository}</Text>
+          <Text type="supporting">
+            {repo.team_id ? (
+              <Link
+                to={`/teams/${repo.team_id}?team_id=${repo.team_id}&tab=documentation`}
+              >
+                {repo.team_name}
+              </Link>
+            ) : (
+              "No team"
+            )}
+          </Text>
+        </VStack>
+      ),
+    },
+    {
+      key: "mode",
+      header: "Documentation reviews",
+      width: proportional(1, { minWidth: 220 }),
+      renderCell: (repo) => <EffectiveMode mode={repo.documentation} />,
+    },
+    {
+      key: "actions",
+      header: "Settings",
+      width: pixel(150),
+      renderCell: (repo) => (
+        <Link
+          to={`/repositories?documentation_repository=${repo.repository_id}`}
+        >
+          Open settings
+        </Link>
+      ),
+    },
+  ];
+  return (
+    <>
+      <VStack gap={3}>
+        <Heading level={1}>Documentation reviews</Heading>
+        <Text as="p" color="secondary">
+          Which repositories check that documentation matches the change, and
+          where each mode comes from.
+        </Text>
+        <ModeHelp />
+      </VStack>
+      {/* The deployment switch overrides every team and repository, so it is
+          settled before the list that it governs. */}
+      {deploymentEnabled === false ? (
+        <DeploymentPaused enabled={false} />
+      ) : deploymentEnabled === true ? (
+        <HStack gap={3} wrap="wrap" vAlign="center">
+          <HStack gap={2} vAlign="center">
+            <StatusDot
+              variant="success"
+              label="Enabled for this deployment"
+              aria-hidden="true"
+            />
+            <Text>Enabled for this deployment</Text>
+          </HStack>
+          {scope.current.role === "owner" ? (
+            <Link to="/settings">Change in Settings</Link>
+          ) : null}
+        </HStack>
+      ) : null}
+      <HStack gap={4} wrap="wrap" vAlign="end">
+        <TextInput
+          label="Find a repository"
+          id="documentation-search"
+          startIcon="search"
+          hasClear
+          width={280}
+          placeholder="owner/repository"
+          value={draft}
+          onChange={(value) => setDraft(value)}
+          onEnter={flush}
+        />
+        <Link to="/teams">Team defaults</Link>
+      </HStack>
+      <Freshness query={query} />
+      {query.isPending && <Loading rows={6} label="Loading repositories" />}
+      {data &&
+        (data.items.length ? (
+          <Table
+            aria-label="Documentation review modes"
+            data={data.items}
+            columns={columns}
+            idKey="repository_id"
+            density="balanced"
+            dividers="rows"
+            hasHover
+            verticalAlign="top"
+          />
+        ) : (
+          <Empty
+            title={search ? "No matching repositories" : "No repositories yet"}
+          >
+            {search
+              ? `No repository matches “${search}”.`
+              : "Repositories appear here once Review Agent has registered them."}
+          </Empty>
+        ))}
+      {data && (offset > 0 || data.has_more) && (
+        <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
+          <Button
+            label="Previous"
+            variant="secondary"
+            isDisabled={offset === 0}
+            onClick={() => update({ offset: String(Math.max(0, offset - 50)) })}
+          />
+          <Text>Page {Math.floor(offset / 50) + 1}</Text>
+          <Button
+            label="Next"
+            variant="secondary"
+            isDisabled={!data.has_more || offset >= 10000}
+            onClick={() => update({ offset: String(offset + 50) })}
+          />
+        </HStack>
+      )}
+    </>
   );
 }

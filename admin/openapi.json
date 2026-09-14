@@ -13868,6 +13868,9 @@
               }
             ],
             "title": "Last Activity At"
+          },
+          "documentation": {
+            "$ref": "#/components/schemas/ResolvedDocumentationMode"
           }
         },
         "type": "object",
@@ -13881,7 +13884,8 @@
           "failed_requests",
           "active_requests",
           "latest_failed_prs",
-          "last_activity_at"
+          "last_activity_at",
+          "documentation"
         ],
         "title": "RepositoryActivity"
       },

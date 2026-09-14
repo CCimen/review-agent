@@ -118,6 +118,13 @@ Implementation and rollout evidence are tracked by Beads epic
 `ra-docs-review-ms1`. The [documentation review design](../docs/assessments/2026-09-14/documentation-review-design.md#team-and-repository-administration)
 owns policy and authority. Reuse this console's components and navigation.
 
+Documentation reviews are a Workspace destination, not a setting to be hunted
+for. The page answers which repositories run them and where each mode comes
+from, states the deployment switch first because it overrides everything, and
+hands each repository to the editor that already owns it rather than becoming a
+second one. The repository list reports the resolved mode, so the list and a
+single repository share one precedence rule.
+
 Team detail has a Documentation review section for the team's default mode. The
 mode is a segmented control, not a menu: three or four mutually exclusive modes
 are what the section is for, so they stay visible, with what "Inherit" resolves

@@ -3722,6 +3722,7 @@ export interface components {
             latest_failed_prs: number;
             /** Last Activity At */
             last_activity_at: string | null;
+            documentation: components["schemas"]["ResolvedDocumentationMode"];
         };
         /** RepositoryApproval */
         RepositoryApproval: {

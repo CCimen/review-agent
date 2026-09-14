@@ -262,3 +262,12 @@ abbr[title]:has(> .astryx-code) {
 .console-rank .astryx-progress-bar-fill {
   background-color: var(--color-accent);
 }
+
+/* A grid item's automatic minimum size is its own content, so a region that
+   holds a table refuses to become narrower than that table and pushes the
+   layout past the screen. Nothing in the library's props expresses that
+   minimum, and zero has no token, so the reset is written once here: the
+   region may shrink, and the table scrolls inside the region it already has. */
+.console-shrink {
+  min-width: 0;
+}

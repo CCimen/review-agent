@@ -1,5 +1,6 @@
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
+import { Center } from "@astryxdesign/core/Center";
 import type { ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
@@ -238,6 +239,31 @@ export function Copy({
         </Text>
       )}
     </HStack>
+  );
+}
+
+/** The console could not draw the page.
+ *
+ *  A console tab is often left open across a deployment, and the next click
+ *  into a lazily loaded page asks for a file that release no longer serves.
+ *  Reloading fetches the current one. The reader is told what to do rather
+ *  than being handed the framework's own stack trace. */
+export function RenderFailure() {
+  return (
+    <main>
+      <Center minHeight="100dvh" padding={6}>
+        <VStack gap={4} width="100%" maxWidth={440}>
+          <Banner
+            status="error"
+            title="This page could not be displayed"
+            description="The console may have been updated while this tab was open. Reloading loads the current version. If it happens again, report it with the address of this page."
+            endContent={
+              <Button label="Reload" onClick={() => window.location.reload()} />
+            }
+          />
+        </VStack>
+      </Center>
+    </main>
   );
 }
 

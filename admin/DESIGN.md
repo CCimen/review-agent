@@ -42,8 +42,11 @@ Published Markdown is sanitized before Astryx renders its typography, code block
 tables, and disclosures. Rejected URLs render as noninteractive text.
 
 Published review text is the primary content on the reader page: on wide screens
-it takes the first two of three columns and the request history is the rail
-beside it, stacking below on narrow screens. The Result block leads with the
+it takes three fifths of the width and the request history is the rail beside
+it, wide enough for the retained requests table to be read rather than
+scrolled, and stacking below on narrow screens. A region that holds a table is
+told it may shrink, so the table scrolls inside its own region instead of
+pushing the page past the screen. The Result block leads with the
 outcome (status dot, label, qualifier), groups commit, duration and comparison in a
 MetadataList, and states a failure or coverage gap as a Banner whose title is the
 next step. Request history
@@ -122,7 +125,8 @@ Documentation reviews are a Workspace destination, not a setting to be hunted
 for. The page answers which repositories run them and where each mode comes
 from, states the deployment switch first because it overrides everything, and
 hands each repository to the editor that already owns it rather than becoming a
-second one. The repository list reports the resolved mode, so the list and a
+second one. A phone gets the same fields stacked instead of a table, because a
+table would put the mode in a column the screen cannot show. The repository list reports the resolved mode, so the list and a
 single repository share one precedence rule.
 
 Team detail has a Documentation review section for the team's default mode. The
@@ -157,3 +161,6 @@ one sentence, announced once and entering on the fast band; every settings form
 uses the same one. A link that leaves for GitHub opens in a new tab and says so.
 Activity's reserved column widths add up to just under the console body at 1440
 CSS pixels, so a row can be read without pushing the table sideways.
+
+A render that fails, most often a lazily loaded page a deployment has replaced,
+shows what to do about it rather than the framework's stack trace.

@@ -2,6 +2,8 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
+import { Section as AstryxSection } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import {
   MetadataList,
@@ -62,6 +64,7 @@ export function DocumentationReviewEvidence({
   result: components["schemas"]["DocumentationReviewSummary"];
   repository: string;
 }) {
+  const isNarrow = useMediaQuery("(max-width: 768px)");
   const labels: Record<components["schemas"]["DocumentationOutcome"], string> =
     {
       not_needed: "No relevant documentation changes",
@@ -119,7 +122,10 @@ export function DocumentationReviewEvidence({
         trigger="Documentation scope and evidence"
       >
         <VStack gap={4}>
-          <MetadataList columns="multi" label={{ position: "top" }}>
+          <MetadataList
+            columns={isNarrow ? "single" : "multi"}
+            label={{ position: isNarrow ? "start" : "top" }}
+          >
             <MetadataListItem label="Policy at target base">
               <ExternalLink
                 href={source(
@@ -591,6 +597,7 @@ function RepositoryDocumentationEditor({
 }) {
   const scope = useScope();
   const refresh = usePolicyRefresh();
+  const isNarrow = useMediaQuery("(max-width: 768px)");
   const [policy, setPolicy] = useState(initial);
   const [mode, setMode] = useState<Mode | "inherit">(
     initial.repository_override ?? "inherit",
@@ -643,7 +650,10 @@ function RepositoryDocumentationEditor({
     save.isPending || reload.isPending || refreshConfiguration.isPending;
   return (
     <VStack gap={4}>
-      <MetadataList label={{ position: "top" }} columns="multi">
+      <MetadataList
+        label={{ position: isNarrow ? "start" : "top" }}
+        columns={isNarrow ? "single" : "multi"}
+      >
         <MetadataListItem label="Effective mode">
           <EffectiveMode mode={policy.resolved} />
         </MetadataListItem>
@@ -1113,6 +1123,11 @@ export function ApprovalDocumentationSummary({ teamId }: { teamId: number }) {
  *  repository to the editor that already owns it. */
 export function DocumentationOverviewPage() {
   const scope = useScope();
+  /* A table puts the mode in a second column, and on a phone a second column
+     is off the screen: the page would show a list of repository names and
+     hide the one thing it exists to say. Narrow screens get the same fields
+     stacked. */
+  const isNarrow = useMediaQuery("(max-width: 768px)");
   const { params, update } = useFilters();
   const search = params.get("search") ?? "";
   const offset = Math.max(0, Number(params.get("offset")) || 0);
@@ -1225,16 +1240,51 @@ export function DocumentationOverviewPage() {
       {query.isPending && <Loading rows={6} label="Loading repositories" />}
       {data &&
         (data.items.length ? (
-          <Table
-            aria-label="Documentation review modes"
-            data={data.items}
-            columns={columns}
-            idKey="repository_id"
-            density="balanced"
-            dividers="rows"
-            hasHover
-            verticalAlign="top"
-          />
+          isNarrow ? (
+            <VStack gap={0} aria-label="Documentation review modes">
+              {data.items.map((repo, index) => (
+                <AstryxSection
+                  key={repo.repository_id}
+                  variant="transparent"
+                  padding={0}
+                  paddingBlock={4}
+                  dividers={index === 0 ? undefined : ["top"]}
+                >
+                  <VStack gap={2}>
+                    <Text weight="medium">{repo.repository}</Text>
+                    <EffectiveMode mode={repo.documentation} />
+                    <HStack gap={4} wrap="wrap" vAlign="center">
+                      {repo.team_id ? (
+                        <Link
+                          to={`/teams/${repo.team_id}?team_id=${repo.team_id}&tab=documentation`}
+                        >
+                          {repo.team_name}
+                        </Link>
+                      ) : (
+                        <Text type="supporting">No team</Text>
+                      )}
+                      <Link
+                        to={`/repositories?documentation_repository=${repo.repository_id}`}
+                      >
+                        Open settings
+                      </Link>
+                    </HStack>
+                  </VStack>
+                </AstryxSection>
+              ))}
+            </VStack>
+          ) : (
+            <Table
+              aria-label="Documentation review modes"
+              data={data.items}
+              columns={columns}
+              idKey="repository_id"
+              density="balanced"
+              dividers="rows"
+              hasHover
+              verticalAlign="top"
+            />
+          )
         ) : (
           <Empty
             title={search ? "No matching repositories" : "No repositories yet"}

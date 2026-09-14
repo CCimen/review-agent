@@ -65,10 +65,12 @@ changing a public boundary.
 Administration's Usage page is restricted to owners and admins. It opens with
 three "Most active" cards (teams, repositories, GitHub users), each the same
 report cut to five rows and ranked against its leader; the tab below pages
-through the full grouping, with a share bar under each request count. Ranking
-bars carry the console's accent through `theme.css`, because the library's
-accent variant is the blue this deployment spends on work that is running and
-its neutral grey reads as a disabled control. Each card names whether it is the
+through the full grouping, with a share bar under each request count. The bar is
+drawn from theme colours rather than borrowed from the progress component, which
+is for work that takes time and announces itself as progress; the figure and the
+percentage beside it carry the value, so the bar is a graphic and is hidden from
+assistive technology. Its fill is the console accent, because a grey fill on a
+grey track read as a disabled control. Each card names whether it is the
 grouping listed in full and otherwise links to it, so the cards and the tabs
 below are not two competing ways to choose the same thing.
 
@@ -125,8 +127,8 @@ Documentation reviews are a Workspace destination, not a setting to be hunted
 for. The page answers which repositories run them and where each mode comes
 from, states the deployment switch first because it overrides everything, and
 hands each repository to the editor that already owns it rather than becoming a
-second one. A phone gets the same fields stacked instead of a table, because a
-table would put the mode in a column the screen cannot show. The repository list reports the resolved mode, so the list and a
+second one. A phone gets the same fields as list rows instead of a table, because
+a table would put the mode in a column the screen cannot show. The repository list reports the resolved mode, so the list and a
 single repository share one precedence rule.
 
 Team detail has a Documentation review section for the team's default mode. The

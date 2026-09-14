@@ -3,7 +3,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Code } from "@astryxdesign/core/CodeBlock";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
-import { Section as AstryxSection } from "@astryxdesign/core/Section";
+import { List, ListItem } from "@astryxdesign/core/List";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import {
   MetadataList,
@@ -1241,38 +1241,35 @@ export function DocumentationOverviewPage() {
       {data &&
         (data.items.length ? (
           isNarrow ? (
-            <VStack gap={0} aria-label="Documentation review modes">
-              {data.items.map((repo, index) => (
-                <AstryxSection
+            <List hasDividers>
+              {data.items.map((repo) => (
+                <ListItem
                   key={repo.repository_id}
-                  variant="transparent"
-                  padding={0}
-                  paddingBlock={4}
-                  dividers={index === 0 ? undefined : ["top"]}
-                >
-                  <VStack gap={2}>
-                    <Text weight="medium">{repo.repository}</Text>
-                    <EffectiveMode mode={repo.documentation} />
-                    <HStack gap={4} wrap="wrap" vAlign="center">
-                      {repo.team_id ? (
+                  label={repo.repository}
+                  description={
+                    <VStack gap={2}>
+                      <EffectiveMode mode={repo.documentation} />
+                      <HStack gap={4} wrap="wrap" vAlign="center">
+                        {repo.team_id ? (
+                          <Link
+                            to={`/teams/${repo.team_id}?team_id=${repo.team_id}&tab=documentation`}
+                          >
+                            {repo.team_name}
+                          </Link>
+                        ) : (
+                          <Text type="supporting">No team</Text>
+                        )}
                         <Link
-                          to={`/teams/${repo.team_id}?team_id=${repo.team_id}&tab=documentation`}
+                          to={`/repositories?documentation_repository=${repo.repository_id}`}
                         >
-                          {repo.team_name}
+                          Open settings
                         </Link>
-                      ) : (
-                        <Text type="supporting">No team</Text>
-                      )}
-                      <Link
-                        to={`/repositories?documentation_repository=${repo.repository_id}`}
-                      >
-                        Open settings
-                      </Link>
-                    </HStack>
-                  </VStack>
-                </AstryxSection>
+                      </HStack>
+                    </VStack>
+                  }
+                />
               ))}
-            </VStack>
+            </List>
           ) : (
             <Table
               aria-label="Documentation review modes"

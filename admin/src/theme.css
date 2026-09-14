@@ -253,14 +253,22 @@ abbr[title]:has(> .astryx-code) {
   color: var(--color-success);
 }
 
-/* The usage ranking bars carry the console's own accent. The library's accent
-   variant paints them in the theme's progress blue, which this deployment
-   already spends on work that is running, and its neutral grey sat close
-   enough to the track to read as a disabled control rather than as activity
-   that was recorded. The track keeps the library's tone, so only the filled
-   length changes colour. */
-.console-rank .astryx-progress-bar-fill {
-  background-color: var(--color-accent);
+/* The usage ranking bars. A grey fill on a grey track read as a disabled
+   control rather than as activity that was recorded, so the fill carries the
+   console's accent; the track keeps the border tone it sits on. Both come
+   from the theme, and the bar is sized by the row it is in. */
+.console-rank {
+  /* The reset lays media out as a flex box, which leaves an SVG's own
+     coordinate system unscaled; a graphic is a block. */
+  display: block;
+  inline-size: 100%;
+  block-size: var(--spacing-2);
+}
+.console-rank-track {
+  fill: var(--color-border-emphasized);
+}
+.console-rank-fill {
+  fill: var(--color-accent);
 }
 
 /* A grid item's automatic minimum size is its own content, so a region that

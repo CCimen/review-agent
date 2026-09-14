@@ -3,7 +3,6 @@ import { Card } from "@astryxdesign/core/Card";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Token } from "@astryxdesign/core/Token";
@@ -53,6 +52,33 @@ const percent = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 1,
 });
 const pageSize = 25;
+
+/** The share of the leader, or of every matching request, drawn as a bar.
+ *
+ *  The library's progress bar is for work that takes time and announces itself
+ *  as one, which is not what a ranking is; the figure and the percentage beside
+ *  this already carry the value, so the bar is a graphic and is hidden from
+ *  assistive technology. Colours come from the theme, as the statistics chart
+ *  on the overview page does. */
+function ShareBar({ share }: { share: number }) {
+  return (
+    <svg
+      className="console-rank"
+      viewBox="0 0 100 4"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect className="console-rank-track" width="100" height="4" rx="2" />
+      <rect
+        className="console-rank-fill"
+        width={Math.max(0, Math.min(1, share)) * 100}
+        height="4"
+        rx="2"
+      />
+    </svg>
+  );
+}
 
 /** Where a group's usage leads to: a team to its repositories, a repository
  *  to the people who asked. A GitHub login has no request list to open, so
@@ -160,7 +186,7 @@ function MostActivePanel({
             {rows.map((row) => {
               const href = drillHref(dimension, row);
               return (
-                <VStack key={row.key} gap={1} className="console-rank">
+                <VStack key={row.key} gap={1}>
                   <HStack gap={3} hAlign="between" vAlign="center">
                     {href ? (
                       <Link to={href}>{row.label}</Link>
@@ -175,18 +201,7 @@ function MostActivePanel({
                       </Text>
                     </Text>
                   </HStack>
-                  {/* Ranked against the leader. theme.css gives the fill the
-                      console's accent: the library's own accent is the blue
-                      this deployment spends on work that is running, and the
-                      grey it falls back to read as a disabled control rather
-                      than as activity that was actually recorded. */}
-                  <ProgressBar
-                    label={`${row.label}: ${number.format(row.requests)} review requests`}
-                    isLabelHidden
-                    value={row.requests}
-                    max={lead || 1}
-                    variant="neutral"
-                  />
+                  <ShareBar share={row.requests / (lead || 1)} />
                 </VStack>
               );
             })}
@@ -327,17 +342,11 @@ function UsageContent() {
       header: "Requests",
       width: pixel(150),
       renderCell: (row) => (
-        <VStack gap={1} className="console-rank">
+        <VStack gap={1}>
           <Text weight="medium" hasTabularNumbers>
             {number.format(row.requests)}
           </Text>
-          <ProgressBar
-            label={`${row.label}: ${percent.format(row.requests / (totals?.requests || 1))} of matching requests`}
-            isLabelHidden
-            value={row.requests}
-            max={totals?.requests || 1}
-            variant="neutral"
-          />
+          <ShareBar share={row.requests / (totals?.requests || 1)} />
           <Text type="supporting">
             {percent.format(row.requests / (totals?.requests || 1))} of matching
           </Text>

@@ -33,6 +33,8 @@ PUBLICATION_ATTEMPTS_EXHAUSTED: Final = "publication_attempts_exhausted"
 OPERATOR_CANCELLED: Final = "operator_cancelled"
 # The immutable behavior captured at admission no longer matches this worker.
 REVIEW_CONTRACT_CHANGED: Final = "review_contract_changed"
+DOCUMENTATION_DISABLED: Final = "documentation_disabled"
+DOCUMENTATION_INELIGIBLE: Final = "documentation_ineligible"
 
 # Job-row causes are deliberately separate from final review-run outcomes.
 JOB_LEASE_EXPIRED: Final = "job_lease_expired"
@@ -55,6 +57,8 @@ ALL: Final = frozenset(
         PUBLICATION_ATTEMPTS_EXHAUSTED,
         OPERATOR_CANCELLED,
         REVIEW_CONTRACT_CHANGED,
+        DOCUMENTATION_DISABLED,
+        DOCUMENTATION_INELIGIBLE,
     }
 )
 

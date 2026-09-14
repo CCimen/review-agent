@@ -7,14 +7,15 @@ from dataclasses import dataclass
 import re
 from typing import Literal, cast
 
-from ..domain.publication import PublicationId, PublicationStatus
-from ..domain.review import ReviewRunId
+from ..domain.publication import CheckRunDelivery, PublicationId, PublicationPartType, PublicationStatus
+from ..domain.review import ReviewPurpose, ReviewRunId
 from ..postgres import github_app, publications, review_runs
 from ..postgres.runtime import PostgreSQLRuntime
 from .app_auth import (
     GitHubAppTokenPermanent,
     GitHubAppTokenRetryable,
     GitHubAppTokenService,
+    GitHubAppTokenPurpose,
 )
 from .gateway import (
     GitHubGatewayProtocolError,
@@ -22,6 +23,8 @@ from .gateway import (
     GitHubGatewayRetryable,
 )
 from .publication import (
+    CheckRun,
+    CheckRunScan,
     GitHubIssueCommentGateway,
     GitHubPublicationError,
     InlineReviewComment,
@@ -38,6 +41,9 @@ PublicationScopeKind = Literal[
     "publication", "posted_publication", "failure_status"
 ]
 PublicationOperation = Literal[
+    "list_check_runs",
+    "create_check_run",
+    "update_check_run",
     "current_user",
     "get_pull",
     "list_issue_comments",
@@ -49,6 +55,8 @@ PublicationOperation = Literal[
 ]
 PublicationResult = (
     str
+    | CheckRun
+    | CheckRunScan
     | PullRequestState
     | list[IssueComment]
     | IssueComment
@@ -66,6 +74,9 @@ _POSTED_PUBLICATION_OPERATIONS: frozenset[PublicationOperation] = frozenset(
     }
 )
 _OPERATION_FIELDS: dict[PublicationOperation, set[str]] = {
+    "list_check_runs": {"max_pages"},
+    "create_check_run": set(),
+    "update_check_run": {"check_run_id", "cancelled"},
     "current_user": set(),
     "get_pull": set(),
     "list_issue_comments": {"max_pages", "newest_first"},
@@ -147,6 +158,8 @@ class PublicationGatewayRequest:
     body: str | None = None
     commit_id: str | None = None
     comments: tuple[InlineReviewComment, ...] = ()
+    check_run_id: int | None = None
+    cancelled: bool = False
 
     @classmethod
     def from_mapping(
@@ -198,7 +211,14 @@ class PublicationGatewayRequest:
             ).strip()
         if "comments" in value:
             comments = _comments(value.get("comments"))
+        check_run_id = _positive(value.get("check_run_id"), "check_run_id") if "check_run_id" in value else None
+        cancelled = value.get("cancelled", False)
+        if type(cancelled) is not bool:
+            raise GitHubGatewayProtocolError("cancelled is invalid")
+        if "check_run" in typed_operation and typed_scope_kind != "publication":
+            raise GitHubGatewayProtocolError("check operations require a publication lease")
         return cls(
+            check_run_id=check_run_id, cancelled=cancelled,
             scope_kind=typed_scope_kind,
             scope_id=_positive(value.get("scope_id"), "scope_id"),
             lease_owner=(
@@ -230,6 +250,9 @@ class _PublicationScope:
     provider_repository_id: int
     repository: str
     pr_number: int
+    check: CheckRunDelivery | None = None
+    check_summary: str = ""
+    purpose: ReviewPurpose = ReviewPurpose.CODE
 
 
 class ReviewPublicationGateway:
@@ -265,9 +288,39 @@ class ReviewPublicationGateway:
 
         def operation(token: str) -> PublicationResult:
             github = self._github_factory(token)
+            if "check_run" in request.operation:
+                check = scope.check
+                if check is None:
+                    raise GitHubGatewayRejected("documentation_check_not_prepared")
+                app_id = self._tokens.app_identity().provider_app_id
+                scan = github.list_check_runs(
+                    scope.repository, head_sha=check.head_sha, name=check.name,
+                    app_id=app_id, max_pages=request.max_pages or PUBLICATION_REQUEST_MAX_PAGES,
+                )
+                if request.operation == "list_check_runs":
+                    return scan
+                matches = [item for item in scan.check_runs if (
+                    item.app_id == app_id and item.head_sha == check.head_sha
+                    and item.name == check.name and item.external_id == check.external_id
+                )]
+                if not scan.complete or len(matches) > 1:
+                    raise GitHubPublicationError("check_recovery_unresolved", retryable=True)
+                if request.operation == "create_check_run":
+                    if matches:
+                        return matches[0]
+                    result = github.create_check_run(scope.repository, delivery=check, summary=scope.check_summary)
+                else:
+                    if not matches or matches[0].check_run_id != request.check_run_id:
+                        raise GitHubGatewayRejected("publication_check_not_authorized")
+                    result = github.update_check_run(scope.repository, matches[0].check_run_id,
+                        delivery=check, summary=scope.check_summary, cancelled=request.cancelled)
+                if (result.app_id, result.head_sha, result.name, result.external_id) != (app_id, check.head_sha, check.name, check.external_id):
+                    raise GitHubPublicationError("github_check_subject_mismatch")
+                return result
             return _execute_provider(github, scope, request)
 
-        result = self._provider(scope.provider_repository_id, operation)
+        result = self._provider(scope.provider_repository_id, operation,
+            purpose="documentation_publication" if scope.purpose is ReviewPurpose.DOCUMENTATION or "check_run" in request.operation else "publication")
         self._require_authority(request)
         return result
 
@@ -295,10 +348,27 @@ class ReviewPublicationGateway:
                         or publication.pr_number != run_scope.pr_number
                     ):
                         raise GitHubGatewayRejected("publication_subject_mismatch")
+                    check: CheckRunDelivery | None = None
+                    summary = ""
+                    if "check_run" in request.operation:
+                        if publication.purpose is not ReviewPurpose.DOCUMENTATION:
+                            raise GitHubGatewayRejected("documentation_check_requires_docs_run")
+                        primary = next((part for part in publication.parts if part.part_type is PublicationPartType.CHECK_RUN), None)
+                        if primary is None or not isinstance(primary.delivery, CheckRunDelivery):
+                            raise GitHubGatewayRejected("documentation_check_not_prepared")
+                        check = primary.delivery
+                        summary = check.summary
+                        if request.operation != "list_check_runs":
+                            for number in check.report_part_numbers:
+                                report = next((part for part in publication.parts if part.part_number == number and part.part_type in {PublicationPartType.SUMMARY, PublicationPartType.CONTINUATION}), None)
+                                if report is None or report.external_id is None:
+                                    raise GitHubGatewayRejected("documentation_report_not_acknowledged")
+                                summary += f"\n\n[Report part {number}](https://github.com/{publication.repository}/pull/{publication.pr_number}#issuecomment-{report.external_id})"
                     scope = _PublicationScope(
                         provider_repository_id=run_scope.provider_repository_id,
                         repository=run_scope.repository,
                         pr_number=run_scope.pr_number,
+                        check=check, check_summary=summary, purpose=publication.purpose,
                     )
                 elif request.scope_kind == "posted_publication":
                     if request.operation not in _POSTED_PUBLICATION_OPERATIONS:
@@ -358,30 +428,31 @@ class ReviewPublicationGateway:
                         provider_repository_id=run_scope.provider_repository_id,
                         repository=run_scope.repository,
                         pr_number=run_scope.pr_number,
+                        purpose=run_scope.run.purpose,
                     )
-                github_app.authorize_review_publication(
-                    connection,
-                    scope.provider_repository_id,
-                    profile_key=self._profile,
-                )
+                authorize = (github_app.authorize_documentation_review
+                    if scope.purpose is ReviewPurpose.DOCUMENTATION
+                    else github_app.authorize_review_publication)
+                authorize(connection, scope.provider_repository_id, profile_key=self._profile)
                 return scope
         except (publications.PublicationLeaseLost, review_runs.FailureStatusLeaseLost) as exc:
             raise GitHubGatewayRejected("publication_lease_lost") from exc
         except (publications.PublicationStoreError, review_runs.ReviewRunError) as exc:
             raise GitHubGatewayRejected("publication_authority_invalid") from exc
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise GitHubGatewayRejected("repository_not_authorized") from exc
+            raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
 
     def _provider(
         self,
         provider_repository_id: int,
         operation: Callable[[str], PublicationResult],
+        *, purpose: GitHubAppTokenPurpose = "publication",
     ) -> PublicationResult:
         attempt = 0
         while True:
             try:
                 token = self._tokens.token_for(
-                    provider_repository_id, purpose="publication"
+                    provider_repository_id, purpose=purpose
                 )
                 return operation(token.value)
             except GitHubAppTokenRetryable as exc:
@@ -389,11 +460,11 @@ class ReviewPublicationGateway:
             except GitHubAppTokenPermanent as exc:
                 raise GitHubGatewayRejected("provider_authorization_denied") from exc
             except github_app.GitHubAppRepositoryUnauthorized as exc:
-                raise GitHubGatewayRejected("repository_not_authorized") from exc
+                raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
             except GitHubPublicationError as exc:
                 if exc.status == 401 and attempt == 0:
                     self._tokens.invalidate(
-                        provider_repository_id, purpose="publication"
+                        provider_repository_id, purpose=purpose
                     )
                     attempt += 1
                     continue
@@ -456,6 +527,10 @@ def _execute_provider(
 
 
 def result_mapping(result: PublicationResult) -> dict[str, object]:
+    if isinstance(result, CheckRun):
+        return {"kind": "check_run", **_check_mapping(result)}
+    if isinstance(result, CheckRunScan):
+        return {"kind": "check_runs", "check_runs": [_check_mapping(item) for item in result.check_runs], "complete": result.complete, "app_id": result.app_id}
     if isinstance(result, str):
         return {"kind": "current_user", "login": result}
     if isinstance(result, PullRequestState):
@@ -513,3 +588,9 @@ def _issue_comment_mapping(comment: IssueComment) -> dict[str, object]:
         "body": comment.body,
         "author_login": comment.author_login,
     }
+
+
+def _check_mapping(check: CheckRun) -> dict[str, object]:
+    return {"check_run_id": check.check_run_id, "name": check.name, "head_sha": check.head_sha,
+            "external_id": check.external_id, "app_id": check.app_id,
+            "status": check.status, "conclusion": check.conclusion}

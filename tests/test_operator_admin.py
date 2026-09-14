@@ -78,6 +78,14 @@ class OperatorSetupTests(unittest.TestCase):
                 "repository_guidance": "explicit-base-snapshot",
                 "repository_profiles": "deployment-profile-only",
                 "trigger_mode": "manual",
+                "documentation_review": {
+                    "command": "/review docs", "modes": ["off", "manual", "automatic"],
+                    "deployment_default": "off", "repository_default": "manual",
+                    "configuration": ".review-agent/documentation.toml",
+                    "policy_revision": "exact-pr-base", "publication": "advisory-check-run",
+                    "checks_permission": "write", "automatic_events": ["pull_request", "check_run"],
+                    "automatic_fixes": False,
+                },
             },
         )
 
@@ -94,8 +102,9 @@ class OperatorSetupTests(unittest.TestCase):
         self.assertEqual(
             parse_qs(personal_url.query),
             {
-                "events[]": ["issue_comment"],
+                "events[]": ["issue_comment", "pull_request", "check_run"],
                 "name": ["review-agent-ccimen"],
+                "permissions[checks]": ["write"],
                 "permissions[contents]": ["read"],
                 "permissions[issues]": ["write"],
                 "permissions[pull_requests]": ["write"],
@@ -330,6 +339,7 @@ class OperatorSetupTests(unittest.TestCase):
             )
 
         self.assertTrue(report.ready, report.to_json_obj())
+        self.assertEqual(report.documentation_app.status, "error")
         runtime.readiness.assert_called_once_with()
         gateway.operator_status.assert_called_once_with()
         rendered = json.dumps(report.to_json_obj(), sort_keys=True)

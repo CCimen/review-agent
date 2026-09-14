@@ -78,9 +78,14 @@ Grant these repository permissions:
 | Contents | Read | Exact source snapshots |
 | Issues | Write | PR comments, reactions, and feedback events |
 | Pull requests | Write | PR state, reviews, and native suggestions |
+| Checks | Write | Documentation review checks |
 
-Subscribe only to **Issue comment**. GitHub sends installation and repository
-selection lifecycle events to installed Apps automatically. OAuth, user
+Subscribe to **Issue comment**, **Pull request**, and **Check run**. The latter
+two support automatic documentation updates and check reruns. Existing code-only
+installations can continue while the GitHub owner accepts the Checks permission;
+documentation review remains unavailable until its own prerequisites are met.
+GitHub sends installation and repository selection lifecycle events to installed
+Apps automatically. OAuth, user
 authorization, organization permissions, Actions, Administration, Secrets,
 and Contents write are not required.
 

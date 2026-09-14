@@ -30,7 +30,7 @@ from .domain.finding import (
     resolve_decision,
     resolve_fingerprint_query,
 )
-from .domain.review import JsonObject, ReviewRunId, ReviewStatus
+from .domain.review import JsonObject, ReviewPurpose, ReviewRunId, ReviewStatus
 from . import failure_codes, review_run_application
 from . import repository_decision_context
 from .github import app_auth, app_inventory
@@ -596,6 +596,7 @@ def show_finding_in_transaction(
     decision_limit: int | None = None,
     decision_before_id: int | None = None,
     now: datetime | None = None,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> postgres_reporting.FindingDetail:
     normalized_repository = resolve_repository(repository)
     query = resolve_fingerprint_query(fingerprint)
@@ -606,11 +607,13 @@ def show_finding_in_transaction(
     resolved = postgres_findings.resolve_fingerprint(
         connection,
         repository_id=scope.id,
+        purpose=purpose,
         query=query,
     )
     return postgres_reporting.finding_detail(
         connection,
         repository_id=scope.id,
+        purpose=purpose,
         fingerprint=resolved,
         now=moment,
         occurrence_id=(
@@ -679,10 +682,17 @@ def decide_finding_in_transaction(
     except FindingDomainError as exc:
         raise OperatorInputError(str(exc)) from exc
     scope = postgres_reporting.repository_scope(connection, repository=repository)
+    purpose = (
+        postgres_reporting.occurrence_purpose(connection, repository_id=scope.id, occurrence_id=occurrence_id)
+        if occurrence_id is not None else ReviewPurpose.CODE
+    )
+    if purpose is ReviewPurpose.DOCUMENTATION and definition.decision is DecisionKind.INTENTIONAL_BY_DESIGN:
+        raise OperatorInputError("Documentation findings do not support intentional-by-design decisions")
     fingerprint = postgres_findings.resolve_fingerprint(
         connection,
         repository_id=scope.id,
         query=query,
+        purpose=purpose,
     )
     target = postgres_reporting.decision_target(
         connection,
@@ -692,6 +702,7 @@ def decide_finding_in_transaction(
         pr_number=pr_number,
         local_reference=local_reference,
         latest=request.latest,
+        purpose=purpose,
     )
     intentional_evidence = None
     if definition.decision is DecisionKind.INTENTIONAL_BY_DESIGN:

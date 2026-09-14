@@ -691,6 +691,7 @@ def _part_rows(
                 CASE part_type
                     WHEN 'suggestion_review' THEN 0
                     WHEN 'summary' THEN 1
+                    WHEN 'check_run' THEN 3
                     ELSE 2
                 END,
                 part_number
@@ -1449,6 +1450,7 @@ def complete_publication(
             """
             UPDATE review_agent.publications
             SET superseded_at = statement_timestamp(),
+                supersession_rendered_at = CASE WHEN purpose = 'documentation' THEN statement_timestamp() ELSE supersession_rendered_at END,
                 superseded_by_publication_id = %s
             WHERE pull_request_id = %s
               AND purpose = %s
@@ -1585,6 +1587,19 @@ def prepare_publication(
     ):
         raise PublicationStoreError("delivery_max_attempts must be positive")
     scope = _run_scope(connection, run_id)
+    has_check = any(part.part_type is PublicationPartType.CHECK_RUN for part in plan.parts)
+    if has_check != (scope.purpose == ReviewPurpose.DOCUMENTATION.value):
+        raise PublicationConflict("publication primary part does not match the review purpose")
+    if has_check:
+        from ..domain.publication import CheckRunDelivery
+        check = next(part.delivery for part in plan.parts if part.part_type is PublicationPartType.CHECK_RUN)
+        subject = connection.execute(
+            "SELECT subject.head_sha FROM review_agent.review_runs AS run "
+            "JOIN review_agent.review_subjects AS subject ON subject.id = run.review_subject_id WHERE run.id = %s",
+            (run_id,),
+        ).fetchone()
+        if subject is None or not isinstance(check, CheckRunDelivery) or check.head_sha != subject[0]:
+            raise PublicationConflict("documentation check must use the exact reviewed head")
     existing_id = connection.execute(
         "SELECT id FROM review_agent.publications WHERE review_run_id = %s",
         (run_id,),

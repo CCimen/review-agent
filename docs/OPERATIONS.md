@@ -23,6 +23,7 @@ tokens for one repository and one purpose at a time.
 | --- | --- | --- |
 | GitHub App read token | Contents read, Issues read, Pull requests read, Metadata read | Exact PR source reads. |
 | GitHub App publication token | Issues write, Pull requests write, Metadata read | Deterministic comments, reviews, suggestions, and feedback acknowledgements. |
+| GitHub App documentation publication token | Checks write, Issues write, Pull requests write, Metadata read | Documentation checks and bounded overflow report comments. |
 
 The gateway mints each token for one enabled repository and one operation.
 Endpoint-specific failures such as
@@ -86,7 +87,8 @@ Capacity waits appear in App worker logs as `status=received` with
 the PR subject on every attempt. Lock contention uses `review_admission_busy` and
 keeps the normal bounded processing-attempt budget. An expired request leaves a
 terminal delivery receipt and a `status=failed reason=review_admission_expired`
-log entry; its normalized payload is erased. After resolving capacity or worker
+log entry. Code-review receipts erase their normalized payload; documentation
+receipts retain their bounded event envelope until explicit pruning. After resolving capacity or worker
 availability, post a new `/review` comment to request another review. Redelivering
 the same webhook GUID does not reopen its receipt.
 
@@ -306,6 +308,8 @@ Durable history is preserved unless this table explicitly says otherwise:
 | `github_app_installations`, `github_app_repository_access`, `github_app_installation_events`, `github_app_repository_access_events` | Platform operator | Preserve current authorization and its audit history. |
 | `github_webhook_deliveries` | Platform operator | Preserve active deliveries. Old terminal `accepted`, `ignored`, `rejected`, and `failed` receipts may be pruned only with the bounded command below. |
 | `repositories`, `pull_requests`, `review_subjects`, `review_runs`, `review_jobs`, `review_run_files`, `review_file_reads`, `review_decision_snapshots` | Repository owner | Preserve review identity, coverage, lifecycle, and decision context. |
+| `documentation_reviews`, `documentation_admissions` | Repository owner | Preserve exact scope, evidence, results and admission provenance with review history. |
+| `repository_documentation_configuration` | Repository maintainer | Keep the latest explicit configuration inspection; a later Refresh replaces it. This is display state, not review authority. |
 | `finding_identities`, `finding_occurrences`, `finding_suggestions`, `finding_decisions`, `intentional_design_evidence`, `decision_audit`, `pull_request_finding_references` | Repository owner | Preserve finding history and explicit human decisions. |
 | `publications`, `publication_parts`, `publication_findings` | Repository owner | Preserve exact publication and recovery evidence. |
 | `admin_users`, `admin_sessions` | Deployment owner | Preserve admin-panel accounts and revocable login sessions; treat backups as credential-bearing data. |
@@ -313,6 +317,11 @@ Durable history is preserved unless this table explicitly says otherwise:
 | `admin_audit_events` | Deployment owner | Preserve access changes and human audit evidence. Successful application read receipts can be pruned only with the bounded integration command below. |
 | `review_quality_feedback`, `review_quality_feedback_triage`, `processed_feedback_events` | Quality owner | Preserve feedback, triage, and idempotency receipts. |
 | `coach_runs`, `coach_candidates`, `coach_intervention_outcomes`, `verification_runs`, `candidate_verifications`, `candidate_reconciliations` | Quality owner | Preserve private coaching and verification evidence; unavailable to the live reviewer. |
+
+Terminal documentation deliveries retain their bounded normalized event envelope
+so coalescing and rerun decisions remain inspectable. Raw webhook bodies are not
+stored. The envelope is removed with its terminal delivery by the same explicit
+pruning command; the admitted run keeps its separate provenance receipt.
 
 Preview terminal webhook history before a cutoff. The explicit limit is also
 capped by `REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS`:
@@ -640,6 +649,25 @@ review-agent-memory decide <fingerprint> resolved \
 
 Other decision values are `accepted_risk`, `duplicate`, and `reopen`. Security
 owns the suppression trust rules in [docs/SECURITY.md](SECURITY.md).
+
+## Documentation review operation
+
+Use [Documentation review](DOCUMENTATION_REVIEW.md) for manual requests,
+automatic opt-in, scope configuration, and advisory result semantics. The global
+Settings switch defaults off. Team defaults and repository overrides preserve
+configured modes during a deployment pause. Changing a team default to Off does
+not override an explicit Automatic repository setting.
+
+`review-agent-admin doctor` reports `documentation_app` separately from core
+readiness. A missing Checks permission or event subscription does not mark a
+working code-only deployment unhealthy. The repository console checks the stored
+installation grant and provides an explicit exact-revision configuration Refresh.
+Neither check grants GitHub access or runs a model.
+
+Stop documentation spending with the deployment switch; restore individual
+repository inheritance or choose Off for a narrower stop. Retained results and
+usage remain available. Review Agent preserves current policy checks at source
+and publication boundaries, and stale work cannot become a current result.
 
 ## Backup And Recovery
 

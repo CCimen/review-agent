@@ -376,6 +376,8 @@ class PullSnapshot:
     head_sha: str
     head_repository_id: int | None
     head_repository: str | None
+    draft: bool | None = None
+    base_ref: str | None = None
 
 
 def _github_object(value: object, field: str) -> Mapping[str, object]:
@@ -439,4 +441,6 @@ def read_pull_snapshot(
         head_sha=_github_text(head.get("sha"), "head sha"),
         head_repository_id=head_repository_id,
         head_repository=head_repository,
+        draft=cast(bool, root["draft"]) if isinstance(root.get("draft"), bool) else None,
+        base_ref=_github_text(base["ref"], "base ref") if "ref" in base else None,
     )

@@ -11,7 +11,10 @@ from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
 from ..domain.review import ReviewPurpose, ReviewRunId
+from ..domain.documentation_review import DocumentationOutcome, EvidenceRead
+from ..documentation_scope import DocumentationScope
 from . import coverage as postgres_coverage
+from . import documentation_reviews
 from .team_access import ReadScope, repository_source
 
 
@@ -282,6 +285,7 @@ _HISTORY_QUERY = (
     + """
             WHERE (%(repository)s::text IS NULL OR lower(repo.full_name) = lower(%(repository)s))
               AND (%(pr)s::integer IS NULL OR pr.number = %(pr)s)
+              AND (%(purpose)s::text IS NULL OR run.purpose = %(purpose)s)
               AND (%(watermark)s::bigint IS NULL OR run.id <= %(watermark)s)
               AND (CASE WHEN %(status)s = 'active' THEN run.status = 'running'
                         ELSE run.started_at >= %(since)s AND run.started_at < %(until)s END)
@@ -311,10 +315,12 @@ def history(
     limit: int,
     before_id: int | None,
     watermark_id: int | None = None,
+    purpose: ReviewPurpose | None = None,
 ) -> HistoryPage:
     query = sql.SQL(_HISTORY_QUERY).format(repositories=repository_source(scope))
     parameters = {
         "repository": repository,
+        "purpose": purpose.value if purpose is not None else None,
         "pr": pr_number,
         "before": before_id,
         "status": status,
@@ -413,6 +419,19 @@ class PublicationLink:
 
 
 @dataclass(frozen=True, slots=True)
+class DocumentationReviewSummary:
+    base_sha: str
+    comparison_sha: str | None
+    head_sha: str
+    outcome: DocumentationOutcome | None
+    semantic_inference_used: bool
+    coverage_complete: bool
+    incomplete_reasons: tuple[str, ...]
+    scope: DocumentationScope | None
+    evidence: tuple[EvidenceRead, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewDetail:
     item: HistoryItem
     markdown: str | None
@@ -423,6 +442,7 @@ class ReviewDetail:
     next_cursor: int | None
     generated_at: datetime
     can_maintain: bool = False
+    documentation: DocumentationReviewSummary | None = None
 
 
 def review_detail(
@@ -432,6 +452,7 @@ def review_detail(
     run_id: ReviewRunId,
     before_id: int | None,
     now: datetime,
+    purpose: ReviewPurpose | None = None,
 ) -> ReviewDetail | None:
     with connection.cursor(row_factory=class_row(HistoryRow)) as cursor:
         selected = cursor.execute(
@@ -446,9 +467,16 @@ def review_detail(
             sql.SQL(
                 _HISTORY_SELECT
                 + " WHERE run.pull_request_id = %s AND (%s::bigint IS NULL OR run.id < %s)"
+                " AND (%s::text IS NULL OR run.purpose = %s)"
                 " ORDER BY run.id DESC LIMIT 21"
             ).format(repositories=repository_source(scope)),
-            (selected.pull_request_id, before_id, before_id),
+            (
+                selected.pull_request_id,
+                before_id,
+                before_id,
+                purpose.value if purpose is not None else None,
+                purpose.value if purpose is not None else None,
+            ),
         ).fetchall()
     items = _history_items(connection, [selected, *rows[:20]])
     # Read only the frozen, fully published result, never a generated draft or
@@ -474,6 +502,14 @@ def review_detail(
         ).fetchall()
         pr_url = f"https://github.com/{selected.repository}/pull/{selected.pr_number}"
         for part_type, part_number, external_id in link_rows[:100]:
+            if part_type == "check_run":
+                links.append(
+                    PublicationLink(
+                        "Open Documentation check on GitHub",
+                        f"https://github.com/{selected.repository}/runs/{external_id}",
+                    )
+                )
+                continue
             suggestion = part_type == "suggestion_review"
             label = (
                 "Open suggested changes on GitHub"
@@ -484,6 +520,11 @@ def review_detail(
             )
             anchor = "pullrequestreview" if suggestion else "issuecomment"
             links.append(PublicationLink(label, f"{pr_url}#{anchor}-{external_id}"))
+    result = (
+        documentation_reviews.get_result(connection, run_id=run_id)
+        if selected.purpose == ReviewPurpose.DOCUMENTATION
+        else None
+    )
     return ReviewDetail(
         item=items[0],
         markdown=publication[1] if publication else None,
@@ -493,6 +534,19 @@ def review_detail(
         requests=items[1:],
         next_cursor=int(rows[19].id) if len(rows) > 20 else None,
         generated_at=now,
+        documentation=DocumentationReviewSummary(
+            base_sha=result.base_sha,
+            comparison_sha=result.comparison_sha,
+            head_sha=result.head_sha,
+            outcome=result.outcome,
+            semantic_inference_used=result.semantic_inference_used,
+            coverage_complete=result.coverage_complete,
+            incomplete_reasons=result.incomplete_reasons,
+            scope=result.scope,
+            evidence=result.evidence,
+        )
+        if result is not None
+        else None,
     )
 
 
@@ -534,10 +588,12 @@ def pull_requests(
     pr_number: int | None,
     limit: int,
     before_id: int | None,
+    purpose: ReviewPurpose | None = None,
 ) -> PullRequestPage:
     parameters = {
         "watermark": None,
         "repository": repository,
+        "purpose": purpose.value if purpose is not None else None,
         "status": status,
         "pr": pr_number,
         "since": since,
@@ -562,7 +618,8 @@ def pull_requests(
             grouped
             + sql.SQL("""
             SELECT g.*, (SELECT count(*) FROM review_agent.review_runs r
-                WHERE r.pull_request_id = g.pull_request_id) AS total_requests
+                WHERE r.pull_request_id = g.pull_request_id
+                  AND (%(purpose)s::text IS NULL OR r.purpose = %(purpose)s)) AS total_requests
             FROM grouped g
             WHERE (%(before)s::bigint IS NULL OR latest_id < %(before)s)
             ORDER BY latest_id DESC LIMIT %(limit)s

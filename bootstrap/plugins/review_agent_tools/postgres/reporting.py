@@ -656,6 +656,21 @@ def finding_detail(
     )
 
 
+def occurrence_purpose(
+    connection: psycopg.Connection[TupleRow], *, repository_id: RepositoryId,
+    occurrence_id: FindingOccurrenceId,
+) -> ReviewPurpose:
+    row = connection.execute(
+        """SELECT identity.purpose FROM review_agent.finding_occurrences occurrence
+           JOIN review_agent.finding_identities identity ON identity.id = occurrence.finding_id
+           WHERE occurrence.id = %s AND identity.repository_id = %s""",
+        (occurrence_id, repository_id),
+    ).fetchone()
+    if row is None:
+        raise FindingNotFound("finding occurrence is not registered in the repository")
+    return ReviewPurpose(row[0])
+
+
 def decision_target(
     connection: psycopg.Connection[TupleRow],
     *,

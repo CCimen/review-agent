@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 try:
+    from .domain.review import ReviewPurpose
     from .feedback_contract import contains_placeholder
     from .memory_validation import (
         ReviewMemoryError,
@@ -16,6 +17,7 @@ try:
         local_reference_number,
     )
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
+    from domain.review import ReviewPurpose
     from feedback_contract import contains_placeholder
     from memory_validation import (
         ReviewMemoryError,
@@ -63,6 +65,14 @@ _ADR_RE = re.compile(r"ADR-[A-Za-z0-9][A-Za-z0-9._-]{0,76}$")
 _LEADING_BECAUSE_RE = re.compile(r"^because\b(?:\s*[:,-]?\s*)?", re.IGNORECASE)
 
 
+def review_command_purpose(body: str) -> ReviewPurpose:
+    """Classify the explicit docs prefix even when its trailing command is invalid."""
+    match = _COMMAND_RE.fullmatch(str(body or "").strip())
+    payload = str(match.group("body") or "").strip() if match else ""
+    parts = payload.split(maxsplit=1)
+    return ReviewPurpose.DOCUMENTATION if parts and parts[0].casefold() == "docs" else ReviewPurpose.CODE
+
+
 def _local_reference(value: str) -> str:
     reference = clean_text(value, field="local_reference", maximum=12).upper()
     if local_reference_number(reference) < 1:
@@ -103,6 +113,15 @@ def parse_review_feedback_command(body: str) -> FeedbackCommand | None:
     verb, _, rest = payload.partition(" ")
     normalized_verb = verb.strip().lower().replace("_", "-")
     rest = rest.strip()
+    documentation = normalized_verb == "docs"
+    if documentation:
+        if not rest:
+            return None
+        verb, _, rest = rest.partition(" ")
+        normalized_verb = verb.strip().lower().replace("_", "-")
+        rest = rest.strip()
+        if normalized_verb == "intentional":
+            raise ReviewMemoryError("documentation feedback supports false-positive, feedback scope, or feedback missed")
 
     if normalized_verb in {"accepted-risk", "accepted_risk"}:
         raise ReviewMemoryError("accepted risk decisions require the governance CLI")

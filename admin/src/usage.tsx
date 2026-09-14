@@ -19,6 +19,7 @@ import { useEffect, type InputHTMLAttributes } from "react";
 import { Navigate } from "react-router-dom";
 import type { UsageReport, UsageRow } from "./api";
 import { read } from "./api";
+import { ReviewPurposeFilter, selectedReviewPurpose } from "./reviewPurpose";
 import { ScopedLink as Link, isAdmin, useScope } from "./scope";
 import {
   Empty,
@@ -185,6 +186,7 @@ export function UsagePage() {
 function UsageContent() {
   const scope = useScope();
   const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   const requestedDimension = params.get("dimension");
   const dimension =
     requestedDimension === "team" || requestedDimension === "requester"
@@ -208,7 +210,7 @@ function UsageContent() {
   /** Nothing narrowed the report, so an empty one means nothing has been
    *  recorded yet rather than that a filter excluded it. */
   const narrowed =
-    !!search || !!repository || customPeriod || days !== 30 || !!scope.teamId;
+    !!purpose || !!search || !!repository || customPeriod || days !== 30 || !!scope.teamId;
   const queryParams = new URLSearchParams({
     days: String(days),
     dimension,
@@ -217,6 +219,7 @@ function UsageContent() {
     offset: String(offset),
     limit: String(pageSize),
   });
+  if (purpose) queryParams.set("purpose", purpose);
   for (const name of ["repository", "start", "end"]) {
     const value = params.get(name);
     if (value) queryParams.set(name, value);
@@ -349,6 +352,7 @@ function UsageContent() {
         />
       </HStack>
       <HStack gap={4} wrap="wrap" vAlign="end">
+        <ReviewPurposeFilter value={purpose} onChange={(value) => update({ purpose: value })} />
         {customPeriod ? (
           <VStack gap={2}>
             <Text>Custom reporting period</Text>

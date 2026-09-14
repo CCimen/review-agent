@@ -20,7 +20,7 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
-from ..domain.review import JsonObject, JsonValue
+from ..domain.review import JsonObject, JsonValue, ReviewPurpose
 
 
 class WebhookDeliveryError(ValueError):
@@ -120,6 +120,9 @@ class WebhookDelivery:
     received_at: datetime
     started_at: datetime | None
     processed_at: datetime | None
+    review_purpose: str = "code"
+    pr_number: int | None = None
+    automatic_documentation: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +152,9 @@ class _DeliveryRow:
     received_at: datetime
     started_at: datetime | None
     processed_at: datetime | None
+    review_purpose: str = "code"
+    pr_number: int | None = None
+    automatic_documentation: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +180,7 @@ _DELIVERY_COLUMNS = """
     normalized_payload, status, attempt_count, max_attempts, available_at,
     lease_owner, lease_generation, lease_expires_at, last_heartbeat_at,
     failure_code, failure_actor, completed_by, received_at, started_at,
-    processed_at
+    processed_at, review_purpose, pr_number, automatic_documentation
 """
 _QUALIFIED_DELIVERY_COLUMNS = """
     delivery.id, delivery.delivery_guid::text AS delivery_guid,
@@ -186,7 +192,8 @@ _QUALIFIED_DELIVERY_COLUMNS = """
     delivery.available_at, delivery.lease_owner, delivery.lease_generation,
     delivery.lease_expires_at, delivery.last_heartbeat_at,
     delivery.failure_code, delivery.failure_actor, delivery.completed_by,
-    delivery.received_at, delivery.started_at, delivery.processed_at
+    delivery.received_at, delivery.started_at, delivery.processed_at,
+    delivery.review_purpose, delivery.pr_number, delivery.automatic_documentation
 """
 # The normalized envelope must be enough to resume large repository-access
 # events but must never become a raw webhook archive. This independent 1 MiB
@@ -383,6 +390,8 @@ def _delivery(row: _DeliveryRow) -> WebhookDelivery:
         received_at=row.received_at,
         started_at=row.started_at,
         processed_at=row.processed_at,
+        review_purpose=row.review_purpose, pr_number=row.pr_number,
+        automatic_documentation=row.automatic_documentation,
     )
 
 
@@ -473,6 +482,13 @@ def register_delivery(
         payload,
     ) = _definition(definition)
     attempt_limit = _integer(max_attempts, field="max_attempts", minimum=1)
+    purpose = ReviewPurpose(str(payload.get("purpose", "code")))
+    pr_number = _optional_positive(cast(int | None, payload.get("pr_number")), field="pr_number")
+    automatic = purpose is ReviewPurpose.DOCUMENTATION and event == "pull_request" and category is CommandCategory.REVIEW
+    if automatic:
+        if repository_id is None or pr_number is None:
+            raise WebhookDeliveryError("automatic documentation delivery requires an exact repository and PR")
+        lock_documentation_delivery(connection, repository_id, pr_number)
     with connection.cursor(row_factory=class_row(_DeliveryRow)) as cursor:
         row = cursor.execute(
             f"""
@@ -482,11 +498,11 @@ def register_delivery(
                 repository_full_name, command_category,
                 normalized_schema_version, normalized_payload, status,
                 attempt_count, max_attempts, available_at, lease_generation,
-                received_at
+                received_at, review_purpose, pr_number, automatic_documentation
             ) VALUES (
                 %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 'received', 0, %s, statement_timestamp(), 0,
-                statement_timestamp()
+                statement_timestamp(), %s, %s, %s
             )
             ON CONFLICT (delivery_guid) DO NOTHING
             RETURNING {_DELIVERY_COLUMNS}
@@ -502,10 +518,23 @@ def register_delivery(
                 category.value,
                 schema_version,
                 Jsonb(payload),
-                attempt_limit,
+                attempt_limit, purpose.value, pr_number, automatic,
             ),
         ).fetchone()
     if row is not None:
+        if automatic:
+            delay = timedelta(0) if action in {"closed", "converted_to_draft"} else DOCUMENTATION_DEBOUNCE
+            connection.execute("UPDATE review_agent.github_webhook_deliveries SET available_at = received_at + %s WHERE id = %s", (delay, row.id))
+            connection.execute("""UPDATE review_agent.github_webhook_deliveries
+                SET coalesced_by_delivery_id = %s WHERE provider_repository_id = %s AND pr_number = %s
+                  AND automatic_documentation AND id < %s AND status IN ('received', 'processing')""",
+                (row.id, repository_id, pr_number, row.id))
+            connection.execute("""UPDATE review_agent.github_webhook_deliveries
+                SET status = 'ignored', failure_code = 'documentation_coalesced', failure_actor = 'documentation-scheduler',
+                    completed_by = 'documentation-scheduler', processed_at = statement_timestamp()
+                WHERE provider_repository_id = %s AND pr_number = %s AND automatic_documentation
+                    AND id < %s AND status = 'received'""", (repository_id, pr_number, row.id))
+            return RegisteredDelivery(get_delivery(connection, row.id))
         return RegisteredDelivery(_delivery(row))
 
     current = _by_guid(connection, delivery_guid)
@@ -629,7 +658,7 @@ def finish_delivery(
             f"""
             UPDATE review_agent.github_webhook_deliveries
             SET status = %s,
-                normalized_payload = NULL,
+                normalized_payload = CASE WHEN review_purpose = 'documentation' THEN normalized_payload ELSE NULL END,
                 lease_owner = NULL,
                 lease_expires_at = NULL,
                 last_heartbeat_at = NULL,
@@ -724,6 +753,7 @@ def retry_or_fail_delivery(
                 normalized_payload = CASE
                     WHEN delivery.attempt_count - %(refund)s < delivery.max_attempts
                     THEN delivery.normalized_payload
+                    WHEN delivery.review_purpose = 'documentation' THEN delivery.normalized_payload
                     ELSE NULL
                 END,
                 available_at = CASE
@@ -804,6 +834,7 @@ def recover_expired_deliveries(
                 normalized_payload = CASE
                     WHEN delivery.attempt_count < delivery.max_attempts
                     THEN delivery.normalized_payload
+                    WHEN delivery.review_purpose = 'documentation' THEN delivery.normalized_payload
                     ELSE NULL
                 END,
                 available_at = CASE
@@ -835,3 +866,21 @@ def recover_expired_deliveries(
             (row_limit, recovery_actor, recovery_actor),
         ).fetchall()
     return tuple(sorted((_delivery(row) for row in rows), key=lambda item: item.id))
+
+
+DOCUMENTATION_DEBOUNCE = timedelta(seconds=120)
+
+
+def lock_documentation_delivery(connection: psycopg.Connection[TupleRow], repository_id: int, pr_number: int) -> None:
+    """Serialize settled-event admission with intake without creating repository access."""
+    _require_transaction(connection)
+    connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"review-agent:docs-delivery:{repository_id}:{pr_number}",))
+
+
+def documentation_delivery_is_latest(connection: psycopg.Connection[TupleRow], delivery: WebhookDelivery) -> bool:
+    if not delivery.automatic_documentation:
+        return True
+    assert delivery.provider_repository_id is not None and delivery.pr_number is not None
+    lock_documentation_delivery(connection, delivery.provider_repository_id, delivery.pr_number)
+    row = connection.execute("SELECT coalesced_by_delivery_id IS NULL FROM review_agent.github_webhook_deliveries WHERE id = %s", (delivery.id,)).fetchone()
+    return row is not None and row[0] is True

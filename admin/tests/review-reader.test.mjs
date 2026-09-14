@@ -25,6 +25,8 @@ let ConnectionQuota;
 let IntegrationsPage;
 let OperationsPage;
 let UsagePage;
+let TeamDocumentationSection;
+let RepositoryDocumentationSection;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -57,6 +59,7 @@ before(async () => {
   ({ IntegrationsPage } = await server.ssrLoadModule("/src/integrations.tsx"));
   ({ OperationsPage } = await server.ssrLoadModule("/src/operations.tsx"));
   ({ UsagePage } = await server.ssrLoadModule("/src/usage.tsx"));
+  ({ TeamDocumentationSection, RepositoryDocumentationSection } = await server.ssrLoadModule("/src/documentation.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -486,7 +489,7 @@ test("quality shows feedback denominators and an empty report state without impl
     createElement(QualityPage, { current: { role: "viewer" } }),
     [
       [
-        ["quality", "report", "days=30"],
+        ["quality", "report", "days=30&purpose=code"],
         {
           published_findings: 12,
           false_positive_signals: { count: 0, denominator: 12 },
@@ -498,7 +501,7 @@ test("quality shows feedback denominators and an empty report state without impl
         },
       ],
       [
-        ["quality", "feedback", "limit=50&offset=0"],
+        ["quality", "feedback", "limit=50&offset=0&purpose=code"],
         { items: [], total: 0, pending: 0, next_offset: null, offset: 0 },
       ],
     ],
@@ -507,7 +510,7 @@ test("quality shows feedback denominators and an empty report state without impl
   assert.match(html, /3 completed reviews in this period/);
   assert.match(html, /No missed issues reported/);
   assert.match(html, /without feedback have not been assessed/);
-  assert.match(html, /href="\/history\?days=30&amp;status=published"/);
+  assert.match(html, /href="\/history\?days=30&amp;status=published&amp;purpose=code"/);
 });
 
 test("engine readiness remains distinct from a successful provider request", () => {
@@ -564,6 +567,7 @@ test("untrusted published content cannot execute HTML, submit forms or load remo
 });
 
 const request = {
+  purpose: "code",
   id: 24,
   repository: "example/repository",
   pr_number: 721,
@@ -1171,4 +1175,63 @@ test("request usage distinguishes missing, partial and reported zero totals", as
     }),
     /^0 tokens$/,
   );
+});
+
+test("documentation policies distinguish deployment stop, inheritance, overrides and read-only access", () => {
+  const resolved = { configured_mode: "automatic", effective_mode: "off", source: "team", deployment_enabled: false };
+  const repository = {
+    repository_id: 7, repository: "example/api", team_id: 2, team_name: "Platform",
+    repository_override: null, team_default: "automatic", resolved,
+    revision: "revision", repository_revision: 1, team_revision: 1, deployment_revision: 1,
+    capability: "not_checked", configuration: "not_checked", can_manage: false,
+  };
+  const html = renderConsolePage(createElement(RepositoryDocumentationSection, { repositoryId: 7 }), [
+    [scopedKey(["repository-documentation", 7], "viewer"), repository],
+  ], "/repositories?documentation_repository=7", "viewer");
+  assert.match(html, /Effective mode/);
+  assert.match(html, /Team default/);
+  assert.match(html, /Automatic when enabled/);
+  assert.match(html, /Documentation reviews are disabled for this deployment/);
+  assert.match(html, /Not checked/);
+  assert.match(html, /A team maintainer or platform administrator can change this mode/);
+  assert.doesNotMatch(html, /Save repository mode/);
+  assert.match(html, /https:\/\/github.com\/example\/api\/blob\/HEAD\/\.review-agent\/documentation.toml/);
+
+  const team = {
+    team_id: 2, default_mode: "automatic", proposed_mode: "automatic", revision: "revision",
+    deployment_enabled: false, inherited_count: 1, exception_count: 1, next_after_id: null,
+    can_manage: true, repositories: [
+      { repository_id: 7, repository: "example/api", repository_override: null, before: resolved, after: resolved },
+      { repository_id: 8, repository: "example/private", repository_override: "manual", before: { ...resolved, configured_mode: "manual", source: "repository" }, after: { ...resolved, configured_mode: "manual", source: "repository" } },
+    ],
+  };
+  const teamHtml = renderConsolePage(createElement(TeamDocumentationSection, { teamId: 2 }), [
+    [scopedKey(["team-documentation", 2], "owner"), team],
+  ], "/repositories");
+  assert.match(teamHtml, /Inherits team default/);
+  assert.match(teamHtml, /Exception · Manual/);
+  assert.match(teamHtml, /Current effective mode/);
+  assert.match(teamHtml, /After saving/);
+  assert.match(button(teamHtml, "Save team default"), /disabled/);
+  assert.match(teamHtml, /documentation_repository=8/);
+});
+
+test("documentation reader distinguishes incomplete assessment and links the recorded GitHub Check", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  const item = { ...request, purpose: "documentation", findings_count: 0 };
+  client.setQueryData(scopedKey(["review", "24", null]), {
+    ...review, item, requests: [item], markdown: "Documentation review could not cover every selected claim.",
+    publication_links: [{ label: "Open Documentation check on GitHub", url: "https://github.com/example/repository/runs/456" }],
+    documentation: { base_sha: item.base_sha, comparison_sha: null, head_sha: item.head_sha, outcome: "incomplete", semantic_inference_used: false, coverage_complete: false, incomplete_reasons: ["comparison_unavailable"], scope: null, evidence: [] },
+  });
+  const html = await renderReader(client);
+  assert.match(textContent(html), /Documentation review · Request #24/);
+  assert.match(html, /Documentation review incomplete/);
+  assert.match(html, /comparison unavailable/);
+  assert.match(html, /No model-assisted assessment was used/);
+  assert.match(html, /Documentation scope and evidence/);
+  assert.match(html, /https:\/\/github.com\/example\/repository\/runs\/456/);
+  assert.doesNotMatch(html, /Some changes may not have been reviewed/);
+  assert.match(html, /12,345 total/);
+  client.clear();
 });

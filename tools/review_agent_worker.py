@@ -31,6 +31,7 @@ _load_package()
 from review_agent_tools.worker_telemetry import WorkerTelemetry  # noqa: E402
 
 from review_agent_tools import review_contract  # noqa: E402
+from review_agent_tools.github.gateway_client import ReviewGitHubGatewayClient  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
@@ -100,6 +101,7 @@ def _chat_settings() -> HermesChatSettings:
                 str(hermes_home / "skills" / "review-agent-pr" / "SKILL.md"),
             )
         ),
+        documentation_skill_path=hermes_home / "skills" / "review-agent-docs" / "SKILL.md",
     )
 
 
@@ -155,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
                 lease_owner=lease_owner,
                 stop_event=stop,
                 telemetry=telemetry,
+                source_client=ReviewGitHubGatewayClient(configured.github_gateway_url),
             )
             worker.run(once=args.once)
         return 0

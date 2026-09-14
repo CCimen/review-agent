@@ -32,6 +32,7 @@ from .publication_partition import (
     historical_bodies,
 )
 from .review_identity import REVIEW_COMMENT_TITLE
+from .review_renderer import ReviewBlock
 
 _COMMENT_RECOVERY_SCAN_PAGES = PUBLICATION_REQUEST_MAX_PAGES
 
@@ -175,6 +176,53 @@ def prepare_postgres_publication(
         suggestions_count=planned.suggestions_count,
         resolved_count=planned.resolved_count,
         ignored_previous_verdicts=planned.ignored_previous_verdicts,
+    )
+
+
+def prepare_postgres_documentation_publication(
+    runtime: "PostgreSQLRuntime",
+    *,
+    run_id: int,
+    report_blocks: Sequence[ReviewBlock] = (),
+    max_comment_bytes: int,
+    delivery_max_attempts: int = 3,
+    review_job_id: int | None = None,
+    review_lease_generation: int | None = None,
+) -> PreparedPostgresPublication:
+    from .domain.review import ReviewPhase, ReviewRunId
+    from .postgres import documentation_reviews, jobs, publications, review_runs
+    from .review_publication_planner import build_documentation_publication, PublicationPlanningError
+
+    resolved_id = ReviewRunId(run_id)
+    with runtime.transaction() as connection:
+        run = review_runs.get_run(connection, resolved_id)
+        connection.execute(
+            "SELECT id FROM review_agent.pull_requests WHERE id = %s FOR NO KEY UPDATE",
+            (run.pull_request_id,),
+        )
+        review_runs.lock_run(connection, resolved_id)
+        if review_job_id is not None or review_lease_generation is not None:
+            if review_job_id is None or review_lease_generation is None:
+                raise jobs.ReviewJobError("job_id and lease_generation must be supplied together")
+            jobs.require_live_lease(connection, job_id=review_job_id, review_run_id=resolved_id,
+                                    lease_generation=review_lease_generation)
+        result = documentation_reviews.get_result(connection, run_id=resolved_id)
+        if result is None or not result.frozen:
+            raise PublicationPlanningError("documentation result must be finalized before publication")
+        run = review_runs.get_run(connection, resolved_id)
+        phases = (ReviewPhase.ACCEPTED, ReviewPhase.FETCHING_PR, ReviewPhase.COLLECTING_DIFF, ReviewPhase.REVIEWING, ReviewPhase.RENDERING)
+        if run.phase in phases:
+            for phase in phases[phases.index(run.phase) + 1:]:
+                review_runs.advance_phase(connection, resolved_id, phase)
+        context = publications.preparation_context(connection, run_id=resolved_id)
+        planned = build_documentation_publication(context, result, report_blocks=report_blocks, max_comment_bytes=max_comment_bytes)
+        stored = publications.prepare_publication(
+            connection, run_id=resolved_id, plan=planned.plan,
+            delivery_max_attempts=delivery_max_attempts,
+            review_job_id=review_job_id, review_lease_generation=review_lease_generation,
+        )
+    return PreparedPostgresPublication(
+        int(stored.id), planned.findings_count, 0, planned.resolved_count, ()
     )
 
 
@@ -479,6 +527,8 @@ def publish_postgres_publication(
     is no longer running.
     """
     from .domain.publication import (
+        CheckRunDelivery,
+        IssueCommentDelivery,
         PublicationFindingOutcome,
         PublicationId,
         PublicationPartStatus,
@@ -589,6 +639,7 @@ def publish_postgres_publication(
     author_login = ""
     issue_comments: dict[int, list[IssueComment]] | None = None
     review_comments: list[PullRequestReviewComment] | None = None
+    check_external_id = next((part.external_id for part in publication.parts if part.part_type is PublicationPartType.CHECK_RUN), None)
 
     def acknowledge(
         part_type: PublicationPartType, part_number: int, external_id: int
@@ -659,6 +710,9 @@ def publish_postgres_publication(
         return found
 
     def terminalize_stale(failure_code: str) -> PostgresPublicationResult:
+        if check_external_id is not None:
+            prove_provider_write()
+            github.update_check_run(publication.repository, check_external_id, cancelled=True)
         with runtime.transaction() as connection:
             postgres_review_runs.lock_run(connection, publication.review_run_id)
             postgres_publications.fail_publication(
@@ -688,13 +742,39 @@ def publish_postgres_publication(
         for part in publication.parts:
             if part.status is PublicationPartStatus.POSTED:
                 continue
-            if not author_login:
+            if not author_login and part.part_type is not PublicationPartType.CHECK_RUN:
                 author_login = github.current_user_login()
             external_id: int | None = None
-            if part.part_type in {
+            if part.part_type is PublicationPartType.CHECK_RUN:
+                if not isinstance(part.delivery, CheckRunDelivery):
+                    raise postgres_publications.PublicationConflict("stored check has the wrong delivery shape")
+                scan = github.list_check_runs(publication.repository, max_pages=_COMMENT_RECOVERY_SCAN_PAGES)
+                matches = [item for item in scan.check_runs if (
+                    item.app_id == scan.app_id and item.head_sha == publication.head_sha
+                    and item.name == part.delivery.name and item.external_id == part.delivery.external_id
+                )]
+                if not scan.complete or len(matches) > 1:
+                    raise GitHubPublicationError("check_recovery_unresolved", retryable=True)
+                if matches:
+                    check_external_id = matches[0].check_run_id
+                stale_code = stale_failure()
+                if stale_code is not None:
+                    return terminalize_stale(stale_code)
+                prove_provider_write()
+                if matches:
+                    check = github.update_check_run(publication.repository, matches[0].check_run_id)
+                    recovered += 1
+                else:
+                    check = github.create_check_run(publication.repository)
+                if (check.app_id, check.head_sha, check.name, check.external_id) != (scan.app_id, publication.head_sha, part.delivery.name, part.delivery.external_id):
+                    raise GitHubPublicationError("github_check_subject_mismatch")
+                external_id = check_external_id = check.check_run_id
+            elif part.part_type in {
                 PublicationPartType.SUMMARY,
                 PublicationPartType.CONTINUATION,
             }:
+                if not isinstance(part.delivery, IssueCommentDelivery):
+                    raise postgres_publications.PublicationConflict("stored comment has the wrong delivery shape")
                 if issue_comments is None:
                     listed = github.list_issue_comments(
                         publication.repository,
@@ -819,6 +899,10 @@ def publish_postgres_publication(
                     )
                     external_id = review.review_id
             acknowledge(part.part_type, part.part_number, external_id)
+        if publication.purpose is ReviewPurpose.DOCUMENTATION:
+            stale_code = stale_failure()
+            if stale_code is not None:
+                return terminalize_stale(stale_code)
     except postgres_publications.PublicationFindingDecisionsChanged:
         return terminalize_stale("finding_decisions_changed")
     except GitHubPublicationAuthorityLost as exc:

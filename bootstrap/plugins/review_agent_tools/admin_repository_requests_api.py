@@ -4,12 +4,14 @@ import os
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import admin_application, operator_setup
 from .admin_auth import AdminAuth
 from .admin_teams_api import ChangeReason, TeamId
 from .domain.feedback import resolve_github_repository
+from .domain.documentation_operating_policy import DocumentationMode
+from .postgres import documentation_operating_policy as docs_policy
 from .github import app_auth, app_inventory
 from .postgres import github_app, repository_requests
 from .postgres.runtime import PostgreSQLRuntime
@@ -39,6 +41,15 @@ class RepositoryApproval(ChangeReason):
 class RepositoryAssignment(ChangeReason):
     team_id: int = Field(ge=1, le=9223372036854775807)
     expected_team_id: int | None = Field(ge=1, le=9223372036854775807)
+    expected_documentation_revision: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+
+
+class RepositoryDocumentationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: DocumentationMode | None
+    expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
@@ -152,6 +163,7 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             repository_id=repository_id,
             team_id=body.team_id,
             expected_team_id=body.expected_team_id,
+            expected_documentation_revision=body.expected_documentation_revision,
             reason=body.reason,
         )
 
@@ -168,6 +180,79 @@ def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
             team_id=team_id,
             reason=body.reason,
         )
+
+    def documentation(
+        repository_id: ObjectId,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> docs_policy.RepositoryDocumentationPolicy:
+        return admin_application.repository_documentation_policy(
+            runtime, access=access, repository_id=repository_id
+        )
+
+    def save_documentation(
+        repository_id: ObjectId,
+        body: RepositoryDocumentationUpdate,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> docs_policy.RepositoryDocumentationPolicy:
+        return admin_application.save_repository_documentation_policy(
+            runtime,
+            access=access,
+            repository_id=repository_id,
+            mode=body.mode,
+            expected_revision=body.expected_revision,
+        )
+
+    def refresh_documentation(
+        repository_id: ObjectId,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> docs_policy.RepositoryDocumentationPolicy:
+        try:
+            authenticator = operator_setup.github_app_authenticator(os.environ)
+        except (OSError, TypeError, ValueError) as exc:
+            raise HTTPException(503, "GitHub App credentials are not configured for refresh") from exc
+        try:
+            return admin_application.refresh_repository_documentation_configuration(
+                runtime, authenticator, access=access, repository_id=repository_id,
+            )
+        except app_auth.GitHubAppTokenRetryable as exc:
+            raise HTTPException(503, "GitHub is temporarily unavailable. Retry shortly") from exc
+        except (app_auth.GitHubAppTokenPermanent, github_app.GitHubAppStateError) as exc:
+            raise HTTPException(409, "Repository GitHub App access is unavailable. Check its grant and activation") from exc
+
+    def ownership_documentation_preview(
+        repository_id: ObjectId,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+        destination_team_id: Annotated[
+            int | None, Query(ge=1, le=9223372036854775807)
+        ] = None,
+    ) -> docs_policy.OwnershipDocumentationPreview:
+        return admin_application.repository_ownership_documentation_preview(
+            runtime,
+            access=access,
+            repository_id=repository_id,
+            destination_team_id=destination_team_id,
+        )
+
+    router.add_api_route(
+        "/api/repositories/{repository_id}/documentation",
+        documentation,
+        methods=["GET"],
+    )
+    router.add_api_route(
+        "/api/repositories/{repository_id}/documentation",
+        save_documentation,
+        methods=["PUT"],
+    )
+    router.add_api_route(
+        "/api/repositories/{repository_id}/documentation/refresh",
+        refresh_documentation,
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/api/repository-ownership/{repository_id}/preview",
+        ownership_documentation_preview,
+        methods=["GET"],
+    )
 
     router.add_api_route("/api/repository-requests", requests, methods=["GET"])
     router.add_api_route(

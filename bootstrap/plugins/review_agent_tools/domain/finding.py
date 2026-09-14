@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
@@ -145,7 +146,7 @@ _TEXT_LIMITS = {
 
 
 @dataclass(frozen=True, slots=True)
-class FindingInput:
+class FindingContent:
     rule_id: str
     path: str
     line: int
@@ -160,6 +161,10 @@ class FindingInput:
     disproof_checks: str
     impact: str
     smallest_fix: str
+
+
+@dataclass(frozen=True, slots=True)
+class FindingInput(FindingContent):
     introduced_by_diff: bool
 
 
@@ -421,6 +426,15 @@ def resolve_finding(
     item: FindingInput, *, context_hash: str
 ) -> FindingDefinition:
     """Apply the current reviewer admission policy before pool checkout."""
+    if item.introduced_by_diff is not True:
+        raise FindingDomainError("introduced_by_diff must be true")
+    return resolve_finding_content(item, context_hash=context_hash)
+
+
+def resolve_finding_content(
+    item: FindingContent, *, context_hash: str,
+) -> FindingDefinition:
+    """Validate shared finding content after its purpose-specific evidence gate."""
     rule_id = _rule_id(item.rule_id)
     path = resolve_finding_path(item.path)
     symbol = (
@@ -462,8 +476,6 @@ def resolve_finding(
     confidence = float(
         Decimal(str(confidence)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
     )
-    if item.introduced_by_diff is not True:
-        raise FindingDomainError("introduced_by_diff must be true")
     if isinstance(item.line, bool) or item.line < 1:
         raise FindingDomainError("line must be positive")
 
@@ -490,3 +502,8 @@ def resolve_finding(
         impact=_multiline(item.impact, field="impact"),
         smallest_fix=_multiline(item.smallest_fix, field="smallest_fix"),
     )
+
+
+def finding_definition_hash(definition: FindingDefinition) -> str:
+    """Bind a validated purpose-specific receipt to all persisted occurrence values."""
+    return hashlib.sha256(json.dumps(asdict(definition), sort_keys=True, separators=(",", ":")).encode()).hexdigest()

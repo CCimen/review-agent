@@ -75,6 +75,14 @@ class Capabilities:
             "repository_guidance": self.repository_guidance,
             "repository_activation": list(self.repository_activation),
             "trigger_mode": self.trigger_mode,
+            "documentation_review": {
+                "command": "/review docs", "modes": ["off", "manual", "automatic"],
+                "deployment_default": "off", "repository_default": "manual",
+                "configuration": ".review-agent/documentation.toml",
+                "policy_revision": "exact-pr-base", "publication": "advisory-check-run",
+                "checks_permission": "write", "automatic_events": ["pull_request", "check_run"],
+                "automatic_fixes": False,
+            },
         }
 
 
@@ -92,11 +100,13 @@ class OperatorCheck:
 class PreflightReport:
     ready: bool
     checks: tuple[OperatorCheck, ...]
+    documentation_app: OperatorCheck | None = None
 
     def to_json_obj(self) -> dict[str, object]:
         return {
             "checks": [check.to_json_obj() for check in self.checks],
             "ready": self.ready,
+            "documentation_app": self.documentation_app.to_json_obj() if self.documentation_app is not None else None,
         }
 
 
@@ -206,7 +216,10 @@ def github_app_registration_url(
             ("permissions[contents]", "read"),
             ("permissions[issues]", "write"),
             ("permissions[pull_requests]", "write"),
+            ("permissions[checks]", "write"),
             ("events[]", "issue_comment"),
+            ("events[]", "pull_request"),
+            ("events[]", "check_run"),
         )
     )
     return f"https://github.com{path}?{query}"
@@ -399,12 +412,14 @@ def _validate_app_status(
         "issues": "write",
         "pull_requests": "write",
     }
-    allowed_names = {*required, "metadata"}
+    allowed_names = {*required, "metadata", "checks"}
     if any(permissions.get(name) != level for name, level in required.items()):
         raise ValueError("GitHub App permissions do not match the product contract")
     if set(permissions) - allowed_names:
         raise ValueError("GitHub App has permissions outside the product contract")
-    if set(status.events) != {"issue_comment"}:
+    if permissions.get("checks", "write") != "write":
+        raise ValueError("GitHub App Checks permission must be write when requested")
+    if "issue_comment" not in status.events or set(status.events) - {"issue_comment", "pull_request", "check_run"}:
         raise ValueError("GitHub App events do not match the product contract")
 
 
@@ -579,9 +594,18 @@ def doctor(
                 _queue_check(snapshot, settings.active_job_limit),
             )
         )
+    documentation_app = _error(
+        "documentation_app", "Documentation review requires App Checks write and Pull request/Check run subscriptions; check each repository installation grant in the console",
+    )
+    if (app_status is not None and app_check.status == "ready"
+            and dict(app_status.permissions).get("checks") == "write"
+            and {"pull_request", "check_run"}.issubset(app_status.events)):
+        documentation_app = _ready(
+            "documentation_app", "App registration supports documentation review; repository grants and operating modes are checked separately in the console",
+        )
     return PreflightReport(
         ready=all(check.status == "ready" for check in checks),
-        checks=tuple(checks),
+        checks=tuple(checks), documentation_app=documentation_app,
     )
 
 

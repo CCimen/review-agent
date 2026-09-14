@@ -25,6 +25,7 @@ import type { FormEvent, InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { APIError, read, write } from "./api";
+import { ReviewPurposeFilter, selectedReviewPurpose } from "./reviewPurpose";
 import type { components } from "./api.generated";
 import { ScopedLink as Link, useScope } from "./scope";
 import {
@@ -229,6 +230,7 @@ function FeedbackRow({
 export function QualityPage() {
   const scope = useScope();
   const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose")) || "code";
   const repository = params.get("repository") ?? "";
   const feedbackOffset = Math.max(
     0,
@@ -239,6 +241,8 @@ export function QualityPage() {
     limit: "50",
     offset: String(feedbackOffset),
   });
+  reportParams.set("purpose", purpose);
+  feedbackParams.set("purpose", purpose);
   if (repository) {
     reportParams.set("repository", repository);
     feedbackParams.set("repository", repository);
@@ -285,12 +289,13 @@ export function QualityPage() {
           </Text>
         </VStack>
         <Link
-          to={`/history?${new URLSearchParams({ days: String(days), status: "published", ...(repository ? { repository } : {}) })}`}
+          to={`/history?${new URLSearchParams({ days: String(days), status: "published", purpose, ...(repository ? { repository } : {}) })}`}
         >
           Browse published reviews
         </Link>
       </HStack>
       <HStack gap={3} wrap="wrap" vAlign="center">
+        <ReviewPurposeFilter value={purpose} allowAll={false} onChange={(value) => update({ purpose: value, feedback_offset: "" })} />
         <Period
           days={days}
           change={(value) => update({ days: value, feedback_offset: "" })}
@@ -559,11 +564,13 @@ export function FindingPage() {
   const { fingerprint = "" } = useParams();
   const [params] = useSearchParams();
   const repository = params.get("repository") ?? "";
+  const purpose = selectedReviewPurpose(params.get("purpose")) || "code";
   const occurrenceId = params.get("occurrence_id") ?? "";
   const decisionsBefore = params.get("decisions_before_id") ?? "";
   const detailParams = new URLSearchParams({
     repository,
     occurrence_id: occurrenceId,
+    purpose,
   });
   if (decisionsBefore)
     detailParams.set("decisions_before_id", decisionsBefore);
@@ -574,6 +581,7 @@ export function FindingPage() {
       fingerprint,
       occurrenceId,
       decisionsBefore,
+      purpose,
       "scoped",
       scope.key,
     ],
@@ -713,7 +721,7 @@ export function FindingPage() {
                     <Selector
                       label={"Decision"}
                       options={[
-                        decisions.map((value) => ({
+                        decisions.filter((value) => purpose !== "documentation" || value !== "intentional_by_design").map((value) => ({
                           value: String(value),
                           label: value.replaceAll("_", " "),
                         })),
@@ -745,8 +753,8 @@ export function FindingPage() {
                       type="supporting"
                     >
                       This records a decision for occurrence #
-                      {finding.occurrence_id}. Intentional decisions must
-                      match its accepted ADR snapshot and path.
+                      {finding.occurrence_id}.
+                      {purpose === "code" ? " Intentional decisions must match its accepted ADR snapshot and path." : " Documentation findings do not support intentional-by-design decisions."}
                     </Text>
                     {mutation.error ? (
                       <Text as="p">

@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { ActivityTabs } from "./activity";
 import type { ActivityCounts, ActivityDay, Overview } from "./api";
 import { read } from "./api";
+import { ReviewPurposeFilter, selectedReviewPurpose } from "./reviewPurpose";
 import { ScopedLink as Link, isAdmin, useScope } from "./scope";
 import {
   Freshness,
@@ -327,14 +328,15 @@ function Activity({ counts }: { counts: ActivityCounts }) {
 
 export function OverviewPage() {
   const scope = useScope();
-  const { days, update } = useFilters();
+  const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   useEffect(() => {
     document.title = "Review Agent · Statistics";
   }, []);
   const query = useQuery({
-    queryKey: ["overview", days, "scoped", scope.key],
+    queryKey: ["overview", days, ...(purpose ? [purpose] : []), "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<Overview>(scope.path(`/api/overview?days=${days}`), signal),
+      read<Overview>(scope.path(`/api/overview?days=${days}${purpose ? `&purpose=${purpose}` : ""}`), signal),
   });
   const data = query.data;
   /** A deployment younger than the reporting period holds every record inside
@@ -431,7 +433,10 @@ export function OverviewPage() {
             : undefined
         }
         actions={
+          <HStack gap={3} wrap="wrap" vAlign="end">
+          <ReviewPurposeFilter value={purpose} onChange={(value) => update({ purpose: value })} />
           <Period days={days} change={(value) => update({ days: value })} />
+          </HStack>
         }
       >
         <Freshness query={query} />

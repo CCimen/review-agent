@@ -71,6 +71,18 @@ or secret access. Show the proposed repository diff and validation receipt for
 normal code review. The package becomes active only after it is merged and a
 later pull request reads it from the base commit.
 
+For documentation review, read `docs/DOCUMENTATION_REVIEW.md`. Adapt
+`.review-agent/documentation.toml` to real maintained documents, validate it,
+and merge it through normal review. The console owns deployment, team, and
+repository operating modes; it does not edit the repository package. Start
+with Manual and one representative repository. Check App Checks write and
+Pull request/Check run subscriptions separately from code-review readiness;
+existing installations may need a GitHub owner to accept the permission.
+`doctor` reports the documentation App registration separately, while the
+console reports repository grants and the last explicit configuration refresh.
+Do not infer authority to broaden GitHub access or trigger live reviews from
+a saved mode. Automatic does not sweep every existing open PR.
+
 ## Minimize operator effort
 
 - Resolve repository, release, platform, and current deployment facts with the

@@ -20,6 +20,7 @@ from unittest.mock import Mock, call, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
+from review_agent_tools.domain.review import ReviewPurpose  # noqa: E402
 from review_agent_tools.github import gateway as gateway_module  # noqa: E402
 from review_agent_tools.github import (  # noqa: E402
     publication as publication_module,
@@ -51,7 +52,9 @@ from review_agent_tools.github.publication_gateway import (  # noqa: E402
 )
 from review_agent_tools.github.source import (  # noqa: E402
     GitHubSourceError,
+    ReviewComparison,
     ReviewPullSource,
+    read_review_comparison,
     read_review_pull,
 )
 from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
@@ -129,6 +132,36 @@ class _Opener:
 
 
 class ReviewGitHubGatewayClientTests(unittest.TestCase):
+    def test_comparison_retains_exact_base_head_and_merge_base(self) -> None:
+        github = Mock()
+        github.request_json.return_value = {
+            "base_commit": {"sha": "b" * 40},
+            "merge_base_commit": {"sha": "c" * 40},
+        }
+        result = read_review_comparison(github, self._scope())
+        self.assertEqual(result, ReviewComparison("b" * 40, "a" * 40, "c" * 40))
+        self.assertEqual(ReviewComparison.from_mapping(result.to_mapping()), result)
+        github.request_json.assert_called_once_with(
+            f"/repos/CCimen/review-agent/compare/{'b' * 40}...{'a' * 40}?per_page=1",
+            max_bytes=2_000_000,
+        )
+        github.request_json.return_value["base_commit"]["sha"] = "d" * 40
+        with self.assertRaisesRegex(GitHubSourceError, "requested base"):
+            read_review_comparison(github, self._scope())
+
+    def test_comparison_absence_and_identity_violation_have_distinct_reasons(self) -> None:
+        from review_agent_tools.github import gateway as module
+        github = Mock()
+        tokens = Mock()
+        gateway = module.ReviewGitHubGateway(postgres=Mock(), tokens=tokens, profile="default-standard", github_factory=lambda _: github)
+        for base, merge, expected in (("b" * 40, None, "documentation_comparison_unavailable"),
+                                     ("d" * 40, None, "github_read_invalid"),
+                                     ("b" * 40, {"sha": "bad"}, "github_read_invalid")):
+            github.request_json.return_value = {"base_commit": {"sha": base}, "merge_base_commit": merge}
+            with self.subTest(expected=expected, base=base), self.assertRaises(GitHubGatewayRejected) as rejected:
+                gateway._provider_source(901, lambda provider: read_review_comparison(provider, self._scope()))
+            self.assertEqual(rejected.exception.reason, expected)
+
     @staticmethod
     def _scope() -> ReviewRunScope:
         return ReviewRunScope(
@@ -714,6 +747,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             feedback_factory=factory,
         )
         command = SimpleNamespace(
+            purpose=ReviewPurpose.CODE,
             provider_repository_id=9001,
             repository="CCimen/review-agent",
             pr_number=42,
@@ -760,6 +794,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             feedback_factory=Mock(return_value=github),
         )
         command = SimpleNamespace(
+            purpose=ReviewPurpose.CODE,
             provider_repository_id=9001,
             repository="CCimen/review-agent",
             pr_number=42,
@@ -808,6 +843,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             feedback_factory=Mock(return_value=github),
         )
         command = SimpleNamespace(
+            purpose=ReviewPurpose.CODE,
             provider_repository_id=9001,
             repository="CCimen/review-agent",
             pr_number=42,
@@ -885,6 +921,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             github_factory=factory,
         )
         scope = SimpleNamespace(
+            purpose=ReviewPurpose.CODE,
             provider_repository_id=9001,
             repository="CCimen/review-agent",
             pr_number=42,
@@ -938,6 +975,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             github_factory=Mock(return_value=github),
         )
         scope = SimpleNamespace(
+            purpose=ReviewPurpose.CODE,
             provider_repository_id=9001,
             repository="CCimen/review-agent",
             pr_number=42,
@@ -988,6 +1026,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
                 github_factory=Mock(return_value=github),
             )
             scope = SimpleNamespace(
+                purpose=ReviewPurpose.CODE,
                 provider_repository_id=9001,
                 repository="CCimen/review-agent",
                 pr_number=42,
@@ -1028,6 +1067,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             profile="default-standard",
         )
         scope = SimpleNamespace(
+            purpose=ReviewPurpose.CODE,
             provider_repository_id=9001,
             repository="CCimen/review-agent",
             pr_number=42,
@@ -1074,6 +1114,7 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             github_factory=factory,
         )
         scope = SimpleNamespace(
+            purpose=ReviewPurpose.CODE,
             provider_repository_id=9001,
             repository="CCimen/review-agent",
             pr_number=42,
@@ -1512,3 +1553,92 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DocumentationCheckProviderTests(unittest.TestCase):
+    @staticmethod
+    def check(check_id: int = 11) -> dict[str, object]:
+        return {"id": check_id, "name": "Documentation review", "head_sha": "a" * 40,
+                "external_id": "review-agent:canonical publication=sha256:" + "b" * 64,
+                "app": {"id": 17}, "status": "completed", "conclusion": "neutral"}
+
+    def test_exact_head_app_scan_uses_all_and_does_not_claim_partial_results_complete(self) -> None:
+        opener = _Opener(json.dumps({"total_count": 101, "check_runs": [self.check(i + 1) for i in range(100)]}).encode())
+        gateway = GitHubIssueCommentGateway("installation-token", opener=opener)
+        result = gateway.list_check_runs("team/service", head_sha="a" * 40,
+                                        name="Documentation review", app_id=17, max_pages=1)
+        self.assertFalse(result.complete)
+        self.assertEqual(len(result.check_runs), 100)
+        request = opener.requests[0]
+        self.assertIn("/commits/" + "a" * 40 + "/check-runs?", request.full_url)
+        self.assertIn("check_name=Documentation+review", request.full_url)
+        self.assertIn("app_id=17", request.full_url)
+        self.assertIn("filter=all", request.full_url)
+        self.assertNotIn("external_id=", request.full_url)
+
+    def test_check_creation_freezes_exact_head_and_never_retries_ambiguous_post(self) -> None:
+        from review_agent_tools.domain.publication import CheckRunDelivery
+        delivery = CheckRunDelivery("Documentation review", "a" * 40,
+            "review-agent:canonical publication=sha256:" + "b" * 64,
+            "neutral", "Documentation changes recommended", "Full report")
+        opener = _Opener(json.dumps(self.check()).encode())
+        gateway = GitHubIssueCommentGateway("installation-token", opener=opener)
+        created = gateway.create_check_run("team/service", delivery=delivery, summary="Full report")
+        self.assertEqual(created.check_run_id, 11)
+        payload = json.loads(opener.requests[0].data)
+        self.assertEqual(payload["head_sha"], "a" * 40)
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(payload["output"]["summary"], "Full report")
+        failing = Mock()
+        failing.open.side_effect = TimeoutError()
+        gateway = GitHubIssueCommentGateway("installation-token", opener=failing, max_attempts=3)
+        with self.assertRaises(GitHubPublicationError):
+            gateway.create_check_run("team/service", delivery=delivery, summary="Full report")
+        self.assertEqual(failing.open.call_count, 1)
+
+    def test_check_gateway_rejects_arbitrary_payload_and_nonpublication_authority(self) -> None:
+        fields = {"scope_kind": "publication", "scope_id": 1, "lease_owner": "p", "lease_generation": 1,
+                  "operation": "create_check_run"}
+        with self.assertRaises(GitHubGatewayProtocolError):
+            PublicationGatewayRequest.from_mapping({**fields, "head_sha": "a" * 40})
+        with self.assertRaises(GitHubGatewayProtocolError):
+            PublicationGatewayRequest.from_mapping({**fields, "scope_kind": "failure_status"})
+
+
+    def test_gateway_reconciles_only_exact_app_marker_and_blocks_ambiguous_create(self) -> None:
+        from review_agent_tools.domain.publication import CheckRunDelivery
+        from review_agent_tools.github.publication import CheckRun, CheckRunScan
+        delivery = CheckRunDelivery("Documentation review", "a" * 40,
+            "review-agent:canonical publication=sha256:" + "b" * 64,
+            "neutral", "Docs result", "Frozen report")
+        scope = publication_gateway_module._PublicationScope(901, "team/service", 41, delivery, "Frozen report")
+        check = CheckRun(11, delivery.name, delivery.head_sha, delivery.external_id, 17, "completed", "neutral")
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        tokens.app_identity.return_value = SimpleNamespace(provider_app_id=17)
+        provider = Mock()
+        provider.create_check_run.return_value = check
+        service = ReviewPublicationGateway(postgres=Mock(), tokens=tokens,
+            profile="default-standard", github_factory=Mock(return_value=provider))
+        request = PublicationGatewayRequest.from_mapping({
+            "scope_kind": "publication", "scope_id": 31, "lease_owner": "publisher", "lease_generation": 4,
+            "operation": "create_check_run"})
+        with patch.object(ReviewPublicationGateway, "_require_authority", return_value=scope):
+            for scan in (CheckRunScan((), False, 17), CheckRunScan((check, replace(check, check_run_id=12)), True, 17)):
+                provider.list_check_runs.return_value = scan
+                with self.assertRaises(GitHubGatewayRetryable):
+                    service.execute(request)
+                provider.create_check_run.assert_not_called()
+            provider.list_check_runs.return_value = CheckRunScan((check,), True, 17)
+            self.assertEqual(service.execute(request), check)
+            provider.create_check_run.assert_not_called()
+            provider.list_check_runs.return_value = CheckRunScan((replace(check, app_id=18), replace(check, external_id="other")), True, 17)
+            self.assertEqual(service.execute(request), check)
+            provider.create_check_run.assert_called_once_with("team/service", delivery=delivery, summary="Frozen report")
+            denied = PublicationGatewayRequest.from_mapping({
+                "scope_kind": "publication", "scope_id": 31, "lease_owner": "publisher", "lease_generation": 4,
+                "operation": "update_check_run", "check_run_id": 99, "cancelled": False})
+            provider.list_check_runs.return_value = CheckRunScan((check,), True, 17)
+            with self.assertRaises(GitHubGatewayRejected):
+                service.execute(denied)
+            provider.update_check_run.assert_not_called()

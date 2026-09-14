@@ -10,7 +10,8 @@ from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
 from ..domain.review import RepositoryId
-from . import audit, github_app
+from . import audit, github_app, deployment_settings
+from . import documentation_operating_policy as docs_policy
 from .team_access import AccessScope, ResourceNotFound, require_admin, require_team
 from .teams import TeamConflict
 
@@ -211,8 +212,10 @@ def assign(
     team_id: int,
     expected_team_id: int | None,
     reason: str,
+    expected_documentation_revision: str | None = None,
 ) -> None:
     require_admin(scope)
+    deployment_settings.lock(connection)
     require_team(connection, scope, team_id)
     repository = connection.execute(
         "SELECT id FROM review_agent.repositories WHERE id = %s", (repository_id,)
@@ -224,6 +227,16 @@ def assign(
         (repository_id,),
     ).fetchone()
     previous_team = current[0] if current else None
+    preview = docs_policy.ownership_preview(
+        connection, scope, repository_id=repository_id, destination_team_id=team_id
+    )
+    if (
+        expected_documentation_revision is not None
+        and preview.revision != expected_documentation_revision
+    ):
+        raise TeamConflict(
+            "Documentation policy or account routing changed. Refresh the ownership preview."
+        )
     if previous_team == team_id:
         return
     if previous_team != expected_team_id:
@@ -236,7 +249,18 @@ def assign(
         "UPDATE review_agent.admin_users SET access_revision = access_revision + 1 WHERE id IN (SELECT user_id FROM review_agent.team_members WHERE team_id = %s OR team_id = %s)",
         (team_id, previous_team),
     )
+    docs_policy.ownership_changed(
+        connection,
+        repository_id=repository_id,
+        previous_team_id=previous_team,
+        destination_team_id=team_id,
+    )
     details = {
+        "previous_documentation_mode": preview.before.configured_mode.value,
+        "documentation_mode": preview.after.configured_mode.value,
+        "documentation_source": preview.after.source,
+        "previous_connection_id": preview.previous_connection_id,
+        "connection_id": preview.destination_connection_id,
         "repository_id": repository_id,
         "previous_team_id": previous_team,
         "team_id": team_id,
@@ -308,6 +332,7 @@ def remove(
     reason: str,
 ) -> None:
     require_admin(scope)
+    deployment_settings.lock(connection)
     require_team(connection, scope, team_id)
     owner = connection.execute(
         "SELECT team_id FROM review_agent.team_repositories WHERE repository_id = %s",
@@ -317,6 +342,9 @@ def remove(
         return
     if owner[0] != team_id:
         raise TeamConflict("Repository ownership changed. Refresh before removing it")
+    preview = docs_policy.ownership_preview(
+        connection, scope, repository_id=repository_id, destination_team_id=None
+    )
     try:
         current = github_app.get_repository_access(
             connection, RepositoryId(repository_id)
@@ -341,6 +369,12 @@ def remove(
         "UPDATE review_agent.admin_users SET access_revision = access_revision + 1 WHERE id IN (SELECT user_id FROM review_agent.team_members WHERE team_id = %s)",
         (team_id,),
     )
+    docs_policy.ownership_changed(
+        connection,
+        repository_id=repository_id,
+        previous_team_id=team_id,
+        destination_team_id=None,
+    )
     audit.record(
         connection,
         scope,
@@ -348,5 +382,10 @@ def remove(
         action=audit.AuditAction.REPOSITORY_REMOVED,
         subject=str(repository_id),
         reason=reason,
-        details={"repository_id": repository_id},
+        details={
+            "repository_id": repository_id,
+            "documentation_mode": preview.after.configured_mode.value,
+            "documentation_source": preview.after.source,
+            "connection_id": preview.destination_connection_id,
+        },
     )

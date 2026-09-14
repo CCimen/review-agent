@@ -459,21 +459,28 @@ def record_findings(
     scope = _scope(connection, run_id, for_write=True)
     if scope.head_sha != expected_head_sha:
         raise FindingConflict("head_sha does not match the exact review subject")
-    paths = sorted({item.path for item in definitions})
-    changed = connection.execute(
-        """
-        SELECT path FROM review_agent.review_run_files
-        WHERE review_run_id = %s AND is_changed_path AND path = ANY(%s::text[])
-        """,
-        (run_id, paths),
-    ).fetchall()
-    changed_paths = {str(row[0]) for row in changed}
-    missing_paths = [path for path in paths if path not in changed_paths]
-    if missing_paths:
-        raise FindingPathNotChanged(
-            f"finding path is not registered as changed: {missing_paths[0]}"
-        )
-
+    if scope.purpose == ReviewPurpose.DOCUMENTATION.value:
+        from . import documentation_reviews
+        from ..domain.finding import finding_definition_hash
+        receipt = documentation_reviews.get_result(connection, run_id=run_id)
+        allowed: set[str] = {item.definition_sha256 for item in receipt.assessment.findings} if receipt and receipt.assessment else set()
+        if any(finding_definition_hash(item) not in allowed for item in definitions):
+            raise FindingConflict("documentation findings require their validated evidence receipt")
+    else:
+        paths = sorted({item.path for item in definitions})
+        changed = connection.execute(
+            """
+            SELECT path FROM review_agent.review_run_files
+            WHERE review_run_id = %s AND is_changed_path AND path = ANY(%s::text[])
+            """,
+            (run_id, paths),
+        ).fetchall()
+        changed_paths = {str(row[0]) for row in changed}
+        missing_paths = [path for path in paths if path not in changed_paths]
+        if missing_paths:
+            raise FindingPathNotChanged(
+                f"finding path is not registered as changed: {missing_paths[0]}"
+            )
     identities = _identities(connection, scope.repository_id, definitions, scope.purpose)
     occurrences = _occurrences(
         connection,

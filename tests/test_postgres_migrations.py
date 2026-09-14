@@ -67,6 +67,12 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     27,
                     28,
                     29,
+                    30,
+                    31,
+                    32,
+                    33,
+                    34,
+                    35,
                 ),
             )
             self.assertEqual(runner.apply_migrations(connection), ())
@@ -131,6 +137,12 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     (27, "027_console_identity.sql"),
                     (28, "028_console_registration.sql"),
                     (29, "029_review_purpose.sql"),
+                    (30, "030_documentation_reviews.sql"),
+                    (31, "031_documentation_check_publication.sql"),
+                    (32, "032_documentation_operating_policy.sql"),
+                    (33, "033_documentation_capability.sql"),
+                    (34, "034_documentation_configuration.sql"),
+                    (35, "035_documentation_admission.sql"),
                 )
             ],
         )
@@ -260,7 +272,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 self.assertEqual(
                     runner.apply_migrations(connection),
-                    (14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29),
+                    tuple(range(14, 36)),
                 )
                 classified = connection.execute(
                     """
@@ -373,7 +385,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     ).fetchall() for table in tables
                 }
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), (29,))
+                self.assertEqual(runner.apply_migrations(connection), tuple(range(29, 36)))
                 for table in tables:
                     rows = connection.execute(
                         psycopg.sql.SQL("SELECT to_jsonb(record) - 'purpose', to_jsonb(record)->>'purpose' FROM review_agent.{} record ORDER BY id").format(
@@ -415,7 +427,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (29,))
+        self.assertEqual(count, (35,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

@@ -23,6 +23,7 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import type { HistoryItem, HistoryPage, Overview } from "./api";
 import { read } from "./api";
+import { ReviewPurposeFilter, selectedReviewPurpose, reviewPurposeLabel } from "./reviewPurpose";
 import {
   ReviewProgress,
   reviewStateLabel,
@@ -79,6 +80,7 @@ export function ActivityTabs() {
 export function ActivityPage() {
   const scope = useScope();
   const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   const status = params.get("status") ?? "all";
   const {
     draft: repository,
@@ -96,6 +98,7 @@ export function ActivityPage() {
     status,
     limit: "50",
   });
+  if (purpose) queryParams.set("purpose", purpose);
   for (const key of ["repository", "pr_number", "before_id"]) {
     const value = params.get(key);
     if (value) queryParams.set(key, value);
@@ -104,7 +107,7 @@ export function ActivityPage() {
     document.title = "Review Agent · Activity";
   }, []);
   const filtered =
-    status !== "all" ||
+    !!purpose || status !== "all" ||
     params.has("repository") ||
     params.has("pr_number") ||
     params.has("before_id");
@@ -114,9 +117,9 @@ export function ActivityPage() {
       read<HistoryPage>(scope.path(`/api/history?${queryParams}`), signal),
   });
   const overview = useQuery({
-    queryKey: ["overview", days, "scoped", scope.key],
+    queryKey: ["overview", days, ...(purpose ? [purpose] : []), "scoped", scope.key],
     queryFn: ({ signal }) =>
-      read<Overview>(scope.path(`/api/overview?days=${days}`), signal),
+      read<Overview>(scope.path(`/api/overview?days=${days}${purpose ? `&purpose=${purpose}` : ""}`), signal),
   });
   const data = overview.data;
   const columns: TableColumn<HistoryItem>[] = [
@@ -129,6 +132,7 @@ export function ActivityPage() {
           <Link to={`/history/${item.id}?${params}`}>
             {item.repository} <Text>#{item.pr_number}</Text>
           </Link>
+          <Text type="supporting" color="secondary">{reviewPurposeLabel(item.purpose)}</Text>
           <Text type="supporting">
             Request #{item.id} · {time(item.started_at)}
           </Text>
@@ -259,6 +263,7 @@ export function ActivityPage() {
             because pushing the groups to opposite edges opened a gap the
             width of the console between controls that filter one list. */}
         <HStack gap={4} align="end" wrap="wrap">
+          <ReviewPurposeFilter value={purpose} onChange={(value) => update({ purpose: value })} />
           <SegmentedControl
             label="Filter request state"
             value={status}
@@ -315,7 +320,7 @@ export function ActivityPage() {
               onClick={() =>
                 // The state segments are filters too, so the control that
                 // offers to clear filters clears them as well.
-                update({ status: "", repository: "", pr_number: "" })
+                update({ status: "", repository: "", pr_number: "", purpose: "" })
               }
             />
           ) : null}

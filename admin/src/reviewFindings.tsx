@@ -11,9 +11,11 @@ type Findings = components["schemas"]["ReviewFindingPage"];
 export function ReviewFindings({
   runId,
   repository,
+  purpose,
 }: {
   runId: number;
   repository: string;
+  purpose: components["schemas"]["ReviewPurpose"];
 }) {
   const scope = useScope();
   const query = useQuery({
@@ -37,7 +39,7 @@ export function ReviewFindings({
           {query.data?.items.map((finding) => (
             <li key={finding.occurrence_id}>
               <Link
-                to={`/findings/${encodeURIComponent(finding.fingerprint)}?${new URLSearchParams({ repository, occurrence_id: String(finding.occurrence_id) })}`}
+                to={`/findings/${encodeURIComponent(finding.fingerprint)}?${new URLSearchParams({ repository, purpose, occurrence_id: String(finding.occurrence_id) })}`}
               >
                 <Text>
                   {finding.local_reference} · {finding.severity}

@@ -11,10 +11,82 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools.github import source  # noqa: E402
+from review_agent_tools.domain.review import ReviewPurpose  # noqa: E402
 from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
 
 
 class ReviewSourceFilePageTests(unittest.TestCase):
+    def test_documentation_policy_preserves_exact_toml_bytes_and_digest(self) -> None:
+        import hashlib
+
+        raw = 'version = 1\r\nintent = "first\u0085second"\r\n'.encode()
+        blob = hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+        github = Mock()
+        github.request_json.side_effect = [
+            {"sha": "a" * 40, "tree": {"sha": "d" * 40}},
+            {"sha": "d" * 40, "truncated": False, "tree": [
+                {"path": ".review-agent", "type": "tree", "mode": "040000", "sha": "e" * 40},
+            ]},
+            {"sha": "e" * 40, "truncated": False, "tree": [
+                {"path": "documentation.toml", "type": "blob", "mode": "100644", "sha": blob},
+            ]},
+        ]
+        github.request.return_value = (raw, False, {})
+        scope = replace(self._scope(), run=Mock(id=51, purpose=ReviewPurpose.DOCUMENTATION))
+        result = source.read_documentation_policy(github, scope, side="base")
+        self.assertEqual(result.content, raw.decode())
+        self.assertEqual(result.content_sha256, hashlib.sha256(raw).hexdigest())
+        self.assertEqual(source.ReviewPolicySource.from_mapping(result.to_mapping()), result)
+        with self.assertRaises(source.GitHubSourceError):
+            source.ReviewPolicySource.from_mapping({**result.to_mapping(), "content": "altered"})
+
+    def test_comparison_page_retains_distinct_revision_and_blob_identity(self) -> None:
+        import hashlib
+
+        github = Mock()
+        raw = b"before change\n"
+        blob = hashlib.sha1(b"blob 14\0" + raw).hexdigest()
+        github.request_json.side_effect = [
+            {"sha": "c" * 40, "tree": {"sha": "d" * 40}},
+            {"sha": "d" * 40, "truncated": False, "tree": [
+                {"path": "docs", "type": "tree", "mode": "040000", "sha": "e" * 40},
+            ]},
+            {"sha": "e" * 40, "truncated": False, "tree": [
+                {"path": "config.md", "type": "blob", "mode": "100644", "sha": blob},
+            ]},
+            self._contents(content=base64.b64encode(raw).decode()),
+        ]
+        scope = replace(self._scope(), run=Mock(id=51, purpose=ReviewPurpose.DOCUMENTATION))
+        page = source.read_review_file_page(
+            github, scope, path="docs/config.md", side="comparison", comparison_sha="c" * 40,
+            start_line=1, max_lines=20, max_chars=1000,
+        )
+        self.assertEqual(page.revision, "c" * 40)
+        self.assertEqual(scope.base_sha, "a" * 40)
+        self.assertEqual(page.blob_sha, hashlib.sha1(b"blob 14\0" + raw).hexdigest())
+        self.assertEqual(source.ReviewFilePage.from_mapping(page.to_mapping()), page)
+        with self.assertRaises(source.GitHubSourceError):
+            source.read_review_file_page(
+                github, replace(scope, run=Mock(id=51, purpose=ReviewPurpose.CODE)),
+                path="docs/config.md", side="comparison", comparison_sha="c" * 40,
+                start_line=1, max_lines=20, max_chars=1000,
+            )
+
+    def test_documentation_page_rejects_symlinks_before_reading_contents(self) -> None:
+        github = Mock()
+        github.request_json.side_effect = [
+            {"sha": "b" * 40, "tree": {"sha": "d" * 40}},
+            {"sha": "d" * 40, "truncated": False, "tree": [
+                {"path": "guide.md", "type": "blob", "mode": "120000", "sha": "e" * 40},
+            ]},
+        ]
+        page = source.read_review_file_page(
+            github, self._scope(), path="guide.md", side="head", start_line=1,
+            max_lines=20, max_chars=1000, require_regular=True,
+        )
+        self.assertEqual(page.state, "not_regular")
+        self.assertEqual(github.request_json.call_count, 2)
+
     @staticmethod
     def _scope() -> ReviewRunScope:
         return ReviewRunScope(

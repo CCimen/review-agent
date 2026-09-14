@@ -1196,6 +1196,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/teams/{team_id}/documentation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Documentation */
+        get: operations["documentation_api_teams__team_id__documentation_get"];
+        /** Save Documentation */
+        put: operations["save_documentation_api_teams__team_id__documentation_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/teams": {
         parameters: {
             query?: never;
@@ -1350,6 +1368,58 @@ export interface paths {
          * @description Uses the same filters and permissions as the audit list. since is inclusive; until is exclusive. Follow X-Audit-Next-Before-ID as before_id for older events. CSV prefixes formula-like cells with an apostrophe; JSON and JSONL preserve exact values. OTLP exports are OpenTelemetry JSON log requests; no external collector is contacted.
          */
         get: operations["export_api_audit_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repositories/{repository_id}/documentation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Documentation */
+        get: operations["documentation_api_repositories__repository_id__documentation_get"];
+        /** Save Documentation */
+        put: operations["save_documentation_api_repositories__repository_id__documentation_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repositories/{repository_id}/documentation/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Documentation */
+        post: operations["refresh_documentation_api_repositories__repository_id__documentation_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repository-ownership/{repository_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ownership Documentation Preview */
+        get: operations["ownership_documentation_preview_api_repository_ownership__repository_id__preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1927,6 +1997,15 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** ChangedPath */
+        ChangedPath: {
+            /** Status */
+            status: string;
+            /** Path */
+            path: string;
+            /** Previous Path */
+            previous_path?: string | null;
+        };
         /** ConnectionAccount */
         ConnectionAccount: {
             provider: components["schemas"]["ModelProvider"];
@@ -2187,6 +2266,11 @@ export interface components {
              */
             feedback_enabled: boolean;
             /**
+             * Documentation Review Enabled
+             * @default false
+             */
+            documentation_review_enabled: boolean;
+            /**
              * Code Graph Enabled
              * @default false
              */
@@ -2243,6 +2327,122 @@ export interface components {
              */
             observed_at: string;
         };
+        /** DocumentationArea */
+        DocumentationArea: {
+            /** Id */
+            id: string;
+            /** Sources */
+            sources: string[];
+            /** Documents */
+            documents: string[];
+            /** Intent */
+            intent: string;
+        };
+        /** DocumentationConfiguration */
+        DocumentationConfiguration: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "valid" | "not_configured" | "invalid" | "unavailable";
+            /**
+             * Read At
+             * Format: date-time
+             */
+            read_at: string;
+            /** Default Branch */
+            default_branch?: string | null;
+            /** Revision */
+            revision?: string | null;
+            /** Policy Hash */
+            policy_hash?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            policy?: components["schemas"]["DocumentationPolicy"] | null;
+            /** Problem */
+            problem?: string | null;
+        };
+        /** DocumentationExclusion */
+        DocumentationExclusion: {
+            /** Paths */
+            paths: string[];
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * DocumentationMode
+         * @enum {string}
+         */
+        DocumentationMode: "off" | "manual" | "automatic";
+        /**
+         * DocumentationOutcome
+         * @enum {string}
+         */
+        DocumentationOutcome: "not_needed" | "no_mismatch_found" | "findings" | "incomplete" | "not_configured" | "invalid_configuration" | "unavailable";
+        /** DocumentationPolicy */
+        DocumentationPolicy: {
+            /** Areas */
+            areas: components["schemas"]["DocumentationArea"][];
+            /** Ignore Changes */
+            ignore_changes: components["schemas"]["DocumentationExclusion"][];
+            /** Ignore Documents */
+            ignore_documents: components["schemas"]["DocumentationExclusion"][];
+        };
+        /** DocumentationReviewSummary */
+        DocumentationReviewSummary: {
+            /** Base Sha */
+            base_sha: string;
+            /** Comparison Sha */
+            comparison_sha: string | null;
+            /** Head Sha */
+            head_sha: string;
+            outcome: components["schemas"]["DocumentationOutcome"] | null;
+            /** Semantic Inference Used */
+            semantic_inference_used: boolean;
+            /** Coverage Complete */
+            coverage_complete: boolean;
+            /** Incomplete Reasons */
+            incomplete_reasons: string[];
+            scope: components["schemas"]["DocumentationScope"] | null;
+            /** Evidence */
+            evidence: components["schemas"]["EvidenceRead"][];
+        };
+        /** DocumentationScope */
+        DocumentationScope: {
+            /** Base Sha */
+            base_sha: string;
+            /** Comparison Sha */
+            comparison_sha: string | null;
+            /** Head Sha */
+            head_sha: string;
+            /** Status */
+            status: string;
+            /** Active Policy */
+            active_policy: boolean;
+            /** Policy Hash */
+            policy_hash: string | null;
+            /** Proposal Status */
+            proposal_status: string;
+            /** Proposal Detail */
+            proposal_detail: string | null;
+            /** Changed Files */
+            changed_files: components["schemas"]["ChangedPath"][];
+            /** Areas */
+            areas: components["schemas"]["SelectedArea"][];
+            /** Documents */
+            documents: string[];
+            /** Exclusions */
+            exclusions: components["schemas"]["ScopeExclusion"][];
+            /** Unmapped Paths */
+            unmapped_paths: string[];
+            /** Incomplete Reasons */
+            incomplete_reasons: string[];
+            /**
+             * Semantic Inference Used
+             * @default false
+             */
+            semantic_inference_used: boolean;
+        };
         /** EmailSettings */
         EmailSettings: {
             /** Revision */
@@ -2277,6 +2477,31 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** EvidenceRead */
+        EvidenceRead: {
+            /** Path */
+            path: string;
+            role: components["schemas"]["EvidenceRole"];
+            /** Revision */
+            revision: string;
+            /** Blob Sha */
+            blob_sha?: string | null;
+            /** Start Line */
+            start_line?: number | null;
+            /** End Line */
+            end_line?: number | null;
+            /** Content Sha256 */
+            content_sha256?: string | null;
+            /** Total Lines */
+            total_lines?: number | null;
+            /** Unavailable Reason */
+            unavailable_reason?: string | null;
+        };
+        /**
+         * EvidenceRole
+         * @enum {string}
+         */
+        EvidenceRole: "policy" | "comparison" | "head";
         /** FailureCount */
         FailureCount: {
             /** Failure Code */
@@ -2875,6 +3100,27 @@ export interface components {
             daily_publications: components["schemas"]["ActivityDay"][];
             /** Recent Failure Reasons */
             recent_failure_reasons: components["schemas"]["FailureCount"][];
+        };
+        /** OwnershipDocumentationPreview */
+        OwnershipDocumentationPreview: {
+            /** Repository Id */
+            repository_id: number;
+            /** Previous Team Id */
+            previous_team_id: number | null;
+            /** Destination Team Id */
+            destination_team_id: number | null;
+            /** Destination Team Name */
+            destination_team_name: string | null;
+            before: components["schemas"]["ResolvedDocumentationMode"];
+            after: components["schemas"]["ResolvedDocumentationMode"];
+            /** Previous Connection Id */
+            previous_connection_id: number;
+            /** Destination Connection Id */
+            destination_connection_id: number;
+            /** Account Policy Changed */
+            account_policy_changed: boolean;
+            /** Revision */
+            revision: string;
         };
         /** PasswordChange */
         PasswordChange: {
@@ -3490,6 +3736,54 @@ export interface components {
             team_id: number;
             /** Expected Team Id */
             expected_team_id: number | null;
+            /** Expected Documentation Revision */
+            expected_documentation_revision?: string | null;
+        };
+        /** RepositoryDocumentationPolicy */
+        RepositoryDocumentationPolicy: {
+            /** Repository Id */
+            repository_id: number;
+            /** Repository */
+            repository: string;
+            /** Team Id */
+            team_id: number | null;
+            /** Team Name */
+            team_name: string | null;
+            repository_override: components["schemas"]["DocumentationMode"] | null;
+            team_default: components["schemas"]["DocumentationMode"] | null;
+            resolved: components["schemas"]["ResolvedDocumentationMode"];
+            /** Revision */
+            revision: string;
+            /** Repository Revision */
+            repository_revision: number;
+            /** Team Revision */
+            team_revision: number | null;
+            /** Deployment Revision */
+            deployment_revision: number;
+            /**
+             * Capability
+             * @default not_checked
+             * @enum {string}
+             */
+            capability: "not_checked" | "ready" | "missing_checks" | "access_unavailable";
+            /**
+             * Configuration
+             * @default not_checked
+             * @enum {string}
+             */
+            configuration: "not_checked" | "valid" | "not_configured" | "invalid" | "unavailable";
+            configuration_detail?: components["schemas"]["DocumentationConfiguration"] | null;
+            /**
+             * Can Manage
+             * @default false
+             */
+            can_manage: boolean;
+        };
+        /** RepositoryDocumentationUpdate */
+        RepositoryDocumentationUpdate: {
+            mode: components["schemas"]["DocumentationMode"] | null;
+            /** Expected Revision */
+            expected_revision: string;
         };
         /** RepositoryEnablement */
         RepositoryEnablement: {
@@ -3497,6 +3791,16 @@ export interface components {
             reason: string;
             /** Profile */
             profile: string;
+        };
+        /** RepositoryModeImpact */
+        RepositoryModeImpact: {
+            /** Repository Id */
+            repository_id: number;
+            /** Repository */
+            repository: string;
+            repository_override: components["schemas"]["DocumentationMode"] | null;
+            before: components["schemas"]["ResolvedDocumentationMode"];
+            after: components["schemas"]["ResolvedDocumentationMode"];
         };
         /** RepositoryOnboarding */
         RepositoryOnboarding: {
@@ -3609,6 +3913,18 @@ export interface components {
          * @enum {string}
          */
         RequestStatus: "pending" | "approved" | "rejected" | "withdrawn";
+        /** ResolvedDocumentationMode */
+        ResolvedDocumentationMode: {
+            configured_mode: components["schemas"]["DocumentationMode"];
+            effective_mode: components["schemas"]["DocumentationMode"];
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "repository" | "team" | "unassigned";
+            /** Deployment Enabled */
+            deployment_enabled: boolean;
+        };
         /** ReviewDetail */
         ReviewDetail: {
             item: components["schemas"]["HistoryItem"];
@@ -3634,6 +3950,7 @@ export interface components {
              * @default false
              */
             can_maintain: boolean;
+            documentation?: components["schemas"]["DocumentationReviewSummary"] | null;
         };
         /** ReviewFindingItem */
         ReviewFindingItem: {
@@ -3925,6 +4242,26 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** ScopeExclusion */
+        ScopeExclusion: {
+            /** Path */
+            path: string;
+            /** Kind */
+            kind: string;
+            /** Reason */
+            reason: string;
+        };
+        /** SelectedArea */
+        SelectedArea: {
+            /** Id */
+            id: string;
+            /** Intent */
+            intent: string;
+            /** Matched Paths */
+            matched_paths: string[];
+            /** Documents */
+            documents: string[];
+        };
         /** ServiceSettingsLoad */
         ServiceSettingsLoad: {
             /**
@@ -3993,6 +4330,33 @@ export interface components {
             repository_count: number;
             /** Pending Requests */
             pending_requests: number;
+        };
+        /** TeamDocumentationPolicy */
+        TeamDocumentationPolicy: {
+            /** Team Id */
+            team_id: number;
+            default_mode: components["schemas"]["DocumentationMode"];
+            proposed_mode: components["schemas"]["DocumentationMode"];
+            /** Revision */
+            revision: string;
+            /** Deployment Enabled */
+            deployment_enabled: boolean;
+            /** Inherited Count */
+            inherited_count: number;
+            /** Exception Count */
+            exception_count: number;
+            /** Repositories */
+            repositories: components["schemas"]["RepositoryModeImpact"][];
+            /** Next After Id */
+            next_after_id: number | null;
+            /** Can Manage */
+            can_manage: boolean;
+        };
+        /** TeamDocumentationUpdate */
+        TeamDocumentationUpdate: {
+            mode: components["schemas"]["DocumentationMode"];
+            /** Expected Revision */
+            expected_revision: string;
         };
         /** TeamMember */
         TeamMember: {
@@ -5432,6 +5796,7 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                purpose?: components["schemas"]["ReviewPurpose"] | null;
                 start?: string | null;
                 end?: string | null;
                 limit?: number;
@@ -5471,6 +5836,7 @@ export interface operations {
         parameters: {
             query?: {
                 before_id?: number | null;
+                purpose?: components["schemas"]["ReviewPurpose"] | null;
                 team_id?: number | null;
             };
             header?: never;
@@ -5505,6 +5871,7 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                purpose?: components["schemas"]["ReviewPurpose"] | null;
                 start?: string | null;
                 end?: string | null;
                 limit?: number;
@@ -5544,6 +5911,7 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                purpose?: components["schemas"]["ReviewPurpose"] | null;
                 start?: string | null;
                 end?: string | null;
                 team_id?: number | null;
@@ -5578,6 +5946,7 @@ export interface operations {
         parameters: {
             query?: {
                 days?: number;
+                purpose?: components["schemas"]["ReviewPurpose"] | null;
                 start?: string | null;
                 end?: string | null;
                 dimension?: "team" | "repository" | "requester";
@@ -5684,6 +6053,7 @@ export interface operations {
             query?: {
                 days?: number;
                 repository?: string | null;
+                purpose?: components["schemas"]["ReviewPurpose"];
                 team_id?: number | null;
             };
             header?: never;
@@ -5716,6 +6086,7 @@ export interface operations {
         parameters: {
             query?: {
                 repository?: string | null;
+                purpose?: components["schemas"]["ReviewPurpose"];
                 limit?: number;
                 offset?: number;
                 team_id?: number | null;
@@ -5750,6 +6121,7 @@ export interface operations {
         parameters: {
             query: {
                 repository: string;
+                purpose?: components["schemas"]["ReviewPurpose"];
                 occurrence_id?: number | null;
                 decisions_before_id?: number | null;
                 team_id?: number | null;
@@ -6951,6 +7323,79 @@ export interface operations {
             };
         };
     };
+    documentation_api_teams__team_id__documentation_get: {
+        parameters: {
+            query?: {
+                proposed_mode?: components["schemas"]["DocumentationMode"] | null;
+                limit?: number;
+                after_id?: number;
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamDocumentationPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_documentation_api_teams__team_id__documentation_put: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamDocumentationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamDocumentationPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_teams_api_teams_get: {
         parameters: {
             query?: {
@@ -7377,6 +7822,143 @@ export interface operations {
                     "application/json": string;
                     "text/csv": string;
                     "application/x-ndjson": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    documentation_api_repositories__repository_id__documentation_get: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryDocumentationPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_documentation_api_repositories__repository_id__documentation_put: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositoryDocumentationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryDocumentationPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_documentation_api_repositories__repository_id__documentation_refresh_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryDocumentationPolicy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ownership_documentation_preview_api_repository_ownership__repository_id__preview_get: {
+        parameters: {
+            query?: {
+                destination_team_id?: number | null;
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnershipDocumentationPreview"];
                 };
             };
             /** @description Validation Error */

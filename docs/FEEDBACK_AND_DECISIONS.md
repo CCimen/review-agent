@@ -196,6 +196,17 @@ The CLI applies the same snapshot and path validation. It is an operational
 alternative, not a bypass. Accepted-risk decisions remain CLI-only governance
 actions.
 
+## Documentation feedback
+
+Documentation review uses `/review docs false-positive F1 <reason>`,
+`/review docs feedback scope <reason>`, and `/review docs feedback missed <reason>`.
+F references remain unique within a PR, while the prefix selects the current
+Code or Documentation publication. A code command cannot decide a documentation
+finding. The console derives this purpose from the exact selected occurrence.
+Documentation findings do not support intentional-by-design suppression: accepted
+architecture can explain behavior, but does not make contradictory documentation
+correct. See [Documentation review](DOCUMENTATION_REVIEW.md).
+
 ## Repository decision contract
 
 At the start of a review, the reviewer loads matching accepted ADR metadata from
@@ -211,7 +222,7 @@ version = 1
 [[decision]]
 id = "ADR-0007"
 adr_path = ".review-agent/decisions/ADR-0007-rag-chunking.md"
-applies_to = ["src/rag/**", "tests/rag/**"]
+applies_to = ["src/rag/**", "tests/rag/**", "docs/rag.md"]
 ```
 
 Each ADR starts with a short TOML block. Keep longer rationale below the block

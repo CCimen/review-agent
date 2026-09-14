@@ -315,6 +315,20 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
         exchange.assert_called_once()
         self.assertEqual(authorize.call_count, 2)
 
+    def test_documentation_token_uses_checks_and_rechecks_docs_authority(self) -> None:
+        permissions = {"issues": "write", "pull_requests": "write", "checks": "write"}
+        authorize = Mock(side_effect=(self.authorization,
+            github_app.GitHubAppRepositoryUnauthorized("documentation disabled")))
+        with (
+            patch.object(github_app, "authorize_documentation_review", authorize),
+            patch.object(self.service._opener, "open", return_value=self.response(permissions=permissions)) as exchange,
+        ):
+            self.service.token_for(9001, purpose="documentation_publication", now=NOW)
+            with self.assertRaises(github_app.GitHubAppRepositoryUnauthorized):
+                self.service.token_for(9001, purpose="documentation_publication", now=NOW + timedelta(minutes=1))
+        self.assertEqual(json.loads(exchange.call_args.args[0].data)["permissions"], permissions)
+        exchange.assert_called_once()
+
     def test_concurrent_same_repository_refreshes_once(self) -> None:
         exchange_count = 0
         exchange_guard = threading.Lock()

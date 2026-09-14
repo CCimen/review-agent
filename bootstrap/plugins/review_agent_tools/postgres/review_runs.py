@@ -28,7 +28,7 @@ from ..domain.review import (
 )
 
 
-DuplicateReason: TypeAlias = Literal["request_key", "active_run"]
+DuplicateReason: TypeAlias = Literal["request_key", "active_run", "completed_subject"]
 
 
 class ReviewRunError(ValueError):

@@ -14,7 +14,7 @@ from psycopg.rows import TupleRow
 from .. import review_contract
 from .. import review_feedback_application
 from ..domain.feedback import FeedbackStatus
-from ..domain.review import JsonObject, JsonValue
+from ..domain.review import JsonObject, JsonValue, ReviewPurpose
 from ..feedback_commands import restore_review_feedback_command
 from ..memory_validation import ReviewMemoryError
 from ..postgres import (
@@ -70,8 +70,8 @@ class ProcessorConfig:
     admission_max_age: timedelta = timedelta(hours=24)
 
     def __post_init__(self) -> None:
-        if self.admission_max_age <= timedelta(0):
-            raise ValueError("admission_max_age must be positive")
+        if self.admission_max_age <= webhook_deliveries.DOCUMENTATION_DEBOUNCE:
+            raise ValueError("admission_max_age must exceed the documentation debounce")
         if self.capacity_retry_delay < timedelta(0):
             raise ValueError("capacity_retry_delay must not be negative")
 
@@ -149,6 +149,9 @@ def _installation_definition(
                     payload.get("pull_requests_permission"),
                     "pull_requests_permission",
                 )
+            ),
+            checks_permission=github_app.PermissionLevel(
+                _text(payload.get("checks_permission", "none"), "checks_permission")
             ),
         )
     except ValueError as exc:
@@ -397,12 +400,16 @@ class GitHubAppProcessor:
         lease_owner: str,
         actor: str,
     ) -> ProcessingResult:
+        from ..postgres import documentation_admissions, documentation_operating_policy
         with self._postgres.transaction() as connection:
+            latest = webhook_deliveries.documentation_delivery_is_latest(connection, delivery)
             expired = webhook_deliveries.review_admission_expired(
                 connection,
                 delivery_id=delivery.id,
                 maximum_age=self._config.admission_max_age,
             )
+        if not latest:
+            return self._finish(delivery, lease_owner, actor, webhook_deliveries.TerminalStatus.IGNORED, "documentation_coalesced")
         if expired:
             return self._finish(
                 delivery,
@@ -423,6 +430,14 @@ class GitHubAppProcessor:
             if exc.reason == "delivery_lease_lost":
                 return ProcessingResult(delivery.id, delivery.status, exc.reason)
             raise _Reject(exc.reason) from exc
+        if authorized.purpose is ReviewPurpose.DOCUMENTATION and authorized.trigger == "automatic" and (
+            authorized.state != "open" or authorized.draft is not False or not authorized.base_ref
+        ):
+            with self._postgres.transaction() as connection:
+                documentation_admissions.cancel_for_pull(connection,
+                    provider_repository_id=authorized.provider_repository_id, pr_number=authorized.pr_number,
+                    automatic_only=authorized.state == "open")
+            return self._finish(delivery, lease_owner, actor, webhook_deliveries.TerminalStatus.IGNORED, "documentation_pull_ineligible")
         try:
             contract = review_contract.load_packaged_contract(
                 self._config.profile,
@@ -433,7 +448,10 @@ class GitHubAppProcessor:
 
         try:
             with self._postgres.transaction() as connection:
-                request_key = f"github:issue-comment:{authorized.comment_id}"
+                if not webhook_deliveries.documentation_delivery_is_latest(connection, delivery):
+                    raise _Reject("documentation_coalesced")
+                request_key = (f"github:issue-comment:{authorized.comment_id}" if authorized.comment_id is not None
+                    else f"github:{authorized.trigger}:{delivery.delivery_guid}")
                 recorded = review_runs.find_request_config(connection, request_key)
                 if recorded is not None:
                     # Redelivery keeps the admitted route. The admission owner
@@ -460,6 +478,10 @@ class GitHubAppProcessor:
                     provider_installation_id=authorized.provider_installation_id,
                     profile_key=self._config.profile,
                 )
+                documentation_authority = None
+                if authorized.purpose is ReviewPurpose.DOCUMENTATION:
+                    documentation_authority = github_app.authorize_documentation_review(connection, authorized.provider_repository_id,
+                        profile_key=self._config.profile, automatic=authorized.trigger == "automatic")
                 admitted = admit_postgres_review_in_transaction(
                     connection,
                     PostgresRunRequest(
@@ -477,11 +499,20 @@ class GitHubAppProcessor:
                         request_key=request_key,
                         trigger_comment_id=authorized.comment_id,
                         trigger_user=authorized.sender_login,
+                        purpose=authorized.purpose,
                     ),
-                    priority=self._config.job_priority,
+                    priority=self._config.job_priority - (1 if authorized.trigger == "automatic" else 0),
                     max_attempts=self._config.job_max_attempts,
                     active_job_limit=self._config.active_job_limit,
+                    reuse_completed_documentation=authorized.trigger == "automatic",
                 )
+                if authorized.purpose is ReviewPurpose.DOCUMENTATION:
+                    assert documentation_authority is not None
+                    operating_policy = documentation_operating_policy.resolve(connection, repository_id=int(documentation_authority.repository_id))
+                    documentation_admissions.record(connection, run_id=admitted.run.run.id,
+                        delivery=delivery, trigger=authorized.trigger, base_ref=authorized.base_ref,
+                        explicit_priority=self._config.job_priority, policy=operating_policy.resolved,
+                        policy_revision=operating_policy.revision, admitted_team_id=operating_policy.team_id)
                 finished = webhook_deliveries.finish_delivery(
                     connection,
                     delivery_id=delivery.id,
@@ -491,7 +522,7 @@ class GitHubAppProcessor:
                     actor=actor,
                 )
         except github_app.GitHubAppRepositoryUnauthorized as exc:
-            raise _Reject("repository_not_authorized") from exc
+            raise _Reject(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
         except jobs.ReviewQueueFull as exc:
             raise _WaitingForCapacity from exc
         except model_connections.ModelPolicyUnavailable as exc:
@@ -500,9 +531,10 @@ class GitHubAppProcessor:
             raise _Retry("review_admission_busy") from exc
 
         try:
-            self._gateway.acknowledge_review(
-                run_id=int(admitted.run.run.id),
-            )
+            if authorized.comment_id is not None:
+                self._gateway.acknowledge_review(
+                    run_id=int(admitted.run.run.id),
+                )
         except GitHubGatewayError as exc:
             logger.warning(
                 "Review run %s was admitted without a GitHub acknowledgement: %s",
@@ -552,6 +584,7 @@ class GitHubAppProcessor:
                     repository=authorized.repository,
                     pr_number=authorized.pr_number,
                     command=command,
+                    purpose=ReviewPurpose(str(payload.get("purpose", "code"))),
                     actor_user_id=authorized.sender_id,
                     actor_login=authorized.sender_login,
                     author_association=authorized.author_association,

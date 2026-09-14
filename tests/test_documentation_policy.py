@@ -73,6 +73,18 @@ reason = "Old releases."
                 with self.assertRaises(documentation_policy.DocumentationPolicyError):
                     documentation_policy.parse_policy(content)
 
+    def test_review_agent_starter_uses_existing_source_and_document_paths(self) -> None:
+        root = PACKAGE_ROOT.parents[1]
+        policy = documentation_policy.parse_policy(
+            (root / "examples/documentation-review/review-agent.toml").read_text()
+        )
+        self.assertEqual({area.id for area in policy.areas}, {
+            "review-commands", "repository-context", "deployment",
+        })
+        for area in policy.areas:
+            for path in (*area.sources, *area.documents):
+                self.assertTrue((root / path).is_file(), path)
+
     def test_contract_is_bounded(self) -> None:
         with self.assertRaisesRegex(
             documentation_policy.DocumentationPolicyError, "64 KiB"

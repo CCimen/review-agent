@@ -8,6 +8,7 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
+from ..domain.review import ReviewPurpose
 from .admin_reporting import ReviewUsage
 from .team_access import AccessScope, repository_source
 
@@ -70,6 +71,7 @@ _REQUESTS = sql.SQL("""
         LEFT JOIN review_agent.review_jobs job ON job.review_run_id = run.id
         WHERE run.started_at >= %(start)s AND run.started_at < %(end)s
           AND (%(repository)s::text IS NULL OR lower(repo.full_name) = lower(%(repository)s))
+          AND (%(purpose)s::text IS NULL OR run.purpose = %(purpose)s)
     ), attempts AS (
         SELECT usage.job_id, count(*) AS reported_attempts,
             sum(usage.prompt_tokens)::bigint AS prompt_tokens,
@@ -113,6 +115,7 @@ def usage(
     search: str,
     offset: int,
     limit: int,
+    purpose: ReviewPurpose | None = None,
 ) -> UsageReport:
     dimensions: dict[UsageDimension, tuple[LiteralString, ...]] = {
         "team": (
@@ -146,6 +149,7 @@ def usage(
         "start": start,
         "end": end,
         "repository": repository,
+        "purpose": purpose.value if purpose is not None else None,
         "search": search,
         "offset": offset,
         "limit": limit + 1,

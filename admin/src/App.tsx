@@ -35,6 +35,7 @@ import { Access, RepositoryTabs } from "./access";
 import { Login, MyAccount, Users } from "./accounts";
 import { ActivityPage } from "./activity";
 import { ConsoleLayout } from "./console";
+import { RepositoryDocumentationSection } from "./documentation";
 import { History, ReviewPage } from "./history";
 import { OperationsPage } from "./operations";
 import { OverviewPage } from "./overview";
@@ -104,6 +105,9 @@ function Repositories({ current }: { current: Account }) {
   const scope = useScope();
   const { params, days, update } = useFilters();
   const search = params.get("search") ?? "";
+  const documentationRepositoryId = Number(params.get("documentation_repository"));
+  const documentationRepository = Number.isSafeInteger(documentationRepositoryId) && documentationRepositoryId > 0
+    ? documentationRepositoryId : null;
   const offset = Math.max(0, Number(params.get("offset")) || 0);
   const { draft, setDraft, flush } = useLiveSearch(search, (value) =>
     update({ search: value }, { replace: true }),
@@ -140,6 +144,7 @@ function Repositories({ current }: { current: Account }) {
       renderCell: (repo) => (
         <VStack gap={1}>
           <Link to={historyURL(repo.repository)}>{repo.repository}</Link>
+          <Link to={`/repositories?documentation_repository=${repo.repository_id}`}>Documentation settings</Link>
           <Text type="supporting">
             {repo.last_activity_at
               ? `Last activity ${time(repo.last_activity_at)}`
@@ -243,6 +248,7 @@ function Repositories({ current }: { current: Account }) {
         </HStack>
       </VStack>
       <RepositoryTabs role={current.role} />
+      {documentationRepository !== null && <RepositoryDocumentationSection repositoryId={documentationRepository} close={() => update({ documentation_repository: "" })} />}
       <HStack gap={4} wrap="wrap" align="end">
         <TextInput
           label={"Find a repository"}

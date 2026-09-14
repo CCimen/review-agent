@@ -36,7 +36,7 @@ _REQUEST_TIMEOUT_SECONDS: Final = 15
 _MAX_INSTALLATION_TOKEN_RESPONSE_BYTES: Final = 65_536
 _DEFAULT_GITHUB_API_RESPONSE_BYTES: Final = 4 * 1024 * 1024
 _MAX_PRIVATE_KEY_BYTES: Final = 64 * 1024
-GitHubAppTokenPurpose = Literal["review_read", "publication"]
+GitHubAppTokenPurpose = Literal["review_read", "publication", "documentation_publication"]
 _PURPOSE_PERMISSIONS: Final[dict[GitHubAppTokenPurpose, dict[str, str]]] = {
     "review_read": {
         "contents": "read",
@@ -46,6 +46,9 @@ _PURPOSE_PERMISSIONS: Final[dict[GitHubAppTokenPurpose, dict[str, str]]] = {
     "publication": {
         "issues": "write",
         "pull_requests": "write",
+    },
+    "documentation_publication": {
+        "issues": "write", "pull_requests": "write", "checks": "write",
     },
 }
 
@@ -569,6 +572,10 @@ class GitHubAppTokenService:
         purpose: GitHubAppTokenPurpose,
     ) -> github_app.GitHubAppAuthorization:
         with self._postgres.transaction() as connection:
+            if purpose == "documentation_publication":
+                return github_app.authorize_documentation_review(
+                    connection, provider_repository_id, profile_key=self._profile,
+                )
             if purpose == "publication":
                 return github_app.authorize_review_publication(
                     connection,

@@ -125,6 +125,10 @@ class ProfileBundleTests(unittest.TestCase):
             tree_bytes(hermes_home / "skills" / "review-agent-pr"),
         )
         self.assertEqual(
+            tree_bytes(PROFILE_SOURCE / "skills" / "review-agent-docs"),
+            tree_bytes(hermes_home / "skills" / "review-agent-docs"),
+        )
+        self.assertEqual(
             tree_bytes(PROFILE_SOURCE / "skills" / "ponytail"),
             tree_bytes(hermes_home / "skills" / "ponytail"),
         )
@@ -187,7 +191,7 @@ class ProfileBundleTests(unittest.TestCase):
                 )
             )
             self.assertEqual("default-standard", receipt["contract"]["profile"])
-            self.assertEqual(["review-agent-pr", "ponytail"], receipt["skills"])
+            self.assertEqual(["review-agent-pr", "review-agent-docs", "ponytail"], receipt["skills"])
             self.assertEqual(2, receipt["schema_version"])
             self.assertEqual(HERMES_IMAGE, receipt["contract"]["hermes_image"])
             self.assertTrue(receipt["files"])
@@ -379,7 +383,7 @@ class ProfileBundleTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (custom / "profile.json").write_text(
-                json.dumps({"schema_version": 1, "skills": ["review-agent-pr"]}),
+                json.dumps({"schema_version": 1, "skills": ["review-agent-pr", "review-agent-docs"]}),
                 encoding="utf-8",
             )
             hermes_home = root / "hermes-home"

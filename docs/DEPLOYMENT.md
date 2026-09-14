@@ -48,6 +48,12 @@ manager. The App needs Contents read, Issues write, Pull requests write, and
 Metadata read; it does not need Actions, Administration, Secrets, or Contents
 write.
 
+Documentation review additionally requires **Checks write** and the **Pull request**
+and **Check run** webhook subscriptions. Existing code-only installations continue
+without those optional capabilities. Check each installation's accepted grant
+before enabling documentation review. See [Documentation review](DOCUMENTATION_REVIEW.md)
+for deployment enablement, manual adoption, and team/repository modes.
+
 ### Service secrets
 
 Generate different random values for the App webhook and the private Hermes API:
@@ -491,7 +497,7 @@ the diff is read again. Keep the added columns when recovering; no data removal
 or reverse migration is needed. The previous coverage queries remain compatible,
 but an image rollback still requires the release-specific checks below.
 
-The current admin API requires schema 27. Schema 22 introduced team access and
+The current admin API requires every migration shipped with its source revision. Schema 22 introduced team access and
 separate owner/admin roles in the console.
 Earlier console images do not enforce these boundaries and treat new team members
 as global viewers. Do not roll back the console image alone after this upgrade;

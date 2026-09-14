@@ -29,7 +29,7 @@ Deployment
 ├── bootstrap/profiles/default-standard/
 │   ├── SOUL.md                 Neutral reviewer identity and baseline tone
 │   ├── workspace/AGENTS.md     Non-overridable review and evidence contract
-│   └── skills/review-agent-pr/ Review procedure
+│   └── skills/               Code and documentation review procedures
 └── Environment
     ├── Provider and model
     ├── Reasoning effort
@@ -107,7 +107,7 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.4.0-rc.6 \
+  ghcr.io/ccimen/review-agent:v0.4.0-rc.7 \
   repository-context validate /repo
 ```
 
@@ -259,9 +259,9 @@ repository as `not_configured`; it makes no semantic verification claim. An
 invalid head proposal is reported separately while valid base scope remains
 active. An invalid accepted policy reports `invalid_configuration`.
 
-This command and the local-tree validator are the shipped offline foundation for
-scoped documentation review. Live `/review docs` execution, documentation review
-settings, and GitHub check publication remain planned.
+Use this preview before requesting a [live documentation review](DOCUMENTATION_REVIEW.md).
+The live workflow uses the same relationship rules, with team/repository operating
+modes, exact GitHub source reads, and an advisory check on the reviewed commit.
 
 ## Know when changes become active
 

@@ -17,7 +17,7 @@ published reviews.
 
 The console requires a qualified release that supplies both
 `review-agent` and `review-agent-admin` digests. Do not combine this panel with
-an older migration image: the current admin API requires PostgreSQL schema 28.
+an older migration image: the current admin API requires the migrations shipped with the same source revision.
 Releases through v0.4.0-rc.4 do not include the
 console. For a source build, build both images from the same checkout and run
 its migrations before starting the services.
@@ -26,6 +26,24 @@ After this upgrade, do not roll back the console image alone. Earlier consoles
 interpret ordinary accounts as global viewers and do not enforce team access or
 the owner/admin boundary. Use a forward fix, or the coordinated image and verified
 database recovery procedure in [Deployment](./DEPLOYMENT.md#upgrade-and-roll-back-production).
+
+## Documentation review controls
+
+Owners enable documentation review in deployment **Settings**. Team maintainers
+choose Off, Manual, or Automatic in the team's **Documentation** tab. Repositories
+inherit that default or keep an explicit override. The console shows the effective
+mode, impacted repositories, and stale-save conflicts before applying changes.
+
+Repository **Documentation** settings show current App readiness and an explicit
+**Refresh** action for the default-branch configuration. The resulting read time,
+commit, mappings, exclusions, and syntax status are inspection evidence; reviews
+continue to resolve their own exact base policy. Ownership transfers preview
+changes to both documentation mode and model-account policy.
+
+Review history and usage separate Code and Documentation requests. A documentation
+request includes scope and evidence limitations alongside the existing recorded
+token counters, duration, and publication links. See the
+[documentation review guide](DOCUMENTATION_REVIEW.md) for adoption and result semantics.
 
 ## Teams, roles, and repository ownership
 

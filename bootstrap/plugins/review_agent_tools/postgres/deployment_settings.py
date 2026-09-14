@@ -21,6 +21,7 @@ from .runtime import PostgreSQLRuntime
 _EXTENDED_ENV = frozenset(
     {
         "REVIEW_AGENT_JOB_PRIORITY",
+        "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED",
         "REVIEW_AGENT_JOB_PRIORITY_AGING_SECONDS",
         "REVIEW_AGENT_JOB_RETRY_SECONDS",
         "REVIEW_AGENT_JOB_POLL_SECONDS",
@@ -65,7 +66,9 @@ def _revision(row: tuple[object, ...]) -> SettingsRevision:
     env = cast(dict[str, str], env_raw)
     return SettingsRevision(
         int(str(row[0])),
-        DeploymentSettings.from_environment({**os.environ, **env}),
+        DeploymentSettings.from_environment(
+            {**os.environ, "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED": "false", **env}
+        ),
         str(row[2]),
         str(row[3]),
         cast(datetime, row[4]),
@@ -89,6 +92,14 @@ def history(
     return tuple(_revision(row) for row in rows)
 
 
+def lock(connection: psycopg.Connection[TupleRow], *, shared: bool = False) -> None:
+    """Serialize managed policy changes with decisions bound to their revision."""
+    if shared:
+        connection.execute("SELECT pg_advisory_xact_lock_shared(204913, 20)")
+    else:
+        connection.execute("SELECT pg_advisory_xact_lock(204913, 20)")
+
+
 def save(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -99,7 +110,7 @@ def save(
 ) -> SettingsRevision:
     if not reason.strip() or len(reason.strip()) > 500:
         raise ValueError("A reason of at most 500 characters is required")
-    connection.execute("SELECT pg_advisory_xact_lock(204913, 20)")
+    lock(connection)
     current = latest(connection)
     if (current.id if current else 0) != expected_revision:
         raise SettingsConflict("Settings changed. Reload before saving.")
@@ -108,6 +119,10 @@ def save(
         (Jsonb(settings.environment()), actor, reason.strip()),
     ).fetchone()
     assert row is not None
+    if not settings.documentation_review_enabled:
+        from . import documentation_admissions
+        from ..domain.documentation_operating_policy import DocumentationMode
+        documentation_admissions.cancel_ineligible(connection, effective_mode=DocumentationMode.OFF)
     return _revision(row)
 
 

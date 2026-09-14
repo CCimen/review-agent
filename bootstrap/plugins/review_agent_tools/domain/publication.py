@@ -21,6 +21,9 @@ PublicationPartId = NewType("PublicationPartId", int)
 
 _SHA256_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _LOCAL_REFERENCE_RE = re.compile(r"^F[1-9][0-9]*$")
+DOCUMENTATION_CHECK_NAME = "Documentation review"
+CHECK_OUTPUT_MAX_BYTES = 65_535
+CheckConclusion = Literal["skipped", "success", "neutral", "cancelled"]
 PUBLICATION_MARKER_PREFIX = "review-agent:canonical publication="
 PublicationRenderedBlockKind = Literal[
     "header",
@@ -64,6 +67,7 @@ class PublicationStatus(StrEnum):
 
 
 class PublicationPartType(StrEnum):
+    CHECK_RUN = "check_run"
     SUMMARY = "summary"
     CONTINUATION = "continuation"
     SUGGESTION_REVIEW = "suggestion_review"
@@ -137,7 +141,18 @@ class SuggestionReviewDelivery:
     comments: tuple[InlineSuggestionDelivery, ...]
 
 
-PublicationDelivery: TypeAlias = IssueCommentDelivery | SuggestionReviewDelivery
+@dataclass(frozen=True, slots=True)
+class CheckRunDelivery:
+    name: str
+    head_sha: str
+    external_id: str
+    conclusion: CheckConclusion
+    title: str
+    summary: str
+    report_part_numbers: tuple[int, ...] = ()
+
+
+PublicationDelivery: TypeAlias = IssueCommentDelivery | SuggestionReviewDelivery | CheckRunDelivery
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +292,30 @@ def decode_publication_delivery(
     if payload_schema_version != 1:
         raise PublicationDomainError("unsupported publication payload schema version")
     payload = _payload_mapping(payload_json)
+    if part_type is PublicationPartType.CHECK_RUN:
+        if set(payload) != {"name", "head_sha", "external_id", "status", "conclusion", "title", "summary", "report_part_numbers"}:
+            raise PublicationDomainError("check payload has unexpected fields")
+        name = _required_text(payload, "name")
+        head_sha = _required_text(payload, "head_sha")
+        external_id = _required_text(payload, "external_id")
+        conclusion = payload.get("conclusion")
+        title = _required_text(payload, "title")
+        summary = _required_text(payload, "summary")
+        numbers = payload.get("report_part_numbers")
+        if name != DOCUMENTATION_CHECK_NAME or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", head_sha):
+            raise PublicationDomainError("check requires the exact documentation name and head")
+        if external_id != publication_marker(publication_key) or payload.get("status") != "completed":
+            raise PublicationDomainError("check requires its exact publication marker and terminal status")
+        if conclusion not in {"skipped", "success", "neutral", "cancelled"}:
+            raise PublicationDomainError("check conclusion must be advisory")
+        if len(title) > 255 or len(summary.encode("utf-8")) > CHECK_OUTPUT_MAX_BYTES:
+            raise PublicationDomainError("check output exceeds the provider limit")
+        if not isinstance(numbers, list) or any(type(n) is not int or n < 1 for n in cast(list[object], numbers)):
+            raise PublicationDomainError("check report parts must be positive numbers")
+        report_numbers = tuple(cast(list[int], numbers))
+        if report_numbers != tuple(range(1, len(report_numbers) + 1)):
+            raise PublicationDomainError("check report parts must be contiguous")
+        return CheckRunDelivery(name, head_sha, external_id, cast(CheckConclusion, conclusion), title, summary, report_numbers)
     body = _required_text(payload, "body")
     if part_type in {
         PublicationPartType.SUMMARY,
@@ -350,7 +389,7 @@ def _parts(
     inputs: Sequence[PublicationPartInput], *, publication_key: str
 ) -> tuple[PublicationPartDefinition, ...]:
     if not inputs:
-        raise PublicationDomainError("publication requires a summary part")
+        raise PublicationDomainError("publication requires a primary part")
     identities = [(item.part_type, item.part_number) for item in inputs]
     if len(set(identities)) != len(identities):
         raise PublicationDomainError("publication contains duplicate part identities")
@@ -359,7 +398,15 @@ def _parts(
         for item in inputs
         if item.part_type is PublicationPartType.SUMMARY
     ]
-    if len(summaries) != 1 or summaries[0].part_number != 1:
+    checks = [item for item in inputs if item.part_type is PublicationPartType.CHECK_RUN]
+    if checks:
+        if len(checks) != 1 or checks[0].part_number != 1:
+            raise PublicationDomainError("documentation publication requires check part 1")
+        if len(summaries) > 1 or (summaries and summaries[0].part_number != 1):
+            raise PublicationDomainError("overflow report requires summary part 1")
+        if any(item.part_type is PublicationPartType.SUGGESTION_REVIEW for item in inputs):
+            raise PublicationDomainError("documentation corrections must be textual")
+    elif len(summaries) != 1 or summaries[0].part_number != 1:
         raise PublicationDomainError("publication requires summary part 1")
     continuations = sorted(
         item.part_number
@@ -395,7 +442,14 @@ def _parts(
                 ),
             )
         )
+    if checks:
+        check = next(item.delivery for item in resolved if item.part_type is PublicationPartType.CHECK_RUN)
+        assert isinstance(check, CheckRunDelivery)
+        expected = tuple(sorted(item.part_number for item in inputs if item.part_type in {PublicationPartType.SUMMARY, PublicationPartType.CONTINUATION}))
+        if check.report_part_numbers != expected:
+            raise PublicationDomainError("check links must account for every overflow report part")
     order = {
+        PublicationPartType.CHECK_RUN: 3,
         PublicationPartType.SUMMARY: 0,
         PublicationPartType.CONTINUATION: 1,
         PublicationPartType.SUGGESTION_REVIEW: 2,

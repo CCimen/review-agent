@@ -54,7 +54,7 @@ code review unavailable.
 The console is part of V1 adoption, not a later optional dashboard. Extend existing Team detail,
 repository views, Settings, Activity, Quality and Usage. Preserve the Astryx Neutral design and
 current scope/navigation. The product UI contract belongs in [the console
-design](../../../admin/DESIGN.md#planned-documentation-review-controls).
+design](../../../admin/DESIGN.md#documentation-review-controls).
 
 | Level | Proposed control | Meaning |
 | --- | --- | --- |

@@ -49,6 +49,7 @@ from .admin_auth import AdminAuth
 from .admin_email import email_cipher
 from .admin_identity_config import IdentitySettings
 from .build_info import BuildInfo, read_build_info
+from .domain.review import ReviewPurpose
 from .postgres import admin_operations, admin_reporting, admin_usage
 from .postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
 from .postgres.teams import TeamConflict
@@ -161,6 +162,7 @@ def create_app(
     def history(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Days = 30,
+        purpose: ReviewPurpose | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
         limit: Limit = 50,
@@ -173,6 +175,7 @@ def create_app(
             return admin_application.history(
                 runtime,
                 access=access,
+                purpose=purpose,
                 days=days,
                 start=start,
                 end=end,
@@ -189,9 +192,10 @@ def create_app(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         run_id: Annotated[int, PathParameter(ge=1, le=9223372036854775807)],
         before_id: Annotated[int | None, Query(ge=1, le=9223372036854775807)] = None,
+        purpose: ReviewPurpose | None = None,
     ) -> admin_reporting.ReviewDetail:
         result = admin_application.review_detail(
-            runtime, access=access, run_id=run_id, before_id=before_id
+            runtime, access=access, run_id=run_id, before_id=before_id, purpose=purpose
         )
         if result is None:
             raise HTTPException(
@@ -202,6 +206,7 @@ def create_app(
     def pull_requests(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Days = 30,
+        purpose: ReviewPurpose | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
         limit: Limit = 50,
@@ -214,6 +219,7 @@ def create_app(
             return admin_application.pull_requests(
                 runtime,
                 access=access,
+                purpose=purpose,
                 days=days,
                 start=start,
                 end=end,
@@ -229,12 +235,13 @@ def create_app(
     def overview(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Days = 30,
+        purpose: ReviewPurpose | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
     ) -> admin_operations.Overview:
         try:
             return admin_application.overview(
-                runtime, access=access, days=days, start=start, end=end
+                runtime, access=access, days=days, start=start, end=end, purpose=purpose
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
@@ -242,6 +249,7 @@ def create_app(
     def usage(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
         days: Days = 30,
+        purpose: ReviewPurpose | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
         dimension: admin_usage.UsageDimension = "repository",
@@ -262,6 +270,7 @@ def create_app(
             return admin_application.usage(
                 runtime,
                 access=access,
+                purpose=purpose,
                 days=days,
                 start=start,
                 end=end,

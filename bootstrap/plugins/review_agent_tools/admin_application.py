@@ -8,17 +8,20 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from math import ceil
 from uuid import UUID
+from typing import Literal
 
 import psycopg
 from psycopg.rows import TupleRow
 
 from . import operator_application
 from .deployment_settings import DeploymentSettings
+from .domain.documentation_operating_policy import DocumentationMode
+from .postgres import documentation_operating_policy as docs_policy
 from .postgres import deployment_settings as settings_store
 from .domain.feedback import resolve_github_repository, resolve_repository
 from .github import app_auth, app_inventory
 from .postgres import github_app, repository_requests
-from .domain.review import ReviewRunId
+from .domain.review import RepositoryId, ReviewPurpose, ReviewRunId
 from .postgres import (
     admin_operations,
     admin_reporting,
@@ -305,6 +308,7 @@ def history(
     limit: int = 50,
     before_id: int | None = None,
     watermark_id: int | None = None,
+    purpose: ReviewPurpose | None = None,
 ) -> admin_reporting.HistoryPage:
     normalized = _history_scope(
         days=days,
@@ -325,6 +329,7 @@ def history(
             "start": since.isoformat(),
             "end": until.isoformat(),
             "repository": normalized,
+            "purpose": purpose.value if purpose is not None else None,
             "status": status,
             "pr_number": pr_number,
             "limit": limit,
@@ -335,6 +340,7 @@ def history(
         return admin_reporting.history(
             connection,
             scope=scope,
+            purpose=purpose,
             since=since,
             until=until,
             now=now,
@@ -359,17 +365,26 @@ def review_detail(
     access: ReadAccessRequest,
     run_id: int,
     before_id: int | None = None,
+    purpose: ReviewPurpose | None = None,
 ) -> admin_reporting.ReviewDetail | None:
     if run_id < 1 or (before_id is not None and before_id < 1):
         raise ValueError("Request ID and cursor must be positive")
     with _report_transaction(
-        runtime, access, "review_content", {"run_id": run_id, "before_id": before_id}
+        runtime,
+        access,
+        "review_content",
+        {
+            "run_id": run_id,
+            "before_id": before_id,
+            "purpose": purpose.value if purpose is not None else None,
+        },
     ) as (connection, scope):
         if isinstance(scope, IntegrationScope) and not scope.read_review_content:
             raise AccessDenied("This integration does not have review content access")
         result = admin_reporting.review_detail(
             connection,
             scope=scope,
+            purpose=purpose,
             run_id=ReviewRunId(run_id),
             before_id=before_id,
             now=datetime.now(timezone.utc),
@@ -409,6 +424,7 @@ def overview(
     days: int = 30,
     start: datetime | None = None,
     end: datetime | None = None,
+    purpose: ReviewPurpose | None = None,
 ) -> admin_operations.Overview:
     _bounds(days=days, limit=1)
     window_start, window_end, now = report_window(days=days, start=start, end=end)
@@ -416,10 +432,19 @@ def overview(
         runtime,
         access,
         "overview",
-        {"start": window_start.isoformat(), "end": window_end.isoformat()},
+        {
+            "start": window_start.isoformat(),
+            "end": window_end.isoformat(),
+            "purpose": purpose.value if purpose is not None else None,
+        },
     ) as (connection, scope):
         return admin_operations.overview(
-            connection, scope=scope, start=window_start, end=window_end, now=now
+            connection,
+            scope=scope,
+            purpose=purpose,
+            start=window_start,
+            end=window_end,
+            now=now,
         )
 
 
@@ -436,6 +461,7 @@ def usage(
     search: str = "",
     offset: int = 0,
     limit: int = 25,
+    purpose: ReviewPurpose | None = None,
 ) -> admin_usage.UsageReport:
     _bounds(days=days, limit=limit)
     if dimension not in ("team", "repository", "requester") or sort not in (
@@ -453,6 +479,7 @@ def usage(
         return admin_usage.usage(
             connection,
             scope=scope,
+            purpose=purpose,
             start=window_start,
             end=window_end,
             now=now,
@@ -503,6 +530,7 @@ def pull_requests(
     pr_number: int | None = None,
     limit: int = 50,
     before_id: int | None = None,
+    purpose: ReviewPurpose | None = None,
 ) -> admin_reporting.PullRequestPage:
     normalized = _history_scope(
         days=days,
@@ -517,6 +545,7 @@ def pull_requests(
         return admin_reporting.pull_requests(
             connection,
             scope=scope,
+            purpose=purpose,
             since=since,
             until=until,
             now=now,
@@ -560,6 +589,7 @@ def quality_report(
     days: int,
     start: datetime | None = None,
     end: datetime | None = None,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> quality_reporting.QualityReport:
     _bounds(days=days, limit=1)
     window_start, window_end, _ = report_window(days=days, start=start, end=end)
@@ -572,6 +602,7 @@ def quality_report(
             "start": window_start.isoformat(),
             "end": window_end.isoformat(),
             "repository": normalized,
+            "purpose": purpose.value,
         },
     ) as (connection, scope):
         if normalized is not None:
@@ -579,6 +610,7 @@ def quality_report(
         return quality_reporting.build_report(
             connection,
             scope=scope,
+            purpose=purpose,
             repository=normalized,
             window_started_at=window_start,
             window_ended_at=window_end,
@@ -593,10 +625,16 @@ def quality_feedback(
     repository: str | None,
     limit: int,
     offset: int,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> admin_quality.QualityFeedbackPage:
     with _transaction(runtime, access) as (connection, scope):
         return admin_quality.feedback_backlog(
-            connection, scope=scope, repository=repository, limit=limit, offset=offset
+            connection,
+            scope=scope,
+            purpose=purpose,
+            repository=repository,
+            limit=limit,
+            offset=offset,
         )
 
 
@@ -608,6 +646,7 @@ def show_finding(
     fingerprint: str,
     occurrence_id: int | None,
     decisions_before_id: int | None,
+    purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> admin_quality.AdminFindingDetail:
     with _transaction(runtime, access) as (connection, scope):
         team_access.require_repository(connection, scope, repository)
@@ -615,6 +654,7 @@ def show_finding(
             connection,
             repository=repository,
             fingerprint=fingerprint,
+            purpose=purpose,
             occurrence_id=occurrence_id,
             decision_limit=101,
             decision_before_id=decisions_before_id,
@@ -1005,8 +1045,21 @@ def assign_team_repository(
     team_id: int,
     expected_team_id: int | None,
     reason: str,
+    expected_documentation_revision: str | None = None,
 ) -> None:
     with _transaction(runtime, access, access_change=True) as (connection, scope):
+        settings_store.lock(connection)
+        preview = docs_policy.ownership_preview(
+            connection, scope, repository_id=repository_id, destination_team_id=team_id
+        )
+        if expected_documentation_revision is None and (
+            preview.before.configured_mode != preview.after.configured_mode
+            or preview.before.effective_mode != preview.after.effective_mode
+            or preview.account_policy_changed
+        ):
+            raise teams.TeamConflict(
+                "Review the documentation mode and account policy before changing repository ownership."
+            )
         repository_requests.assign(
             connection,
             scope,
@@ -1014,6 +1067,7 @@ def assign_team_repository(
             team_id=team_id,
             expected_team_id=expected_team_id,
             reason=reason,
+            expected_documentation_revision=expected_documentation_revision,
         )
 
 
@@ -1033,3 +1087,140 @@ def remove_team_repository(
             team_id=team_id,
             reason=reason,
         )
+
+
+def team_documentation_policy(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    team_id: int,
+    proposed_mode: DocumentationMode | None = None,
+    after_id: int = 0,
+    limit: int = 50,
+) -> docs_policy.TeamDocumentationPolicy:
+    with _transaction(runtime, access) as (connection, scope):
+        return docs_policy.team_policy(
+            connection,
+            scope,
+            team_id=team_id,
+            proposed_mode=proposed_mode,
+            after_id=after_id,
+            limit=limit,
+        )
+
+
+def save_team_documentation_policy(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    team_id: int,
+    mode: DocumentationMode,
+    expected_revision: str,
+) -> docs_policy.TeamDocumentationPolicy:
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        return docs_policy.save_team_policy(
+            connection,
+            scope,
+            team_id=team_id,
+            mode=mode,
+            expected_revision=expected_revision,
+        )
+
+
+def repository_documentation_policy(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    repository_id: int,
+) -> docs_policy.RepositoryDocumentationPolicy:
+    with _transaction(runtime, access) as (connection, scope):
+        return _documentation_readiness(connection, docs_policy.repository_policy(
+            connection, scope, repository_id=repository_id
+        ))
+
+
+def save_repository_documentation_policy(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    repository_id: int,
+    mode: DocumentationMode | None,
+    expected_revision: str,
+) -> docs_policy.RepositoryDocumentationPolicy:
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        return _documentation_readiness(connection, docs_policy.save_repository_policy(
+            connection,
+            scope,
+            repository_id=repository_id,
+            mode=mode,
+            expected_revision=expected_revision,
+        ))
+
+
+def repository_ownership_documentation_preview(
+    runtime: PostgreSQLRuntime,
+    *,
+    access: AccessRequest,
+    repository_id: int,
+    destination_team_id: int | None,
+) -> docs_policy.OwnershipDocumentationPreview:
+    with _transaction(runtime, access) as (connection, scope):
+        return docs_policy.ownership_preview(
+            connection,
+            scope,
+            repository_id=repository_id,
+            destination_team_id=destination_team_id,
+        )
+
+
+def refresh_repository_documentation_configuration(
+    runtime: PostgreSQLRuntime,
+    authenticator: app_auth.GitHubAppAuthenticator,
+    *,
+    access: AccessRequest,
+    repository_id: int,
+) -> docs_policy.RepositoryDocumentationPolicy:
+    from .documentation_configuration import read_configuration
+    from .source_control import GitHubReadClient
+    from .postgres import documentation_configuration
+
+    started = datetime.now(timezone.utc)
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        before = docs_policy.repository_policy(connection, scope, repository_id=repository_id, maintain=True)
+        repository_access = github_app.get_repository_access(connection, RepositoryId(repository_id))
+        authorization = github_app.authorize_review_read(connection, repository_access.provider_repository_id)
+    token = authenticator.installation_token(
+        authorization.provider_installation_id,
+        repository_ids=(authorization.provider_repository_id,),
+        permissions={"contents": "read"},
+    )
+    snapshot = read_configuration(
+        GitHubReadClient(token.value, request_timeout_seconds=15, max_attempts=1),
+        repository=before.repository,
+        provider_repository_id=authorization.provider_repository_id,
+    )
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        current = docs_policy.repository_policy(connection, scope, repository_id=repository_id, maintain=True)
+        current_authorization = github_app.authorize_review_read(connection, authorization.provider_repository_id)
+        if current.revision != before.revision or current_authorization != authorization:
+            raise teams.TeamConflict("Repository ownership or access changed during refresh. Refresh again.")
+        documentation_configuration.save(
+            connection, repository_id=repository_id, snapshot=snapshot, refresh_started_at=started,
+        )
+        return _documentation_readiness(connection, docs_policy.repository_policy(connection, scope, repository_id=repository_id))
+
+
+
+def _documentation_readiness(
+    connection: psycopg.Connection[TupleRow], policy: docs_policy.RepositoryDocumentationPolicy,
+) -> docs_policy.RepositoryDocumentationPolicy:
+    capability: Literal["ready", "missing_checks", "access_unavailable"] = "access_unavailable"
+    try:
+        repository_access = github_app.get_repository_access(connection, RepositoryId(policy.repository_id))
+        authorization = github_app.authorize_review_publication(connection, repository_access.provider_repository_id)
+        installation = github_app.get_installation_by_provider_id(connection, authorization.provider_installation_id)
+    except (github_app.GitHubAppRepositoryNotFound, github_app.GitHubAppRepositoryUnauthorized):
+        pass
+    else:
+        capability = "ready" if installation.checks_permission is github_app.PermissionLevel.WRITE else "missing_checks"
+    return replace(policy, capability=capability)

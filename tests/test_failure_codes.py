@@ -27,6 +27,8 @@ class FailureCodesTests(unittest.TestCase):
             failure_codes.REVIEW_CONTRACT_CHANGED,
             "review_contract_changed",
         )
+        self.assertEqual(failure_codes.DOCUMENTATION_DISABLED, "documentation_disabled")
+        self.assertEqual(failure_codes.DOCUMENTATION_INELIGIBLE, "documentation_ineligible")
         self.assertEqual(
             failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
             "publication_attempts_exhausted",
@@ -56,6 +58,8 @@ class FailureCodesTests(unittest.TestCase):
             failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
             failure_codes.OPERATOR_CANCELLED,
             failure_codes.REVIEW_CONTRACT_CHANGED,
+            failure_codes.DOCUMENTATION_DISABLED,
+            failure_codes.DOCUMENTATION_INELIGIBLE,
         ]
         self.assertEqual(failure_codes.ALL, frozenset(codes))
         self.assertEqual(len(failure_codes.ALL), len(codes))

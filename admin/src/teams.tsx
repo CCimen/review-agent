@@ -23,7 +23,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
@@ -36,6 +36,7 @@ import type {
 import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { AuditLog } from "./audit";
+import { ApprovalDocumentationSummary, OwnershipDocumentationAction, TeamDocumentationSection } from "./documentation";
 import {
   isAdmin,
   ScopedLink as Link,
@@ -78,6 +79,7 @@ export function ConfirmAction({
   width,
   variant = "secondary",
   size,
+  children,
 }: {
   label: string;
   path: string;
@@ -93,6 +95,7 @@ export function ConfirmAction({
    *  rows it acts on; the confirmation step keeps its own weight. */
   variant?: "secondary" | "ghost";
   size?: "sm" | "md";
+  children?: ReactNode;
 }) {
   const refresh = useTeamRefresh();
   const [open, setOpen] = useState(false);
@@ -130,6 +133,7 @@ export function ConfirmAction({
           }}
         >
           <Text as="p">{description}</Text>
+          {children}
 
           {action.isError ? (
             <Text as="p" role="alert">
@@ -320,11 +324,11 @@ export function TeamsPage() {
             header: "Repository assignment",
             width: pixel(210),
             renderCell: (team: TeamPage["items"][number]) => (
-              <ConfirmAction
+              <OwnershipDocumentationAction
                 label="Assign to this team"
-                method="PUT"
-                path={`/api/repository-ownership/${assignRepository}`}
-                body={{ team_id: team.id, expected_team_id: null }}
+                repositoryId={Number(assignRepository)}
+                destinationTeamId={team.id}
+                expectedTeamId={null}
                 // The banner above already says what assignment moves, and
                 // this confirmation opens inside a table cell, so it names
                 // the pair being joined rather than restating the rule.
@@ -820,6 +824,7 @@ function TeamRepositories({
           <Text color="secondary" type="supporting">
             Assigned {time(repo.assigned_at)}
           </Text>
+          <Link to={`/repositories?documentation_repository=${repo.repository_id}&team_id=${team.id}`}>Documentation settings</Link>
         </VStack>
       ),
     },
@@ -850,14 +855,11 @@ function TeamRepositories({
             renderCell: (repo: TeamRepository) => (
               <VStack gap={1} hAlign="start">
                 {moving?.repository_id === repo.repository_id && destination ? (
-                  <ConfirmAction
+                  <OwnershipDocumentationAction
                     label="Confirm move"
-                    method="PUT"
-                    path={`/api/repository-ownership/${repo.repository_id}`}
-                    body={{
-                      team_id: Number(destination),
-                      expected_team_id: team.id,
-                    }}
+                    repositoryId={repo.repository_id}
+                    destinationTeamId={Number(destination)}
+                    expectedTeamId={team.id}
                     description={`Move ${repo.repository} and its history to ${destinations.data?.items.find((item) => String(item.id) === destination)?.name ?? "the selected team"}. ${team.name} will lose access.`}
                     width="100%"
                     done={() => {
@@ -1200,7 +1202,7 @@ export function RepositoryRequests({
                         label="Approve repository"
                         path={`/api/repository-requests/${request.id}/approve`}
                         description={`Verify the current GitHub App grant, assign ${request.repository_name} to ${request.team_name}, and enable reviews with the deployment's default profile.`}
-                      />
+                      ><ApprovalDocumentationSummary teamId={request.team_id} /></ConfirmAction>
                       <ConfirmAction
                         label="Reject request"
                         path={`/api/repository-requests/${request.id}/reject`}
@@ -1629,6 +1631,7 @@ export function TeamDetail() {
             <Tab value="repositories" label="Repositories" />
             <Tab value="members" label="Members" />
             <Tab value="models" label="Model and account" />
+            <Tab value="documentation" label="Documentation" />
             <Tab
               value="requests"
               label={`Requests${team.pending_requests ? ` (${team.pending_requests})` : ""}`}
@@ -1641,6 +1644,8 @@ export function TeamDetail() {
             <Members team={team} maintain={maintain} />
           ) : tab === "models" ? (
             <TeamModels team={team} maintain={maintain} />
+          ) : tab === "documentation" ? (
+            <TeamDocumentationSection key={`${team.id}:${scope.key}`} teamId={team.id} />
           ) : tab === "requests" ? (
             <RepositoryRequests team={team} maintain={maintain} />
           ) : tab === "audit" && isAdmin(scope.current.role) ? (

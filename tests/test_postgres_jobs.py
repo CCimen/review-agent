@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -26,10 +27,11 @@ from review_agent_tools import (  # noqa: E402
 )
 from review_agent_tools.domain.review import (  # noqa: E402
     ReviewPhase,
+    ReviewPurpose,
     ReviewStatus,
     resolve_review_subject,
 )
-from review_agent_tools.postgres import jobs, registry, review_runs  # noqa: E402
+from review_agent_tools.postgres import github_app, jobs, registry, review_runs  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
@@ -71,6 +73,58 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.runtime = PostgreSQLRuntime(PostgresDatabaseUrl(DSN))
         self.runtime.open()
         self.addCleanup(self.runtime.close)
+
+    def test_documentation_cancel_during_preflight_preserves_worker_and_terminal_state(self) -> None:
+        for number, status in enumerate((ReviewStatus.FAILED, ReviewStatus.SUPERSEDED), start=1):
+            with self.subTest(status=status):
+                pull = self.pull_request(provider_id=935, number=number)
+                definition = resolve_review_subject(
+                    base_sha="b" * 40, head_sha="a" * 40, policy_revision="profile@1",
+                    resolved_config_schema_version=2,
+                    resolved_config=review_contract.resolved_config(TEST_REVIEW_CONTRACT),
+                    purpose=ReviewPurpose.DOCUMENTATION,
+                )
+                with self.runtime.transaction() as connection:
+                    subject = registry.create_or_get_subject(connection, pull.id, definition)
+                run, _ = self.accept_job(pull, subject, request_key=f"docs:cancel:{number}")
+                source = Mock()
+                client = Mock(spec=HermesChatClient)
+                stop = threading.Event()
+                worker = ReviewWorker(
+                    self.runtime, client, WorkerPolicy(
+                        lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
+                        retry_delay=timedelta(seconds=1), poll_interval=timedelta(milliseconds=10),
+                        request_timeout=timedelta(seconds=10), recovery_interval=timedelta(seconds=30),
+                        recovery_batch_size=10, priority_aging_interval=PRIORITY_AGING_INTERVAL,
+                    ), lease_owner="docs-cancellation", stop_event=stop, source_client=source,
+                )
+                claimed = worker._claim()
+                self.assertIsNotNone(claimed)
+
+                def cancel_during_source(**_kwargs: object) -> SimpleNamespace:
+                    with self.runtime.transaction() as connection:
+                        if status is ReviewStatus.SUPERSEDED:
+                            terminal = review_runs.mark_superseded(connection, run.run.id)
+                        else:
+                            terminal = review_runs.fail_run(connection, run.run.id,
+                                failure_code=failure_codes.DOCUMENTATION_DISABLED)
+                        jobs.reconcile_run_jobs(connection, run_ids=(run.run.id,), status=terminal.status)
+                    return SimpleNamespace(repository="team/service-935", pr_number=number,
+                        payload={"state": "open"})
+
+                source.get_review_pull.side_effect = cancel_during_source
+                with (
+                    patch.object(review_contract, "load_installed_contract", return_value=TEST_REVIEW_CONTRACT),
+                    patch.object(github_app, "authorize_documentation_review"),
+                ):
+                    worker._execute(claimed)
+                self.assertFalse(stop.is_set())
+                client.review.assert_not_called()
+                with self.runtime.transaction() as connection:
+                    self.assertEqual(review_runs.get_run(connection, run.run.id).status, status)
+                    self.assertEqual(jobs.get_job(connection, claimed.job.id).status,
+                                     jobs.ReviewJobStatus.FAILED if status is ReviewStatus.FAILED
+                                     else jobs.ReviewJobStatus.SUPERSEDED)
 
     def test_remote_execution_keeps_account_busy_after_worker_lease_expires(
         self,

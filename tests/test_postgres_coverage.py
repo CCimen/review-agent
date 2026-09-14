@@ -536,16 +536,25 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 runner.apply_migrations(connection, directory=previous)
                 with connection.transaction():
-                    admitted = (
-                        review_run_application.admit_postgres_review_in_transaction(
-                            connection,
-                            self.request(),
-                            priority=1,
-                            max_attempts=3,
-                            active_job_limit=10,
-                        )
-                    )
-                    run_id = admitted.run.run.id
+                    # Seed the old schema directly; current admission requires later columns.
+                    connection.execute("""
+                        INSERT INTO review_agent.repositories (
+                            provider, provider_repository_id, owner, name, full_name,
+                            created_at, updated_at
+                        ) VALUES ('github', 912, 'team', 'service', 'team/service', now(), now());
+                        INSERT INTO review_agent.pull_requests (repository_id, number, created_at)
+                        VALUES (1, 41, now());
+                        INSERT INTO review_agent.review_subjects (
+                            pull_request_id, base_sha, head_sha, policy_revision,
+                            resolved_config_schema_version, resolved_config, resolved_config_hash, created_at
+                        ) VALUES (1, repeat('a',40), repeat('b',40), 'profile@1', 1,
+                                  '{"profile":"default-standard"}', repeat('c',64), now());
+                        INSERT INTO review_agent.review_runs (
+                            pull_request_id, review_subject_id, request_key, status, phase,
+                            started_at, last_heartbeat_at
+                        ) VALUES (1, 1, 'existing:coverage', 'running', 'accepted', now(), now());
+                    """)
+                    run_id = ReviewRunId(1)
                     postgres_coverage.insert_changed_files(
                         connection,
                         run_id=run_id,
@@ -571,7 +580,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 self.assertEqual(
                     runner.apply_migrations(connection),
-                (15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28),
+                    tuple(range(15, 36)),
                 )
                 self.assertTrue(
                     runner.inspect_migrations(
@@ -582,7 +591,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                     self.assertEqual(
                         postgres_coverage.summarize(connection, run_id), before
                     )
-                    # Previous code can still write ordinary observations after upgrade.
+                    # Ordinary observation writes still work after upgrade.
                     postgres_coverage.record_diff_observation(
                         connection,
                         run_id=run_id,

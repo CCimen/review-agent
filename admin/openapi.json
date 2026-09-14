@@ -1559,6 +1559,22 @@
             }
           },
           {
+            "name": "purpose",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReviewPurpose"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Purpose"
+            }
+          },
+          {
             "name": "start",
             "in": "query",
             "required": false,
@@ -1759,6 +1775,22 @@
             }
           },
           {
+            "name": "purpose",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReviewPurpose"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Purpose"
+            }
+          },
+          {
             "name": "team_id",
             "in": "query",
             "required": false,
@@ -1821,6 +1853,22 @@
               "minimum": 1,
               "default": 30,
               "title": "Days"
+            }
+          },
+          {
+            "name": "purpose",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReviewPurpose"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Purpose"
             }
           },
           {
@@ -2007,6 +2055,22 @@
             }
           },
           {
+            "name": "purpose",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReviewPurpose"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Purpose"
+            }
+          },
+          {
             "name": "start",
             "in": "query",
             "required": false,
@@ -2104,6 +2168,22 @@
               "minimum": 1,
               "default": 30,
               "title": "Days"
+            }
+          },
+          {
+            "name": "purpose",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ReviewPurpose"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Purpose"
             }
           },
           {
@@ -2460,6 +2540,15 @@
             }
           },
           {
+            "name": "purpose",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReviewPurpose",
+              "default": "code"
+            }
+          },
+          {
             "name": "team_id",
             "in": "query",
             "required": false,
@@ -2528,6 +2617,15 @@
                 }
               ],
               "title": "Repository"
+            }
+          },
+          {
+            "name": "purpose",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReviewPurpose",
+              "default": "code"
             }
           },
           {
@@ -2626,6 +2724,15 @@
               "maxLength": 200,
               "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
               "title": "Repository"
+            }
+          },
+          {
+            "name": "purpose",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReviewPurpose",
+              "default": "code"
             }
           },
           {
@@ -4951,6 +5058,188 @@
         }
       }
     },
+    "/api/teams/{team_id}/documentation": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Documentation",
+        "operationId": "documentation_api_teams__team_id__documentation_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "proposed_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DocumentationMode"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Proposed Mode"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "default": 0,
+              "title": "After Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamDocumentationPolicy"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Save Documentation",
+        "operationId": "save_documentation_api_teams__team_id__documentation_put",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamDocumentationUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamDocumentationPolicy"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/teams": {
       "get": {
         "tags": [
@@ -6149,6 +6438,300 @@
                   "type": "integer"
                 },
                 "description": "Present when more matching events remain; send as before_id for the next page."
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/repositories/{repository_id}/documentation": {
+      "get": {
+        "tags": [
+          "repository requests"
+        ],
+        "summary": "Documentation",
+        "operationId": "documentation_api_repositories__repository_id__documentation_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryDocumentationPolicy"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "repository requests"
+        ],
+        "summary": "Save Documentation",
+        "operationId": "save_documentation_api_repositories__repository_id__documentation_put",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepositoryDocumentationUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryDocumentationPolicy"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/repositories/{repository_id}/documentation/refresh": {
+      "post": {
+        "tags": [
+          "repository requests"
+        ],
+        "summary": "Refresh Documentation",
+        "operationId": "refresh_documentation_api_repositories__repository_id__documentation_refresh_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryDocumentationPolicy"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/repository-ownership/{repository_id}/preview": {
+      "get": {
+        "tags": [
+          "repository requests"
+        ],
+        "summary": "Ownership Documentation Preview",
+        "operationId": "ownership_documentation_preview_api_repository_ownership__repository_id__preview_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "destination_team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Destination Team Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnershipDocumentationPreview"
+                }
               }
             }
           },
@@ -8500,6 +9083,35 @@
         ],
         "title": "ChangeReason"
       },
+      "ChangedPath": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "previous_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "path"
+        ],
+        "title": "ChangedPath"
+      },
       "ConnectionAccount": {
         "properties": {
           "provider": {
@@ -9034,6 +9646,11 @@
             "title": "Feedback Enabled",
             "default": false
           },
+          "documentation_review_enabled": {
+            "type": "boolean",
+            "title": "Documentation Review Enabled",
+            "default": false
+          },
           "code_graph_enabled": {
             "type": "boolean",
             "title": "Code Graph Enabled",
@@ -9175,6 +9792,405 @@
         ],
         "title": "DeploymentStatus"
       },
+      "DocumentationArea": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "documents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Documents"
+          },
+          "intent": {
+            "type": "string",
+            "title": "Intent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "sources",
+          "documents",
+          "intent"
+        ],
+        "title": "DocumentationArea"
+      },
+      "DocumentationConfiguration": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "not_configured",
+              "invalid",
+              "unavailable"
+            ],
+            "title": "State"
+          },
+          "read_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Read At"
+          },
+          "default_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Branch"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "policy_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Hash"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "read_at"
+        ],
+        "title": "DocumentationConfiguration"
+      },
+      "DocumentationExclusion": {
+        "properties": {
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Paths"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "paths",
+          "reason"
+        ],
+        "title": "DocumentationExclusion"
+      },
+      "DocumentationMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "manual",
+          "automatic"
+        ],
+        "title": "DocumentationMode"
+      },
+      "DocumentationOutcome": {
+        "type": "string",
+        "enum": [
+          "not_needed",
+          "no_mismatch_found",
+          "findings",
+          "incomplete",
+          "not_configured",
+          "invalid_configuration",
+          "unavailable"
+        ],
+        "title": "DocumentationOutcome"
+      },
+      "DocumentationPolicy": {
+        "properties": {
+          "areas": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentationArea"
+            },
+            "type": "array",
+            "title": "Areas"
+          },
+          "ignore_changes": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentationExclusion"
+            },
+            "type": "array",
+            "title": "Ignore Changes"
+          },
+          "ignore_documents": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentationExclusion"
+            },
+            "type": "array",
+            "title": "Ignore Documents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "areas",
+          "ignore_changes",
+          "ignore_documents"
+        ],
+        "title": "DocumentationPolicy"
+      },
+      "DocumentationReviewSummary": {
+        "properties": {
+          "base_sha": {
+            "type": "string",
+            "title": "Base Sha"
+          },
+          "comparison_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Sha"
+          },
+          "head_sha": {
+            "type": "string",
+            "title": "Head Sha"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "semantic_inference_used": {
+            "type": "boolean",
+            "title": "Semantic Inference Used"
+          },
+          "coverage_complete": {
+            "type": "boolean",
+            "title": "Coverage Complete"
+          },
+          "incomplete_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Incomplete Reasons"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRead"
+            },
+            "type": "array",
+            "title": "Evidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_sha",
+          "comparison_sha",
+          "head_sha",
+          "outcome",
+          "semantic_inference_used",
+          "coverage_complete",
+          "incomplete_reasons",
+          "scope",
+          "evidence"
+        ],
+        "title": "DocumentationReviewSummary"
+      },
+      "DocumentationScope": {
+        "properties": {
+          "base_sha": {
+            "type": "string",
+            "title": "Base Sha"
+          },
+          "comparison_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Sha"
+          },
+          "head_sha": {
+            "type": "string",
+            "title": "Head Sha"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "active_policy": {
+            "type": "boolean",
+            "title": "Active Policy"
+          },
+          "policy_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Hash"
+          },
+          "proposal_status": {
+            "type": "string",
+            "title": "Proposal Status"
+          },
+          "proposal_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Detail"
+          },
+          "changed_files": {
+            "items": {
+              "$ref": "#/components/schemas/ChangedPath"
+            },
+            "type": "array",
+            "title": "Changed Files"
+          },
+          "areas": {
+            "items": {
+              "$ref": "#/components/schemas/SelectedArea"
+            },
+            "type": "array",
+            "title": "Areas"
+          },
+          "documents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Documents"
+          },
+          "exclusions": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeExclusion"
+            },
+            "type": "array",
+            "title": "Exclusions"
+          },
+          "unmapped_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unmapped Paths"
+          },
+          "incomplete_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Incomplete Reasons"
+          },
+          "semantic_inference_used": {
+            "type": "boolean",
+            "title": "Semantic Inference Used",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_sha",
+          "comparison_sha",
+          "head_sha",
+          "status",
+          "active_policy",
+          "policy_hash",
+          "proposal_status",
+          "proposal_detail",
+          "changed_files",
+          "areas",
+          "documents",
+          "exclusions",
+          "unmapped_paths",
+          "incomplete_reasons"
+        ],
+        "title": "DocumentationScope"
+      },
       "EmailSettings": {
         "properties": {
           "revision": {
@@ -9289,6 +10305,103 @@
           "detail"
         ],
         "title": "ErrorModel"
+      },
+      "EvidenceRead": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "role": {
+            "$ref": "#/components/schemas/EvidenceRole"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          },
+          "blob_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blob Sha"
+          },
+          "start_line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Line"
+          },
+          "end_line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Line"
+          },
+          "content_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Sha256"
+          },
+          "total_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Lines"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "role",
+          "revision"
+        ],
+        "title": "EvidenceRead"
+      },
+      "EvidenceRole": {
+        "type": "string",
+        "enum": [
+          "policy",
+          "comparison",
+          "head"
+        ],
+        "title": "EvidenceRole"
       },
       "FailureCount": {
         "properties": {
@@ -11013,6 +12126,83 @@
         ],
         "title": "Overview"
       },
+      "OwnershipDocumentationPreview": {
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "title": "Repository Id"
+          },
+          "previous_team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Team Id"
+          },
+          "destination_team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination Team Id"
+          },
+          "destination_team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination Team Name"
+          },
+          "before": {
+            "$ref": "#/components/schemas/ResolvedDocumentationMode"
+          },
+          "after": {
+            "$ref": "#/components/schemas/ResolvedDocumentationMode"
+          },
+          "previous_connection_id": {
+            "type": "integer",
+            "title": "Previous Connection Id"
+          },
+          "destination_connection_id": {
+            "type": "integer",
+            "title": "Destination Connection Id"
+          },
+          "account_policy_changed": {
+            "type": "boolean",
+            "title": "Account Policy Changed"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repository_id",
+          "previous_team_id",
+          "destination_team_id",
+          "destination_team_name",
+          "before",
+          "after",
+          "previous_connection_id",
+          "destination_connection_id",
+          "account_policy_changed",
+          "revision"
+        ],
+        "title": "OwnershipDocumentationPreview"
+      },
       "PasswordChange": {
         "properties": {
           "current_password": {
@@ -12733,6 +13923,18 @@
               }
             ],
             "title": "Expected Team Id"
+          },
+          "expected_documentation_revision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Documentation Revision"
           }
         },
         "additionalProperties": false,
@@ -12743,6 +13945,165 @@
           "expected_team_id"
         ],
         "title": "RepositoryAssignment"
+      },
+      "RepositoryDocumentationPolicy": {
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "title": "Repository Id"
+          },
+          "repository": {
+            "type": "string",
+            "title": "Repository"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "team_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Name"
+          },
+          "repository_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team_default": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolved": {
+            "$ref": "#/components/schemas/ResolvedDocumentationMode"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          },
+          "repository_revision": {
+            "type": "integer",
+            "title": "Repository Revision"
+          },
+          "team_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Revision"
+          },
+          "deployment_revision": {
+            "type": "integer",
+            "title": "Deployment Revision"
+          },
+          "capability": {
+            "type": "string",
+            "enum": [
+              "not_checked",
+              "ready",
+              "missing_checks",
+              "access_unavailable"
+            ],
+            "title": "Capability",
+            "default": "not_checked"
+          },
+          "configuration": {
+            "type": "string",
+            "enum": [
+              "not_checked",
+              "valid",
+              "not_configured",
+              "invalid",
+              "unavailable"
+            ],
+            "title": "Configuration",
+            "default": "not_checked"
+          },
+          "configuration_detail": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationConfiguration"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "can_manage": {
+            "type": "boolean",
+            "title": "Can Manage",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "repository_id",
+          "repository",
+          "team_id",
+          "team_name",
+          "repository_override",
+          "team_default",
+          "resolved",
+          "revision",
+          "repository_revision",
+          "team_revision",
+          "deployment_revision"
+        ],
+        "title": "RepositoryDocumentationPolicy"
+      },
+      "RepositoryDocumentationUpdate": {
+        "properties": {
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "expected_revision"
+        ],
+        "title": "RepositoryDocumentationUpdate"
       },
       "RepositoryEnablement": {
         "properties": {
@@ -12765,6 +14126,43 @@
           "profile"
         ],
         "title": "RepositoryEnablement"
+      },
+      "RepositoryModeImpact": {
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "title": "Repository Id"
+          },
+          "repository": {
+            "type": "string",
+            "title": "Repository"
+          },
+          "repository_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "before": {
+            "$ref": "#/components/schemas/ResolvedDocumentationMode"
+          },
+          "after": {
+            "$ref": "#/components/schemas/ResolvedDocumentationMode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repository_id",
+          "repository",
+          "repository_override",
+          "before",
+          "after"
+        ],
+        "title": "RepositoryModeImpact"
       },
       "RepositoryOnboarding": {
         "properties": {
@@ -13076,6 +14474,37 @@
         ],
         "title": "RequestStatus"
       },
+      "ResolvedDocumentationMode": {
+        "properties": {
+          "configured_mode": {
+            "$ref": "#/components/schemas/DocumentationMode"
+          },
+          "effective_mode": {
+            "$ref": "#/components/schemas/DocumentationMode"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "repository",
+              "team",
+              "unassigned"
+            ],
+            "title": "Source"
+          },
+          "deployment_enabled": {
+            "type": "boolean",
+            "title": "Deployment Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured_mode",
+          "effective_mode",
+          "source",
+          "deployment_enabled"
+        ],
+        "title": "ResolvedDocumentationMode"
+      },
       "ReviewDetail": {
         "properties": {
           "item": {
@@ -13134,6 +14563,16 @@
             "type": "boolean",
             "title": "Can Maintain",
             "default": false
+          },
+          "documentation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentationReviewSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -13927,6 +15366,63 @@
         ],
         "title": "SaveSettings"
       },
+      "ScopeExclusion": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "kind",
+          "reason"
+        ],
+        "title": "ScopeExclusion"
+      },
+      "SelectedArea": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "intent": {
+            "type": "string",
+            "title": "Intent"
+          },
+          "matched_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matched Paths"
+          },
+          "documents": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Documents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "intent",
+          "matched_paths",
+          "documents"
+        ],
+        "title": "SelectedArea"
+      },
       "ServiceSettingsLoad": {
         "properties": {
           "service": {
@@ -14096,6 +15592,91 @@
           "pending_requests"
         ],
         "title": "Team"
+      },
+      "TeamDocumentationPolicy": {
+        "properties": {
+          "team_id": {
+            "type": "integer",
+            "title": "Team Id"
+          },
+          "default_mode": {
+            "$ref": "#/components/schemas/DocumentationMode"
+          },
+          "proposed_mode": {
+            "$ref": "#/components/schemas/DocumentationMode"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          },
+          "deployment_enabled": {
+            "type": "boolean",
+            "title": "Deployment Enabled"
+          },
+          "inherited_count": {
+            "type": "integer",
+            "title": "Inherited Count"
+          },
+          "exception_count": {
+            "type": "integer",
+            "title": "Exception Count"
+          },
+          "repositories": {
+            "items": {
+              "$ref": "#/components/schemas/RepositoryModeImpact"
+            },
+            "type": "array",
+            "title": "Repositories"
+          },
+          "next_after_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Id"
+          },
+          "can_manage": {
+            "type": "boolean",
+            "title": "Can Manage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "team_id",
+          "default_mode",
+          "proposed_mode",
+          "revision",
+          "deployment_enabled",
+          "inherited_count",
+          "exception_count",
+          "repositories",
+          "next_after_id",
+          "can_manage"
+        ],
+        "title": "TeamDocumentationPolicy"
+      },
+      "TeamDocumentationUpdate": {
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/DocumentationMode"
+          },
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "expected_revision"
+        ],
+        "title": "TeamDocumentationUpdate"
       },
       "TeamMember": {
         "properties": {

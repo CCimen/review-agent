@@ -186,12 +186,12 @@ records the evidence behind the current improvement work. Beads epic
 `ra-quality-2026-09-614` owns priorities, phases, dependencies and implementation
 status; use `br show ra-quality-2026-09-614 --json` from this checkout to continue.
 
-The [scoped documentation review design](docs/assessments/2026-09-14/documentation-review-design.md)
-describes the capability and its planned live workflow. The offline
-`documentation.toml` validator and revision-bound `repository-context docs-scope`
-preview are implemented; live documentation reviews, settings and GitHub check
-publication are not yet implemented. Beads epic `ra-docs-review-ms1` owns the
-remaining dependencies and acceptance.
+[Documentation review](docs/DOCUMENTATION_REVIEW.md) adds scoped, advisory
+checks for maintained documents through `/review docs` and optional automatic
+PR updates. Teams set defaults and repositories can override them. The repository
+owns its source-to-document mappings in `.review-agent/documentation.toml`.
+The [design record](docs/assessments/2026-09-14/documentation-review-design.md)
+and Beads epic `ra-docs-review-ms1` track implementation and rollout evidence.
 
 Run the full validation bundle before shipping changes:
 

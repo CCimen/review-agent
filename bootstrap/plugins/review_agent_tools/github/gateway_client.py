@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 
 from .. import capacity, changed_files
+from ..domain.review import ReviewPurpose
 from ..code_graph_contract import ARCHIVE_MAX_BYTES, GraphError, GraphIdentity, GraphSubject
 from ..source_control import SameOriginHttpsRedirectHandler
 from .gateway import (
@@ -33,11 +34,15 @@ from .gateway import (
 )
 from .source import (
     GitHubSourceError,
+    ReviewComparison,
+    ReviewPolicySource,
     ReviewFilePage,
     ReviewPullSource,
     ReviewSourceBytes,
 )
 from .publication import (
+    CheckRun,
+    CheckRunScan,
     GitHubPublicationAuthorityLost,
     GitHubPublicationError,
     InlineReviewComment,
@@ -337,11 +342,12 @@ class ReviewGitHubGatewayClient:
         start_line: int,
         max_lines: int,
         max_chars: int,
+        purpose: ReviewPurpose = ReviewPurpose.CODE,
     ) -> ReviewFilePage:
         decoded = self._post(
             READ_REVIEW_SOURCE_PATH,
             {
-                "operation": "file",
+                "operation": "documentation_file" if purpose is ReviewPurpose.DOCUMENTATION else "file",
                 "run_id": run_id,
                 "job_id": job_id,
                 "lease_generation": lease_generation,
@@ -355,6 +361,30 @@ class ReviewGitHubGatewayClient:
         )
         try:
             return ReviewFilePage.from_mapping(decoded)
+        except GitHubSourceError as exc:
+            raise GitHubGatewayProtocolError(str(exc)) from exc
+
+    def get_documentation_comparison(
+        self, *, run_id: int, job_id: int, lease_generation: int,
+    ) -> ReviewComparison:
+        decoded = self._post(READ_REVIEW_SOURCE_PATH, {
+            "operation": "documentation_comparison", "run_id": run_id,
+            "job_id": job_id, "lease_generation": lease_generation,
+        })
+        try:
+            return ReviewComparison.from_mapping(decoded)
+        except GitHubSourceError as exc:
+            raise GitHubGatewayProtocolError(str(exc)) from exc
+
+    def get_documentation_policy(
+        self, *, run_id: int, job_id: int, lease_generation: int, side: str,
+    ) -> ReviewPolicySource:
+        decoded = self._post(READ_REVIEW_SOURCE_PATH, {
+            "operation": "documentation_policy", "run_id": run_id,
+            "job_id": job_id, "lease_generation": lease_generation, "side": side,
+        }, max_response_bytes=512 * 1024)
+        try:
+            return ReviewPolicySource.from_mapping(decoded)
         except GitHubSourceError as exc:
             raise GitHubGatewayProtocolError(str(exc)) from exc
 
@@ -603,6 +633,28 @@ class AuthorizedPublicationGateway:
             self._execute("create_issue_comment", {"body": body}), envelope=True
         )
 
+    def list_check_runs(self, repository: str, *, max_pages: int = 3) -> CheckRunScan:
+        self._check_subject(repository)
+        value = self._execute("list_check_runs", {"max_pages": max_pages})
+        if set(value) != {"kind", "check_runs", "complete", "app_id"} or value.get("kind") != "check_runs":
+            raise GitHubPublicationError("github_gateway_invalid_response")
+        raw = value["check_runs"]
+        complete = value["complete"]
+        if not isinstance(raw, list) or type(complete) is not bool:
+            raise GitHubPublicationError("github_gateway_invalid_response")
+        return CheckRunScan(tuple(_check_run(item) for item in cast(list[object], raw)),
+                            complete, _response_positive(value["app_id"]))
+
+    def create_check_run(self, repository: str) -> CheckRun:
+        self._check_subject(repository)
+        return _check_run(self._execute("create_check_run"), envelope=True)
+
+    def update_check_run(self, repository: str, check_run_id: int, *, cancelled: bool = False) -> CheckRun:
+        self._check_subject(repository)
+        return _check_run(self._execute("update_check_run", {
+            "check_run_id": check_run_id, "cancelled": cancelled,
+        }), envelope=True)
+
     def delete_issue_comment(self, repository: str, comment_id: int) -> None:
         self._check_subject(repository)
         value = self._execute("delete_issue_comment", {"comment_id": comment_id})
@@ -706,6 +758,23 @@ class AuthorizedPublicationGateway:
             raise GitHubPublicationError(
                 "publication_subject_mismatch", retryable=False
             )
+
+
+def _check_run(raw: object, *, envelope: bool = False) -> CheckRun:
+    if not isinstance(raw, dict):
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    value = cast(dict[str, object], raw)
+    fields = {"check_run_id", "name", "head_sha", "external_id", "app_id", "status", "conclusion"}
+    if set(value) != fields | ({"kind"} if envelope else set()) or (envelope and value.get("kind") != "check_run"):
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    conclusion = value["conclusion"]
+    if conclusion is not None and not isinstance(conclusion, str):
+        raise GitHubPublicationError("github_gateway_invalid_response")
+    return CheckRun(
+        _response_positive(value["check_run_id"]), _response_text(value["name"]),
+        _response_text(value["head_sha"]), _response_text(value["external_id"], allow_empty=True),
+        _response_positive(value["app_id"]), _response_text(value["status"]), conclusion,
+    )
 
 
 def _provider_operation_name(operation: str) -> str:

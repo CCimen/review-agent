@@ -42,7 +42,9 @@ import type {
   ReviewDetail,
 } from "./api";
 import { APIError, read } from "./api";
+import { ReviewPurposeFilter, selectedReviewPurpose, reviewPurposeLabel } from "./reviewPurpose";
 import { ReviewFindings } from "./reviewFindings";
+import { DocumentationReviewEvidence } from "./documentation";
 import { ReviewUsageSummary } from "./reviewUsage";
 import {
   ReviewProgress,
@@ -133,7 +135,7 @@ function pullRequestColumns(filters: string): TableColumn<PullRequestGroup>[] {
       key: "result",
       header: "Latest matching result",
       width: proportional(1, { minWidth: 200 }),
-      renderCell: (group) => <Result item={group.latest} />,
+      renderCell: (group) => <VStack gap={1}><Text type="supporting">{reviewPurposeLabel(group.latest.purpose)}</Text><Result item={group.latest} /></VStack>,
     },
     {
       key: "started",
@@ -188,7 +190,7 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
               <>
                 Check the review result on GitHub and the operator logs for
                 request #{item.id}. After resolving the cause, request{" "}
-                <Code>/review</Code> on the PR again.
+                <Code>{item.purpose === "documentation" ? "/review docs" : "/review"}</Code> on the PR again.
               </>
             )
           }
@@ -219,7 +221,7 @@ function ReviewOutcome({ item }: { item: HistoryItem }) {
           </VStack>
         </Banner>
       )}
-      {item.coverage.state !== "complete" &&
+      {item.purpose !== "documentation" && item.coverage.state !== "complete" &&
         (item.posted_at !== null ||
           (item.state !== "queued" && item.coverage.registration_complete)) && (
           <Banner
@@ -248,16 +250,20 @@ export function ReviewPage() {
 function ReviewReader({ runId, search }: { runId: string; search: string }) {
   const scope = useScope();
   const [params, setParams] = useSearchParams();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   const navigate = useNavigate();
   const before = params.get("requests_before");
   const cursor = before && /^[1-9]\d*$/.test(before) ? before : null;
+  const detailParams = new URLSearchParams();
+  if (cursor) detailParams.set("before_id", cursor);
+  if (purpose) detailParams.set("purpose", purpose);
   const query = useQuery({
-    queryKey: ["review", runId, cursor, "scoped", scope.key],
+    queryKey: ["review", runId, cursor, ...(purpose ? [purpose] : []), "scoped", scope.key],
     placeholderData: keepPreviousData,
     queryFn: ({ signal }) =>
       read<ReviewDetail>(
         scope.path(
-          `/api/history/${encodeURIComponent(runId)}${cursor ? `?before_id=${cursor}` : ""}`,
+          `/api/history/${encodeURIComponent(runId)}${detailParams.size ? `?${detailParams}` : ""}`,
         ),
         signal,
       ),
@@ -298,7 +304,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                 {item.repository} PR #{item.pr_number}
               </Heading>
               <Text as="p" color="secondary">
-                Request #{item.id} · {time(item.started_at)}
+                {reviewPurposeLabel(item.purpose)} · Request #{item.id} · {time(item.started_at)}
                 {item.is_latest ? " · Latest request" : " · Earlier request"}
               </Text>
               <Freshness query={query} />
@@ -399,7 +405,8 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                 </MetadataList>
               </VStack>
               <ReviewOutcome item={item} />
-              <ReviewFindings runId={item.id} repository={item.repository} />
+              {data.documentation && <DocumentationReviewEvidence result={data.documentation} repository={item.repository} />}
+              <ReviewFindings runId={item.id} repository={item.repository} purpose={item.purpose} />
               {data.markdown !== null ? (
                 <>
                   <VStack gap={3}>
@@ -489,8 +496,9 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                 Review history
               </Heading>
               <Text as="p" color="secondary">
-                All retained requests for this PR.
+                {purpose ? `${purpose === "documentation" ? "Documentation" : "Code"} requests for this PR.` : "All retained requests for this PR."}
               </Text>
+              <ReviewPurposeFilter value={purpose} onChange={(value) => { const next = new URLSearchParams(params); value ? next.set("purpose", value) : next.delete("purpose"); next.delete("requests_before"); setParams(next, { preventScrollReset: true }); }} />
               <Selector
                 label={"Selected request"}
                 options={[
@@ -501,7 +509,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                           "#" +
                           String(item.id) +
                           " · " +
-                          time(item.started_at) +
+                          reviewPurposeLabel(item.purpose) + " · " + time(item.started_at) +
                           " · " +
                           " " +
                           reviewStateLabel(item),
@@ -513,7 +521,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                       "#" +
                       String(request.id) +
                       " · " +
-                      time(request.started_at) +
+                      reviewPurposeLabel(request.purpose) + " · " + time(request.started_at) +
                       " · " +
                       " " +
                       reviewStateLabel(request),
@@ -547,7 +555,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
                               request.id === item.id ? "page" : undefined
                             }
                           >
-                            Request #{request.id}
+                            {reviewPurposeLabel(request.purpose)} · Request #{request.id}
                           </Link>
                           <Text color="secondary" type="supporting">
                             <time dateTime={request.started_at}>
@@ -674,6 +682,7 @@ function RunDetails({ item }: { item: HistoryItem }) {
 export function History() {
   const scope = useScope();
   const { params, days, update } = useFilters();
+  const purpose = selectedReviewPurpose(params.get("purpose"));
   const repository = params.get("repository") ?? "";
   const status = params.get("status") ?? "all";
   const { draft: prDraft, setDraft: setPrDraft } = useLiveSearch(
@@ -681,7 +690,7 @@ export function History() {
     (value) => update({ pr_number: value }, { replace: true }),
   );
   const filtered =
-    status !== "all" ||
+    !!purpose || status !== "all" ||
     params.has("repository") ||
     params.has("pr_number") ||
     params.has("before_id");
@@ -690,6 +699,7 @@ export function History() {
     status,
     limit: "50",
   });
+  if (purpose) queryParams.set("purpose", purpose);
   for (const key of ["repository", "pr_number", "before_id"]) {
     const value = params.get(key);
     if (value) queryParams.set(key, value);
@@ -721,6 +731,7 @@ export function History() {
       </HStack>
       <ActivityTabs />
       <HStack gap={3} wrap="wrap" vAlign="end">
+        <ReviewPurposeFilter value={purpose} onChange={(value) => update({ purpose: value })} />
         <Selector
           label={"Review state"}
           options={[
@@ -751,7 +762,7 @@ export function History() {
           <Button
             label={"Reset filters"}
             variant="ghost"
-            onClick={() => update({ status: "", pr_number: "", days: "" })}
+            onClick={() => update({ status: "", pr_number: "", days: "", purpose: "" })}
           />
         ) : null}
       </HStack>

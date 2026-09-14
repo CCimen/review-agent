@@ -7,6 +7,7 @@ import os
 import sys
 import unittest
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -17,6 +18,7 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 import review_agent_tools  # noqa: E402
 from review_agent_tools import (  # noqa: E402
     capacity,
+    documentation_tools,
     review_contract,
     review_code_graph_tool,
     review_delivery_tool,
@@ -25,15 +27,17 @@ from review_agent_tools import (  # noqa: E402
     repository_guidance_context,
     review_run_application,
     review_source_tools,
+    review_source_initialization,
     review_tool_runtime,
     schemas,
 )
 from review_agent_tools.domain.repository_decisions import RepositoryDecision  # noqa: E402
+from review_agent_tools.domain.documentation_review import PreviousDocumentationFinding  # noqa: E402
 from review_agent_tools.domain.review import (  # noqa: E402
     CoverageState,
     resolve_review_subject,
 )
-from review_agent_tools.github.source import ReviewFilePage  # noqa: E402
+from review_agent_tools.github.source import ReviewFilePage, ReviewSourceBytes  # noqa: E402
 from review_agent_tools.postgres.coverage import (  # noqa: E402
     CoverageSummary,
     FileIndexSummary,
@@ -84,6 +88,34 @@ class ToolContractTests(unittest.TestCase):
     repository = "example-org/example-repository"
     session_id = "review-agent-job-7-lease-3"
 
+    def test_documentation_previous_findings_are_paged_as_untrusted_context(self) -> None:
+        previous = tuple(PreviousDocumentationFinding(
+            local_reference=f"F{index}", fingerprint=f"{index:064x}",
+            occurrence_id=index, source_run_id=40, document_path="docs/api.md",
+            title="Update the request example", evidence="The old example omits a required field.",
+            smallest_fix="Include the required field.", rule_id="documentation.accuracy",
+            path="docs/api.md", symbol="", anchor="Request example",
+        ) for index in range(1, 13))
+        runtime = self._runtime()
+        with (
+            patch.object(documentation_tools, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
+            patch.object(documentation_tools, "_result", return_value=SimpleNamespace(scope=object())),
+            patch.object(documentation_tools, "postgres_runtime", return_value=runtime),
+            patch.object(documentation_tools.documentation_reviews, "previous_findings", return_value=previous),
+        ):
+            result = json.loads(documentation_tools.docs_scope.__wrapped__({
+                "run_id": 41, "section": "previous_findings", "page": 2, "limit": 5,
+            }))
+            self.assertEqual(result["total"], 12)
+            self.assertEqual(result["next_page"], 3)
+            self.assertEqual([item["local_reference"] for item in result["items_untrusted"]],
+                             ["F6", "F7", "F8", "F9", "F10"])
+            self.assertEqual(result["items_untrusted"][0]["anchor"], "Request example")
+            rejected = json.loads(documentation_tools.docs_scope.__wrapped__({
+                "run_id": 41, "section": "previous_findings", "limit": 11,
+            }))
+            self.assertIn("limit must be between 1 and 10", rejected["error"])
+
     @staticmethod
     def _runtime() -> Mock:
         runtime = Mock()
@@ -113,6 +145,82 @@ class ToolContractTests(unittest.TestCase):
                 resolved_config=review_contract.resolved_config(TEST_REVIEW_CONTRACT),
             ).resolved_config,
         )
+
+    def test_shared_source_initialization_collects_inventory_without_graph_work(self) -> None:
+        pull = {
+            "state": "open",
+            "base": {"sha": "a" * 40},
+            "head": {"sha": "b" * 40},
+            "changed_files": 2,
+        }
+        client = Mock()
+        client.get_review_pull.return_value = SimpleNamespace(
+            repository=self.repository, pr_number=1, payload=pull
+        )
+        client.get_changed_files_page.return_value = ReviewSourceBytes(
+            state="ok", truncated=False, headers={},
+            body=json.dumps([{
+                "filename": "src/app.py", "status": "modified", "sha": "c" * 40,
+                "additions": 1, "deletions": 1, "changes": 2,
+                "patch": "@@ -1 +1 @@\n-old\n+new",
+            }]).encode(),
+        )
+        source = review_tool_runtime.GatewaySourceSession(
+            run_id=41,
+            lease=review_tool_runtime.postgres_jobs.WorkerLeaseSession(7, 3),
+            client=client,
+        )
+        state = self._live_state()
+        incomplete = replace(
+            state.file_index,
+            changed_files_reported=2,
+            registration_complete=False,
+        )
+        runtime = self._runtime()
+        with (
+            patch.object(review_run_application, "load_live_run_state", return_value=replace(
+                state, phase="accepted", file_index=incomplete,
+            )),
+            patch.object(review_run_application, "load_live_snapshot", return_value=SimpleNamespace(pull=pull)) as snapshot,
+            patch.object(review_run_application, "advance_live_phase") as advance,
+            patch.object(review_run_application, "register_live_changed_files", return_value=incomplete) as register,
+            patch.object(review_source_tools, "prepare_graph") as graph,
+        ):
+            result = review_source_initialization.initialize_review(
+                source, runtime, TEST_REVIEW_CONTRACT
+            )
+
+        self.assertEqual(result.phase, "collecting_diff")
+        self.assertEqual(result.changed_files_reported, 2)
+        self.assertFalse(result.file_index.registration_complete)
+        self.assertEqual(result.subject.run_id, 41)
+        self.assertEqual([call.kwargs["phase"] for call in snapshot.call_args_list], ["accepted", "collecting_diff"])
+        self.assertTrue(all(call.args[0] is runtime for call in snapshot.call_args_list))
+        advance.assert_called_once_with(runtime, result.subject, "fetching_pr")
+        self.assertEqual(register.call_args.kwargs["files"][0]["path"], "src/app.py")
+        self.assertEqual(register.call_args.kwargs["changed_files_reported"], 2)
+        graph.assert_not_called()
+
+    def test_shared_initialization_rejects_contract_drift_before_collecting_sources(self) -> None:
+        client = Mock()
+        client.get_review_pull.return_value = SimpleNamespace(
+            repository=self.repository, pr_number=1, payload={"state": "open"}
+        )
+        source = review_tool_runtime.GatewaySourceSession(
+            run_id=41,
+            lease=review_tool_runtime.postgres_jobs.WorkerLeaseSession(7, 3),
+            client=client,
+        )
+        with (
+            patch.object(review_run_application, "load_live_run_state", return_value=self._live_state()),
+            patch.object(review_run_application, "advance_live_phase") as advance,
+            self.assertRaises(review_contract.ReviewContractError),
+        ):
+            review_source_initialization.initialize_review(
+                source, self._runtime(), replace(TEST_REVIEW_CONTRACT, model="different")
+            )
+        advance.assert_not_called()
+        client.get_changed_files_page.assert_not_called()
 
     def test_source_schemas_accept_only_run_scoped_authority(self) -> None:
         source_schemas = (
@@ -181,9 +289,9 @@ class ToolContractTests(unittest.TestCase):
                 return_value=self._live_state(),
             ),
             patch.object(
-                review_source_tools,
-                "review_run_snapshot",
-                return_value=pull,
+                review_run_application,
+                "load_live_snapshot",
+                return_value=SimpleNamespace(pull=pull),
             ),
             patch.object(
                 review_run_application,
@@ -328,9 +436,9 @@ class ToolContractTests(unittest.TestCase):
                 return_value=self._live_state(),
             ),
             patch.object(
-                review_source_tools,
-                "review_run_snapshot",
-                return_value=pull,
+                review_run_application,
+                "load_live_snapshot",
+                return_value=SimpleNamespace(pull=pull),
             ),
             patch.object(review_run_application, "_require_live_scope"),
             patch.object(
@@ -473,7 +581,7 @@ class ToolContractTests(unittest.TestCase):
                 "load_live_run_state",
                 return_value=self._live_state(),
             ),
-            patch.object(review_source_tools, "review_run_snapshot", return_value=pull),
+            patch.object(review_run_application, "load_live_snapshot", return_value=SimpleNamespace(pull=pull)),
             patch.object(
                 review_run_application,
                 "load_or_create_live_repository_guidance",

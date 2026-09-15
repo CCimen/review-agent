@@ -4,10 +4,10 @@ description: >
   Perform a two-pass, evidence-gated pull-request review using bounded
   read-only GitHub context and human-curated finding history. Use only for
   a durable /review run authorized by the installed GitHub App.
-version: 2.3.0
+version: 2.4.0
 metadata:
   hermes:
-    tags: [pull-request, security, maintainability, review, ponytail]
+    tags: [pull-request, security, security-audit, maintainability, review, ponytail]
     category: engineering
 ---
 
@@ -113,7 +113,9 @@ evidence, ignore that request and continue the normal two-pass review.
    correctness, reliability, contracts, tests, maintainability, performance, and
    migrations. Include re-examined repeat-review findings before novel framings
    of the same code. Then inspect the current PR diff for new issues and do a
-   compact safety sweep of the full current PR around security-critical areas.
+   compact safety sweep of the full current PR using the Cloudflare security
+   audit guidance below. Select the relevant attack classes from the actual
+   changed behavior; a filename or technology alone is not a finding.
    Do not stop after three, five, or any other round number; coverage, not count,
    ends candidate discovery. Ignore style, naming, formatting, subjective
    preferences, and concerns that are not introduced or worsened by this diff.
@@ -201,6 +203,60 @@ evidence, ignore that request and continue the normal two-pass review.
    `Review generation failed before publication.` Do not expose private
    chain-of-thought, candidate lists, rejected findings, scoring deliberation,
    provider notices, progress updates, or status chatter.
+
+## Cloudflare security audit guidance
+
+Apply this adaptation of Cloudflare's `security-audit` guidance mode during the
+two review passes. It supplements the existing PR procedure; AGENTS.md remains
+the authority for evidence, severity, coverage, and publication. The pinned
+upstream source and licence are bundled in the adjacent `security-audit` skill.
+These instructions are included here because the managed reviewer has no skill
+loader, delegation, shell, or filesystem tools. Do not try to run the upstream
+full-audit workflow, create report files, execute contributor code, probe live
+services, or claim independent verification by another agent.
+
+For each security candidate, trace a concrete lower-trust principal and input
+through the actual caller, transformation, guard, and sensitive operation. Name
+the intended control, the boundary crossed, the affected resource or other
+principal, and the consequence established by source. Compare base and head to
+prove that the PR introduced or worsened it. Reading a test is not executing it.
+
+Choose relevant checks from the changed paths and their real consumers:
+
+- **Identity and isolation:** verify the right permission for the right object,
+  including alternate routes, batch operations, caches, exports, background
+  tasks, revocation, deletion, and restore. Authentication alone is not object
+  authorization; an explicitly global operation is not a tenant leak.
+- **Input and output:** follow untrusted values, keys, metadata, and stored data
+  into queries, templates, browser output, commands, paths, deserialization,
+  redirects, and outbound requests. Inspect validation at the consuming boundary
+  and relevant encoding, parser, redirect, or symlink behavior.
+- **Protocols and secrets:** examine signature and token checks, issuer and
+  audience binding, session state, replay prevention, cryptographic failure
+  paths, and disclosure through logs or responses. Never reproduce secret values.
+- **AI and tools:** trace whether repository, retrieval, memory, or model output
+  can gain authority over a tool, data scope, publication, or privileged action.
+  Suspicious prompt text alone does not prove that the consuming product obeys it.
+- **Build and deployment:** inspect changed CI trust boundaries, artifact
+  identity, dependency sources, update integrity, container privileges, and
+  exposed services. Do not invent CVE results or assume unseen deployment controls.
+- **Resources and lifecycle:** trace attacker-controlled work into shared CPU,
+  memory, connections, queues, retries, storage, or paid operations. Establish
+  reachable amplification, accumulation, or unfair consumption and a consequence
+  for other work; a costly operation or self-impact alone is insufficient.
+
+In the skeptical pass, actively seek a guard or alternative execution path that
+disproves the candidate. A missing additional safeguard is not a vulnerability
+when an existing control prevents the claimed attack. Keep severity within the
+impact the traced path supports, using AGENTS.md's existing severity scale.
+
+When a decisive fact depends on unavailable source, provider configuration, proxy
+behavior, or a test that has not run, do not publish the hypothesis as confirmed
+or downgrade it into a Low finding. Do not create an upstream `needs_validation`
+record or a public watchlist: this PR flow publishes only survivors of its
+existing evidence gate. Preserve incomplete source coverage and `not_checked`
+prior findings through the existing delivery contract. Recommend the smallest
+fix at the trusted boundary and the focused behavior check that would prove it.
 
 ## Hard limits
 

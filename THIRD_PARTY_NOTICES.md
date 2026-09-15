@@ -15,6 +15,14 @@ The `bootstrap/profiles/default-standard/skills/ponytail` directory contains the
 Dietrich Gebert, vendored from release v4.7.0 under the MIT License. See the
 adjacent `LICENSE` and `SOURCE.md` files.
 
+## Cloudflare security-audit
+
+The `bootstrap/profiles/default-standard/skills/security-audit` directory contains
+Cloudflare's security-audit skill at commit
+`c1c8a8c1471069fb0e188eeaff69b8e8db6564a8`, under the MIT License. The PR review
+procedure adapts its source-review guidance. See the adjacent `LICENSE` and
+`SOURCE.md` for attribution and integration boundaries.
+
 ## Code Review Graph
 
 The optional graph runtime packages Code Review Graph by Tirth Kanani, copyright

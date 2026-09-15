@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.4.0
+Runtime release selected by `llms.txt`: v0.4.1
 
 ---
 
@@ -1515,7 +1515,7 @@ If one of these is unknown, report the setup as incomplete instead of guessing.
 Title: How reviews work
 Canonical URL: https://ccimen.github.io/review-agent/docs/how-reviews-work
 Status: current
-Last verified: 2026-09-06
+Last verified: 2026-09-15
 
 # How reviews work
 
@@ -1560,6 +1560,21 @@ maintainability problems introduced or worsened by the pull request. The second
 pass tries to disprove each candidate with surrounding code, tests, invariants,
 and changed behavior. Only independent findings that survive the evidence and
 severity gates are recorded.
+
+Every code review uses security guidance adapted from
+[Cloudflare's security-audit skill](https://github.com/cloudflare/security-audit-skill).
+The reviewer traces untrusted input across actual trust boundaries, checks
+relevant attack classes, and looks for existing controls that disprove a
+suspected vulnerability. Missing hardening alone is not a finding, and unknown
+deployment behavior is not treated as an established exploit.
+
+This is source-based PR review using the existing two passes in one model turn.
+It does not run Cloudflare's full multi-agent audit, execute tests or exploits,
+probe deployments, or produce standalone audit reports. Documentation reviews
+keep their separate procedure. The guidance ships in the managed profile and
+requires no new command, repository configuration, App permission, or environment
+variable. Existing installations receive it when the release upgrade reinstalls
+the profile and restarts the worker.
 
 Coverage remains explicit. Changed paths and source ranges are pageable, and an
 oversized path diff returns an exact continuation position. If GitHub's provider
@@ -1854,7 +1869,7 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.4.0 \
+  ghcr.io/ccimen/review-agent:v0.4.1 \
   repository-context validate /repo
 ```
 

@@ -18,6 +18,10 @@ For each request, the service pins the exact base and head commits, reviews the
 snapshot in two passes through bounded read tools, and publishes
 evidence-backed findings through deterministic code.
 
+Code reviews include source-based security guidance adapted from Cloudflare's
+security-audit skill. See [how reviews work](docs/HOW_REVIEWS_WORK.md) for the
+checks and the distinction from a full security audit.
+
 ![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](website/static/img/review-lifecycle.webp)
 
 ## Quick start

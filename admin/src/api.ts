@@ -110,3 +110,14 @@ export async function read<T>(
   if (!response.ok) throw new APIError(response.status);
   return response.json() as Promise<T>;
 }
+
+export async function readCurrentAccount(signal: AbortSignal): Promise<Account | null> {
+  try {
+    return await read<Account>("/api/me", signal);
+  } catch (error) {
+    // Anonymous is a settled session state. Keeping it as data preserves the
+    // sign-in form while background account checks are in flight.
+    if (error instanceof APIError && error.status === 401) return null;
+    throw error;
+  }
+}

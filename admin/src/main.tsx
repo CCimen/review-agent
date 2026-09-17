@@ -24,13 +24,11 @@ const client = new QueryClient({
       if (!(error instanceof APIError) || ![401, 403].includes(error.status))
         return;
       query.setState({ data: undefined });
-      // Rechecking the account is only meaningful when we believed we had one.
-      // On the sign-in screen "me" holds no data, and invalidating it there
-      // re-rendered the page, which refetched these endpoints, which
-      // invalidated it again: a request loop with no delay between passes.
+      // Recheck only an authenticated account. Anonymous capability errors
+      // must not trigger another account check.
       if (
         query.queryKey[0] !== "me" &&
-        client.getQueryData(["me"]) !== undefined
+        client.getQueryData(["me"]) != null
       )
         void client.invalidateQueries({ queryKey: ["me"] });
     },

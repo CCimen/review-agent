@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup, renderToReadableStream } from "react-dom/server";
 import { createServer } from "vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { readFile } from "node:fs/promises";
 
@@ -984,6 +984,44 @@ test("activity keeps request metadata and does not report unpublished findings",
   assert.match(html, /Recovered: a later review published/);
   assert.match(html, /12,345 tokens/);
   assert.match(html, /Older requests/);
+});
+
+test("signed-out account remains stable during refetch and can become signed in", async (t) => {
+  const { readCurrentAccount } = await server.ssrLoadModule("/src/api.ts");
+  let reply = () => Promise.resolve(new Response(null, { status: 401 }));
+  t.mock.method(globalThis, "fetch", (...args) => reply(...args));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const observer = new QueryObserver(client, {
+    queryKey: ["me"], queryFn: ({ signal }) => readCurrentAccount(signal),
+  });
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    await observer.refetch();
+    assert.equal(observer.getCurrentResult().data, null);
+    let finish;
+    reply = () => new Promise((resolve) => { finish = resolve; });
+    const pending = observer.refetch();
+    assert.equal(observer.getCurrentResult().isFetching, true);
+    assert.equal(observer.getCurrentResult().data, null);
+    assert.equal(observer.getCurrentResult().isPending, false);
+    finish(new Response(null, { status: 401 }));
+    await pending;
+    assert.equal(observer.getCurrentResult().data, null);
+    reply = () => Promise.resolve(Response.json(account()));
+    await observer.refetch();
+    assert.deepEqual(observer.getCurrentResult().data, account());
+    reply = () => Promise.resolve(new Response(null, { status: 401 }));
+    await observer.refetch();
+    assert.equal(observer.getCurrentResult().data, null);
+    for (const status of [403, 500]) {
+      reply = () => Promise.resolve(new Response(null, { status }));
+      await observer.refetch();
+      assert.equal(observer.getCurrentResult().error.status, status);
+    }
+  } finally {
+    unsubscribe();
+    client.clear();
+  }
 });
 
 test("login retains native validation and password manager attributes", async () => {

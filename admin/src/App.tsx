@@ -20,7 +20,7 @@ import type { InputHTMLAttributes } from "react";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { Account, RepositoryPage } from "./api";
-import { APIError, read, write } from "./api";
+import { read, readCurrentAccount, write } from "./api";
 import { AuditLog } from "./audit";
 import {
   ScopedLink as Link,
@@ -451,10 +451,10 @@ function Application({
   const { pathname, search: routeSearch } = useLocation();
   const me = useQuery({
     queryKey: ["me"],
-    queryFn: ({ signal }) => read<Account>("/api/me", signal),
+    queryFn: ({ signal }) => readCurrentAccount(signal),
     retry: false,
   });
-  const signedOut = me.error instanceof APIError && me.error.status === 401;
+  const signedOut = me.data === null;
   useEffect(() => {
     if (signedOut)
       client.removeQueries({

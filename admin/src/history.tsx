@@ -356,6 +356,7 @@ function ReviewReader({ runId, search }: { runId: string; search: string }) {
               <VStack
                 gap={4}
                 as="section"
+                className="console-shrink"
                 aria-label={`Review request ${item.id}`}
               >
                 <VStack gap={4}>

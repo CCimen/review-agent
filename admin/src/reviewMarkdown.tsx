@@ -90,6 +90,7 @@ export const ReviewMarkdown = memo(function ReviewMarkdown({
                 code={String(props?.children ?? "")}
                 language={props?.className?.replace(/^language-/, "")}
                 width="100%"
+                isWrapped
               />
             );
           },

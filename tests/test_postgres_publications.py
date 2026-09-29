@@ -2715,7 +2715,8 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         suppressed = build_documentation_publication(suppressed_context, result, max_comment_bytes=60_000)
         self.assertEqual(suppressed.plan.findings[0].outcome, PublicationFindingOutcome.SUPPRESSED)
         prior = previous[0]
-        receipt = DocumentationAssessment((), (), (PreviousDocumentationAssessment(prior.local_reference, prior.fingerprint, prior.occurrence_id, "resolved", "The corrected guide matches the implementation.", ()),))
+        rationale = "The corrected guide matches the implementation. " * 8 + "Final rationale sentence survives."
+        receipt = DocumentationAssessment((), (), (PreviousDocumentationAssessment(prior.local_reference, prior.fingerprint, prior.occurrence_id, "resolved", rationale, ()),))
         resolved = build_documentation_publication(context, replace(result, assessment=receipt), max_comment_bytes=60_000)
         self.assertEqual(resolved.resolved_count, 1)
         self.assertEqual(resolved.plan.findings[0].outcome, PublicationFindingOutcome.RESOLVED)
@@ -2727,6 +2728,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         # A clean follow-up still closes the earlier finding in the conversation.
         self.assertEqual(len(github.comments), 1)
         self.assertIn(f"{prior.local_reference} · Resolved", github.comments[0].body)
+        self.assertIn("Final rationale sentence survives.", github.comments[0].body)
         third, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, request_key="docs-after-resolution", findings=())
         with self.runtime.transaction() as connection:
             self.assertEqual(documentation_reviews.previous_findings(connection, run_id=third), ())
@@ -2756,34 +2758,46 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(result.status, "posted")
         self.assertEqual(github.comments, [])
 
-    def test_documentation_findings_are_posted_in_conversation_and_check(self) -> None:
+    def documentation_findings_result(self, *, evidence: str = "Concrete evidence.",
+                                      reasons: tuple[str, ...] = ("Documentation impact remains unresolved for src/new.py.",)):
         from review_agent_tools.documentation_scope import ChangedPath
         from review_agent_tools.domain.documentation_review import DocumentationOutcome
         from review_agent_tools.postgres import documentation_reviews
-        from review_agent_tools.review_publication_planner import build_documentation_publication
         from tests.test_postgres_documentation_reviews import scope
-        run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION)
-        proposed = replace(scope(), proposal_status="valid", unmapped_paths=("src/new.py",),
-            changed_files=(*scope().changed_files, ChangedPath("A", "src/new.py")))
+        run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION,
+            findings=(self.finding(evidence=evidence, path="docs/api_v2.md"),))
+        proposed = replace(scope(), proposal_status="valid",
+            unmapped_paths=("src/new.py", ".review-agent/documentation.toml"),
+            changed_files=(*scope().changed_files, ChangedPath("A", "src/new.py"),
+                           ChangedPath("M", ".review-agent/documentation.toml")))
         with self.runtime.transaction() as connection:
             documentation_reviews.initialize(connection, run_id=run_id, comparison_sha="c" * 40)
             documentation_reviews.freeze_scope(connection, run_id=run_id, scope=proposed)
             result = documentation_reviews.finalize(connection, run_id=run_id,
                 outcome=DocumentationOutcome.INCOMPLETE, semantic_inference_used=True,
-                incomplete_reasons=("Documentation impact remains unresolved for src/new.py.",))
+                incomplete_reasons=reasons)
             context = publications.preparation_context(connection, run_id=run_id)
-        planned = build_documentation_publication(
-            context, replace(result, outcome=DocumentationOutcome.FINDINGS), max_comment_bytes=60_000)
+        return run_id, context, replace(result, outcome=DocumentationOutcome.FINDINGS)
+
+    def test_documentation_findings_are_posted_in_conversation_and_check(self) -> None:
+        from review_agent_tools.review_publication_planner import build_documentation_publication
+        run_id, context, result = self.documentation_findings_result(
+            evidence="Ping @example-org/security ![pixel](https://tracker.example/p.png)")
+        planned = build_documentation_publication(context, result, max_comment_bytes=60_000)
 
         comment, check = planned.plan.parts
         self.assertEqual(comment.part_type, PublicationPartType.SUMMARY)
         assert isinstance(comment.delivery, IssueCommentDelivery)
-        self.assertTrue(comment.delivery.body.startswith(
-            "## Documentation review\n\n**Documentation changes recommended**"))
-        self.assertIn(context.current[0].local_reference, comment.delivery.body)
+        body = comment.delivery.body
+        self.assertTrue(body.startswith("## Documentation review\n\n**Documentation changes recommended**"))
+        self.assertIn(context.current[0].local_reference, body)
+        self.assertIn("`docs/api_v2.md:7`", body)
+        # Model-written text cannot mention teams or embed remote images.
+        self.assertNotIn("@example-org", body)
+        self.assertNotIn("![pixel](https://", body)
         self.assertIn("This review used the accepted rules from the target branch. "
-            "The proposed rules apply to reviews after this pull request merges.", comment.delivery.body)
-        self.assertIn("map unmapped paths to their documents", comment.delivery.body)
+            "The proposed rules apply to reviews after this pull request merges.", body)
+        self.assertIn("map unmapped paths to their documents", body)
         assert isinstance(check.delivery, CheckRunDelivery)
         self.assertEqual(check.delivery.report_part_numbers, (1,))
         self.assertNotIn("## Documentation review", check.delivery.summary)
@@ -2798,6 +2812,28 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime, publication_id=int(stored.id), github=github, max_comment_bytes=60_000)
         self.assertEqual(posted.status, "posted")
         self.assertEqual(len(github.comments), 1)
+
+    def test_documentation_findings_comment_survives_long_limitations(self) -> None:
+        from review_agent_tools.review_publication_planner import build_documentation_publication
+        reasons = tuple(f"Limitation {index}: " + "unresolved evidence " * 24 for index in range(121))
+        _, context, result = self.documentation_findings_result(reasons=reasons)
+        planned = build_documentation_publication(context, result, max_comment_bytes=60_000)
+        comments = [part for part in planned.plan.parts if isinstance(part.delivery, IssueCommentDelivery)]
+        self.assertGreaterEqual(len(comments), 2)
+        delivered = "\n".join(part.delivery.body for part in comments)
+        self.assertIn(context.current[0].local_reference, delivered)
+        self.assertIn("Limitation 120:", delivered)
+
+    def test_documentation_policy_notes_follow_the_target_policy_state(self) -> None:
+        from review_agent_tools.review_publication_planner import build_documentation_publication
+        _, context, result = self.documentation_findings_result()
+        assert result.scope is not None
+        invalid_base = replace(result, scope=replace(result.scope, status="invalid_configuration",
+            active_policy=False, unmapped_paths=(".review-agent/documentation.toml",)))
+        markdown = build_documentation_publication(context, invalid_base, max_comment_bytes=60_000).plan.rendered_markdown
+        self.assertIn("This review used no rules, because the target branch's file is invalid.", markdown)
+        # The policy file cannot be mapped or excluded, so no mapping advice is given for it.
+        self.assertNotIn("map unmapped paths", markdown)
 
     def test_documentation_report_partitions_without_dropping_blocks(self) -> None:
         from review_agent_tools.domain.documentation_review import DocumentationOutcome

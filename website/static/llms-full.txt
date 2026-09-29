@@ -8,7 +8,7 @@ Runtime release selected by `llms.txt`: v0.4.2
 Title: Repository overview
 Canonical URL: https://ccimen.github.io/review-agent/docs/overview
 Status: current
-Last verified: 2026-09-02
+Last verified: 2026-09-29
 
 # Review Agent
 
@@ -25,10 +25,18 @@ review state, human feedback, deterministic publication, and operator
 controls. A deployment profile owns shared identity and review policy;
 repository-owned guidance can add local context without changing the engine.
 
+If your organization already runs Review Agent, developers need no setup:
+comment `/review` on a pull request. The
+[FAQ](./FAQ.md#my-organization-already-runs-review-agent-what-does-my-team-need-to-do)
+lists what a team can add.
+
 ## Start here
 
 | You want to | Read |
 | --- | --- |
+| Use it in your team's repositories | [FAQ](./FAQ.md#my-organization-already-runs-review-agent-what-does-my-team-need-to-do) |
+| Add team instructions, architecture context, or ADRs | [Repository context](./REPOSITORY_CONTEXT.md) |
+| Keep documentation aligned with pull requests | [Documentation review](./DOCUMENTATION_REVIEW.md) |
 | Run your first review | [Getting started](./GETTING_STARTED.md) |
 | Deploy the service | [Compose, Dokploy, Coolify, Portainer, or OpenShift](./DEPLOYMENT.md) |
 | Understand the lifecycle | [How reviews work](./HOW_REVIEWS_WORK.md) |
@@ -48,6 +56,9 @@ exact comment shape a pull request receives.
   ceiling rejects the whole record instead of silently dropping findings.
 - Reports incomplete coverage instead of implying a clean review.
 - Re-checks unresolved findings from earlier rounds on each new review.
+- Checks mapped documentation for inaccuracies a pull request introduces
+  through `/review docs` or a team's automatic mode, reported as an advisory
+  GitHub check.
 - Offers small, independently safe patches through GitHub's native suggestion
   UI after exact range and current-content checks; coordinated changes go into
   a copyable coding-agent brief instead.
@@ -1767,7 +1778,7 @@ and repository-name conditionals.
 Title: Configure reviews in a repository
 Canonical URL: https://ccimen.github.io/review-agent/docs/repository-context
 Status: current
-Last verified: 2026-09-14
+Last verified: 2026-09-29
 
 # Configure reviews in a repository
 
@@ -1953,6 +1964,52 @@ Decisions are separate from general context. Use an ADR when changing one
 accepted invariant needs explicit downstream checks and evidence. Use a context
 file when the information is a reusable platform fact or review aid.
 
+## Get architecture-aware reviews
+
+Every code review already checks whether the pull request introduces or worsens
+an architecture problem in the changed code: a rule implemented outside its
+owner, duplicated policy, hidden coupling, a misleading abstraction, or
+complexity that creates a concrete defect or change cost. Without repository
+context, the reviewer infers the intended structure from the diff and the files
+it reads. Two files make that intent explicit.
+
+First, describe the structure in a context file and list it in `config.toml`:
+
+```md title=".review-agent/context/architecture.md"
+# Architecture
+
+## Owners
+- `src/billing/` owns invoices and payment state. Other modules call
+  `billing.service`; they never write billing tables directly.
+- `src/api/` validates requests and calls services. It holds no business rules.
+
+## Dependency direction
+- `api` -> `services` -> `repositories`. Repositories never import services.
+- `src/common/` imports nothing from feature modules.
+
+## Cross-cutting contracts
+- Every multi-step write runs inside the unit of work in `src/db/uow.py`.
+- Background jobs receive the tenant ID explicitly and never read request state.
+```
+
+Second, record each invariant that must not change without a decision as an
+accepted ADR, with `applies_to` covering the paths it protects. A pull request
+that breaks it receives a `design.adr-conflict` finding when the reviewer traces
+a real consequence in the changed code. The
+[repository decision contract](./FEEDBACK_AND_DECISIONS.md#repository-decision-contract)
+shows the format.
+
+Keep the file factual and short: owners, allowed dependencies, boundaries, and
+the checks a change must preserve. The reviewer treats it as evidence and still
+reports a problem only when it can trace a concrete consequence.
+
+Code review does not assess the architecture of the whole repository, report
+existing structure that a pull request did not change, or propose speculative
+redesigns. Hold open design discussions in an interactive coding-agent session
+instead. Point the repository's `AGENTS.md` or `CLAUDE.md` at the same
+architecture file so local agents and the pull-request review share one
+description.
+
 ## Map maintained documentation
 
 Use `.review-agent/documentation.toml` to declare which exact documents explain
@@ -2025,6 +2082,20 @@ Use this preview before requesting a [live documentation review](DOCUMENTATION_R
 The live workflow uses the same relationship rules, with team/repository operating
 modes, exact GitHub source reads, and an advisory check on the reviewed commit.
 
+## Check the package in CI
+
+Copy the [example workflow](https://github.com/CCimen/review-agent/blob/main/examples/workflows/review-agent-context.yml)
+to `.github/workflows/` in a repository that keeps a `.review-agent/` package.
+On every pull request it validates the package and adds the documentation scope
+preview to the job summary. Both commands run in the release image with no
+network, secrets, model, or App access. An invalid package fails the job.
+
+The workflow has no path filter, so every pull request reaches a result. It can
+serve as a required check in repositories without a merge queue; it does not
+handle `merge_group` events. The container runs as the runner user because Git
+refuses to read a checkout owned by another user. Keep the image tag on the release your
+organization runs.
+
 ## Know when changes become active
 
 Review Agent reads the package from the pull request's exact **base commit** and
@@ -2064,7 +2135,7 @@ contract.
 Title: Keep documentation aligned with pull requests
 Canonical URL: https://ccimen.github.io/review-agent/docs/documentation-review
 Status: current
-Last verified: 2026-09-14
+Last verified: 2026-09-29
 
 # Keep documentation aligned with pull requests
 
@@ -2223,11 +2294,14 @@ still govern that PR's review.
 
 ## Use deterministic checks in CI
 
-Run the existing local validator in CI when `.review-agent/` or its referenced
-files change. Use `repository-context docs-scope --base <commit> --head <commit>`
-to inspect scope from committed revisions without a model or GitHub credentials.
-The [configuration reference](REPOSITORY_CONTEXT.md#preview-documentation-scope-from-committed-revisions)
-explains this receipt and the merge-base comparison.
+Copy the [example workflow](https://github.com/CCimen/review-agent/blob/main/examples/workflows/review-agent-context.yml)
+into the repository. On every pull request it validates `.review-agent/` offline
+and adds the `repository-context docs-scope` preview to the job summary: the
+selected documents and the number of unmapped changed paths. It needs no model
+or GitHub credentials, and an invalid configuration fails the job.
+[Check the package in CI](REPOSITORY_CONTEXT.md#check-the-package-in-ci) explains
+the workflow, and the [configuration reference](REPOSITORY_CONTEXT.md#preview-documentation-scope-from-committed-revisions)
+explains the receipt and the merge-base comparison.
 
 Keep documentation builds, link checks, generated API checks, tests, and type
 checks in their existing CI owners. Documentation review adds semantic feedback;
@@ -3490,12 +3564,30 @@ separately and load only when the API reference is opened.
 Title: Frequently asked questions
 Canonical URL: https://ccimen.github.io/review-agent/docs/faq
 Status: current
-Last verified: 2026-09-02
+Last verified: 2026-09-29
 
 # Frequently asked questions
 
 > **Current** — Answers describe the reviewer available now unless they
 > explicitly say planned or deferred.
+
+## My organization already runs Review Agent. What does my team need to do?
+
+Nothing to install or deploy. Comment `/review` on a pull request in a
+repository covered by the organization's GitHub App installation; you need
+write or admin permission on that repository. If reviews are not enabled for the
+repository yet, a team maintainer can request it from the team's
+**Repositories** tab in the [admin console](./ADMIN_PANEL.md). Add an optional
+[`.review-agent/` package](./REPOSITORY_CONTEXT.md) for team instructions,
+architecture context, accepted ADRs, and documentation mappings.
+
+## Does it review automatically when a pull request opens?
+
+Code review starts only when a collaborator with write or admin permission
+comments `/review`; comments from bots, including GitHub Actions, are ignored.
+Push fixes and comment `/review` again for a new round. Documentation review can
+also run automatically when a team or repository selects its Automatic mode; see
+[Documentation review](./DOCUMENTATION_REVIEW.md#choose-when-reviews-run).
 
 ## What does the reviewer inspect?
 
@@ -3551,6 +3643,30 @@ decisions, and review-quality feedback. The database can contain unpublished
 findings and maintainer reasons, so back it up and handle exports as sensitive
 operator data.
 
+## Does it find security problems?
+
+Yes, within the pull request. Every code review applies guidance adapted from
+Cloudflare's security-audit skill. It traces untrusted input across trust
+boundaries in the changed code, checks authorization, data isolation, secrets,
+personal data, and injection paths, and looks for existing controls that
+disprove a suspected vulnerability. It reports vulnerabilities and flawed
+security logic that the pull request introduces or worsens.
+
+It does not run exploits, look up known CVEs, audit unchanged parts of the
+repository, or certify a repository as secure. Keep deterministic scanners in
+CI. [How reviews work](./HOW_REVIEWS_WORK.md#review-in-two-passes) describes the
+checks.
+
+## Can it review architecture?
+
+For the code a pull request changes, yes. It reports rules implemented outside
+their owner, duplicated policy, hidden coupling, and conflicts with accepted
+ADRs. Describe the intended structure in the repository so the review can check
+against it; see
+[Get architecture-aware reviews](./REPOSITORY_CONTEXT.md#get-architecture-aware-reviews).
+It does not assess the whole repository or hold open design discussions. Use an
+interactive coding-agent session for those.
+
 ## Does it scan dependencies for CVEs?
 
 The live reviewer does not query a vulnerability database. Repository CI scans
@@ -3566,6 +3682,22 @@ failure, oversized output, or a stalled lifecycle transition. Use the exact
 status and
 [Operations runbook](./OPERATIONS.md#runbook); do not infer success from a
 workflow that merely started.
+
+## Can we follow reviews in Slack or Microsoft Teams?
+
+Review Agent publishes only to GitHub. GitHub's own apps can relay those
+publications to a channel:
+
+- Slack: `/github subscribe <owner>/<repo> reviews comments`
+- Microsoft Teams: `@GitHub subscribe <owner>/<repo> reviews` (comments are on
+  by default)
+
+A code review arrives as a pull-request comment and, when it has suggestions, a
+pull-request review. Documentation results usually appear only as a GitHub
+check, which these subscriptions do not list; open the pull request's
+**Checks** tab. Subscribe in a channel whose members can already read the
+repository, because relayed comments contain review content. Starting a review
+or chatting with the reviewer from Slack or Teams is not supported.
 
 ## How do I serve many repositories or a whole organization?
 
@@ -3614,7 +3746,7 @@ and runtime owners.
 Title: Capabilities and boundaries
 Canonical URL: https://ccimen.github.io/review-agent/docs/roadmap
 Status: current
-Last verified: 2026-09-02
+Last verified: 2026-09-29
 
 # Capabilities and boundaries
 
@@ -3650,6 +3782,22 @@ Last verified: 2026-09-02
 - **Repository decisions:** typed ADR metadata from the exact base commit gives
   the reviewer repository-specific invariants without granting repository files
   control over policy, tools, or severity.
+- **Architecture-aware review:** each code review checks ownership, coupling,
+  and duplicated policy introduced by the pull request. A repository can
+  describe its intended structure and invariants through
+  [repository context](./REPOSITORY_CONTEXT.md#get-architecture-aware-reviews).
+- **Security review in every code review:** source-based guidance adapted from
+  Cloudflare's security-audit skill traces untrusted input across trust
+  boundaries in the changed code. It is not a dependency or CVE scanner.
+- **Documentation review:** `/review docs`, or an automatic mode set per team or
+  repository, checks whether a pull request leaves mapped documents inaccurate
+  and reports an advisory GitHub check. See
+  [Documentation review](./DOCUMENTATION_REVIEW.md).
+- **Admin console:** teams, scoped roles, repository requests, shared or
+  dedicated model connections, usage and quality reports, audit, organization
+  sign-in and SCIM, and read-only application integrations. See
+  [Admin panel](./ADMIN_PANEL.md) and
+  [Team access and model accounts](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md).
 - **Portable deployment:** the repository ships one Compose stack for Docker,
   Dokploy, Coolify, and Portainer plus an arbitrary-UID OpenShift template.
 
@@ -3669,13 +3817,16 @@ own profile and session files outside application state.
 - **Recovery:** Reviews are activated through signed admission, use exact-run
   continuation, and publish through a recoverable publisher lease.
 
-## Optional extensions
+## Not available yet
 
-- [Team access and model accounts](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md): a design
-  proposal for scoped console access, shared or dedicated Hermes connections,
-  and provider quota visibility. These capabilities are not yet implemented.
+- **Automatic code review.** Code review starts when an authorized developer
+  comments `/review`; only documentation review has an automatic mode.
+- **Chat and notification channels beyond GitHub.** Review Agent publishes to
+  GitHub only. GitHub's own Slack and Microsoft Teams apps can relay those
+  comments and reviews; see the [FAQ](./FAQ.md#can-we-follow-reviews-in-slack-or-microsoft-teams).
+- **A focused `/security` mode and repository-wide security scans.** Security
+  review covers what a pull request introduces or worsens.
 - Repository-specific replacement profiles or remote context-package imports.
-- Notification or collaboration channels beyond GitHub.
 
 Each extension needs a concrete operator need, an owner, and a security review.
 The core platform does not depend on any of them.

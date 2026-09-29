@@ -4,13 +4,31 @@ slug: /faq
 title: Frequently asked questions
 description: Practical answers about access, findings, feedback, storage, and failures.
 status: current
-last_verified: 2026-09-02
+last_verified: 2026-09-29
 ---
 
 # Frequently asked questions
 
 > **Current** — Answers describe the reviewer available now unless they
 > explicitly say planned or deferred.
+
+## My organization already runs Review Agent. What does my team need to do?
+
+Nothing to install or deploy. Comment `/review` on a pull request in a
+repository covered by the organization's GitHub App installation; you need
+write or admin permission on that repository. If reviews are not enabled for the
+repository yet, a team maintainer can request it from the team's
+**Repositories** tab in the [admin console](./ADMIN_PANEL.md). Add an optional
+[`.review-agent/` package](./REPOSITORY_CONTEXT.md) for team instructions,
+architecture context, accepted ADRs, and documentation mappings.
+
+## Does it review automatically when a pull request opens?
+
+Code review starts only when a collaborator with write or admin permission
+comments `/review`; comments from bots, including GitHub Actions, are ignored.
+Push fixes and comment `/review` again for a new round. Documentation review can
+also run automatically when a team or repository selects its Automatic mode; see
+[Documentation review](./DOCUMENTATION_REVIEW.md#choose-when-reviews-run).
 
 ## What does the reviewer inspect?
 
@@ -66,6 +84,30 @@ decisions, and review-quality feedback. The database can contain unpublished
 findings and maintainer reasons, so back it up and handle exports as sensitive
 operator data.
 
+## Does it find security problems?
+
+Yes, within the pull request. Every code review applies guidance adapted from
+Cloudflare's security-audit skill. It traces untrusted input across trust
+boundaries in the changed code, checks authorization, data isolation, secrets,
+personal data, and injection paths, and looks for existing controls that
+disprove a suspected vulnerability. It reports vulnerabilities and flawed
+security logic that the pull request introduces or worsens.
+
+It does not run exploits, look up known CVEs, audit unchanged parts of the
+repository, or certify a repository as secure. Keep deterministic scanners in
+CI. [How reviews work](./HOW_REVIEWS_WORK.md#review-in-two-passes) describes the
+checks.
+
+## Can it review architecture?
+
+For the code a pull request changes, yes. It reports rules implemented outside
+their owner, duplicated policy, hidden coupling, and conflicts with accepted
+ADRs. Describe the intended structure in the repository so the review can check
+against it; see
+[Get architecture-aware reviews](./REPOSITORY_CONTEXT.md#get-architecture-aware-reviews).
+It does not assess the whole repository or hold open design discussions. Use an
+interactive coding-agent session for those.
+
 ## Does it scan dependencies for CVEs?
 
 The live reviewer does not query a vulnerability database. Repository CI scans
@@ -81,6 +123,22 @@ failure, oversized output, or a stalled lifecycle transition. Use the exact
 status and
 [Operations runbook](./OPERATIONS.md#runbook); do not infer success from a
 workflow that merely started.
+
+## Can we follow reviews in Slack or Microsoft Teams?
+
+Review Agent publishes only to GitHub. GitHub's own apps can relay those
+publications to a channel:
+
+- Slack: `/github subscribe <owner>/<repo> reviews comments`
+- Microsoft Teams: `@GitHub subscribe <owner>/<repo> reviews` (comments are on
+  by default)
+
+A code review arrives as a pull-request comment and, when it has suggestions, a
+pull-request review. Documentation results usually appear only as a GitHub
+check, which these subscriptions do not list; open the pull request's
+**Checks** tab. Subscribe in a channel whose members can already read the
+repository, because relayed comments contain review content. Starting a review
+or chatting with the reviewer from Slack or Teams is not supported.
 
 ## How do I serve many repositories or a whole organization?
 

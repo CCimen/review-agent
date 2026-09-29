@@ -422,7 +422,9 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
 
     def test_decision_and_audit_are_atomic_and_context_scoped(self) -> None:
         run_id = self.start()
-        decision_time = datetime(2026, 8, 24, 12, tzinfo=timezone.utc)
+        # Suppression lookups and suggestion recording read the real clock, so the
+        # 30-day decision must be recent rather than a fixed date that expires.
+        decision_time = datetime.now(timezone.utc) - timedelta(hours=1)
         batch = review_finding_application.record_postgres_findings(
             self.runtime,
             run_id=run_id,

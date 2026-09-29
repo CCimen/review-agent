@@ -4,7 +4,7 @@ slug: /repository-context
 title: Configure reviews in a repository
 description: Add optional team instructions, ordered platform context, typed design decisions, and maintained-document mappings without changing the shared safety contract.
 status: current
-last_verified: 2026-09-14
+last_verified: 2026-09-29
 ---
 
 # Configure reviews in a repository
@@ -191,6 +191,52 @@ Decisions are separate from general context. Use an ADR when changing one
 accepted invariant needs explicit downstream checks and evidence. Use a context
 file when the information is a reusable platform fact or review aid.
 
+## Get architecture-aware reviews
+
+Every code review already checks whether the pull request introduces or worsens
+an architecture problem in the changed code: a rule implemented outside its
+owner, duplicated policy, hidden coupling, a misleading abstraction, or
+complexity that creates a concrete defect or change cost. Without repository
+context, the reviewer infers the intended structure from the diff and the files
+it reads. Two files make that intent explicit.
+
+First, describe the structure in a context file and list it in `config.toml`:
+
+```md title=".review-agent/context/architecture.md"
+# Architecture
+
+## Owners
+- `src/billing/` owns invoices and payment state. Other modules call
+  `billing.service`; they never write billing tables directly.
+- `src/api/` validates requests and calls services. It holds no business rules.
+
+## Dependency direction
+- `api` -> `services` -> `repositories`. Repositories never import services.
+- `src/common/` imports nothing from feature modules.
+
+## Cross-cutting contracts
+- Every multi-step write runs inside the unit of work in `src/db/uow.py`.
+- Background jobs receive the tenant ID explicitly and never read request state.
+```
+
+Second, record each invariant that must not change without a decision as an
+accepted ADR, with `applies_to` covering the paths it protects. A pull request
+that breaks it receives a `design.adr-conflict` finding when the reviewer traces
+a real consequence in the changed code. The
+[repository decision contract](./FEEDBACK_AND_DECISIONS.md#repository-decision-contract)
+shows the format.
+
+Keep the file factual and short: owners, allowed dependencies, boundaries, and
+the checks a change must preserve. The reviewer treats it as evidence and still
+reports a problem only when it can trace a concrete consequence.
+
+Code review does not assess the architecture of the whole repository, report
+existing structure that a pull request did not change, or propose speculative
+redesigns. Hold open design discussions in an interactive coding-agent session
+instead. Point the repository's `AGENTS.md` or `CLAUDE.md` at the same
+architecture file so local agents and the pull-request review share one
+description.
+
 ## Map maintained documentation
 
 Use `.review-agent/documentation.toml` to declare which exact documents explain
@@ -262,6 +308,20 @@ active. An invalid accepted policy reports `invalid_configuration`.
 Use this preview before requesting a [live documentation review](DOCUMENTATION_REVIEW.md).
 The live workflow uses the same relationship rules, with team/repository operating
 modes, exact GitHub source reads, and an advisory check on the reviewed commit.
+
+## Check the package in CI
+
+Copy the [example workflow](https://github.com/CCimen/review-agent/blob/main/examples/workflows/review-agent-context.yml)
+to `.github/workflows/` in a repository that keeps a `.review-agent/` package.
+On every pull request it validates the package and adds the documentation scope
+preview to the job summary. Both commands run in the release image with no
+network, secrets, model, or App access. An invalid package fails the job.
+
+The workflow has no path filter, so every pull request reaches a result. It can
+serve as a required check in repositories without a merge queue; it does not
+handle `merge_group` events. The container runs as the runner user because Git
+refuses to read a checkout owned by another user. Keep the image tag on the release your
+organization runs.
 
 ## Know when changes become active
 

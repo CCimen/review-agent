@@ -4,7 +4,7 @@ slug: /roadmap
 title: Capabilities and boundaries
 description: The working Review Agent core and the integrations kept outside it.
 status: current
-last_verified: 2026-09-02
+last_verified: 2026-09-29
 ---
 
 # Capabilities and boundaries
@@ -41,6 +41,22 @@ last_verified: 2026-09-02
 - **Repository decisions:** typed ADR metadata from the exact base commit gives
   the reviewer repository-specific invariants without granting repository files
   control over policy, tools, or severity.
+- **Architecture-aware review:** each code review checks ownership, coupling,
+  and duplicated policy introduced by the pull request. A repository can
+  describe its intended structure and invariants through
+  [repository context](./REPOSITORY_CONTEXT.md#get-architecture-aware-reviews).
+- **Security review in every code review:** source-based guidance adapted from
+  Cloudflare's security-audit skill traces untrusted input across trust
+  boundaries in the changed code. It is not a dependency or CVE scanner.
+- **Documentation review:** `/review docs`, or an automatic mode set per team or
+  repository, checks whether a pull request leaves mapped documents inaccurate
+  and reports an advisory GitHub check. See
+  [Documentation review](./DOCUMENTATION_REVIEW.md).
+- **Admin console:** teams, scoped roles, repository requests, shared or
+  dedicated model connections, usage and quality reports, audit, organization
+  sign-in and SCIM, and read-only application integrations. See
+  [Admin panel](./ADMIN_PANEL.md) and
+  [Team access and model accounts](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md).
 - **Portable deployment:** the repository ships one Compose stack for Docker,
   Dokploy, Coolify, and Portainer plus an arbitrary-UID OpenShift template.
 
@@ -60,13 +76,16 @@ own profile and session files outside application state.
 - **Recovery:** Reviews are activated through signed admission, use exact-run
   continuation, and publish through a recoverable publisher lease.
 
-## Optional extensions
+## Not available yet
 
-- [Team access and model accounts](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md): a design
-  proposal for scoped console access, shared or dedicated Hermes connections,
-  and provider quota visibility. These capabilities are not yet implemented.
+- **Automatic code review.** Code review starts when an authorized developer
+  comments `/review`; only documentation review has an automatic mode.
+- **Chat and notification channels beyond GitHub.** Review Agent publishes to
+  GitHub only. GitHub's own Slack and Microsoft Teams apps can relay those
+  comments and reviews; see the [FAQ](./FAQ.md#can-we-follow-reviews-in-slack-or-microsoft-teams).
+- **A focused `/security` mode and repository-wide security scans.** Security
+  review covers what a pull request introduces or worsens.
 - Repository-specific replacement profiles or remote context-package imports.
-- Notification or collaboration channels beyond GitHub.
 
 Each extension needs a concrete operator need, an owner, and a security review.
 The core platform does not depend on any of them.

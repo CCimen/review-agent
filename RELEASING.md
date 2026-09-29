@@ -16,9 +16,10 @@ you publish the GitHub release.
   tagged candidate before publishing an image.
 - Confirm the public docs, generated LLM files, and installation-skill mirrors
   are current.
-- Update `REVISION` in `scripts/generate_llms_docs.py` and the image example in
-  `docs/REPOSITORY_CONTEXT.md` to the same release. Regenerate both LLM files
-  and commit them before tagging.
+- Update `REVISION` in `scripts/generate_llms_docs.py`, the image example in
+  `docs/REPOSITORY_CONTEXT.md`, and `REVIEW_AGENT_IMAGE` in
+  `examples/workflows/review-agent-context.yml` to the same release. Regenerate
+  both LLM files and commit them before tagging.
 - The Pages gate requires an attached `IMAGE-DIGESTS.txt`. A version-bump
   merge can fail this gate while image qualification is pending; the currently
   published site remains available.

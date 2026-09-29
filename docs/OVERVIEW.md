@@ -4,7 +4,7 @@ slug: /overview
 title: Repository overview
 description: What Review Agent does, where its boundaries sit, and where each concern lives.
 status: current
-last_verified: 2026-09-02
+last_verified: 2026-09-29
 ---
 
 # Review Agent
@@ -22,10 +22,18 @@ review state, human feedback, deterministic publication, and operator
 controls. A deployment profile owns shared identity and review policy;
 repository-owned guidance can add local context without changing the engine.
 
+If your organization already runs Review Agent, developers need no setup:
+comment `/review` on a pull request. The
+[FAQ](./FAQ.md#my-organization-already-runs-review-agent-what-does-my-team-need-to-do)
+lists what a team can add.
+
 ## Start here
 
 | You want to | Read |
 | --- | --- |
+| Use it in your team's repositories | [FAQ](./FAQ.md#my-organization-already-runs-review-agent-what-does-my-team-need-to-do) |
+| Add team instructions, architecture context, or ADRs | [Repository context](./REPOSITORY_CONTEXT.md) |
+| Keep documentation aligned with pull requests | [Documentation review](./DOCUMENTATION_REVIEW.md) |
 | Run your first review | [Getting started](./GETTING_STARTED.md) |
 | Deploy the service | [Compose, Dokploy, Coolify, Portainer, or OpenShift](./DEPLOYMENT.md) |
 | Understand the lifecycle | [How reviews work](./HOW_REVIEWS_WORK.md) |
@@ -45,6 +53,9 @@ exact comment shape a pull request receives.
   ceiling rejects the whole record instead of silently dropping findings.
 - Reports incomplete coverage instead of implying a clean review.
 - Re-checks unresolved findings from earlier rounds on each new review.
+- Checks mapped documentation for inaccuracies a pull request introduces
+  through `/review docs` or a team's automatic mode, reported as an advisory
+  GitHub check.
 - Offers small, independently safe patches through GitHub's native suggestion
   UI after exact range and current-content checks; coordinated changes go into
   a copyable coding-agent brief instead.

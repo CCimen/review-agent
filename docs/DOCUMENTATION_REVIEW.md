@@ -4,7 +4,7 @@ slug: /documentation-review
 title: Keep documentation aligned with pull requests
 description: Configure scoped documentation reviews, understand advisory GitHub checks, and monitor review usage.
 status: current
-last_verified: 2026-09-14
+last_verified: 2026-09-29
 ---
 
 # Keep documentation aligned with pull requests
@@ -164,11 +164,14 @@ still govern that PR's review.
 
 ## Use deterministic checks in CI
 
-Run the existing local validator in CI when `.review-agent/` or its referenced
-files change. Use `repository-context docs-scope --base <commit> --head <commit>`
-to inspect scope from committed revisions without a model or GitHub credentials.
-The [configuration reference](REPOSITORY_CONTEXT.md#preview-documentation-scope-from-committed-revisions)
-explains this receipt and the merge-base comparison.
+Copy the [example workflow](https://github.com/CCimen/review-agent/blob/main/examples/workflows/review-agent-context.yml)
+into the repository. On every pull request it validates `.review-agent/` offline
+and adds the `repository-context docs-scope` preview to the job summary: the
+selected documents and the number of unmapped changed paths. It needs no model
+or GitHub credentials, and an invalid configuration fails the job.
+[Check the package in CI](REPOSITORY_CONTEXT.md#check-the-package-in-ci) explains
+the workflow, and the [configuration reference](REPOSITORY_CONTEXT.md#preview-documentation-scope-from-committed-revisions)
+explains the receipt and the merge-base comparison.
 
 Keep documentation builds, link checks, generated API checks, tests, and type
 checks in their existing CI owners. Documentation review adds semantic feedback;

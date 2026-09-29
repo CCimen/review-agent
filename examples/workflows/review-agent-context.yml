@@ -1,0 +1,48 @@
+# Copy to .github/workflows/review-agent-context.yml in a repository that keeps a
+# .review-agent/ package. It validates the package and previews the documents a
+# documentation review would select, offline: no secrets, network, model, or App.
+# Keep REVIEW_AGENT_IMAGE on the release your organization runs.
+name: Review Agent context
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      REVIEW_AGENT_IMAGE: ghcr.io/ccimen/review-agent:v0.4.2
+    steps:
+      - name: Check out the pull request with history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Run as the runner user: Git rejects a checkout owned by another user.
+      - name: Validate .review-agent
+        run: |
+          docker run --rm --read-only --network none --user "$(id -u):$(id -g)" \
+            --entrypoint review-agent-admin \
+            --mount type=bind,source="$PWD",target=/repo,readonly \
+            "$REVIEW_AGENT_IMAGE" repository-context validate /repo
+
+      - name: Preview documentation scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docker run --rm --read-only --network none --user "$(id -u):$(id -g)" \
+            --entrypoint review-agent-admin \
+            --mount type=bind,source="$PWD",target=/repo,readonly \
+            "$REVIEW_AGENT_IMAGE" repository-context docs-scope /repo \
+            --base "$BASE_SHA" --head "$HEAD_SHA" > "$RUNNER_TEMP/docs-scope.json"
+          jq -r '"### Documentation scope: \(.status)",
+            "",
+            (.documents | if length > 0 then "Documents to check:", map("- `\(.)`")[] else "No mapped documents selected." end),
+            "",
+            "Unmapped changed paths: \(.unmapped_paths | length)"' \
+            "$RUNNER_TEMP/docs-scope.json" >> "$GITHUB_STEP_SUMMARY"

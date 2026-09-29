@@ -149,7 +149,9 @@ The main runtime's `requirements.txt` also pins `httpx2` 2.12.0, which selects
 the matching `httpcore2` release over the versions inherited from Hermes.
 This addresses [WebSocket TLS through SOCKS proxies](https://github.com/pydantic/httpx2/security/advisories/GHSA-7mj9-2mp8-4m2p)
 and [unbounded response decompression](https://github.com/pydantic/httpx2/security/advisories/GHSA-8xx6-hgc6-gc2m).
-Reassess this pin when updating the Hermes base, using the built image's
+It also pins `anyio` 4.15.1 over the inherited 4.12.1 to fix the critical
+CVE-2026-63374, matching the admin and code-graph environments.
+Reassess these pins when updating the Hermes base, using the built image's
 dependency inventory, compatibility checks and vulnerability report.
 
 The write-authorized evidence job appends the generated summary to the release

@@ -55,7 +55,7 @@ exact comment shape a pull request receives.
 - Re-checks unresolved findings from earlier rounds on each new review.
 - Checks mapped documentation for inaccuracies a pull request introduces
   through `/review docs` or a team's automatic mode, reported as an advisory
-  GitHub check.
+  GitHub check and, when changes are recommended, a pull request comment.
 - Offers small, independently safe patches through GitHub's native suggestion
   UI after exact range and current-content checks; coordinated changes go into
   a copyable coding-agent brief instead.

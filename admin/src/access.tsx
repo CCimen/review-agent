@@ -255,7 +255,8 @@ function InstallationPanel({
             <dd>
               contents {installation.contents_permission}, issues{" "}
               {installation.issues_permission}, pull requests{" "}
-              {installation.pull_requests_permission}
+              {installation.pull_requests_permission}, checks{" "}
+              {installation.checks_permission}
             </dd>
           </HStack>
           <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">

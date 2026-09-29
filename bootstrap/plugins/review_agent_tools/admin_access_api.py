@@ -36,6 +36,7 @@ class Installation(BaseModel):
     contents_permission: github_app.PermissionLevel
     issues_permission: github_app.PermissionLevel
     pull_requests_permission: github_app.PermissionLevel
+    checks_permission: github_app.PermissionLevel
     updated_at: datetime
 
 
@@ -128,6 +129,7 @@ def _installation(value: github_app.GitHubAppInstallation) -> Installation:
         contents_permission=value.contents_permission,
         issues_permission=value.issues_permission,
         pull_requests_permission=value.pull_requests_permission,
+        checks_permission=value.checks_permission,
         updated_at=value.updated_at,
     )
 

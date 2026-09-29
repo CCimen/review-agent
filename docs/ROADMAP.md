@@ -50,7 +50,8 @@ last_verified: 2026-09-29
   boundaries in the changed code. It is not a dependency or CVE scanner.
 - **Documentation review:** `/review docs`, or an automatic mode set per team or
   repository, checks whether a pull request leaves mapped documents inaccurate
-  and reports an advisory GitHub check. See
+  and reports an advisory GitHub check, plus a comment when it recommends
+  changes. See
   [Documentation review](./DOCUMENTATION_REVIEW.md).
 - **Admin console:** teams, scoped roles, repository requests, shared or
   dedicated model connections, usage and quality reports, audit, organization

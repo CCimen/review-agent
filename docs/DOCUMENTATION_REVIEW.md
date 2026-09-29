@@ -91,7 +91,7 @@ protection rule as part of initial adoption.
 | --- | --- | --- |
 | No documentation review needed | Skipped | Complete scope analysis established that the changes were explicitly excluded; no semantic call was needed. |
 | No documentation mismatch found | Success | The selected scope was assessed with complete evidence and no retained mismatch. |
-| Documentation changes recommended | Neutral | The report contains evidence-backed corrections for a developer to consider. |
+| Documentation changes recommended | Neutral | The report contains evidence-backed corrections for a developer to consider. It is also posted as a pull request comment. |
 | Incomplete, unavailable, or configuration needs attention | Neutral | The report explains the gap; it does not claim complete verification. |
 
 A successful check is limited to the selected scope and retained evidence. It
@@ -101,9 +101,22 @@ guide using a real source location. It never invents a line in a missing file.
 
 The report belongs to the exact reviewed head commit. If that subject becomes
 stale during delivery, it cannot publish as the current result. A retained check
-on an older commit remains historical evidence. Most reports fit in the check;
-large reports use linked comment parts, with the complete retained report also
-available in console history.
+on an older commit remains historical evidence.
+
+Find the result in the pull request's **Checks** tab under **Documentation
+review**. A neutral conclusion keeps the pull request mergeable and shows as
+passing in its header, so recommended changes are also posted as a pull request
+comment. A later review that rechecks those findings posts a comment too, so the
+conversation shows when they are resolved. Comments reach GitHub, Slack, and
+Microsoft Teams notifications. Other clean, skipped, incomplete, and
+configuration results stay in the check to avoid noise on every pull request. A
+report too large for the check uses linked comment parts, and console history
+keeps the complete retained report.
+
+When a pull request edits `.review-agent/documentation.toml`, the report says
+that the review used the accepted rules from the target branch and that the
+proposal applies after merge. When unmapped paths leave a review incomplete, it
+suggests mapping or excluding them.
 
 On a later review, a prior finding is marked resolved only when current document
 evidence supports the correction. Findings outside the new scope or without enough

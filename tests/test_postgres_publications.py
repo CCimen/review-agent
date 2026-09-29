@@ -2724,6 +2724,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             saved = publications.prepare_publication(connection, run_id=second, plan=resolved.plan)
         self.assertEqual(saved.plan.findings[0].source_finding_occurrence_id, prior.occurrence_id)
         review_publication_application.publish_postgres_publication(self.runtime, publication_id=int(saved.id), github=github, max_comment_bytes=60_000)
+        # A clean follow-up still closes the earlier finding in the conversation.
+        self.assertEqual(len(github.comments), 1)
+        self.assertIn(f"{prior.local_reference} · Resolved", github.comments[0].body)
         third, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, request_key="docs-after-resolution", findings=())
         with self.runtime.transaction() as connection:
             self.assertEqual(documentation_reviews.previous_findings(connection, run_id=third), ())
@@ -2752,6 +2755,49 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             publication_id=prepared.publication_id, github=github, max_comment_bytes=60_000)
         self.assertEqual(result.status, "posted")
         self.assertEqual(github.comments, [])
+
+    def test_documentation_findings_are_posted_in_conversation_and_check(self) -> None:
+        from review_agent_tools.documentation_scope import ChangedPath
+        from review_agent_tools.domain.documentation_review import DocumentationOutcome
+        from review_agent_tools.postgres import documentation_reviews
+        from review_agent_tools.review_publication_planner import build_documentation_publication
+        from tests.test_postgres_documentation_reviews import scope
+        run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION)
+        proposed = replace(scope(), proposal_status="valid", unmapped_paths=("src/new.py",),
+            changed_files=(*scope().changed_files, ChangedPath("A", "src/new.py")))
+        with self.runtime.transaction() as connection:
+            documentation_reviews.initialize(connection, run_id=run_id, comparison_sha="c" * 40)
+            documentation_reviews.freeze_scope(connection, run_id=run_id, scope=proposed)
+            result = documentation_reviews.finalize(connection, run_id=run_id,
+                outcome=DocumentationOutcome.INCOMPLETE, semantic_inference_used=True,
+                incomplete_reasons=("Documentation impact remains unresolved for src/new.py.",))
+            context = publications.preparation_context(connection, run_id=run_id)
+        planned = build_documentation_publication(
+            context, replace(result, outcome=DocumentationOutcome.FINDINGS), max_comment_bytes=60_000)
+
+        comment, check = planned.plan.parts
+        self.assertEqual(comment.part_type, PublicationPartType.SUMMARY)
+        assert isinstance(comment.delivery, IssueCommentDelivery)
+        self.assertTrue(comment.delivery.body.startswith(
+            "## Documentation review\n\n**Documentation changes recommended**"))
+        self.assertIn(context.current[0].local_reference, comment.delivery.body)
+        self.assertIn("This review used the accepted rules from the target branch. "
+            "The proposed rules apply to reviews after this pull request merges.", comment.delivery.body)
+        self.assertIn("map unmapped paths to their documents", comment.delivery.body)
+        assert isinstance(check.delivery, CheckRunDelivery)
+        self.assertEqual(check.delivery.report_part_numbers, (1,))
+        self.assertNotIn("## Documentation review", check.delivery.summary)
+        self.assertIn(context.current[0].local_reference, check.delivery.summary)
+        self.assertTrue(check.delivery.summary.rstrip().endswith(
+            "This report is also posted in the pull request conversation:"))
+
+        with self.runtime.transaction() as connection:
+            stored = publications.prepare_publication(connection, run_id=run_id, plan=planned.plan)
+        github = FakePostgresPublicationGitHub(self.runtime)
+        posted = review_publication_application.publish_postgres_publication(
+            self.runtime, publication_id=int(stored.id), github=github, max_comment_bytes=60_000)
+        self.assertEqual(posted.status, "posted")
+        self.assertEqual(len(github.comments), 1)
 
     def test_documentation_report_partitions_without_dropping_blocks(self) -> None:
         from review_agent_tools.domain.documentation_review import DocumentationOutcome

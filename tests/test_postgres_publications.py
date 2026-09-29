@@ -2725,10 +2725,9 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             saved = publications.prepare_publication(connection, run_id=second, plan=resolved.plan)
         self.assertEqual(saved.plan.findings[0].source_finding_occurrence_id, prior.occurrence_id)
         review_publication_application.publish_postgres_publication(self.runtime, publication_id=int(saved.id), github=github, max_comment_bytes=60_000)
-        # A clean follow-up still closes the earlier finding in the conversation.
-        self.assertEqual(len(github.comments), 1)
-        self.assertIn(f"{prior.local_reference} · Resolved", github.comments[0].body)
-        self.assertIn("Final rationale sentence survives.", github.comments[0].body)
+        # The first round reached only the check, so its closure stays in the check too.
+        self.assertEqual(github.comments, [])
+        self.assertIn("Final rationale sentence survives.", resolved.plan.rendered_markdown)
         third, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, request_key="docs-after-resolution", findings=())
         with self.runtime.transaction() as connection:
             self.assertEqual(documentation_reviews.previous_findings(connection, run_id=third), ())
@@ -2812,6 +2811,102 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime, publication_id=int(stored.id), github=github, max_comment_bytes=60_000)
         self.assertEqual(posted.status, "posted")
         self.assertEqual(len(github.comments), 1)
+
+    def documentation_round(self, github: FakePostgresPublicationGitHub, request_key: str, *,
+                            findings: tuple[FindingInput, ...], resolve: bool = False,
+                            rationale: str = "The guide now matches the implementation.",
+                            max_comment_bytes: int = 60_000) -> list[PublicationPartType]:
+        from review_agent_tools.domain.documentation_review import (
+            DocumentationAssessment, DocumentationOutcome, PreviousDocumentationAssessment)
+        from review_agent_tools.postgres import documentation_reviews
+        from review_agent_tools.review_publication_planner import build_documentation_publication
+        from tests.test_postgres_documentation_reviews import scope
+        run_id, _ = self.start_recorded_run(
+            purpose=ReviewPurpose.DOCUMENTATION, request_key=request_key, findings=findings)
+        with self.runtime.transaction() as connection:
+            previous = documentation_reviews.previous_findings(connection, run_id=run_id)
+            documentation_reviews.initialize(connection, run_id=run_id, comparison_sha="c" * 40)
+            documentation_reviews.freeze_scope(connection, run_id=run_id, scope=scope())
+            result = documentation_reviews.finalize(connection, run_id=run_id,
+                outcome=DocumentationOutcome.INCOMPLETE, semantic_inference_used=True,
+                incomplete_reasons=("Evidence is summarized by the test.",))
+            context = publications.preparation_context(connection, run_id=run_id)
+        outcome = DocumentationOutcome.FINDINGS if findings else DocumentationOutcome.NO_MISMATCH_FOUND
+        assessment = DocumentationAssessment((), (), tuple(
+            PreviousDocumentationAssessment(item.local_reference, item.fingerprint, item.occurrence_id,
+                "resolved", rationale, ())
+            for item in previous)) if resolve else None
+        planned = build_documentation_publication(
+            context, replace(result, outcome=outcome, assessment=assessment),
+            max_comment_bytes=max_comment_bytes)
+        with self.runtime.transaction() as connection:
+            stored = publications.prepare_publication(connection, run_id=run_id, plan=planned.plan)
+        posted = review_publication_application.publish_postgres_publication(
+            self.runtime, publication_id=int(stored.id), github=github, max_comment_bytes=max_comment_bytes)
+        self.assertEqual(posted.status, "posted")
+        return [part.part_type for part in planned.plan.parts]
+
+    def test_documentation_conversation_posts_only_when_open_findings_change(self) -> None:
+        github = FakePostgresPublicationGitHub(self.runtime)
+        finding = (self.finding(),)
+        self.assertIn(PublicationPartType.SUMMARY, self.documentation_round(github, "docs-1", findings=finding))
+        self.assertEqual(len(github.comments), 1)
+        # The same open finding on a later push updates only the check.
+        self.assertEqual(self.documentation_round(github, "docs-2", findings=finding), [PublicationPartType.CHECK_RUN])
+        self.assertEqual(len(github.comments), 1)
+        # Resolving it changes the open findings, so the conversation hears once.
+        self.assertIn(PublicationPartType.SUMMARY,
+                      self.documentation_round(github, "docs-3", findings=(), resolve=True))
+        self.assertEqual(len(github.comments), 2)
+        self.assertIn("· Resolved ·", github.comments[-1].body)
+        # A later clean review has nothing new to say.
+        self.assertEqual(self.documentation_round(github, "docs-4", findings=()), [PublicationPartType.CHECK_RUN])
+        self.assertEqual(len(github.comments), 2)
+
+    def test_documentation_closure_delivered_only_in_a_check_reaches_the_conversation(self) -> None:
+        github = FakePostgresPublicationGitHub(self.runtime)
+        self.documentation_round(github, "docs-announce", findings=(self.finding(),))
+        self.assertEqual(len(github.comments), 1)
+        # One oversized closure block cannot fit a small comment, so that round is check-only.
+        rationale = "The corrected guide now matches the loader. " * 18 + "Closure explained later."
+        self.assertEqual(
+            self.documentation_round(github, "docs-oversized-closure", findings=(), resolve=True,
+                                     rationale=rationale, max_comment_bytes=1_000),
+            [PublicationPartType.CHECK_RUN])
+        self.assertEqual(len(github.comments), 1)
+        # The next clean review carries that closure into the conversation once.
+        self.assertIn(PublicationPartType.SUMMARY, self.documentation_round(github, "docs-clean", findings=()))
+        self.assertEqual(len(github.comments), 2)
+        self.assertIn("· Resolved ·", github.comments[-1].body)
+        self.assertIn("Closure explained later.", github.comments[-1].body)
+        self.assertEqual(self.documentation_round(github, "docs-quiet", findings=()), [PublicationPartType.CHECK_RUN])
+
+    def test_documentation_baseline_follows_posting_order(self) -> None:
+        github = FakePostgresPublicationGitHub(self.runtime)
+        first = self.finding()
+        second = self.finding(rule_id="documentation.accuracy", symbol="other", anchor="other anchor",
+                              title="A second documented default is stale")
+        self.documentation_round(github, "docs-first", findings=(first,))
+        self.documentation_round(github, "docs-second", findings=(first, second))
+        self.assertEqual(len(github.comments), 2)
+        with self.runtime.transaction() as connection:
+            # Record the lower-id publication as the one posted last.
+            connection.execute(
+                """
+                UPDATE review_agent.publications
+                SET posted_at = posted_at + interval '2 hours',
+                    delivery_completed_at = delivery_completed_at + interval '2 hours',
+                    superseded_at = superseded_at + interval '2 hours',
+                    supersession_rendered_at = supersession_rendered_at + interval '2 hours'
+                WHERE id = (SELECT min(id) FROM review_agent.publications WHERE purpose = 'documentation')
+                """)
+        run_id, _ = self.start_recorded_run(
+            purpose=ReviewPurpose.DOCUMENTATION, request_key="docs-third", findings=(first,))
+        with self.runtime.transaction() as connection:
+            context = publications.preparation_context(connection, run_id=run_id)
+        assert context.conversation_baseline is not None
+        self.assertEqual({fingerprint for fingerprint, _, _ in context.conversation_baseline},
+                         {context.current[0].fingerprint})
 
     def test_documentation_findings_comment_survives_long_limitations(self) -> None:
         from review_agent_tools.review_publication_planner import build_documentation_publication

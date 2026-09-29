@@ -648,6 +648,9 @@ def build_documentation_publication(
     prior_verdicts = {item.local_reference: item for item in result.assessment.previous} if result.assessment else {}
     current_fingerprints = {item.fingerprint for item in current}
     resolved_count = 0
+    # Open findings as the conversation last saw them: resolved and suppressed
+    # findings leave the set; wording, lines and commits do not count as change.
+    active = {(item.fingerprint, "current", item.severity) for item in current}
     for previous in context.previous:
         if previous.fingerprint in current_fingerprints:
             continue
@@ -662,6 +665,8 @@ def build_documentation_publication(
         label = "Suppressed" if previous.suppressed else "Resolved" if resolved else "Not checked"
         if resolved:
             resolved_count += 1
+        if outcome is PublicationFindingOutcome.NOT_CHECKED:
+            active.add((previous.fingerprint, "not_checked", ""))
         blocks.append(ReviewBlock(kind="closed_history" if resolved or previous.suppressed else "unchecked_history", markdown=(
             f"### {previous.local_reference} · {label} · "
             f"{safe_text(previous.title, maximum=MAX_TEXT_CHARS)}\n\n"
@@ -672,6 +677,18 @@ def build_documentation_publication(
             source_review_run_id=previous.source_run_id, local_reference=previous.local_reference,
             outcome=outcome, outcome_evidence=explanation,
         ))
+    # An announced finding closed by a check-only round is explained here, where
+    # the conversation next hears about it; its outcome is already recorded.
+    explained = {fingerprint for fingerprint, _, _ in active} | {item.fingerprint for item in context.previous}
+    for closure in context.conversation_closures:
+        if closure.fingerprint in explained:
+            continue
+        label = "Resolved" if closure.outcome == PublicationFindingOutcome.RESOLVED else "Suppressed"
+        blocks.append(ReviewBlock(kind="closed_history", markdown=(
+            f"### {closure.local_reference} · {label} · "
+            f"{safe_text(closure.title, maximum=MAX_TEXT_CHARS)}\n\n"
+            f"{safe_text(closure.explanation, maximum=MAX_TEXT_CHARS)}"
+        )))
     blocks.append(ReviewBlock(kind="feedback_help", markdown=(
         "Post `/review docs` as a new top-level PR comment after updating the documents. "
         "To correct a finding, use `/review docs false-positive F1 <reason>`. "
@@ -686,10 +703,13 @@ def build_documentation_publication(
     summary = markdown.removeprefix(heading)
     report_numbers: list[JsonValue] = []
     fits_check = len(summary.encode("utf-8")) <= CHECK_OUTPUT_MAX_BYTES
-    # Findings, and later verdicts on them, also go to the conversation: a neutral
-    # check stays green in the PR header and sends no notification, and superseded
-    # documentation comments are never rewritten, so only a new comment closes them.
-    if current or context.previous or not fits_check:
+    # A neutral check stays green in the PR header and sends no notification, so
+    # changes to the open findings also go to the conversation. Repeating the
+    # same open findings on every push would only add noise; the check carries
+    # each exact-head result. Overflow always posts, because it holds the report.
+    baseline = context.conversation_baseline
+    announce = bool(active) if baseline is None else frozenset(active) != baseline
+    if announce or not fits_check:
         try:
             overflow = split_publication_body(
                 markdown, publication_key=key, max_comment_bytes=max_comment_bytes,

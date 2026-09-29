@@ -1,15 +1,15 @@
+import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Link as AstryxLink } from "@astryxdesign/core/Link";
 import { Selector } from "@astryxdesign/core/Selector";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import {
   Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
+  pixel,
+  proportional,
+  type TableColumn,
 } from "@astryxdesign/core/Table";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Heading, Text } from "@astryxdesign/core/Text";
@@ -20,14 +20,21 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { InputHTMLAttributes } from "react";
+import type { ComponentProps, InputHTMLAttributes } from "react";
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link as RouterLink, useLocation } from "react-router-dom";
 import type { Account } from "./api";
 import { read, write } from "./api";
 import type { components } from "./api.generated";
-import { ScopedAnchor, isAdmin } from "./scope";
+import { ScopedAnchor, ScopedLink as Link, isAdmin } from "./scope";
+import { ConfirmAction } from "./teams";
 import { Empty, Form, Freshness, time } from "./ui";
+
+/** Leave the team workspace: a newly enabled repository has no team yet, so a
+ *  team-scoped list would hide it. */
+function AllTeamsAnchor({ href = "/", ...props }: ComponentProps<"a">) {
+  return <RouterLink {...props} to={href} />;
+}
 
 export function RepositoryTabs({ role }: { role: Account["role"] }) {
   const { pathname } = useLocation();
@@ -420,9 +427,12 @@ function InstallationPanel({
 function AddRepository({
   configured,
   defaultProfile,
+  open,
 }: {
   configured: boolean;
   defaultProfile: string;
+  /** Opened from the Repositories page's Add repository action. */
+  open: boolean;
 }) {
   const client = useQueryClient();
   const [repository, setRepository] = useState("");
@@ -436,12 +446,15 @@ function AddRepository({
       }),
     onSuccess: async () => {
       setRepository("");
-      await client.invalidateQueries({ queryKey: ["access"] });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["access"] }),
+        client.invalidateQueries({ queryKey: ["repositories"] }),
+      ]);
     },
   });
   return (
     <Collapsible
-      defaultIsOpen={false}
+      defaultIsOpen={open}
       trigger={
         <HStack gap={3} wrap="wrap" vAlign="center">
           Add repository
@@ -450,15 +463,12 @@ function AddRepository({
     >
       <VStack gap={4}>
         <VStack gap={4}>
-          <Text as="p">
-            Enable reviews for one repository the GitHub App can access.
-            Works with both all-repository and selected-repository
-            installations.
-          </Text>
           <Text as="p" color="secondary">
-            For a selected-repository installation, add the repository in
-            GitHub first. Disabling a repository here retains its review
-            history.
+            Enables reviews for one repository the GitHub App can access, without
+            assigning a team. To do both in one step, approve the team&rsquo;s
+            request in <Link to="/repository-requests">Repository requests</Link>.
+            With selected repositories, add it to the installation on GitHub
+            first.
           </Text>
           {!configured && (
             <Text as="p">
@@ -475,7 +485,9 @@ function AddRepository({
               <VStack gap={4}>
                 <TextInput
                   label={"Repository"}
+                  hasAutoFocus={open}
                   isRequired={true}
+                  width="min(100%, 420px)"
                   placeholder="owner/repository"
                   value={repository}
                   onChange={(value) => setRepository(value)}
@@ -488,6 +500,7 @@ function AddRepository({
                 <TextInput
                   label={"Review profile"}
                   isRequired={true}
+                  width={280}
                   value={profile}
                   onChange={(value) => setProfile(value)}
                   {...({
@@ -505,7 +518,13 @@ function AddRepository({
             )}
             {add.isSuccess && (
               <Text as="p" role="status">
-                Reviews enabled for {add.data.repository}.
+                Reviews enabled for {add.data.repository}.{" "}
+                <AstryxLink
+                  as={AllTeamsAnchor}
+                  href={`/repositories?${new URLSearchParams({ search: add.data.repository })}`}
+                >
+                  Assign it to a team from Activity
+                </AstryxLink>
               </Text>
             )}
             <HStack gap={3} wrap="wrap" align="center">
@@ -532,120 +551,133 @@ function AddRepository({
   );
 }
 
-function RepositoryRow({
+function RepositoryAction({
   repository,
   defaultProfile,
 }: {
   repository: RepositoryAccess;
   defaultProfile: string;
 }) {
-  const client = useQueryClient();
   const [profile, setProfile] = useState(
     repository.profile ?? defaultProfile,
   );
-  const mutation = useMutation({
-    mutationFn: () =>
-      write<RepositoryAccess>(
-        `/api/access/repositories/${repository.repository_id}/${repository.enabled ? "disable" : "enable"}`,
-        "POST",
-        repository.enabled
-          ? { reason: "Repository reviews disabled" }
-          : { profile, reason: "Repository reviews enabled" },
-      ),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["access"] });
-    },
-  });
-
-  return (
-    <TableRow>
-      <TableHeaderCell scope="row">
-        <strong>{repository.repository}</strong>
-        <Text color="secondary" display="block" type="supporting">
-          ID {repository.repository_id}
-        </Text>
-      </TableHeaderCell>
-      <TableCell>{repository.access.replaceAll("_", " ")}</TableCell>
-      <TableCell>
-        {repository.enabled ? "Enabled" : "Disabled"}
-        {repository.automatic_activation_blocked && (
-          <Text color="secondary" display="block" type="supporting">
-            Automatic activation blocked
-          </Text>
-        )}
-      </TableCell>
-      <TableCell>{repository.profile ?? "—"}</TableCell>
-      <TableCell>
-        {!repository.enabled && repository.access !== "available" ? (
-          <Text color="secondary">
-            Restore GitHub access before enabling
-          </Text>
-        ) : (
-          <Collapsible
-            defaultIsOpen={false}
-            trigger={
-              <HStack gap={3} wrap="wrap" vAlign="center">
-                {repository.enabled
-                  ? "Disable reviews…"
-                  : "Enable reviews…"}
-              </HStack>
-            }
-          >
-            <VStack gap={4}>
-              <Form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  mutation.mutate();
-                }}
-              >
-                <Text as="p" color="secondary">
-                  {repository.enabled
-                    ? "Disabling stops new review requests and blocks automatic activation. Review history is retained. To revoke GitHub access too, remove the repository in the GitHub App installation settings."
-                    : "Enabling admits new review requests using the selected profile."}
-                </Text>
-                {!repository.enabled && (
-                  <TextInput
-                    label={"Profile"}
-                    isRequired={true}
-                    isDisabled={mutation.isPending}
-                    value={profile}
-                    onChange={(value) => setProfile(value)}
-                    {...({
-                      required: true,
-                      maxLength: 100,
-                    } satisfies InputHTMLAttributes<HTMLInputElement>)}
-                  />
-                )}
-
-                {mutation.isError && (
-                  <Text as="p" role="alert">
-                    {mutation.error.message}
-                  </Text>
-                )}
-                <HStack gap={3} wrap="wrap" align="center">
-                  <Button
-                    label={String(
-                      mutation.isPending
-                        ? "Saving…"
-                        : repository.enabled
-                          ? "Confirm disable"
-                          : "Confirm enable",
-                    )}
-                    variant="primary"
-                    type="submit"
-                    isDisabled={mutation.isPending}
-                  />
-                </HStack>
-              </Form>
-            </VStack>
-          </Collapsible>
-        )}
-      </TableCell>
-    </TableRow>
+  if (!repository.enabled && repository.access !== "available") {
+    return (
+      <Text color="secondary">Restore GitHub access before enabling</Text>
+    );
+  }
+  return repository.enabled ? (
+    <ConfirmAction
+      label="Disable reviews"
+      path={`/api/access/repositories/${repository.repository_id}/disable`}
+      description="Disabling stops new review requests and blocks automatic activation. Review history is retained. To revoke GitHub access too, remove the repository in the GitHub App installation settings."
+      variant="ghost"
+      size="sm"
+    />
+  ) : (
+    <ConfirmAction
+      label="Enable reviews"
+      path={`/api/access/repositories/${repository.repository_id}/enable`}
+      body={{ profile: profile.trim() }}
+      description="Enabling admits new review requests using the selected profile."
+      variant="ghost"
+      size="sm"
+    >
+      <TextInput
+        label={"Profile"}
+        isRequired={true}
+        value={profile}
+        onChange={(value) => setProfile(value)}
+        {...({
+          required: true,
+          maxLength: 100,
+        } satisfies InputHTMLAttributes<HTMLInputElement>)}
+      />
+    </ConfirmAction>
   );
 }
 
+function repositoryColumns(
+  defaultProfile: string,
+): TableColumn<RepositoryAccess>[] {
+  return [
+    {
+      key: "repository",
+      header: "Repository",
+      width: proportional(2, { minWidth: 240 }),
+      renderCell: (repository) => (
+        <VStack gap={1}>
+          <Text weight="bold">{repository.repository}</Text>
+          <Text color="secondary" type="supporting">
+            ID {repository.repository_id}
+          </Text>
+        </VStack>
+      ),
+    },
+    {
+      key: "access",
+      header: "Provider access",
+      width: pixel(140),
+      renderCell: (repository) => (
+        <Text>{repository.access.replaceAll("_", " ")}</Text>
+      ),
+    },
+    {
+      key: "reviews",
+      header: "Reviews",
+      width: pixel(200),
+      renderCell: (repository) => {
+        // "Disabled" is a decision someone made; a repository that was never
+        // enabled may still activate on its first review under automatic
+        // activation.
+        const reviewState = repository.enabled
+          ? "Enabled"
+          : repository.automatic_activation_blocked
+            ? "Disabled"
+            : "Not enabled";
+        return (
+          <VStack gap={1}>
+            <HStack gap={2} vAlign="center">
+              <StatusDot
+                aria-hidden="true"
+                variant={repository.enabled ? "success" : "neutral"}
+                label={reviewState}
+              />
+              <Text>{reviewState}</Text>
+            </HStack>
+            {repository.automatic_activation_blocked && (
+              <Text color="secondary" type="supporting">
+                Automatic activation blocked
+              </Text>
+            )}
+          </VStack>
+        );
+      },
+    },
+    {
+      key: "profile",
+      header: "Profile",
+      width: pixel(170),
+      renderCell: (repository) => <Text>{repository.profile ?? "—"}</Text>,
+    },
+    {
+      key: "action",
+      header: "Action",
+      width: proportional(2, { minWidth: 300 }),
+      renderCell: (repository) => (
+        <RepositoryAction
+          key={`${repository.repository_id}:${repository.enabled}`}
+          repository={repository}
+          defaultProfile={defaultProfile}
+        />
+      ),
+    },
+  ];
+}
+
 export function Access() {
+  const { search } = useLocation();
+  const openAdd = new URLSearchParams(search).get("add") === "1";
   const [installationCursors, setInstallationCursors] = useState([0]);
   const [repositoryCursors, setRepositoryCursors] = useState([0]);
   const installationCursor = installationCursors.at(-1) ?? 0;
@@ -689,6 +721,41 @@ export function Access() {
         </VStack>
       </HStack>
       <RepositoryTabs role="admin" />
+      <Banner
+        status="info"
+        title="How repository access works"
+        description="GitHub controls which repositories the App can read. Review Agent controls which of those accept reviews."
+      >
+        <VStack gap={3}>
+          <Text as="p">
+            <strong>Selected repositories:</strong> a repository added to the
+            installation on GitHub appears below as Not enabled.{" "}
+            <strong>All repositories:</strong> Review Agent does not import the
+            whole organization. Add a repository here, or, with automatic
+            activation, the first authorized <code>/review</code> verifies and
+            enables it.
+          </Text>
+          <Text as="p">
+            <strong>Automatic activation:</strong> the first{" "}
+            <code>/review</code> from someone with write or admin access enables
+            the repository, unless reviews were disabled here.{" "}
+            <strong>Explicit activation:</strong> an owner or admin enables each
+            repository first.
+          </Text>
+          <Text as="p">
+            Enabling a repository does not assign a team. Team maintainers
+            request repositories from their team page; approving a request
+            assigns the team and enables reviews in one step.
+          </Text>
+        </VStack>
+      </Banner>
+      {capability && (
+        <AddRepository
+          configured={capability.configured}
+          defaultProfile={capability.default_profile}
+          open={openAdd}
+        />
+      )}
       <GitHubConnection />
       {capability && !capability.configured && (
         <Text as="p" role="status">
@@ -760,12 +827,6 @@ export function Access() {
           </HStack>
         </VStack>
       )}
-      {capability && (
-        <AddRepository
-          configured={capability.configured}
-          defaultProfile={capability.default_profile}
-        />
-      )}
       {repositories.data && (
         <VStack gap={4} as="section">
           <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
@@ -774,32 +835,17 @@ export function Access() {
           </HStack>
           {repositories.data.items.length ? (
             <VStack gap={4}>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHeaderCell scope="col">
-                      Repository
-                    </TableHeaderCell>
-                    <TableHeaderCell scope="col">
-                      Provider access
-                    </TableHeaderCell>
-                    <TableHeaderCell scope="col">Reviews</TableHeaderCell>
-                    <TableHeaderCell scope="col">Profile</TableHeaderCell>
-                    <TableHeaderCell scope="col">Action</TableHeaderCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {repositories.data.items.map((repository) => (
-                    <RepositoryRow
-                      key={repository.repository_id}
-                      repository={repository}
-                      defaultProfile={
-                        repositories.data.capability.default_profile
-                      }
-                    />
-                  ))}
-                </TableBody>
-              </Table>
+              <Table
+                aria-label="Repository access"
+                data={repositories.data.items}
+                columns={repositoryColumns(
+                  repositories.data.capability.default_profile,
+                )}
+                idKey="repository_id"
+                density="balanced"
+                dividers="rows"
+                verticalAlign="top"
+              />
             </VStack>
           ) : (
             <Empty title="No repositories">

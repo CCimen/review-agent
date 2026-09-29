@@ -19,7 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InputHTMLAttributes } from "react";
 import { Suspense, lazy, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import type { Account, RepositoryPage } from "./api";
+import type { Account, RepositoryPage, RepositoryRequestPage } from "./api";
 import { read, readCurrentAccount, write } from "./api";
 import { AuditLog } from "./audit";
 import {
@@ -106,6 +106,16 @@ function NotFound() {
 
 function Repositories({ current }: { current: Account }) {
   const scope = useScope();
+  const admin = isAdmin(current.role);
+  const maintainedTeam = scope.team?.role === "maintainer" ? scope.team : null;
+  // Shares the approval queue's cache, so the count matches what it shows.
+  const pendingRequests = useQuery({
+    queryKey: ["repository-requests", undefined, "pending", null, "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<RepositoryRequestPage>("/api/repository-requests?status=pending", signal),
+    enabled: admin,
+  });
+  const pending = pendingRequests.data?.pending ?? 0;
   const { params, days, update } = useFilters();
   const search = params.get("search") ?? "";
   const documentationRepositoryId = Number(
@@ -251,6 +261,29 @@ function Repositories({ current }: { current: Account }) {
             labelled action near the title rather than a bare link pinned to
             the far edge of a header the width of the screen. */}
         <HStack gap={3} wrap="wrap" align="center">
+          {admin ? (
+            <>
+              <Button
+                label="Add repository"
+                variant="primary"
+                href="/access?add=1"
+                as={ScopedAnchor}
+              />
+              <Button
+                label={pending ? `Repository requests (${pending})` : "Repository requests"}
+                variant="secondary"
+                href="/repository-requests"
+                as={ScopedAnchor}
+              />
+            </>
+          ) : maintainedTeam ? (
+            <Button
+              label="Request a repository"
+              variant="primary"
+              href={`/teams/${maintainedTeam.id}?team_id=${maintainedTeam.id}&request=1`}
+              as={ScopedAnchor}
+            />
+          ) : null}
           <Button
             label="View all reviews"
             variant="secondary"
@@ -258,6 +291,13 @@ function Repositories({ current }: { current: Account }) {
             as={ScopedAnchor}
           />
         </HStack>
+        {!admin && !maintainedTeam ? (
+          <Text as="p" type="supporting">
+            {scope.team
+              ? `Missing a repository? Ask a maintainer of ${scope.team.name} to request it.`
+              : "Missing a repository? Open a team where you are a maintainer to request it."}
+          </Text>
+        ) : null}
       </VStack>
       <RepositoryTabs role={current.role} />
       {documentationRepository !== null && (
@@ -352,8 +392,10 @@ function Repositories({ current }: { current: Account }) {
                   onClick={() => update({ search: "" })}
                 />
               </VStack>
+            ) : admin ? (
+              "Add a repository, or approve a team's request, to start reviews. With automatic activation, a repository also appears after its first /review."
             ) : (
-              "Repositories appear after they have been registered by Review Agent. Request a review on GitHub to create review activity."
+              "Repositories appear here once they are assigned to your team. A team maintainer can request one."
             )}
           </Empty>
         ))}

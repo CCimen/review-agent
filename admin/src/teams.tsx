@@ -1,6 +1,7 @@
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { Divider } from "@astryxdesign/core/Divider";
 import { Grid } from "@astryxdesign/core/Grid";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import {
@@ -9,6 +10,7 @@ import {
 } from "@astryxdesign/core/MetadataList";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
 import { Selector } from "@astryxdesign/core/Selector";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import {
   Table,
   pixel,
@@ -17,6 +19,7 @@ import {
 } from "@astryxdesign/core/Table";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import { Heading, Text } from "@astryxdesign/core/Text";
+import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import {
   useMutation,
@@ -33,7 +36,7 @@ import type {
   TeamPage,
   TeamRepositoryPage,
 } from "./api";
-import { read, write } from "./api";
+import { APIError, read, write } from "./api";
 import type { components } from "./api.generated";
 import { AuditLog } from "./audit";
 import { ApprovalDocumentationSummary, OwnershipDocumentationAction, TeamDocumentationSection } from "./documentation";
@@ -55,6 +58,7 @@ function useTeamRefresh() {
   return () =>
     Promise.all(
       [
+        "access",
         "teams",
         "team",
         "team-members",
@@ -80,6 +84,7 @@ export function ConfirmAction({
   variant = "secondary",
   size,
   children,
+  reasonLabel,
 }: {
   label: string;
   path: string;
@@ -96,11 +101,19 @@ export function ConfirmAction({
   variant?: "secondary" | "ghost";
   size?: "sm" | "md";
   children?: ReactNode;
+  /** Ask for a written explanation and record it as the reason, for a
+   *  decision someone else reads, instead of the button label. */
+  reasonLabel?: string;
 }) {
   const refresh = useTeamRefresh();
   const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
   const action = useMutation({
-    mutationFn: () => write(path, method, { ...body, reason: label }),
+    mutationFn: () =>
+      write(path, method, {
+        ...body,
+        reason: reasonLabel ? reason.trim() : label,
+      }),
     onSuccess: async () => {
       setOpen(false);
       await refresh();
@@ -134,6 +147,16 @@ export function ConfirmAction({
         >
           <Text as="p">{description}</Text>
           {children}
+          {reasonLabel ? (
+            <TextArea
+              label={reasonLabel}
+              isRequired={true}
+              maxLength={500}
+              rows={3}
+              value={reason}
+              onChange={(value) => setReason(value.slice(0, 500))}
+            />
+          ) : null}
 
           {action.isError ? (
             <Text as="p" role="alert">
@@ -145,7 +168,7 @@ export function ConfirmAction({
               label={action.isPending ? "Saving…" : label}
               variant={danger ? "destructive" : "primary"}
               type="submit"
-              isDisabled={action.isPending}
+              isDisabled={action.isPending || (!!reasonLabel && !reason.trim())}
             />
             <Button
               label={"Cancel"}
@@ -772,6 +795,8 @@ function TeamRepositories({
 }) {
   const scope = useScope();
   const refresh = useTeamRefresh();
+  const [params] = useSearchParams();
+  const requested = params.get("request") === "1";
   const [after, setAfter] = useState(0);
   const [repository, setRepository] = useState("");
   const [destination, setDestination] = useState("");
@@ -898,14 +923,11 @@ function TeamRepositories({
   return (
     <>
       <Heading level={2}>Repositories</Heading>
-      <Text as="p">
-        Each repository belongs to one team. Approval verifies its GitHub
-        App grant before enabling reviews.
-      </Text>
+      <Text as="p">Each repository belongs to one team.</Text>
       {maintain ? (
         <Collapsible
           key={query.data ? (query.data.items.length ? "listed" : "empty") : "loading"}
-          defaultIsOpen={query.data?.items.length === 0}
+          defaultIsOpen={requested || query.data?.items.length === 0}
           trigger={
             <HStack gap={3} wrap="wrap" vAlign="center">
               Request a repository
@@ -921,7 +943,9 @@ function TeamRepositories({
             >
               <TextInput
                 label={"GitHub repository"}
+                hasAutoFocus={requested}
                 isRequired={true}
+                width="min(100%, 420px)"
                 placeholder="owner/repository or https://github.com/owner/repository"
                 value={repository}
                 onChange={(value) => setRepository(value)}
@@ -932,12 +956,16 @@ function TeamRepositories({
               />
 
               <Text as="p" color="secondary">
-                A platform administrator approves requests. The GitHub App
-                must already have access to the repository.
+                An owner or admin checks the GitHub App&rsquo;s access, then
+                assigns the repository to this team and enables reviews. Submit
+                even if you are unsure the App has access; the administrator
+                arranges it. Follow the decision in the Requests tab.
               </Text>
               {submit.isError ? (
                 <Text as="p" role="alert">
-                  {submit.error.message}
+                  {submit.error instanceof APIError && submit.error.status === 422
+                    ? "Enter the repository as owner/repository or its GitHub address, for example example-org/service."
+                    : submit.error.message}
                 </Text>
               ) : null}
               {submit.isSuccess ? (
@@ -964,7 +992,12 @@ function TeamRepositories({
             </Form>
           </VStack>
         </Collapsible>
-      ) : null}
+      ) : (
+        <Text as="p" color="secondary">
+          Team maintainers request repositories for this team. Ask a
+          maintainer if a repository is missing.
+        </Text>
+      )}
       {admin ? (
         <Collapsible
           isOpen={moving !== null}
@@ -1093,6 +1126,16 @@ function TeamRepositories({
   );
 }
 
+const requestStatus: Record<
+  components["schemas"]["RequestStatus"],
+  { label: string; tone: "success" | "warning" | "error" | "neutral" }
+> = {
+  pending: { label: "Pending", tone: "warning" },
+  approved: { label: "Approved", tone: "success" },
+  rejected: { label: "Rejected", tone: "error" },
+  withdrawn: { label: "Withdrawn", tone: "neutral" },
+};
+
 export function RepositoryRequests({
   team,
   maintain = false,
@@ -1101,7 +1144,9 @@ export function RepositoryRequests({
   maintain?: boolean;
 }) {
   const scope = useScope();
-  const [status, setStatus] = useState("pending");
+  // A team follows its requests to their outcome; the platform queue starts
+  // with what still needs a decision.
+  const [status, setStatus] = useState(team ? "" : "pending");
   const [before, setBefore] = useState<number | null>(null);
   const params = new URLSearchParams();
   if (status) params.set("status", status);
@@ -1165,9 +1210,10 @@ export function RepositoryRequests({
       </HStack>
       <Freshness query={query} />
       {query.data?.items.length ? (
-        <VStack gap={3}>
-          {query.data.items.map((request) => (
+        <VStack gap={4}>
+          {query.data.items.map((request, index) => (
             <VStack as="article" gap={3} key={request.id}>
+              {index > 0 ? <Divider /> : null}
               <HStack gap={3} wrap="wrap" vAlign="center" hAlign="between">
                 <VStack gap={3}>
                   <Heading level={3}>{request.repository_name}</Heading>
@@ -1180,9 +1226,18 @@ export function RepositoryRequests({
                     · Requested {time(request.submitted_at)}
                   </Text>
                 </VStack>
-                <Text>{request.status}</Text>
+                <HStack gap={2} vAlign="center">
+                  <StatusDot
+                    aria-hidden="true"
+                    variant={requestStatus[request.status].tone}
+                    label={requestStatus[request.status].label}
+                  />
+                  <Text>{requestStatus[request.status].label}</Text>
+                </HStack>
               </HStack>
-              <Text as="p">{request.reason}</Text>
+              {request.reason !== "Repository access requested" ? (
+                <Text as="p">{request.reason}</Text>
+              ) : null}
               {request.decision_reason ? (
                 <Text as="p">
                   Decision: {request.decision_reason} ·{" "}
@@ -1190,23 +1245,29 @@ export function RepositoryRequests({
                 </Text>
               ) : null}
               {request.status === "pending" ? (
-                <HStack
-                  gap={3}
-                  wrap="wrap"
-                  vAlign="center"
-                  hAlign="between"
-                >
+                <HStack gap={3} wrap="wrap" vAlign="start">
                   {admin ? (
                     <>
                       <ConfirmAction
                         label="Approve repository"
                         path={`/api/repository-requests/${request.id}/approve`}
                         description={`Verify the current GitHub App grant, assign ${request.repository_name} to ${request.team_name}, and enable reviews with the deployment's default profile.`}
-                      ><ApprovalDocumentationSummary teamId={request.team_id} /></ConfirmAction>
+                      >
+                        <Text as="p" color="secondary">
+                          If GitHub cannot verify access, the request stays
+                          pending. Check the name and{" "}
+                          <Link to="/access">Access management</Link>; if the App
+                          lacks access, ask someone who manages GitHub to add
+                          the repository to the installation, then approve
+                          again.
+                        </Text>
+                        <ApprovalDocumentationSummary teamId={request.team_id} />
+                      </ConfirmAction>
                       <ConfirmAction
                         label="Reject request"
                         path={`/api/repository-requests/${request.id}/reject`}
-                        description="Record why this repository request cannot be approved."
+                        description={`${request.team_name} sees this explanation on the request.`}
+                        reasonLabel="Why can this repository not be approved?"
                       />
                     </>
                   ) : null}

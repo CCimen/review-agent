@@ -21,8 +21,10 @@ from .domain.publication import (
     PublicationPlan,
     resolve_publication_plan,
 )
+from .domain.documentation_policy import CONFIG_PATH
 from .domain.documentation_review import DocumentationResult
 from .memory_validation import (
+    FINDING_TEXT_LIMITS,
     MAX_FINDINGS_PER_REVIEW,
     PRIOR_FINDING_VERDICTS,
     PRIOR_VERDICT_EVIDENCE_MAX,
@@ -43,10 +45,12 @@ from .review_renderer import (
     ReviewCoverageSummary,
     RepositoryDecisionSummary,
     UncheckedFinding,
+    inline_code,
     render_review,
     review_heading,
     review_blocks_to_json,
     review_markdown_from_blocks,
+    safe_text,
 )
 
 
@@ -597,9 +601,9 @@ def build_documentation_publication(
         f"{len(scope.documents) if scope else 0} documentation paths. "
         f"Semantic assessment: {'used' if result.semantic_inference_used else 'not used'}."
     )
-    if result.incomplete_reasons:
-        details += "\n\nLimitations:\n" + "\n".join(f"- {reason}" for reason in result.incomplete_reasons)
-    if scope and scope.unmapped_paths and not result.coverage_complete:
+    # The policy file stays unmapped by design, so only other paths can be mapped or excluded.
+    mappable = tuple(path for path in scope.unmapped_paths if path != CONFIG_PATH) if scope else ()
+    if mappable and not result.coverage_complete:
         details += (
             "\n\nTo make later reviews complete, map unmapped paths to their documents in "
             "`.review-agent/documentation.toml`, or exclude them there with a reason."
@@ -610,19 +614,32 @@ def build_documentation_publication(
         "removed": "Removing the file takes effect in reviews after this pull request merges.",
     }.get(scope.proposal_status if scope else "")
     if scope and proposal_effect:
-        basis = ("the accepted rules from the target branch" if scope.active_policy
-                 else "no accepted rules, because the target branch has none")
+        basis = (
+            "the accepted rules from the target branch" if scope.active_policy
+            else "no rules, because the target branch has none" if scope.status == "not_configured"
+            else "no rules, because the target branch's file is invalid" if scope.status == "invalid_configuration"
+            else "no rules, because the target branch's file could not be read"
+        )
         details += (
             f"\n\nThis pull request changes `.review-agent/documentation.toml`. "
             f"This review used {basis}. {proposal_effect}"
         )
-    blocks = [ReviewBlock(kind="header", markdown=heading + details), *report_blocks]
+    blocks = [ReviewBlock(kind="header", markdown=heading + details)]
+    # One block per limitation keeps a long list packable into comment parts.
+    for index, reason in enumerate(result.incomplete_reasons):
+        blocks.append(ReviewBlock(kind="header", markdown=(
+            ("Limitations:\n" if index == 0 else "") + f"- {safe_text(reason, maximum=500)}"
+        )))
+    blocks.extend(report_blocks)
     # Findings always render from persisted records; caller prose cannot omit one.
+    # Model-written text is escaped so a comment cannot mention, link, or embed.
     for item in current:
         blocks.append(ReviewBlock(kind="finding", markdown=(
-            f"### {item.local_reference} · {item.title}\n\n"
-            f"`{item.path}:{item.line}`\n\n{item.evidence}\n\n"
-            f"**Impact:** {item.impact}\n\n**Suggested correction:** {item.smallest_fix}"
+            f"### {item.local_reference} · {safe_text(item.title, maximum=FINDING_TEXT_LIMITS['title'])}\n\n"
+            f"{inline_code(f'{item.path}:{item.line}', maximum=520)}\n\n"
+            f"{safe_text(item.evidence, maximum=FINDING_TEXT_LIMITS['evidence'])}\n\n"
+            f"**Impact:** {safe_text(item.impact, maximum=FINDING_TEXT_LIMITS['impact'])}\n\n"
+            f"**Suggested correction:** {safe_text(item.smallest_fix, maximum=FINDING_TEXT_LIMITS['smallest_fix'])}"
         )))
     publication_findings = [PublicationFindingInput(
         finding_id=item.finding_id, source_finding_occurrence_id=item.occurrence_id,
@@ -647,7 +664,9 @@ def build_documentation_publication(
         if resolved:
             resolved_count += 1
         blocks.append(ReviewBlock(kind="closed_history" if resolved or previous.suppressed else "unchecked_history", markdown=(
-            f"### {previous.local_reference} · {label} · {previous.title}\n\n{explanation}"
+            f"### {previous.local_reference} · {label} · "
+            f"{safe_text(previous.title, maximum=FINDING_TEXT_LIMITS['title'])}\n\n"
+            f"{safe_text(explanation, maximum=PRIOR_VERDICT_EVIDENCE_MAX)}"
         )))
         publication_findings.append(PublicationFindingInput(
             finding_id=previous.finding_id, source_finding_occurrence_id=previous.occurrence_id,
@@ -691,6 +710,11 @@ def build_documentation_publication(
         # Keep the full report in the check when it fits beside the report links.
         if overflow:
             summary += "\n\nThis report is also posted in the pull request conversation:"
+        else:
+            summary += (
+                "\n\nThis report could not also be posted as a pull request comment "
+                "because one report block exceeds GitHub's comment limit."
+            )
         if not fits_check or len(summary.encode("utf-8")) + len(report_numbers) * 300 > CHECK_OUTPUT_MAX_BYTES:
             summary = (
                 f"Reviewed commit: `{result.head_sha}`. "

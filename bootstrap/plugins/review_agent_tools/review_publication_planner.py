@@ -22,9 +22,8 @@ from .domain.publication import (
     resolve_publication_plan,
 )
 from .domain.documentation_policy import CONFIG_PATH
-from .domain.documentation_review import DocumentationResult
+from .domain.documentation_review import MAX_TEXT_CHARS, DocumentationResult
 from .memory_validation import (
-    FINDING_TEXT_LIMITS,
     MAX_FINDINGS_PER_REVIEW,
     PRIOR_FINDING_VERDICTS,
     PRIOR_VERDICT_EVIDENCE_MAX,
@@ -45,11 +44,11 @@ from .review_renderer import (
     ReviewCoverageSummary,
     RepositoryDecisionSummary,
     UncheckedFinding,
-    inline_code,
     render_review,
     review_heading,
     review_blocks_to_json,
     review_markdown_from_blocks,
+    safe_source_label,
     safe_text,
 )
 
@@ -635,11 +634,11 @@ def build_documentation_publication(
     # Model-written text is escaped so a comment cannot mention, link, or embed.
     for item in current:
         blocks.append(ReviewBlock(kind="finding", markdown=(
-            f"### {item.local_reference} · {safe_text(item.title, maximum=FINDING_TEXT_LIMITS['title'])}\n\n"
-            f"{inline_code(f'{item.path}:{item.line}', maximum=520)}\n\n"
-            f"{safe_text(item.evidence, maximum=FINDING_TEXT_LIMITS['evidence'])}\n\n"
-            f"**Impact:** {safe_text(item.impact, maximum=FINDING_TEXT_LIMITS['impact'])}\n\n"
-            f"**Suggested correction:** {safe_text(item.smallest_fix, maximum=FINDING_TEXT_LIMITS['smallest_fix'])}"
+            f"### {item.local_reference} · {safe_text(item.title, maximum=MAX_TEXT_CHARS)}\n\n"
+            f"`{safe_source_label(f'{item.path}:{item.line}', maximum=520)}`\n\n"
+            f"{safe_text(item.evidence, maximum=MAX_TEXT_CHARS)}\n\n"
+            f"**Impact:** {safe_text(item.impact, maximum=MAX_TEXT_CHARS)}\n\n"
+            f"**Suggested correction:** {safe_text(item.smallest_fix, maximum=MAX_TEXT_CHARS)}"
         )))
     publication_findings = [PublicationFindingInput(
         finding_id=item.finding_id, source_finding_occurrence_id=item.occurrence_id,
@@ -665,8 +664,8 @@ def build_documentation_publication(
             resolved_count += 1
         blocks.append(ReviewBlock(kind="closed_history" if resolved or previous.suppressed else "unchecked_history", markdown=(
             f"### {previous.local_reference} · {label} · "
-            f"{safe_text(previous.title, maximum=FINDING_TEXT_LIMITS['title'])}\n\n"
-            f"{safe_text(explanation, maximum=PRIOR_VERDICT_EVIDENCE_MAX)}"
+            f"{safe_text(previous.title, maximum=MAX_TEXT_CHARS)}\n\n"
+            f"{safe_text(explanation, maximum=MAX_TEXT_CHARS)}"
         )))
         publication_findings.append(PublicationFindingInput(
             finding_id=previous.finding_id, source_finding_occurrence_id=previous.occurrence_id,

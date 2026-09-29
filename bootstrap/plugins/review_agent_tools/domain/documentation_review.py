@@ -21,6 +21,8 @@ from .review import ReviewRunId
 MAX_EVIDENCE_READS = 512
 MAX_RESULT_JSON_BYTES = 512 * 1024
 MAX_INCOMPLETE_REASONS = 512
+# Bound for model-written documentation finding and verdict text.
+MAX_TEXT_CHARS = 900
 _SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 

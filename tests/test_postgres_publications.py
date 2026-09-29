@@ -2715,7 +2715,8 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         suppressed = build_documentation_publication(suppressed_context, result, max_comment_bytes=60_000)
         self.assertEqual(suppressed.plan.findings[0].outcome, PublicationFindingOutcome.SUPPRESSED)
         prior = previous[0]
-        receipt = DocumentationAssessment((), (), (PreviousDocumentationAssessment(prior.local_reference, prior.fingerprint, prior.occurrence_id, "resolved", "The corrected guide matches the implementation.", ()),))
+        rationale = "The corrected guide matches the implementation. " * 8 + "Final rationale sentence survives."
+        receipt = DocumentationAssessment((), (), (PreviousDocumentationAssessment(prior.local_reference, prior.fingerprint, prior.occurrence_id, "resolved", rationale, ()),))
         resolved = build_documentation_publication(context, replace(result, assessment=receipt), max_comment_bytes=60_000)
         self.assertEqual(resolved.resolved_count, 1)
         self.assertEqual(resolved.plan.findings[0].outcome, PublicationFindingOutcome.RESOLVED)
@@ -2727,6 +2728,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         # A clean follow-up still closes the earlier finding in the conversation.
         self.assertEqual(len(github.comments), 1)
         self.assertIn(f"{prior.local_reference} · Resolved", github.comments[0].body)
+        self.assertIn("Final rationale sentence survives.", github.comments[0].body)
         third, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION, request_key="docs-after-resolution", findings=())
         with self.runtime.transaction() as connection:
             self.assertEqual(documentation_reviews.previous_findings(connection, run_id=third), ())
@@ -2763,7 +2765,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         from review_agent_tools.postgres import documentation_reviews
         from tests.test_postgres_documentation_reviews import scope
         run_id, _ = self.start_recorded_run(purpose=ReviewPurpose.DOCUMENTATION,
-            findings=(self.finding(evidence=evidence),))
+            findings=(self.finding(evidence=evidence, path="docs/api_v2.md"),))
         proposed = replace(scope(), proposal_status="valid",
             unmapped_paths=("src/new.py", ".review-agent/documentation.toml"),
             changed_files=(*scope().changed_files, ChangedPath("A", "src/new.py"),
@@ -2789,6 +2791,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         body = comment.delivery.body
         self.assertTrue(body.startswith("## Documentation review\n\n**Documentation changes recommended**"))
         self.assertIn(context.current[0].local_reference, body)
+        self.assertIn("`docs/api_v2.md:7`", body)
         # Model-written text cannot mention teams or embed remote images.
         self.assertNotIn("@example-org", body)
         self.assertNotIn("![pixel](https://", body)

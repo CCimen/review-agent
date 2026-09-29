@@ -17,6 +17,7 @@ from .domain.documentation_review import (
     EvidenceRead,
     EvidenceRole,
     FindingEvidence,
+    MAX_TEXT_CHARS,
     PreviousDocumentationFinding,
     PreviousDocumentationAssessment,
     bounded_json,
@@ -159,7 +160,7 @@ def _object(value: object, expected: Sequence[str]) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _text(value: object, name: str, maximum: int = 900, *, empty: bool = False) -> str:
+def _text(value: object, name: str, maximum: int = MAX_TEXT_CHARS, *, empty: bool = False) -> str:
     if (
         not isinstance(value, str)
         or len(value) > maximum

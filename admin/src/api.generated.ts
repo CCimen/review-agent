@@ -2769,6 +2769,7 @@ export interface components {
             contents_permission: components["schemas"]["PermissionLevel"];
             issues_permission: components["schemas"]["PermissionLevel"];
             pull_requests_permission: components["schemas"]["PermissionLevel"];
+            checks_permission: components["schemas"]["PermissionLevel"];
             /**
              * Updated At
              * Format: date-time

@@ -11208,6 +11208,9 @@
           "pull_requests_permission": {
             "$ref": "#/components/schemas/PermissionLevel"
           },
+          "checks_permission": {
+            "$ref": "#/components/schemas/PermissionLevel"
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time",
@@ -11228,6 +11231,7 @@
           "contents_permission",
           "issues_permission",
           "pull_requests_permission",
+          "checks_permission",
           "updated_at"
         ],
         "title": "Installation"

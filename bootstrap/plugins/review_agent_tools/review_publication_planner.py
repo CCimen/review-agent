@@ -588,8 +588,9 @@ def build_documentation_publication(
         "success" if result.outcome is DocumentationOutcome.NO_MISMATCH_FOUND and result.coverage_complete else "neutral"
     )
     scope = result.scope
+    # The check shows the title itself; comments repeat it under this heading.
+    heading = f"## Documentation review\n\n**{title}**\n\n"
     details = (
-        f"## Documentation review\n\n**{title}**\n\n"
         f"Reviewed commit: `{result.head_sha}`\n\n"
         f"Coverage: {'complete for the selected scope' if result.coverage_complete else 'incomplete'}. "
         f"{len(scope.areas) if scope else 0} selected areas; "
@@ -598,7 +599,24 @@ def build_documentation_publication(
     )
     if result.incomplete_reasons:
         details += "\n\nLimitations:\n" + "\n".join(f"- {reason}" for reason in result.incomplete_reasons)
-    blocks = [ReviewBlock(kind="header", markdown=details), *report_blocks]
+    if scope and scope.unmapped_paths and not result.coverage_complete:
+        details += (
+            "\n\nTo make later reviews complete, map unmapped paths to their documents in "
+            "`.review-agent/documentation.toml`, or exclude them there with a reason."
+        )
+    proposal_effect = {
+        "valid": "The proposed rules apply to reviews after this pull request merges.",
+        "invalid": "The proposed file is invalid and cannot take effect; run `repository-context validate` to see why.",
+        "removed": "Removing the file takes effect in reviews after this pull request merges.",
+    }.get(scope.proposal_status if scope else "")
+    if scope and proposal_effect:
+        basis = ("the accepted rules from the target branch" if scope.active_policy
+                 else "no accepted rules, because the target branch has none")
+        details += (
+            f"\n\nThis pull request changes `.review-agent/documentation.toml`. "
+            f"This review used {basis}. {proposal_effect}"
+        )
+    blocks = [ReviewBlock(kind="header", markdown=heading + details), *report_blocks]
     # Findings always render from persisted records; caller prose cannot omit one.
     for item in current:
         blocks.append(ReviewBlock(kind="finding", markdown=(
@@ -647,9 +665,13 @@ def build_documentation_publication(
     blocks.append(ReviewBlock(kind="metadata", markdown=f"<!-- {publication_marker(key)} -->"))
     markdown = review_markdown_from_blocks(blocks)
     parts: list[PublicationPartInput] = []
-    summary = markdown
+    summary = markdown.removeprefix(heading)
     report_numbers: list[JsonValue] = []
-    if len(markdown.encode("utf-8")) > CHECK_OUTPUT_MAX_BYTES:
+    fits_check = len(summary.encode("utf-8")) <= CHECK_OUTPUT_MAX_BYTES
+    # Findings, and later verdicts on them, also go to the conversation: a neutral
+    # check stays green in the PR header and sends no notification, and superseded
+    # documentation comments are never rewritten, so only a new comment closes them.
+    if current or context.previous or not fits_check:
         try:
             overflow = split_publication_body(
                 markdown, publication_key=key, max_comment_bytes=max_comment_bytes,
@@ -666,20 +688,24 @@ def build_documentation_publication(
                 part_number=part.part_number, payload_schema_version=1, payload={"body": part.body},
             ))
             report_numbers.append(part.part_number)
-        summary = (
-            f"## Documentation review\n\n**{title}**\n\nReviewed commit: `{result.head_sha}`. "
-            f"Coverage: {'complete for the selected scope' if result.coverage_complete else 'incomplete'}.\n\n"
-        )
+        # Keep the full report in the check when it fits beside the report links.
         if overflow:
-            summary += "The complete report is available in the linked report parts."
-        else:
-            summary += (
-                "Delivery limitation: a report block exceeds GitHub's comment limit. "
-                "The complete report and findings are retained in review history; "
-                "this check does not claim that the complete report was delivered to GitHub."
+            summary += "\n\nThis report is also posted in the pull request conversation:"
+        if not fits_check or len(summary.encode("utf-8")) + len(report_numbers) * 300 > CHECK_OUTPUT_MAX_BYTES:
+            summary = (
+                f"Reviewed commit: `{result.head_sha}`. "
+                f"Coverage: {'complete for the selected scope' if result.coverage_complete else 'incomplete'}.\n\n"
             )
-        if len(summary.encode("utf-8")) + len(report_numbers) * 300 > CHECK_OUTPUT_MAX_BYTES:
-            raise PublicationPlanningError("documentation overflow index exceeds the check output limit")
+            if overflow:
+                summary += "The complete report is available in the linked report parts."
+            else:
+                summary += (
+                    "Delivery limitation: a report block exceeds GitHub's comment limit. "
+                    "The complete report and findings are retained in review history; "
+                    "this check does not claim that the complete report was delivered to GitHub."
+                )
+            if len(summary.encode("utf-8")) + len(report_numbers) * 300 > CHECK_OUTPUT_MAX_BYTES:
+                raise PublicationPlanningError("documentation overflow index exceeds the check output limit")
     parts.append(PublicationPartInput(
         part_type=PublicationPartType.CHECK_RUN, part_number=1, payload_schema_version=1,
         payload={"name": DOCUMENTATION_CHECK_NAME, "head_sha": result.head_sha,

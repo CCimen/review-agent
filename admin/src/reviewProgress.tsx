@@ -62,7 +62,10 @@ export function ReviewProgress({ item }: { item: HistoryItem }) {
           : "Waiting for a worker";
       break;
     case "running":
-      detail = phaseLabels[item.phase] ?? "Review in progress";
+      detail =
+        item.phase === "reviewing" && item.purpose === "documentation"
+          ? "Reviewing documentation"
+          : (phaseLabels[item.phase] ?? "Review in progress");
       break;
     case "publishing":
       detail = item.publication_failure_code

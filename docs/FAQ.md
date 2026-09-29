@@ -134,9 +134,10 @@ publications to a channel:
   by default)
 
 A code review arrives as a pull-request comment and, when it has suggestions, a
-pull-request review. Documentation results usually appear only as a GitHub
-check, which these subscriptions do not list; open the pull request's
-**Checks** tab. Subscribe in a channel whose members can already read the
+pull-request review. Recommended documentation changes also arrive as a
+comment. Other documentation results, such as a clean or skipped review, appear
+only as a GitHub check, which these subscriptions do not list; open the pull
+request's **Checks** tab. Subscribe in a channel whose members can already read the
 repository, because relayed comments contain review content. Starting a review
 or chatting with the reviewer from Slack or Teams is not supported.
 

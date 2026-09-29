@@ -76,9 +76,12 @@ Membership and ownership changes invalidate the affected accounts' cached views;
 subsequent server operations always resolve current access. Team views omit
 deployment-wide worker and capacity figures.
 
-In a team's Repositories tab, maintainers submit `owner/repository` or its HTTPS
-GitHub URL. Owners and admins approve or reject requests in
-**Repository requests**. Approval verifies the current GitHub App grant, assigns
+The **Repositories** page starts both paths: maintainers see
+**Request a repository**, and owners and admins see **Add repository** and the
+number of pending requests. In a team's Repositories tab, maintainers submit
+`owner/repository` or its HTTPS GitHub URL. Owners and admins approve or reject
+requests in **Repository requests**; a rejection needs a written reason, which
+the team sees on the request. Approval verifies the current GitHub App grant, assigns
 ownership, enables reviews, and records the decision in one database transaction.
 Repeating the same approval returns the stored decision. A competing owner or
 newer revoked grant rejects approval without partially enabling the repository.

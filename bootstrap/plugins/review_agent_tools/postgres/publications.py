@@ -287,6 +287,20 @@ class PublicationPreparationContext:
     coverage: PreparationCoverage
     repository_decisions: RepositoryDecisionContext
     reconciliations: tuple[postgres_findings.FindingReconciliation, ...] = ()
+    # Open findings (fingerprint, outcome, severity) of the latest documentation
+    # publication whose comment reached the conversation; None when none did.
+    conversation_baseline: frozenset[tuple[str, str, str]] | None = None
+    # Closures of those findings recorded after it, such as a check-only round.
+    conversation_closures: tuple[ConversationClosure, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationClosure:
+    fingerprint: str
+    local_reference: str
+    title: str
+    outcome: str
+    explanation: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,6 +469,97 @@ def preparation_context(
         (scope_lock.pull_request_id, scope_lock.purpose),
     ).fetchall()
 
+    conversation_baseline: frozenset[tuple[str, str, str]] | None = None
+    conversation_closures: tuple[ConversationClosure, ...] = ()
+    if scope_lock.purpose == ReviewPurpose.DOCUMENTATION.value:
+        # Check-only publications never become the baseline, so a quiet round
+        # cannot hide a later change from the conversation. Posting order, not
+        # preparation order, decides which comment the conversation saw last.
+        baseline = connection.execute(
+            """
+            SELECT publication.id, publication.posted_at
+            FROM review_agent.publications AS publication
+            WHERE publication.pull_request_id = %s
+              AND publication.purpose = %s
+              AND publication.status = 'posted'
+              AND EXISTS (
+                  SELECT 1
+                  FROM review_agent.publication_parts AS part
+                  WHERE part.publication_id = publication.id
+                    AND part.part_type = 'summary'
+                    AND part.status = 'posted'
+                    AND part.external_id IS NOT NULL
+              )
+            ORDER BY publication.posted_at DESC, publication.id DESC
+            LIMIT 1
+            """,
+            (scope_lock.pull_request_id, scope_lock.purpose),
+        ).fetchone()
+        if baseline is not None:
+            baseline_rows = connection.execute(
+                """
+                SELECT identity.fingerprint, item.outcome, occurrence.severity
+                FROM review_agent.publication_findings AS item
+                JOIN review_agent.finding_identities AS identity
+                  ON identity.id = item.finding_id
+                JOIN review_agent.finding_occurrences AS occurrence
+                  ON occurrence.id = item.source_finding_occurrence_id
+                WHERE item.publication_id = %s
+                  AND item.outcome IN ('current', 'not_checked')
+                """,
+                (baseline[0],),
+            ).fetchall()
+            conversation_baseline = frozenset(
+                (
+                    str(fingerprint),
+                    str(outcome),
+                    str(severity) if outcome == "current" else "",
+                )
+                for fingerprint, outcome, severity in baseline_rows
+            )
+        if conversation_baseline:
+            assert baseline is not None
+            # A closure delivered only in a check still has to reach the
+            # conversation; load the latest one per announced finding.
+            closure_rows = connection.execute(
+                """
+                SELECT DISTINCT ON (identity.fingerprint)
+                       identity.fingerprint, item.local_reference, occurrence.title,
+                       item.outcome, COALESCE(item.outcome_evidence, '')
+                FROM review_agent.publications AS publication
+                JOIN review_agent.publication_findings AS item
+                  ON item.publication_id = publication.id
+                JOIN review_agent.finding_identities AS identity
+                  ON identity.id = item.finding_id
+                JOIN review_agent.finding_occurrences AS occurrence
+                  ON occurrence.id = item.source_finding_occurrence_id
+                WHERE publication.pull_request_id = %s
+                  AND publication.purpose = %s
+                  AND publication.status = 'posted'
+                  AND (publication.posted_at, publication.id) > (%s, %s)
+                  AND item.outcome IN ('resolved', 'suppressed')
+                  AND identity.fingerprint = ANY(%s)
+                ORDER BY identity.fingerprint, publication.posted_at DESC, publication.id DESC
+                """,
+                (
+                    scope_lock.pull_request_id,
+                    scope_lock.purpose,
+                    baseline[1],
+                    baseline[0],
+                    sorted({fingerprint for fingerprint, _, _ in conversation_baseline}),
+                ),
+            ).fetchall()
+            conversation_closures = tuple(
+                ConversationClosure(
+                    fingerprint=str(row[0]),
+                    local_reference=str(row[1]),
+                    title=str(row[2]),
+                    outcome=str(row[3]),
+                    explanation=str(row[4]),
+                )
+                for row in closure_rows
+            )
+
     reconciliation_rows = connection.execute(
         """
         SELECT finding_occurrence_id, COALESCE(reason, '')
@@ -587,6 +692,8 @@ def preparation_context(
         dropped_reasons=tuple(
             (int(row[0]), str(row[1])) for row in reconciliation_rows
         ),
+        conversation_baseline=conversation_baseline,
+        conversation_closures=conversation_closures,
         coverage=PreparationCoverage(
             state=coverage.state.value,
             changed_files_reported=coverage.changed_files_reported,

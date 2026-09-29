@@ -135,9 +135,9 @@ publications to a channel:
 
 A code review arrives as a pull-request comment and, when it has suggestions, a
 pull-request review. Recommended documentation changes also arrive as a
-comment, and so does a later review that rechecks those findings. Other
-documentation results, such as a first clean or skipped review, appear only as
-a GitHub check unless the report is too large for it. These subscriptions do not
+comment whenever the open findings change, for example when one is found or
+resolved. Other documentation results, such as an unchanged, clean or skipped
+review, appear only as a GitHub check unless the report is too large for it. These subscriptions do not
 list checks; open the pull request's **Checks** tab. Subscribe in a channel whose members can already read the
 repository, because relayed comments contain review content. Starting a review
 or chatting with the reviewer from Slack or Teams is not supported.

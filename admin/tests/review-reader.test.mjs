@@ -27,6 +27,7 @@ let OperationsPage;
 let UsagePage;
 let TeamDocumentationSection;
 let RepositoryDocumentationSection;
+let RepositoryRequests;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -60,6 +61,7 @@ before(async () => {
   ({ OperationsPage } = await server.ssrLoadModule("/src/operations.tsx"));
   ({ UsagePage } = await server.ssrLoadModule("/src/usage.tsx"));
   ({ TeamDocumentationSection, RepositoryDocumentationSection } = await server.ssrLoadModule("/src/documentation.tsx"));
+  ({ RepositoryRequests } = await server.ssrLoadModule("/src/teams.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -398,7 +400,7 @@ test("access distinguishes GitHub scope from review activation and preserves dis
     default_profile: "default-standard",
     detail: "Configured",
   };
-  const html = renderConsolePage(createElement(Access), [
+  const cache = [
     [
       ["access", "installations", 0],
       {
@@ -435,10 +437,28 @@ test("access distinguishes GitHub scope from review activation and preserves dis
             automatic_activation_blocked: true,
             profile: null,
           },
+          {
+            repository_id: 6,
+            repository: "example/new-repository",
+            access: "available",
+            enabled: false,
+            automatic_activation_blocked: false,
+            profile: null,
+          },
         ],
       },
     ],
-  ]);
+  ];
+  const html = renderConsolePage(createElement(Access), cache);
+  assert.match(html, /How repository access works/);
+  assert.match(html, /without assigning a team/);
+  // A repository that was never enabled is not the same as one an admin disabled.
+  assert.match(html, /example\/repository[\s\S]*?>Disabled<[\s\S]*?Automatic activation blocked/);
+  assert.match(html, /example\/new-repository[\s\S]*?>Not enabled</);
+  const trigger = (markup) => elements(markup, "button").find((item) => textContent(item).includes("Add repository")) ?? "";
+  assert.match(trigger(html), /aria-expanded="false"/);
+  // The Repositories page's Add repository action opens the form directly.
+  assert.match(trigger(renderConsolePage(createElement(Access), cache, "/access?add=1")), /aria-expanded="true"/);
   assert.match(html, /GitHub grants access to/);
   assert.match(html, /All repositories/);
   assert.match(html, /Only explicitly enabled repositories/);
@@ -446,6 +466,41 @@ test("access distinguishes GitHub scope from review activation and preserves dis
   assert.match(html, /Add repository/);
   assert.match(html, /value="default-standard"/);
   assert.match(html, /Check live GitHub status/);
+});
+
+test("teams follow requests to their outcome while the platform queue starts with pending work", () => {
+  const request = (id, status, decision_reason = null) => ({
+    id, team_id: 3, team_name: "Platform", repository_name: `example/repo-${id}`,
+    status, reason: "Repository access requested", submitted_at: "2026-09-29T10:00:00Z",
+    decision_reason, decided_at: decision_reason ? "2026-09-29T11:00:00Z" : null,
+  });
+  const page = { items: [request(1, "pending"), request(2, "rejected", "Owned by the payments team")], pending: 1, next_before_id: null };
+  const teamPage = (maintain) =>
+    renderConsolePage(
+      createElement(RepositoryRequests, { team: { id: 3, name: "Platform", role: maintain ? "maintainer" : "viewer" }, maintain }),
+      [
+        // Two teams keep the member in the "all" scope instead of auto-selecting one.
+        [["teams", "selector", "test-account:member:0"], { total: 2, items: [], next_after_id: null }],
+        [["repository-requests", 3, "", null, "scoped", "test-account:member:0:all:"], page],
+      ],
+      "/",
+      "member",
+    );
+  const maintainer = teamPage(true);
+  assert.match(maintainer, /Rejected/);
+  assert.match(maintainer, /Decision: Owned by the payments team/);
+  assert.match(maintainer, /Pending/);
+  assert.ok(button(maintainer, "Withdraw request"));
+  assert.equal(button(maintainer, "Approve repository"), "");
+  assert.equal(button(maintainer, "Reject request"), "");
+  const viewer = teamPage(false);
+  assert.equal(button(viewer, "Withdraw request"), "");
+  const queue = renderConsolePage(createElement(RepositoryRequests), [
+    [["repository-requests", undefined, "pending", null, "scoped", "test-account:owner:0:all:"], { ...page, items: [request(1, "pending")] }],
+  ]);
+  assert.doesNotMatch(queue, /Rejected/);
+  for (const label of ["Approve repository", "Reject request", "Withdraw request"])
+    assert.ok(button(queue, label), label);
 });
 
 test("settings expose saved operational defaults and distinguish older startup observations", () => {

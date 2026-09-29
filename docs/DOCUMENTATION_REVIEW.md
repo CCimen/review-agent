@@ -91,7 +91,7 @@ protection rule as part of initial adoption.
 | --- | --- | --- |
 | No documentation review needed | Skipped | Complete scope analysis established that the changes were explicitly excluded; no semantic call was needed. |
 | No documentation mismatch found | Success | The selected scope was assessed with complete evidence and no retained mismatch. |
-| Documentation changes recommended | Neutral | The report contains evidence-backed corrections for a developer to consider. It is also posted as a pull request comment. |
+| Documentation changes recommended | Neutral | The report contains evidence-backed corrections for a developer to consider. It is also posted as a pull request comment when the open findings change or the report is too large for the check. |
 | Incomplete, unavailable, or configuration needs attention | Neutral | The report explains the gap; it does not claim complete verification. |
 
 A successful check is limited to the selected scope and retained evidence. It
@@ -105,13 +105,15 @@ on an older commit remains historical evidence.
 
 Find the result in the pull request's **Checks** tab under **Documentation
 review**. A neutral conclusion keeps the pull request mergeable and shows as
-passing in its header, so recommended changes are also posted as a pull request
-comment. A later review that rechecks those findings posts a comment too, so the
-conversation shows when they are resolved. Comments reach GitHub, Slack, and
-Microsoft Teams notifications. Other clean, skipped, incomplete, and
-configuration results stay in the check to avoid noise on every pull request. A
-report too large for the check uses linked comment parts, and console history
-keeps the complete retained report.
+passing in its header, so the report is also posted as a pull request comment
+when the open findings change: the first time changes are recommended, and when
+a later review resolves a finding, finds a new one, changes its severity, or can
+no longer check it. A review that finds the same open findings again, for
+example after an unrelated push, updates only the check. Comments reach GitHub,
+Slack, and Microsoft Teams notifications. Clean, skipped, incomplete, and
+configuration results without such a change stay in the check. A report too
+large for the check always uses linked comment parts, and console history keeps
+the complete retained report.
 
 When a pull request edits `.review-agent/documentation.toml`, the report says
 that the review used the accepted rules from the target branch and that the

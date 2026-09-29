@@ -6,7 +6,7 @@
     {
       "vulnerability_id": "CVE-2026-43185",
       "package_name": "linux-libc-dev",
-      "installed_version": "6.12.107-1",
+      "installed_version": "6.12.111-1",
       "reason": "This package supplies build headers and no executable runtime path; Debian 13 has not published a fixed package."
     },
     {

@@ -4,7 +4,7 @@ slug: /feedback-and-decisions
 title: Feedback and design decisions
 description: Use review feedback to improve reviewer quality and record repository decisions that later changes must respect.
 status: current
-last_verified: 2026-09-09
+last_verified: 2026-10-07
 ---
 
 # Feedback and design decisions
@@ -22,8 +22,24 @@ become a second documentation store.
 ## Read the review result
 
 The summary identifies the reviewed commit, current findings, changes since the
-previous review, and diff coverage. Current findings stay expanded. Coverage
-details and evidence for closed findings are expandable.
+previous review, and diff coverage. Low/P3 maintainability improvements appear
+in a collapsed **Code quality and readability** section after the expanded
+findings, with the improvement count visible in the summary. All other current
+findings, including Medium and security findings, stay expanded. Every finding
+retains its full explanation, F reference, feedback commands, and entry in the
+copyable fix brief. Large groups split into complete numbered sections across
+comments. Coverage details and evidence for closed findings are expandable.
+
+The default publication budget is 65,000 UTF-8 bytes per complete comment,
+including framing and metadata. Explicit saved or environment values retain
+their configured budget. A longer
+review uses continuation comments rather than truncating current findings.
+Review Agent also enforces a separate limit of 200 pending findings, including
+prior findings not rechecked. Exceeding that limit rejects publication; it does
+not silently publish the first 200. Evidence-backed grouping can combine
+instances of the same root cause, but sharing a category is not enough to merge
+independent problems. These bounds do not guarantee that the model discovers
+every issue in a large pull request.
 
 Coverage counts describe complete diff content available to the reviewer. A
 partial review can contain useful findings, but a result with no confirmed

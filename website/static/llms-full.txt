@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.4.6
+Runtime release selected by `llms.txt`: v0.4.7
 
 ---
 
@@ -1582,13 +1582,22 @@ severity gates are recorded.
 
 The shared default profile also checks changed names and readability. A clarity
 finding must show a specific mismatch between a name or structure and the
-behavior a maintainer needs to understand, with a bounded correction grounded in
-the code. These findings normally have Low priority. Language and framework
+behavior a maintainer needs to understand, an obscured units or data-flow
+distinction, or a broken naming convention backed by an existing example for
+the same kind of element in the repository. The finding must explain the
+misunderstanding at an actual usage and give a bounded correction grounded in
+the code. These findings normally have Low priority; a public or persisted name
+alone does not justify a finding or higher severity. Language and framework
 idioms and repository conventions matter: the same criteria apply to Python,
 JavaScript, TypeScript, React and other frontend code, and Java and other backend
 code without imposing one ecosystem's naming or architecture rules on another.
 Cosmetic formatting, personal preferences, arbitrary grammar-test keys, and
 refactors justified only by line-count or nesting limits remain excluded.
+
+This is a shared baseline. Repository-specific terminology comes from the code
+and accepted repository guidance, rather than a separate naming rule for each
+team. Actual behavior, contract, security, and required test-coverage defects
+retain their own categories and severity.
 
 Every code review uses security guidance adapted from
 [Cloudflare's security-audit skill](https://github.com/cloudflare/security-audit-skill).
@@ -1898,7 +1907,7 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.4.6 \
+  ghcr.io/ccimen/review-agent:v0.4.7 \
   repository-context validate /repo
 ```
 
@@ -4369,8 +4378,9 @@ All values are optional and have deployable defaults:
   history is larger, rather than treating it as a review-depth limit.
 - `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` — default `8`. Concurrent
   signed admission requests per process.
-- `REVIEW_AGENT_PUBLISH_MAX_BYTES` — default `60000`. Bytes per GitHub comment
-  part, not a finding cap.
+- `REVIEW_AGENT_PUBLISH_MAX_BYTES` — default `65000`. UTF-8 bytes per complete
+  GitHub comment part, including framing and metadata, not a finding cap.
+  Explicit saved or environment values retain their configured budget.
 - `REVIEW_AGENT_POSTGRES_MAX_CONNECTIONS` — default `200` for the bundled
   Compose database. External PostgreSQL deployments own this setting.
 
@@ -4479,7 +4489,7 @@ boundary prevents inspection. Retained bounds have one of four owners:
 | Diff and source output | `plugins.entries.review-agent-tools.settings.result_max_chars` defaults to 160,000 characters and can be raised for larger-context models. The plugin derives a JSON-safe text page from that one budget and enforces it on diff and source page responses. A diff response returns `next_start_char`, `path_total_chars`, and `diff_source` for exact continuation. A source response also carries at most 400 lines; low-newline source that crosses the character boundary is reported truncated and is not recorded as a complete line read. | One native Hermes plugin setting owns and enforces the complete page-result budget without rejecting unrelated memory or delivery payloads. Diff pages can continue without a total code limit; an indivisible source line may remain incomplete rather than flood model context. |
 | Historical context | One call accepts the same 200 paths returned by a changed-path page. The review procedure processes further pages in additional calls. | Bounded database/result work per call; not a repository limit. |
 | Findings and suggestions | One atomic record transaction accepts at most 200 findings. Exceeding it rejects the record rather than dropping findings. At most 12 independent native suggestions are retained, while every accepted finding remains in the summary and coding-agent brief. | Bounded atomic persistence and GitHub head reads; suggestions are optional delivery metadata. |
-| Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` defaults to 60,000 bytes and is constrained to GitHub-safe part sizes. Larger reviews are deterministically split. | Provider delivery size, not a finding or review-depth limit. |
+| Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` defaults to 65,000 UTF-8 bytes including framing and metadata, below the API's [reported 65,536-character ceiling](https://github.com/actions/dependency-review-action/issues/730). Larger reviews are deterministically split. | Per-comment delivery budget; the separate 200-pending-finding bound still applies. |
 | Webhook and stored payloads | Request bodies, persisted JSON aggregates, text fields, database pools, timeouts, and retry counts remain bounded. | Denial-of-service protection, typed storage integrity, and predictable resource use. |
 
 The managed configuration deliberately does not set `agent.max_turns` or
@@ -5236,7 +5246,7 @@ OAuth state, or repository rules.
 Title: Feedback and design decisions
 Canonical URL: https://ccimen.github.io/review-agent/docs/feedback-and-decisions
 Status: current
-Last verified: 2026-09-09
+Last verified: 2026-10-07
 
 # Feedback and design decisions
 
@@ -5253,8 +5263,24 @@ become a second documentation store.
 ## Read the review result
 
 The summary identifies the reviewed commit, current findings, changes since the
-previous review, and diff coverage. Current findings stay expanded. Coverage
-details and evidence for closed findings are expandable.
+previous review, and diff coverage. Low/P3 maintainability improvements appear
+in a collapsed **Code quality and readability** section after the expanded
+findings, with the improvement count visible in the summary. All other current
+findings, including Medium and security findings, stay expanded. Every finding
+retains its full explanation, F reference, feedback commands, and entry in the
+copyable fix brief. Large groups split into complete numbered sections across
+comments. Coverage details and evidence for closed findings are expandable.
+
+The default publication budget is 65,000 UTF-8 bytes per complete comment,
+including framing and metadata. Explicit saved or environment values retain
+their configured budget. A longer
+review uses continuation comments rather than truncating current findings.
+Review Agent also enforces a separate limit of 200 pending findings, including
+prior findings not rechecked. Exceeding that limit rejects publication; it does
+not silently publish the first 200. Evidence-backed grouping can combine
+instances of the same root cause, but sharing a category is not enough to merge
+independent problems. These bounds do not guarantee that the model discovers
+every issue in a large pull request.
 
 Coverage counts describe complete diff content available to the reviewer. A
 partial review can contain useful findings, but a result with no confirmed

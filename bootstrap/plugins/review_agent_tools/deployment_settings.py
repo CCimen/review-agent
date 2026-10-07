@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .review_contract import REASONING_EFFORTS
-from .settings import ReviewAgentSettings
+from .settings import (
+    DEFAULT_PUBLISH_MAX_BYTES,
+    MAX_PUBLISH_MAX_BYTES,
+    MIN_PUBLISH_MAX_BYTES,
+    ReviewAgentSettings,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +25,7 @@ class DeploymentSettings:
     job_lease_seconds: int = 120
     job_heartbeat_seconds: int = 30
     hermes_timeout_seconds: int = 7200
-    publish_max_bytes: int = 60000
+    publish_max_bytes: int = DEFAULT_PUBLISH_MAX_BYTES
     publication_max_attempts: int = 3
     job_priority: int = 0
     job_priority_aging_seconds: int = 900
@@ -66,8 +71,11 @@ class DeploymentSettings:
             )
         if self.job_heartbeat_seconds * 2 >= self.job_lease_seconds:
             raise ValueError("Heartbeat must be less than half the lease duration")
-        if not 1000 <= self.publish_max_bytes <= 65000:
-            raise ValueError("Publication size must be between 1000 and 65000 bytes")
+        if not MIN_PUBLISH_MAX_BYTES <= self.publish_max_bytes <= MAX_PUBLISH_MAX_BYTES:
+            raise ValueError(
+                f"Publication size must be between {MIN_PUBLISH_MAX_BYTES} "
+                f"and {MAX_PUBLISH_MAX_BYTES} bytes"
+            )
         if self.model_provider not in {"openai-codex", "anthropic"}:
             raise ValueError("Unsupported model provider")
         if self.reasoning_effort not in REASONING_EFFORTS:

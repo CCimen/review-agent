@@ -9815,7 +9815,7 @@
           "publish_max_bytes": {
             "type": "integer",
             "title": "Publish Max Bytes",
-            "default": 60000
+            "default": 65000
           },
           "publication_max_attempts": {
             "type": "integer",

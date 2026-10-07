@@ -4,6 +4,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import yaml
+
 PLUGIN_PARENT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PLUGIN_PARENT))
 
@@ -16,6 +18,18 @@ from review_agent_tools import memory_validation  # noqa: E402
 
 
 class ReviewAgentSettingsTests(unittest.TestCase):
+    def test_compose_defers_an_unset_publication_budget_to_runtime_settings(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        variable = "REVIEW_AGENT_PUBLISH_MAX_BYTES"
+        values = [
+            service["environment"][variable]
+            for name in ("compose.yaml", "compose.admin.yaml")
+            for service in yaml.safe_load((root / name).read_text())["services"].values()
+            if variable in service.get("environment", {})
+        ]
+        self.assertEqual(values, ["${REVIEW_AGENT_PUBLISH_MAX_BYTES:-}"] * 3)
+        self.assertEqual(ReviewAgentSettings({variable: ""}).publish_max_bytes, 65_000)
+
     def test_postgresql_database_url_is_required_and_typed(self) -> None:
         configured = ReviewAgentSettings(
             {
@@ -110,7 +124,7 @@ class ReviewAgentSettingsTests(unittest.TestCase):
                     ).operator_export_max_rows
 
     def test_publish_byte_limit_preserves_default_clamp_and_error(self) -> None:
-        self.assertEqual(ReviewAgentSettings({}).publish_max_bytes, 60_000)
+        self.assertEqual(ReviewAgentSettings({}).publish_max_bytes, 65_000)
         self.assertEqual(
             ReviewAgentSettings(
                 {"REVIEW_AGENT_PUBLISH_MAX_BYTES": "10"}

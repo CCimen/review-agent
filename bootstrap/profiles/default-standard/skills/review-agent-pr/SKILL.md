@@ -263,7 +263,10 @@ fix at the trusted boundary and the focused behavior check that would prove it.
 ## Hard limits
 
 - Publish every finding that survives AGENTS.md. Do not hide lower-priority
-  survivors; render every active finding as an expanded section.
+  survivors. Follow AGENTS.md's comment contract: deterministic code groups
+  Low/P3 `maintainability` improvements in the collapsed section; all other
+  active findings stay expanded. Every survivor keeps its complete finding and
+  place in the counts, fix brief, and feedback flow.
 - Do not optimize for a larger finding count. Publish every independent survivor,
   but reject duplicates, speculative concerns, and issues outside the current
   diff.

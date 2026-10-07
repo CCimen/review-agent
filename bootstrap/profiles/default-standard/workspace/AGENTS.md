@@ -68,8 +68,9 @@ Prioritize these areas in this order:
 5. Maintainability: wrong ownership boundary, duplicated policy, hidden coupling,
    misleading names or abstractions, obscured data flow, unnecessary complexity,
    or AI-generated scaffolding that creates a concrete misunderstanding, future
-   defect, or change cost. Inspect changed variables, functions, classes,
-   components, and tests for clarity as well as behavior.
+   defect, or change cost. Inspect changed variables, fields, configuration keys,
+   persisted columns, public names, functions, classes, components, and tests for
+   clarity as well as behavior.
 6. Performance and data changes: avoidable repeated work, unbounded queries,
    blocking paths, production locks, unsafe migrations, data loss, and
    irreversible state.
@@ -114,22 +115,29 @@ For a tests finding, identify the changed behavior that lacks regression
 coverage, or the test that would have passed before this change, covers only the
 happy path, or asserts mocks or implementation details instead of behavior.
 
-For a code-clarity finding, use category `maintainability`. Identify the changed
-name or structure and the exact usage a maintainer must interpret. Show how it
-misstates behavior or obscures a specific contract or data-flow distinction;
-"a more descriptive name would be better" is insufficient. Explain the concrete
-misunderstanding or avoidable reconstruction work and a bounded correction
-using vocabulary already supported by the code. Do not invent a runtime failure:
-for these findings, that usage is the consumer, and the interpretation mismatch
-is the evidence in the finding fields and public comment.
+For a code-clarity finding, identify the changed name or structure and the exact
+usage a maintainer must interpret. Show how it misstates behavior, obscures a
+specific contract, data-flow, or units distinction, or breaks a naming convention
+established for the same kind of element in this repository. A convention claim
+needs a cited existing example and an explanation of the misunderstanding or
+avoidable reconstruction work at that usage; "a more descriptive name would be
+better" is insufficient. Give a bounded correction using vocabulary already
+supported by the code. Use category `maintainability` for clarity-only mismatches.
+An actual behavioral defect, contract or trust-boundary violation, or missing
+required regression coverage belongs in its existing category and severity;
+do not recategorize it as clarity to make it collapsible. Do not invent a runtime
+failure: for clarity-only findings, that usage is the consumer, and the
+interpretation mismatch is the evidence in the finding fields and public comment.
 
 Try to disprove the mismatch using adjacent code and documentation, language and
-framework idioms, and project conventions. A convention claim needs a cited
-in-repository example; do not infer one from another ecosystem. Drop the
-candidate when this context makes the meaning clear. Do not flag names solely
-for length, casing, or a missing preferred prefix, or prescribe a refactor solely
-from function-length or nesting metrics. A helper named as an unconditional
-rejection that actually validates and returns for supported input is eligible;
+framework idioms, and project conventions; do not infer a convention from another
+ecosystem. Drop the candidate when this context makes the meaning clear at that
+usage. Do not flag names solely for length, casing style, or a missing preferred
+prefix. A diff that spells one established domain term two ways is eligible only
+with the same evidence of misunderstanding or reconstruction work. Do not
+prescribe a refactor solely from function-length or nesting metrics. A helper
+named as an unconditional rejection that actually validates and returns for
+supported input is eligible;
 arbitrary fixture keys in a wildcard or grammar test are not when their meaning
 is already clear from the test. Cosmetic style and formatting remain excluded.
 
@@ -241,7 +249,8 @@ useful to the author but not important enough to call High.
 **Low / P3** is for a small, evidence-backed improvement with a specific fix that
 a reviewer would still appreciate seeing. Clarity-only findings default to Low;
 use Medium only when the demonstrated confusion hides a concrete behavior or
-contract distinction at an actual usage. Do not use Low for cosmetic style,
+contract distinction at an actual usage. A public or persisted name alone does
+not justify a finding or higher severity. Do not use Low for cosmetic style,
 formatting, vague possibilities, generic best practice, or personal preference.
 
 ## GitHub comment contract
@@ -261,7 +270,8 @@ developer gets GitHub's native suggestion controls in **Files changed**.
   incomplete; the number of findings is not a stopping condition.
 - Order findings deterministically by severity, practical impact, publication
   score, then `rule_id` alphabetically. Confidence is an internal admission gate,
-  not visible ranking metadata.
+  not visible ranking metadata. Present expanded findings first, then the
+  Low/P3 `maintainability` group; preserve this ordering within each group.
 - Keep each finding compact. Spend words on evidence and the fix, never on
   padding.
 - Start with the configured review title, currently
@@ -271,9 +281,15 @@ developer gets GitHub's native suggestion controls in **Files changed**.
 - Do not include a top-level per-finding table. Long paths and memory
   fingerprints render poorly in GitHub tables, and each finding already carries
   its own heading and location.
-- Render every published finding as a normal expanded `###` section, including
-  Medium and Low findings. Lower severity controls priority and ordering, not
-  visibility.
+- Render every published finding as a complete `###` section. Keep all findings
+  expanded except Low/P3 `maintainability` improvements, which deterministic
+  code collects in one collapsed `Code quality and readability` section after
+  the expanded findings. Keep the total and severity counts visible, plus the
+  number of improvements. Omit an empty group. Medium findings and all security
+  findings stay expanded. Every grouped finding keeps its location, evidence,
+  impact, smallest safe fix, stable F reference, and place in the fix brief and
+  feedback flow. If the group exceeds the publication budget, split it into
+  complete, numbered disclosure parts without dropping or truncating a finding.
 - Use stable local finding references for the PR: `F1`, `F2`, `F3`, and so on.
   A surviving fingerprint keeps the same local reference on later review
   iterations; resolved references are not recycled for different findings.
@@ -363,8 +379,9 @@ agent` only when findings exist. Keep it compact and put the complete brief in a
 single `text` fenced code block so GitHub shows one copy button. For an exceptional
 review with more than ten findings, split the brief into deterministic F-reference
 parts; each part remains a complete fenced block. The only allowed collapsed
-sections are these fix-brief parts and the deterministic `Give feedback on this
-review` help section. The brief must include every published finding by local
+sections are the deterministic coverage details, closed-finding evidence,
+Low/P3 `maintainability` group, fix-brief parts, and `Give feedback on this review`
+help section. The brief must include every published finding by local
 reference, severity, file, problem, observed behavior, impact, and smallest safe
 fix. It must tell the coding agent to re-check the current PR head, preserve every
 F reference in its completion report, report exact validation commands and

@@ -11,6 +11,7 @@ import urllib.parse
 try:
     from .domain.publication import (
         PUBLICATION_RENDERED_BLOCK_KINDS,
+        PublicationDomainError,
         PublicationRenderedBlockKind,
     )
     from .domain.review import DiffCoverageExample, DiffState
@@ -31,6 +32,7 @@ try:
 except ImportError:  # pragma: no cover - supports direct module imports in tests.
     from domain.publication import (  # type: ignore[no-redef]
         PUBLICATION_RENDERED_BLOCK_KINDS,
+        PublicationDomainError,
         PublicationRenderedBlockKind,
     )
     from domain.review import DiffCoverageExample, DiffState  # type: ignore[no-redef]
@@ -252,6 +254,10 @@ def severity_label(severity: str) -> str:
     return f"{severity} (P{SEVERITY_PRIORITY[severity]})"
 
 
+def _is_code_quality(item: PublishedFinding) -> bool:
+    return item["severity"] == "Low" and item["category"] == "maintainability"
+
+
 def severity_summary(findings: Sequence[PublishedFinding]) -> str:
     if not findings:
         return "No current findings confirmed."
@@ -267,12 +273,18 @@ def severity_summary(findings: Sequence[PublishedFinding]) -> str:
     noun = "finding" if total == 1 else "findings"
     if len(parts) == 1:
         verb = "is" if total == 1 else "are"
-        return f"There {verb} {total} current {noun}: {parts[0]}."
-    if len(parts) == 2:
-        return f"There are {total} current findings: {parts[0]} and {parts[1]}."
-    return (
-        f"There are {total} current findings: {', '.join(parts[:-1])}, and {parts[-1]}."
-    )
+        summary = f"There {verb} {total} current {noun}: {parts[0]}."
+    elif len(parts) == 2:
+        summary = f"There are {total} current findings: {parts[0]} and {parts[1]}."
+    else:
+        summary = (
+            f"There are {total} current findings: {', '.join(parts[:-1])}, and {parts[-1]}."
+        )
+    quality_count = sum(1 for item in findings if _is_code_quality(item))
+    if quality_count:
+        noun = "improvement" if quality_count == 1 else "improvements"
+        summary += f" Code quality and readability: {quality_count} {noun}."
+    return summary
 
 
 def joined_refs(items: Sequence[str]) -> str:
@@ -596,6 +608,64 @@ def _finding_ref_range(findings: Sequence[PublishedFinding]) -> str:
     return first if first == last else f"{first}-{last}"
 
 
+def _code_quality_summary(count: int, part_number: int, total_parts: int) -> str:
+    noun = "improvement" if count == 1 else "improvements"
+    summary = f"Code quality and readability ({count} Low/P3 {noun})"
+    if total_parts > 1:
+        summary += f" · Part {part_number} of {total_parts}"
+    return summary
+
+
+def _code_quality_blocks(
+    markdowns: Sequence[str], *, max_bytes: int | None
+) -> list[ReviewBlock]:
+    if not markdowns:
+        return []
+    count = len(markdowns)
+
+    def framing(part_number: int, total_parts: int) -> tuple[str, str]:
+        summary = _code_quality_summary(count, part_number, total_parts)
+        return f"<details>\n<summary>{summary}</summary>\n\n", "\n\n</details>"
+
+    prefix, suffix = framing(1, 1)
+    body_bytes = sum(len(text.encode("utf-8")) for text in markdowns)
+    body_bytes += 2 * (count - 1)
+    if (
+        max_bytes is None
+        or body_bytes + len((prefix + suffix).encode("utf-8")) <= max_bytes
+    ):
+        return [
+            ReviewBlock(kind="finding", markdown=prefix + "\n\n".join(markdowns) + suffix)
+        ]
+
+    # Reserve the longest possible part label before the final part count is known.
+    prefix, suffix = framing(count, count)
+    content_budget = max_bytes - len((prefix + suffix).encode("utf-8"))
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    current_bytes = 0
+    for text in markdowns:
+        size = len(text.encode("utf-8"))
+        if size > content_budget:
+            raise PublicationDomainError("body_too_large")
+        candidate_bytes = current_bytes + size + (2 if current else 0)
+        if current and candidate_bytes > content_budget:
+            chunks.append(current)
+            current = []
+            candidate_bytes = size
+        current.append(text)
+        current_bytes = candidate_bytes
+    if current:
+        chunks.append(current)
+    blocks: list[ReviewBlock] = []
+    for index, chunk in enumerate(chunks, start=1):
+        prefix, suffix = framing(index, len(chunks))
+        blocks.append(
+            ReviewBlock(kind="finding", markdown=prefix + "\n\n".join(chunk) + suffix)
+        )
+    return blocks
+
+
 def render_suggestion_tip(
     repository: str,
     pr_number: int,
@@ -904,7 +974,7 @@ def render_review(
     review_number: int | None = None,
     previous_review_number: int | None = None,
     previous_head_sha: str = "",
-    max_header_bytes: int | None = None,
+    max_block_bytes: int | None = None,
 ) -> RenderedReview:
     current = ordered_findings(findings)
     header_lines = [
@@ -958,8 +1028,8 @@ def render_review(
             next_actions.append("Post `/review` again to request another review.")
         header_lines.extend(["", f"**Next:** {' '.join(next_actions)}"])
     details_budget = (
-        max_header_bytes - len("\n".join(header_lines).encode("utf-8")) - 2
-        if max_header_bytes is not None
+        max_block_bytes - len("\n".join(header_lines).encode("utf-8")) - 2
+        if max_block_bytes is not None
         else None
     )
     header_lines.extend(
@@ -978,6 +1048,7 @@ def render_review(
         )
     )
 
+    quality_markdowns: list[str] = []
     for item in current:
         location = source_link(
             repository,
@@ -1004,7 +1075,12 @@ def render_review(
                 f"{safe_text(item['smallest_fix'], maximum=FINDING_TEXT_LIMITS['smallest_fix'])}"
             ),
         ]
-        blocks.append(ReviewBlock(kind="finding", markdown="\n".join(finding_lines)))
+        markdown = "\n".join(finding_lines)
+        if _is_code_quality(item):
+            quality_markdowns.append(markdown)
+        else:
+            blocks.append(ReviewBlock(kind="finding", markdown=markdown))
+    blocks.extend(_code_quality_blocks(quality_markdowns, max_bytes=max_block_bytes))
 
     suggestion_help = render_suggestion_tip(
         repository,

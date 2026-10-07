@@ -2214,7 +2214,7 @@ export interface components {
             hermes_timeout_seconds: number;
             /**
              * Publish Max Bytes
-             * @default 60000
+             * @default 65000
              */
             publish_max_bytes: number;
             /**

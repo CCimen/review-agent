@@ -321,6 +321,85 @@ class FakePostgresPublicationGitHub:
 
 
 class PublicationDomainTests(unittest.TestCase):
+    def test_quality_sections_publish_and_survive_history_with_v1_blocks(self) -> None:
+        from review_agent_tools.publication_partition import (
+            historical_bodies, publication_content_budget, split_publication_body,
+        )
+        from review_agent_tools.review_renderer import (
+            render_review, review_blocks_to_json,
+        )
+
+        findings = [
+            {
+                "local_reference": f"F{index}", "fingerprint": f"{index:064x}",
+                "observation_id": index, "context_hash": "b" * 64,
+                "rule_id": f"maintainability.example-{index}",
+                "category": "maintainability", "path": "example.py", "line": index,
+                "title": f"Clarify role {index}", "severity": "Low",
+                "publication_score": 8, "evidence": "Å" * 150,
+                "disproof_checks": "Nearby usage checked.", "impact": "Role is unclear.",
+                "smallest_fix": "Use the existing domain term.", "suggestion_available": False,
+            }
+            for index in range(1, 46)
+        ]
+        maximum = 11_000
+        budget = publication_content_budget(
+            "## AI code & security review", max_comment_bytes=maximum
+        ) - 2
+        rendered = render_review(
+            repository="example/service", pr_number=41, head_sha="a" * 40,
+            findings=findings, closed=[], still_present=[], partially_resolved=[],
+            new_refs=[], not_checked_refs=[], max_block_bytes=budget,
+        )
+        grouped = [block for block in rendered.blocks if "<summary>Code quality" in block.markdown]
+        self.assertGreater(len(grouped), 1)
+        for block in grouped:
+            self.assertEqual(block.kind, "finding")
+            self.assertLessEqual(len(block.markdown.encode()), budget)
+        key = "sha256:" + "b" * 64
+        blocks_json = review_blocks_to_json(rendered.blocks)
+        parts = split_publication_body(
+            rendered.markdown, publication_key=key,
+            max_comment_bytes=maximum, rendered_blocks_json=blocks_json,
+        )
+        resolve_publication_plan(
+            publication_key=key, rendered_markdown=rendered.markdown,
+            rendered_blocks_schema_version=1, rendered_blocks=json.loads(blocks_json),
+            parts=tuple(
+                PublicationPartInput(
+                    part_type=PublicationPartType.SUMMARY if part.part_number == 1 else PublicationPartType.CONTINUATION,
+                    part_number=part.part_number, payload_schema_version=1,
+                    payload={"body": part.body},
+                ) for part in parts
+            ),
+            findings=tuple(
+                PublicationFindingInput(
+                    finding_id=index, source_finding_occurrence_id=index,
+                    source_review_run_id=1, local_reference=f"F{index}",
+                    outcome=PublicationFindingOutcome.CURRENT,
+                ) for index in range(1, 46)
+            ),
+        )
+        joined = "\n".join(part.body for part in parts)
+        for index in range(1, 46):
+            self.assertEqual(joined.count(f"### F{index} ·"), 1)
+        for part in parts:
+            self.assertLessEqual(len(part.body.encode()), maximum)
+            self.assertEqual(part.body.count("<details>"), part.body.count("</details>"))
+            self.assertNotRegex(part.body, r"</details>\n[^\n]")
+        history = historical_bodies(
+            {
+                "review_number": 1, "repository": "example/service", "pr_number": 41,
+                "head_sha": "a" * 40, "publication_key": key,
+                "rendered_markdown": rendered.markdown, "rendered_blocks_json": blocks_json,
+                "current_findings_count": 45, "superseded_by_review_number": 2,
+                "superseded_by_comment_id": 700,
+            }, max_comment_bytes=maximum, target_parts=len(parts),
+        )
+        for part in history:
+            self.assertLessEqual(len(part.body.encode()), maximum)
+            self.assertEqual(part.body.count("<details>"), part.body.count("</details>"))
+
     def test_shortened_history_keeps_coverage_disclosures_balanced(self) -> None:
         from review_agent_tools.publication_partition import historical_bodies
 

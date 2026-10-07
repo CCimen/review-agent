@@ -77,8 +77,9 @@ All values are optional and have deployable defaults:
   history is larger, rather than treating it as a review-depth limit.
 - `REVIEW_AGENT_ADMISSION_MAX_CONCURRENT_REQUESTS` — default `8`. Concurrent
   signed admission requests per process.
-- `REVIEW_AGENT_PUBLISH_MAX_BYTES` — default `60000`. Bytes per GitHub comment
-  part, not a finding cap.
+- `REVIEW_AGENT_PUBLISH_MAX_BYTES` — default `65000`. UTF-8 bytes per complete
+  GitHub comment part, including framing and metadata, not a finding cap.
+  Explicit saved or environment values retain their configured budget.
 - `REVIEW_AGENT_POSTGRES_MAX_CONNECTIONS` — default `200` for the bundled
   Compose database. External PostgreSQL deployments own this setting.
 
@@ -187,7 +188,7 @@ boundary prevents inspection. Retained bounds have one of four owners:
 | Diff and source output | `plugins.entries.review-agent-tools.settings.result_max_chars` defaults to 160,000 characters and can be raised for larger-context models. The plugin derives a JSON-safe text page from that one budget and enforces it on diff and source page responses. A diff response returns `next_start_char`, `path_total_chars`, and `diff_source` for exact continuation. A source response also carries at most 400 lines; low-newline source that crosses the character boundary is reported truncated and is not recorded as a complete line read. | One native Hermes plugin setting owns and enforces the complete page-result budget without rejecting unrelated memory or delivery payloads. Diff pages can continue without a total code limit; an indivisible source line may remain incomplete rather than flood model context. |
 | Historical context | One call accepts the same 200 paths returned by a changed-path page. The review procedure processes further pages in additional calls. | Bounded database/result work per call; not a repository limit. |
 | Findings and suggestions | One atomic record transaction accepts at most 200 findings. Exceeding it rejects the record rather than dropping findings. At most 12 independent native suggestions are retained, while every accepted finding remains in the summary and coding-agent brief. | Bounded atomic persistence and GitHub head reads; suggestions are optional delivery metadata. |
-| Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` defaults to 60,000 bytes and is constrained to GitHub-safe part sizes. Larger reviews are deterministically split. | Provider delivery size, not a finding or review-depth limit. |
+| Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` defaults to 65,000 UTF-8 bytes including framing and metadata, below the API's [reported 65,536-character ceiling](https://github.com/actions/dependency-review-action/issues/730). Larger reviews are deterministically split. | Per-comment delivery budget; the separate 200-pending-finding bound still applies. |
 | Webhook and stored payloads | Request bodies, persisted JSON aggregates, text fields, database pools, timeouts, and retry counts remain bounded. | Denial-of-service protection, typed storage integrity, and predictable resource use. |
 
 The managed configuration deliberately does not set `agent.max_turns` or

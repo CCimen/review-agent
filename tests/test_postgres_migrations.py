@@ -73,6 +73,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     33,
                     34,
                     35,
+                    36,
                 ),
             )
             self.assertEqual(runner.apply_migrations(connection), ())
@@ -143,6 +144,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     (33, "033_documentation_capability.sql"),
                     (34, "034_documentation_configuration.sql"),
                     (35, "035_documentation_admission.sql"),
+                    (36, "036_repository_review_requesters.sql"),
                 )
             ],
         )
@@ -272,7 +274,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 self.assertEqual(
                     runner.apply_migrations(connection),
-                    tuple(range(14, 36)),
+                    tuple(range(14, 37)),
                 )
                 classified = connection.execute(
                     """
@@ -385,7 +387,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     ).fetchall() for table in tables
                 }
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), tuple(range(29, 36)))
+                self.assertEqual(runner.apply_migrations(connection), tuple(range(29, 37)))
                 for table in tables:
                     rows = connection.execute(
                         psycopg.sql.SQL("SELECT to_jsonb(record) - 'purpose', to_jsonb(record)->>'purpose' FROM review_agent.{} record ORDER BY id").format(
@@ -427,7 +429,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (35,))
+        self.assertEqual(count, (36,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

@@ -52,6 +52,12 @@ The GitHub App receives review commands and gives the private gateway short-live
 repository-scoped credentials for source reads and deterministic publication.
 The model and publisher never receive the App private key.
 
+Users with current GitHub `write` or `admin` access can request reviews
+automatically. To allow additional GitHub users, open **Repositories → Who can
+request reviews** in the console and add their usernames. Team maintainers and
+platform administrators manage this list per repository; it does not change
+GitHub permissions. See [console access](docs/ADMIN_PANEL.md).
+
 ## Add repository guidance when needed
 
 Repositories use the neutral `default-standard` profile without local files.

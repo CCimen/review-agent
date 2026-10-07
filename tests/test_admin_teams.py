@@ -6,7 +6,10 @@ import unittest
 import psycopg
 
 from tests import test_admin_api, test_postgres_reporting_cli
+from unittest.mock import Mock, patch
+
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime
+from review_agent_tools.postgres import github_app
 from review_agent_tools.settings import PostgresDatabaseUrl
 
 
@@ -21,6 +24,75 @@ class AdminTeamTests(unittest.TestCase):
         self.fixture.setUp()
         self.client = self.fixture.client
         self.fixture.login()
+
+    def test_repository_review_requesters_can_be_added_and_revoked(self) -> None:
+        helper = test_postgres_reporting_cli.PostgreSQLOperatorReportingTests("runTest")
+        helper.runtime = PostgreSQLRuntime(PostgresDatabaseUrl(DSN))
+        helper.runtime.open()
+        self.addCleanup(helper.runtime.close)
+        helper.repository = "example/payments"
+        helper.provider_repository_id = 930
+        helper.register_repository()
+        with helper.runtime.transaction() as connection:
+            installation = github_app.sync_installation(connection, github_app.InstallationDefinition(
+                provider_installation_id=7001, account_id=8001, account_login="example",
+                account_type=github_app.AccountType.ORGANIZATION,
+                repository_selection=github_app.RepositorySelection.SELECTED,
+                contents_permission=github_app.PermissionLevel.READ,
+                issues_permission=github_app.PermissionLevel.WRITE,
+                pull_requests_permission=github_app.PermissionLevel.WRITE,
+            ))
+            granted = github_app.grant_repository_access(connection,
+                installation_id=installation.id, provider_repository_id=930,
+                full_name="example/payments", actor="test", reason="Test setup")
+            github_app.enable_repository(connection, repository_id=granted.repository_id,
+                profile_key="default-standard", trigger_mode=github_app.TriggerMode.MANUAL,
+                actor="test", reason="Test setup")
+        repository_id = self.client.get("/api/repositories").json()["items"][0]["repository_id"]
+        path = f"/api/repositories/{repository_id}/review-requesters"
+        authenticator = Mock()
+        authenticator.installation_json.return_value = {
+            "id": 5001, "login": "CCimen", "type": "User"
+        }
+        with patch(
+            "review_agent_tools.admin_repository_requests_api.operator_setup.github_app_authenticator",
+            return_value=authenticator,
+        ):
+            added = self.client.post(path, json={"login": "CCimen"})
+            duplicate = self.client.post(path, json={"login": "CCimen"})
+            authenticator.installation_json.return_value["type"] = "Organization"
+            invalid = self.client.post(path, json={"login": "CCimen"})
+        self.assertEqual(added.status_code, 201, added.text)
+        self.assertEqual(duplicate.status_code, 201, duplicate.text)
+        self.assertEqual(invalid.status_code, 502, invalid.text)
+        self.assertEqual(added.json()["github_user_id"], 5001)
+        listed = self.client.get(path).json()
+        self.assertTrue(listed["can_manage"])
+        self.assertEqual([item["github_login"] for item in listed["items"]], ["CCimen"])
+        team_id = self.client.post("/api/teams", json={"name": "Payments", "reason": "Test team"}).json()["id"]
+        for email, role in (("maintainer@example.com", "maintainer"), ("reader@example.com", "viewer")):
+            self.client.post("/api/users", json={"email": email, "password": test_admin_api.PASSWORD})
+            self.client.put(f"/api/teams/{team_id}/members", json={"email": email, "role": role, "reason": "Test membership"})
+        self.client.post("/api/users", json={"email": "outsider@example.com", "password": test_admin_api.PASSWORD})
+        actor_id = self.client.get("/api/me").json()["id"]
+        with helper.runtime.transaction() as connection:
+            connection.execute("""INSERT INTO review_agent.team_repositories
+                (repository_id, team_id, assigned_by) VALUES (%s, %s, %s)""", (repository_id, team_id, actor_id))
+        self.fixture.login("outsider@example.com")
+        self.assertEqual(self.client.get(path).status_code, 404)
+        self.assertEqual(self.client.post(f"{path}/5001/revoke").status_code, 404)
+        self.fixture.login("reader@example.com")
+        self.assertFalse(self.client.get(path).json()["can_manage"])
+        self.assertEqual(self.client.post(f"{path}/5001/revoke").status_code, 403)
+        with patch("review_agent_tools.admin_repository_requests_api.operator_setup.github_app_authenticator", return_value=authenticator):
+            self.assertEqual(self.client.post(path, json={"login": "CCimen"}).status_code, 403)
+        self.fixture.login("maintainer@example.com")
+        self.assertEqual(self.client.post(f"{path}/5001/revoke").status_code, 204)
+        self.assertEqual(self.client.get(path).json()["items"], [])
+        with helper.runtime.transaction() as connection:
+            events = connection.execute("""SELECT action FROM review_agent.admin_audit_events
+                WHERE action LIKE 'review_requester_%' ORDER BY id""").fetchall()
+        self.assertEqual(events, [("review_requester_granted",), ("review_requester_revoked",)])
 
     def test_repository_scope_covers_lists_totals_and_direct_history(self) -> None:
         team = self.client.post(

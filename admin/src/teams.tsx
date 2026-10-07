@@ -850,6 +850,7 @@ function TeamRepositories({
             Assigned {time(repo.assigned_at)}
           </Text>
           <Link to={`/repositories?documentation_repository=${repo.repository_id}&team_id=${team.id}`}>Documentation settings</Link>
+          <Link to={`/repositories?review_requesters_repository=${repo.repository_id}&team_id=${team.id}`}>Who can request reviews</Link>
         </VStack>
       ),
     },

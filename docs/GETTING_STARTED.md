@@ -107,6 +107,11 @@ operator command, repository workflow, or duplicated Actions secret. A
 developer with current `write` or `admin` permission posts `/review`; the
 gateway verifies the exact repository before admitting work.
 
+For an enabled repository, team maintainers and platform administrators can
+also permit other personal GitHub accounts under **Repositories → Who can
+request reviews**. These users can request code and documentation reviews
+without GitHub write access; this grant applies only within Review Agent.
+
 Every activated repository shares one queue, one PostgreSQL database, and one
 neutral reviewer baseline. PostgreSQL serializes reviews within a repository, so
 [scale review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when

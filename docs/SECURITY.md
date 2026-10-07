@@ -22,9 +22,11 @@ model is trusted.
   only a bounded normalized delivery.
 - The private gateway holds the App key and installation tokens. They never
   enter Hermes, PostgreSQL, admission, worker payloads, or logs.
-- Before admitting a review or feedback command, the gateway verifies the
-  sender's current write or admin permission and the exact open,
-  same-repository pull-request snapshot.
+- Before admitting a manual review, the gateway verifies the signed sender's
+  stable GitHub ID against the repository's additional-user list, or checks
+  current GitHub write or admin permission. Feedback still requires GitHub write
+  or admin permission. Both paths verify the exact open, same-repository
+  pull-request snapshot. Console grants do not change GitHub permissions.
 - A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded PR context and record candidate findings.
@@ -140,6 +142,7 @@ Temporary npm overrides belong to the package manifest that consumes them:
 | `admin/package.json` | `js-yaml` 4.3.2 | Fix [CVE-2026-84375](https://github.com/advisories/GHSA-2883-xcg3-v3hh) in the Swagger UI parser and OpenAPI generator. Remove when the parent packages resolve a patched parser without the override; rebuild and check the API reference. |
 | `website/package.json` | `js-yaml` 4.3.2 and `svgo` 3.3.5 on their affected major lines | Fix [CVE-2026-84375](https://github.com/advisories/GHSA-2883-xcg3-v3hh) and [CVE-2026-84370](https://github.com/advisories/GHSA-w27v-7q3p-w38r). Remove each override when the documentation toolchain resolves its patched dependency normally. |
 | `website/package.json` | `serialize-javascript` 7.1.1 | Keep the build toolchain above the fixes for [code injection](https://github.com/advisories/GHSA-5c6j-r48x-rmvq) and [CPU exhaustion](https://github.com/advisories/GHSA-qj8w-gfj5-8c6v). Remove when upstream dependencies select a compatible patched version. |
+| `website/package.json` | `tinypool` 2.1.2 | Fix the worker-pool vulnerabilities addressed in [2.1.2](https://github.com/tinylibs/tinypool/releases/tag/v2.1.2). Docusaurus still selects the affected 1.x line. Remove when Docusaurus resolves a patched version normally; verify its threaded static-page build when changing this override. |
 
 Recheck overrides when updating a parent dependency; a forced older major can
 break a newer parent. Regenerate the lockfile, run the affected build, and scan

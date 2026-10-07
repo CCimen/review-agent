@@ -316,6 +316,11 @@ operator command, repository workflow, or duplicated Actions secret. A
 developer with current `write` or `admin` permission posts `/review`; the
 gateway verifies the exact repository before admitting work.
 
+For an enabled repository, team maintainers and platform administrators can
+also permit other personal GitHub accounts under **Repositories → Who can
+request reviews**. These users can request code and documentation reviews
+without GitHub write access; this grant applies only within Review Agent.
+
 Every activated repository shares one queue, one PostgreSQL database, and one
 neutral reviewer baseline. PostgreSQL serializes reviews within a repository, so
 [scale review workers](./DEPLOYMENT.md#scale-and-operate-the-queue) when
@@ -953,7 +958,9 @@ first signed `/review`, the private gateway asks GitHub for a short-lived
 installation token restricted to that one stable repository ID, verifies the repository identity,
 and records only that repository. Normal source and publication tokens remain
 restricted to the same exact repository. The commenter must still have current
-`write` or `admin` permission, and the PR snapshot is checked before admission.
+`write` or `admin` permission, or be explicitly allowed for that repository in
+the console's **Who can request reviews** list. The PR snapshot is checked before
+admission.
 
 ## 1. Register the App
 
@@ -1134,7 +1141,8 @@ repositories is therefore a valid initial state. Requester authorization still
 gates whether the review itself runs.
 
 In an open same-repository pull request, post a new top-level comment as a user
-with current `write` or `admin` permission:
+with current GitHub `write` or `admin` permission, or as an additional user
+allowed in **Repositories → Who can request reviews**:
 
 ```text
 /review
@@ -1187,7 +1195,7 @@ explicit mode, rerun `github-app onboard` for the named repository.
 | A public installation cannot review | Expected: an operator must approve that installation first. |
 | `repository_onboarding_failed` | Explicit onboarding requires an active installation that grants access to the named repository and the required review permissions. |
 | `repository_not_authorized` | Confirm the installation is approved for automatic activation or explicitly onboard the repository. |
-| `sender_not_authorized` | The commenter needs current `write` or `admin` permission. |
+| `sender_not_authorized` | For review requests, the commenter needs current GitHub `write` or `admin` permission or an additional-user grant for this repository in the console. Feedback requires GitHub `write` or `admin`. |
 | `fork_source_not_supported` | Test with a branch in the selected base repository. |
 | `provider_authorization_denied` | Confirm the App is active and still includes the exact repository. |
 | Source or publication loses authority | Check the worker lease and whether the repository, installation, or activation policy changed. |
@@ -2167,8 +2175,9 @@ correct scope mistakes before enabling automatic reviews for a team.
    to actual source areas and exact document paths. Validate the package with
    [repository-context validate](REPOSITORY_CONTEXT.md#start-with-the-copyable-package).
 5. Merge the configuration. Post `/review docs` as a new top-level comment on an
-   open pull request. The requester needs current repository write or admin
-   permission. Fork pull requests remain unsupported.
+   open pull request. The requester needs current GitHub repository write or
+   admin permission, or an additional-user grant in **Repositories → Who can
+   request reviews**. Fork pull requests remain unsupported.
 
 A pull request that first adds the configuration can preview the proposed scope,
 but cannot activate its own rules. Review Agent uses the accepted configuration
@@ -2598,6 +2607,20 @@ for platform access. GitHub grants remain independently managed through the App
 installation. Adding teams does not change an installation's existing automatic
 activation policy.
 
+**Repositories → Who can request reviews** lets a team maintainer, owner, or
+admin allow additional GitHub users for one repository. Enter a personal GitHub
+username and select **Allow reviews**. The App verifies the account and stores
+its stable GitHub ID, so renaming the account preserves its permission. The list
+is separate from console accounts and does not grant access on GitHub. The
+repository must already be enabled with valid App access.
+
+Users with current GitHub `write` or `admin` access remain automatically
+authorized. Additional listed users can post `/review` and `/review docs`;
+feedback commands still require GitHub `write` or `admin`. Adding and removing
+entries is audited. Removing an entry stops its additional permission for new
+requests; already admitted work continues, and GitHub `write` or `admin` access
+still authorizes the user.
+
 **Audit log** records who changed an account, membership, repository request,
 ownership, review decision, run state, or settings, together with a timestamp
 and reason. Admins see team, repository, and ordinary account changes regardless
@@ -2783,6 +2806,9 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `GET /api/access/installations/{id}/status` | Owner or admin | Live installation scope, status, permission gaps, and its GitHub settings URL. |
 | `POST /api/access/repositories/onboard` | Owner or admin | Verify and enable one named repository using `{repository, profile, reason}`. |
 | `POST /api/access/...` | Owner or admin | Installation approval and selected-inventory refresh; repository enablement and disablement. |
+| `GET /api/repositories/{id}/review-requesters` | Scoped reader, owner or admin | Bounded additional-user list with `can_manage`, `limit` and `after_user_id`. |
+| `POST /api/repositories/{id}/review-requesters` | Team maintainer, owner or admin | Verify a personal GitHub account from `{login}` and grant additional review permission for this repository. |
+| `POST /api/repositories/{id}/review-requesters/{github_user_id}/revoke` | Team maintainer, owner or admin | Revoke only the additional permission; GitHub write/admin authorization continues. |
 | `GET /api/quality`, `GET /api/quality/feedback` | Team reader or global role | Quality cohorts and paginated retained feedback. |
 | `GET /api/history/{run_id}/findings`, `GET /api/findings/{fingerprint}` | Team reader or global role | Published finding occurrences and bounded decision history. |
 | `POST /api/findings/{fingerprint}/decisions`, `POST /api/quality/feedback/{id}/triage` | Team maintainer, owner or admin | Audited human decisions and feedback triage. |
@@ -3593,7 +3619,8 @@ Last verified: 2026-09-29
 
 Nothing to install or deploy. Comment `/review` on a pull request in a
 repository covered by the organization's GitHub App installation; you need
-write or admin permission on that repository. If reviews are not enabled for the
+GitHub write or admin permission, or a per-repository grant in the console's
+**Who can request reviews** list. If reviews are not enabled for the
 repository yet, a team maintainer can request it from the team's
 **Repositories** tab in the [admin console](./ADMIN_PANEL.md). Add an optional
 [`.review-agent/` package](./REPOSITORY_CONTEXT.md) for team instructions,
@@ -3601,8 +3628,9 @@ architecture context, accepted ADRs, and documentation mappings.
 
 ## Does it review automatically when a pull request opens?
 
-Code review starts only when a collaborator with write or admin permission
-comments `/review`; comments from bots, including GitHub Actions, are ignored.
+Code review starts when a user with GitHub write or admin permission, or an
+additional-user grant in the console, comments `/review`. Comments from bots,
+including GitHub Actions, are ignored.
 Push fixes and comment `/review` again for a new round. Documentation review can
 also run automatically when a team or repository selects its Automatic mode; see
 [Documentation review](./DOCUMENTATION_REVIEW.md#choose-when-reviews-run).
@@ -4652,8 +4680,9 @@ hermes plugins list
 
 The App receives `issue_comment` events at `/webhooks/github-app`. Admission
 persists the signed delivery before any provider read. The App worker then
-checks the sender's current permission and the repository's enabled state before
-creating a run. Feedback commands follow the same durable path. The gateway
+checks the sender's current GitHub write/admin permission or its stable account
+ID in the repository's additional-user list, and the repository's enabled state,
+before creating a run. Feedback commands follow the same durable path. The gateway
 rechecks the sender's current write or admin permission and the open pull
 request before the feedback application records anything.
 
@@ -4666,8 +4695,9 @@ new or restored repository automatically.
 
 ## Run A Review
 
-On any open pull request, including a draft, a collaborator with write or admin
-permission comments:
+On any open pull request, including a draft, a user with GitHub write or admin
+permission, or an additional-user grant in **Repositories → Who can request
+reviews**, comments:
 
 ```text
 /review
@@ -5530,9 +5560,11 @@ model is trusted.
   only a bounded normalized delivery.
 - The private gateway holds the App key and installation tokens. They never
   enter Hermes, PostgreSQL, admission, worker payloads, or logs.
-- Before admitting a review or feedback command, the gateway verifies the
-  sender's current write or admin permission and the exact open,
-  same-repository pull-request snapshot.
+- Before admitting a manual review, the gateway verifies the signed sender's
+  stable GitHub ID against the repository's additional-user list, or checks
+  current GitHub write or admin permission. Feedback still requires GitHub write
+  or admin permission. Both paths verify the exact open, same-repository
+  pull-request snapshot. Console grants do not change GitHub permissions.
 - A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded PR context and record candidate findings.
@@ -5648,6 +5680,7 @@ Temporary npm overrides belong to the package manifest that consumes them:
 | `admin/package.json` | `js-yaml` 4.3.2 | Fix [CVE-2026-84375](https://github.com/advisories/GHSA-2883-xcg3-v3hh) in the Swagger UI parser and OpenAPI generator. Remove when the parent packages resolve a patched parser without the override; rebuild and check the API reference. |
 | `website/package.json` | `js-yaml` 4.3.2 and `svgo` 3.3.5 on their affected major lines | Fix [CVE-2026-84375](https://github.com/advisories/GHSA-2883-xcg3-v3hh) and [CVE-2026-84370](https://github.com/advisories/GHSA-w27v-7q3p-w38r). Remove each override when the documentation toolchain resolves its patched dependency normally. |
 | `website/package.json` | `serialize-javascript` 7.1.1 | Keep the build toolchain above the fixes for [code injection](https://github.com/advisories/GHSA-5c6j-r48x-rmvq) and [CPU exhaustion](https://github.com/advisories/GHSA-qj8w-gfj5-8c6v). Remove when upstream dependencies select a compatible patched version. |
+| `website/package.json` | `tinypool` 2.1.2 | Fix the worker-pool vulnerabilities addressed in [2.1.2](https://github.com/tinylibs/tinypool/releases/tag/v2.1.2). Docusaurus still selects the affected 1.x line. Remove when Docusaurus resolves a patched version normally; verify its threaded static-page build when changing this override. |
 
 Recheck overrides when updating a parent dependency; a forced older major can
 break a newer parent. Regenerate the lockfile, run the affected build, and scan

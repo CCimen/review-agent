@@ -39,6 +39,7 @@ import {
   DocumentationOverviewPage,
   RepositoryDocumentationSection,
 } from "./documentation";
+import { RepositoryReviewRequestersSection } from "./reviewRequesters";
 import { History, ReviewPage } from "./history";
 import { OperationsPage } from "./operations";
 import { OverviewPage } from "./overview";
@@ -127,6 +128,9 @@ function Repositories({ current }: { current: Account }) {
       ? documentationRepositoryId
       : null;
   const offset = Math.max(0, Number(params.get("offset")) || 0);
+  const requestersRepositoryId = Number(params.get("review_requesters_repository"));
+  const requestersRepository = Number.isSafeInteger(requestersRepositoryId) && requestersRepositoryId > 0
+    ? requestersRepositoryId : null;
   const { draft, setDraft, flush } = useLiveSearch(search, (value) =>
     update({ search: value }, { replace: true }),
   );
@@ -166,6 +170,9 @@ function Repositories({ current }: { current: Account }) {
             to={`/repositories?documentation_repository=${repo.repository_id}`}
           >
             Documentation settings
+          </Link>
+          <Link to={`/repositories?review_requesters_repository=${repo.repository_id}`}>
+            Who can request reviews
           </Link>
           <Text type="supporting">
             {repo.last_activity_at
@@ -300,6 +307,13 @@ function Repositories({ current }: { current: Account }) {
         ) : null}
       </VStack>
       <RepositoryTabs role={current.role} />
+      {requestersRepository !== null && (
+        <RepositoryReviewRequestersSection
+          key={`${requestersRepository}:${scope.key}`}
+          repositoryId={requestersRepository}
+          close={() => update({ review_requesters_repository: "" })}
+        />
+      )}
       {documentationRepository !== null && (
         <RepositoryDocumentationSection
           repositoryId={documentationRepository}

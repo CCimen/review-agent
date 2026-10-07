@@ -398,8 +398,9 @@ hermes plugins list
 
 The App receives `issue_comment` events at `/webhooks/github-app`. Admission
 persists the signed delivery before any provider read. The App worker then
-checks the sender's current permission and the repository's enabled state before
-creating a run. Feedback commands follow the same durable path. The gateway
+checks the sender's current GitHub write/admin permission or its stable account
+ID in the repository's additional-user list, and the repository's enabled state,
+before creating a run. Feedback commands follow the same durable path. The gateway
 rechecks the sender's current write or admin permission and the open pull
 request before the feedback application records anything.
 
@@ -412,8 +413,9 @@ new or restored repository automatically.
 
 ## Run A Review
 
-On any open pull request, including a draft, a collaborator with write or admin
-permission comments:
+On any open pull request, including a draft, a user with GitHub write or admin
+permission, or an additional-user grant in **Repositories → Who can request
+reviews**, comments:
 
 ```text
 /review

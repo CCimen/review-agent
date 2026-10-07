@@ -115,9 +115,9 @@ class DockerfileToolsTests(unittest.TestCase):
                 "psycopg[binary]==3.3.4",
                 "psycopg-pool==3.3.1",
                 "PyYAML==6.0.3",
-                "PyJWT==2.13.0",
+                "PyJWT==2.14.0",
                 "cryptography==50.0.0",
-                "tornado==6.5.8",
+                "tornado==6.5.9",
                 "aiohttp==3.14.3",
                 "# Patch the HTTP clients inherited from the pinned Hermes image.",
                 "httpx2==2.12.0",
@@ -129,7 +129,7 @@ class DockerfileToolsTests(unittest.TestCase):
             dockerfile,
         )
         self.assertIn(
-            "uv pip install --no-cache --python /opt/hermes/.venv/bin/python \\\n"
+            "uv pip install --no-config --no-cache --python /opt/hermes/.venv/bin/python \\\n"
             "        --requirement /opt/review-agent-requirements.txt",
             dockerfile,
         )

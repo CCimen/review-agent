@@ -20,7 +20,7 @@ from .postgres import documentation_operating_policy as docs_policy
 from .postgres import deployment_settings as settings_store
 from .domain.feedback import resolve_github_repository, resolve_repository
 from .github import app_auth, app_inventory
-from .postgres import github_app, repository_requests
+from .postgres import github_app, repository_requests, review_requesters
 from .domain.review import RepositoryId, ReviewPurpose, ReviewRunId
 from .postgres import (
     admin_operations,
@@ -1130,6 +1130,45 @@ def save_team_documentation_policy(
             mode=mode,
             expected_revision=expected_revision,
         )
+
+
+def repository_review_requesters(
+    runtime: PostgreSQLRuntime, *, access: AccessRequest,
+    repository_id: int, limit: int, after_user_id: int,
+) -> review_requesters.RepositoryReviewRequesters:
+    with _transaction(runtime, access) as (connection, scope):
+        return review_requesters.list_requesters(connection, scope,
+            repository_id=repository_id, limit=limit, after_user_id=after_user_id)
+
+
+def grant_review_requester(
+    runtime: PostgreSQLRuntime, authenticator: app_auth.GitHubAppAuthenticator, *,
+    access: AccessRequest, repository_id: int, login: str,
+) -> review_requesters.ReviewRequester:
+    # Resolve permissions before network work, then recheck them in the write.
+    with _transaction(runtime, access) as (connection, scope):
+        name, provider_id, _ = review_requesters.repository(connection, scope,
+            repository_id, maintain=True)
+        authorization = github_app.authorize_review_read(connection, provider_id)
+    token = authenticator.installation_token(authorization.provider_installation_id,
+        repository_ids=(provider_id,), permissions={"metadata": "read"})
+    user = app_inventory.read_user(authenticator, token=token, login=login)
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        current = review_requesters.repository(connection, scope, repository_id, maintain=True)
+        if current[:2] != (name, provider_id):
+            raise teams.TeamConflict("Repository identity changed. Refresh and try again")
+        github_app.authorize_review_read(connection, provider_id)
+        return review_requesters.grant(connection, scope, repository_id=repository_id,
+            github_user_id=user.id, github_login=user.login)
+
+
+def revoke_review_requester(
+    runtime: PostgreSQLRuntime, *, access: AccessRequest,
+    repository_id: int, github_user_id: int,
+) -> None:
+    with _transaction(runtime, access, write=True) as (connection, scope):
+        review_requesters.revoke(connection, scope, repository_id=repository_id,
+            github_user_id=github_user_id)
 
 
 def repository_documentation_policy(

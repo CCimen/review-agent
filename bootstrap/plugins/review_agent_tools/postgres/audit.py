@@ -20,6 +20,8 @@ from .team_access import (
 
 
 class AuditAction(StrEnum):
+    REVIEW_REQUESTER_GRANTED = "review_requester_granted"
+    REVIEW_REQUESTER_REVOKED = "review_requester_revoked"
     INTEGRATION_CREATED = "integration_created"
     INTEGRATION_REVOKED = "integration_revoked"
     INTEGRATION_READ = "integration_read"

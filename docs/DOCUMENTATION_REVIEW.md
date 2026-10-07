@@ -37,8 +37,9 @@ correct scope mistakes before enabling automatic reviews for a team.
    to actual source areas and exact document paths. Validate the package with
    [repository-context validate](REPOSITORY_CONTEXT.md#start-with-the-copyable-package).
 5. Merge the configuration. Post `/review docs` as a new top-level comment on an
-   open pull request. The requester needs current repository write or admin
-   permission. Fork pull requests remain unsupported.
+   open pull request. The requester needs current GitHub repository write or
+   admin permission, or an additional-user grant in **Repositories → Who can
+   request reviews**. Fork pull requests remain unsupported.
 
 A pull request that first adds the configuration can preview the proposed scope,
 but cannot activate its own rules. Review Agent uses the accepted configuration

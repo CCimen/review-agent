@@ -877,6 +877,67 @@ class GitHubAppProcessorTests(unittest.TestCase):
         self.assertEqual(self.feedback_github.reactions, [])
         self.assertEqual(self.feedback_github.comments, [])
 
+    def test_explicit_requester_grant_allows_read_only_user_and_revocation_stops_new_requests(self) -> None:
+        self.enable_repository()
+        with self.runtime.transaction() as connection:
+            connection.execute("""INSERT INTO review_agent.repository_review_requesters
+                (repository_id, github_user_id, github_login)
+                SELECT id, 5001, 'previous-username' FROM review_agent.repositories
+                WHERE provider_repository_id = 9001""")
+        first = self.register("issue_comment", self.review_payload())
+        with patch.object(app_processor.review_contract, "load_packaged_contract", return_value=self.contract):
+            result = self.processor(_GitHub(permission="read")).process_next(lease_owner="allowed-reader")
+        self.assertEqual(result.delivery_id if result else None, first)
+        self.assertEqual(result.status if result else None, "accepted")
+        with self.runtime.transaction() as connection:
+            connection.execute("DELETE FROM review_agent.repository_review_requesters")
+            other = registry.ensure_repository(connection, registry.RepositoryDefinition(
+                provider="github", provider_repository_id=9002, full_name="CCimen/other"))
+            connection.execute("""INSERT INTO review_agent.repository_review_requesters
+                (repository_id, github_user_id, github_login) VALUES (%s, 5001, 'ccimen')""", (other.id,))
+        payload = self.review_payload()
+        payload["comment"]["id"] = 6002
+        self.register("issue_comment", payload)
+        denied = self.processor(_GitHub(permission="read")).process_next(lease_owner="revoked-reader")
+        self.assertEqual(denied.reason if denied else None, "sender_not_authorized")
+
+    def test_requester_grant_uses_account_id_and_does_not_authorize_feedback(self) -> None:
+        self.enable_repository()
+        with self.runtime.transaction() as connection:
+            connection.execute("""INSERT INTO review_agent.repository_review_requesters
+                (repository_id, github_user_id, github_login)
+                SELECT id, 9999, 'ccimen' FROM review_agent.repositories
+                WHERE provider_repository_id = 9001""")
+        self.register("issue_comment", self.review_payload())
+        denied = self.processor(_GitHub(permission="read")).process_next(lease_owner="different-account")
+        self.assertEqual(denied.reason if denied else None, "sender_not_authorized")
+        with self.runtime.transaction() as connection:
+            connection.execute("UPDATE review_agent.repository_review_requesters SET github_user_id = 5001")
+        payload = self.review_payload()
+        payload["comment"]["body"] = "/review false-positive F2 because Existing validation covers it."
+        self.register("issue_comment", payload)
+        feedback = self.processor(_GitHub(permission="read")).process_next(lease_owner="feedback-reader")
+        self.assertEqual(feedback.reason if feedback else None, "sender_not_authorized")
+
+    def test_grant_revoked_during_github_read_cannot_authorize_review(self) -> None:
+        self.enable_repository()
+        with self.runtime.transaction() as connection:
+            connection.execute("""INSERT INTO review_agent.repository_review_requesters
+                (repository_id, github_user_id, github_login)
+                SELECT id, 5001, 'ccimen' FROM review_agent.repositories
+                WHERE provider_repository_id = 9001""")
+        github = _GitHub(permission="read")
+        original = github.request_json
+        def revoke_during_read(endpoint: str, *, max_bytes: int = 2_000_000) -> object:
+            if endpoint.endswith("/pulls/42"):
+                with self.runtime.transaction() as connection:
+                    connection.execute("DELETE FROM review_agent.repository_review_requesters")
+            return original(endpoint, max_bytes=max_bytes)
+        self.register("issue_comment", self.review_payload())
+        with patch.object(github, "request_json", side_effect=revoke_during_read):
+            result = self.processor(github).process_next(lease_owner="revoked-during-read")
+        self.assertEqual(result.reason if result else None, "sender_not_authorized")
+
     def test_review_uses_live_identity_snapshot_and_atomic_existing_admission(
         self,
     ) -> None:

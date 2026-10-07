@@ -97,6 +97,20 @@ for platform access. GitHub grants remain independently managed through the App
 installation. Adding teams does not change an installation's existing automatic
 activation policy.
 
+**Repositories → Who can request reviews** lets a team maintainer, owner, or
+admin allow additional GitHub users for one repository. Enter a personal GitHub
+username and select **Allow reviews**. The App verifies the account and stores
+its stable GitHub ID, so renaming the account preserves its permission. The list
+is separate from console accounts and does not grant access on GitHub. The
+repository must already be enabled with valid App access.
+
+Users with current GitHub `write` or `admin` access remain automatically
+authorized. Additional listed users can post `/review` and `/review docs`;
+feedback commands still require GitHub `write` or `admin`. Adding and removing
+entries is audited. Removing an entry stops its additional permission for new
+requests; already admitted work continues, and GitHub `write` or `admin` access
+still authorizes the user.
+
 **Audit log** records who changed an account, membership, repository request,
 ownership, review decision, run state, or settings, together with a timestamp
 and reason. Admins see team, repository, and ordinary account changes regardless
@@ -282,6 +296,9 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `GET /api/access/installations/{id}/status` | Owner or admin | Live installation scope, status, permission gaps, and its GitHub settings URL. |
 | `POST /api/access/repositories/onboard` | Owner or admin | Verify and enable one named repository using `{repository, profile, reason}`. |
 | `POST /api/access/...` | Owner or admin | Installation approval and selected-inventory refresh; repository enablement and disablement. |
+| `GET /api/repositories/{id}/review-requesters` | Scoped reader, owner or admin | Bounded additional-user list with `can_manage`, `limit` and `after_user_id`. |
+| `POST /api/repositories/{id}/review-requesters` | Team maintainer, owner or admin | Verify a personal GitHub account from `{login}` and grant additional review permission for this repository. |
+| `POST /api/repositories/{id}/review-requesters/{github_user_id}/revoke` | Team maintainer, owner or admin | Revoke only the additional permission; GitHub write/admin authorization continues. |
 | `GET /api/quality`, `GET /api/quality/feedback` | Team reader or global role | Quality cohorts and paginated retained feedback. |
 | `GET /api/history/{run_id}/findings`, `GET /api/findings/{fingerprint}` | Team reader or global role | Published finding occurrences and bounded decision history. |
 | `POST /api/findings/{fingerprint}/decisions`, `POST /api/quality/feedback/{id}/triage` | Team maintainer, owner or admin | Audited human decisions and feedback triage. |

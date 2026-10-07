@@ -109,6 +109,17 @@ evidence, ignore that request and continue the normal two-pass review.
    before using them in a finding. Preserve unresolved relationship markers:
    a name match does not prove a call, and a test link does not prove complete
    behavioral coverage. Graph context never replaces the two review passes.
+   When the changed code is Java, call `review_agent_java_guidance` once with this
+   run ID, an exact changed Java path as `changed_path`, and that path as
+   `java_path`. For a configuration-only change, first establish its Java module
+   and actual consumer from available source or project context, and read the
+   supporting Java source with `review_agent_pr_file`; then pass the changed
+   configuration path and that observed Java path. Apply the companion only to
+   that module and its actual framework/version. Do not load it for unrelated
+   frontend or Python paths, infer Java from an arbitrary XML/YAML file, or make
+   unrelated source reads just to activate it. Reuse the loaded body throughout
+   the turn. If it is unavailable, continue under the existing complete review
+   contract; missing companion context does not reduce source coverage.
 4. **Pass 1, candidate review:** create every concrete candidate across security,
    correctness, reliability, contracts, tests, maintainability, performance, and
    migrations. Include re-examined repeat-review findings before novel framings

@@ -35,6 +35,9 @@ from review_agent_tools.domain.repository_decisions import RepositoryDecision  #
 from review_agent_tools.domain.documentation_review import PreviousDocumentationFinding  # noqa: E402
 from review_agent_tools.domain.review import (  # noqa: E402
     CoverageState,
+    DiffState,
+    ReviewPurpose,
+    classify_review_mode,
     resolve_review_subject,
 )
 from review_agent_tools.github.source import ReviewFilePage, ReviewSourceBytes  # noqa: E402
@@ -87,6 +90,109 @@ class _FakeRegistry:
 class ToolContractTests(unittest.TestCase):
     repository = "example-org/example-repository"
     session_id = "review-agent-job-7-lease-3"
+
+    def _java_guidance_result(
+        self,
+        *,
+        changed_path: str,
+        java_path: str,
+        files: dict[str, RunFile],
+        purpose: ReviewPurpose = ReviewPurpose.CODE,
+        body: str = "Java guidance body.",
+    ) -> tuple[dict[str, object], Mock]:
+        scope = SimpleNamespace(
+            repository=self.repository, pr_number=1, head_sha="b" * 40,
+            resolved_config=self._live_state().resolved_config,
+            run=SimpleNamespace(
+                purpose=purpose, status=SimpleNamespace(value="running"),
+            ),
+        )
+        runtime = self._runtime()
+        with (
+            patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
+            patch.object(review_tool_runtime.postgres_jobs, "require_live_lease"),
+            patch.object(review_source_tools, "postgres_runtime", return_value=runtime),
+            patch.object(review_source_tools, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
+            patch.object(review_source_tools, "pull_request_identity", return_value=(self.repository, 1, {})),
+            patch.object(review_source_tools, "installed_review_contract", return_value=TEST_REVIEW_CONTRACT),
+            patch.object(review_run_application.postgres_review_runs, "get_run_scope", return_value=scope),
+            patch.object(review_run_application.postgres_coverage, "lookup_run_file",
+                side_effect=lambda *_args, path, **_kwargs: RunFileLookup(files.get(path), True)),
+            patch.object(review_contract, "load_installed_java_guidance", return_value=body) as read,
+        ):
+            result = json.loads(review_source_tools.review_java_guidance(
+                {"run_id": 41, "changed_path": changed_path, "java_path": java_path},
+                session_id=self.session_id,
+            ))
+        return result, read
+
+    @staticmethod
+    def _guidance_file(path: str, *, changed: bool) -> RunFile:
+        status = "modified" if changed else "unchanged"
+        return RunFile(path, status, "", "general",
+                       classify_review_mode(path, status).value,
+                       DiffState.UNSEEN, changed)
+
+    def test_java_guidance_loads_for_changed_java_and_configuration_with_observed_java(self) -> None:
+        java = "backend/src/main/java/example/Service.java"
+        for changed in (java, "backend/pom.xml", "backend/src/main/resources/application.yml"):
+            with self.subTest(changed=changed):
+                files = {java: self._guidance_file(java, changed=changed == java),
+                         changed: self._guidance_file(changed, changed=True)}
+                result, read = self._java_guidance_result(changed_path=changed, java_path=java, files=files)
+                self.assertEqual(result["instructions"], "Java guidance body.")
+                self.assertEqual(result["changed_path"], changed)
+                self.assertEqual(result["java_path"], java)
+                read.assert_called_once()
+
+        deleted = "backend/src/main/resources/application.yml"
+        result, read = self._java_guidance_result(
+            changed_path=deleted, java_path=java,
+            files={
+                deleted: replace(self._guidance_file(deleted, changed=True),
+                                 change_status="removed", review_mode="normal"),
+                java: self._guidance_file(java, changed=False),
+            },
+        )
+        self.assertEqual(result["instructions"], "Java guidance body.")
+        read.assert_called_once()
+
+    def test_java_guidance_does_not_read_companion_for_irrelevant_or_unobserved_context(self) -> None:
+        java = "backend/src/main/java/example/Service.java"
+        cases = (
+            ("backend/service.py", java, {java: self._guidance_file(java, changed=False)}),
+            ("frontend/component.tsx", java, {java: self._guidance_file(java, changed=False)}),
+            ("frontend/package.json", java, {java: self._guidance_file(java, changed=False)}),
+            ("backend/pom.xml", java, {}),
+            ("backend/pom.xml", "backend/service.py", {}),
+        )
+        for changed, context, extra in cases:
+            with self.subTest(changed=changed, context=context):
+                files = {changed: self._guidance_file(changed, changed=True), **extra}
+                result, read = self._java_guidance_result(changed_path=changed, java_path=context, files=files)
+                self.assertIn("error", result)
+                self.assertNotIn("instructions", result)
+                read.assert_not_called()
+
+    def test_java_guidance_rejects_documentation_reviews_without_reading_companion(self) -> None:
+        java = "src/main/java/example/Service.java"
+        result, read = self._java_guidance_result(
+            changed_path=java, java_path=java,
+            files={java: self._guidance_file(java, changed=True)},
+            purpose=ReviewPurpose.DOCUMENTATION,
+        )
+        self.assertIn("error", result)
+        read.assert_not_called()
+
+    def test_java_guidance_returns_bounded_failure_without_truncating_instructions(self) -> None:
+        java = "src/main/java/example/Service.java"
+        result, _ = self._java_guidance_result(
+            changed_path=java, java_path=java,
+            files={java: self._guidance_file(java, changed=True)},
+            body="x" * (capacity.current().result_max_chars + 1),
+        )
+        self.assertIn("error", result)
+        self.assertNotIn("instructions", result)
 
     def test_documentation_previous_findings_are_paged_as_untrusted_context(self) -> None:
         previous = tuple(PreviousDocumentationFinding(
@@ -228,6 +334,7 @@ class ToolContractTests(unittest.TestCase):
             schemas.REVIEW_AGENT_PR_FILES,
             schemas.REVIEW_AGENT_PR_DIFF,
             schemas.REVIEW_AGENT_PR_FILE,
+            schemas.REVIEW_AGENT_JAVA_GUIDANCE,
             schemas.REVIEW_AGENT_MEMORY_CONTEXT,
             schemas.REVIEW_AGENT_MEMORY_RECORD,
             schemas.REVIEW_AGENT_DELIVER,

@@ -77,6 +77,22 @@ relevant attack classes, and looks for existing controls that disprove a
 suspected vulnerability. Missing hardening alone is not a finding, and unknown
 deployment behavior is not treated as an established exploit.
 
+For changed Java code, the shared default profile loads a separate Java companion
+through the run-scoped guidance tool. A configuration-only change, such as a Maven
+build file or Spring configuration, also qualifies when the reviewer establishes
+its Java module or consumer and reads supporting Java source in the same run.
+The companion covers Java behavior and clarity, plus Spring transactions,
+authorization, browser credentials, and validation when that framework is
+actually present. It respects inherited dependencies, shared controls, generated
+models, and local conventions. Its full text stays out of unrelated Python,
+frontend, and documentation reviews. Path membership alone does not establish
+configuration relevance; the reviewer must verify the connection in source.
+For a configuration-only PR, the Java source path must already be discoverable
+through existing source context, the diff, or the optional code graph. The
+reviewer does not guess source paths to activate the companion.
+If the selected installed profile has no readable companion, the ordinary review
+continues with its existing evidence and coverage requirements.
+
 This is source-based PR review using the existing two passes in one model turn.
 It does not run Cloudflare's full multi-agent audit, execute tests or exploits,
 probe deployments, or produce standalone audit reports. Documentation reviews

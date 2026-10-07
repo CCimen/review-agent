@@ -854,6 +854,37 @@ def lookup_live_run_file(
         )
 
 
+def require_live_java_guidance_context(
+    runtime: PostgreSQLRuntime,
+    subject: RunSubject,
+    *,
+    changed_path: str,
+    java_path: str,
+) -> ResolvedConfig:
+    """Admit Java context from this code run's changed and observed source paths."""
+    scope = _require_live_scope(runtime, subject)
+    if scope.run.purpose is not ReviewPurpose.CODE:
+        raise ReviewRunError("Java guidance is available only for code reviews")
+    with runtime.transaction() as connection:
+        paths = {
+            path: postgres_coverage.lookup_run_file(
+                connection, run_id=ReviewRunId(subject.run_id),
+                repository=subject.repository, pr_number=subject.pr_number, path=path,
+            ).item
+            for path in {changed_path, java_path}
+        }
+    changed, java = paths[changed_path], paths[java_path]
+    if changed is None or not changed.is_changed_path:
+        raise ReviewRunError("Java guidance requires a registered changed path")
+    if java is None or not java.path.endswith(".java"):
+        raise ReviewRunError("Java guidance requires a registered or observed Java source path")
+    if changed.path != java.path and not changed.path.endswith(
+        (".xml", ".properties", ".yml", ".yaml", ".gradle", ".gradle.kts")
+    ):
+        raise ReviewRunError("Java guidance requires changed Java code or relevant configuration")
+    return scope.resolved_config
+
+
 def record_live_diff_result(
     runtime: PostgreSQLRuntime,
     subject: RunSubject,

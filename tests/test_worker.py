@@ -161,6 +161,7 @@ class WorkerBoundaryTests(unittest.TestCase):
         docs_message = _ChatHandler.requests[1][1]["messages"][0]["content"]
         self.assertEqual(code_message, code.split("\n---\n", 1)[1].lstrip())
         self.assertIn("## Cloudflare security audit guidance", code_message)
+        self.assertNotIn("## Spring checks", code_message)
         self.assertEqual(docs_message, docs.split("\n---\n", 1)[1].lstrip())
         self.assertNotIn("## Cloudflare security audit guidance", docs_message)
 

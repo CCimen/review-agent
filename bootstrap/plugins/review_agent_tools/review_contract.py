@@ -571,9 +571,24 @@ def write_receipt(
     return contract
 
 
+def installed_home(home: Path | None = None) -> Path:
+    return (home or Path(os.environ.get("HERMES_HOME", "/opt/data"))).resolve()
+
+
+def load_installed_java_guidance() -> str:
+    """Read the selected profile's companion after its contract was verified."""
+    path = installed_home() / "skills" / "review-agent-pr" / "JAVA.md"
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ReviewContractError(
+            "the installed profile does not provide readable Java guidance"
+        ) from exc
+
+
 def load_installed_contract(home: Path | None = None) -> ReviewContract:
     """Read and verify the receipt against every installed behavior file."""
-    resolved_home = (home or Path(os.environ.get("HERMES_HOME", "/opt/data"))).resolve()
+    resolved_home = installed_home(home)
     try:
         raw_object = cast(
             object,

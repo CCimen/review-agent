@@ -222,6 +222,26 @@ REVIEW_AGENT_PR_FILE = {
     },
 }
 
+REVIEW_AGENT_JAVA_GUIDANCE = {
+    "name": "review_agent_java_guidance",
+    "description": (
+        "Load the installed Java review companion once, only for changed Java code or "
+        "configuration whose Java consumer has been established. java_path must be a "
+        "registered changed Java path or supporting Java source already read in this run. "
+        "This does not fetch external skills or change authorization, severity, or delivery."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "run_id": {"type": "integer", "minimum": 1},
+            "changed_path": {"type": "string", "description": "Exact affected path in the current PR."},
+            "java_path": {"type": "string", "description": "Exact run-owned Java source path establishing the module context."},
+        },
+        "required": ["run_id", "changed_path", "java_path"],
+        "additionalProperties": False,
+    },
+}
+
 REVIEW_AGENT_MEMORY_CONTEXT = {
     "name": "review_agent_memory_context",
     "description": (

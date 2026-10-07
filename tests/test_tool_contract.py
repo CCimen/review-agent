@@ -8,6 +8,7 @@ import sys
 import unittest
 from contextlib import nullcontext
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -41,6 +42,7 @@ from review_agent_tools.domain.review import (  # noqa: E402
     resolve_review_subject,
 )
 from review_agent_tools.github.source import ReviewFilePage, ReviewSourceBytes  # noqa: E402
+from review_agent_tools.github.gateway import GitHubGatewayRetryable  # noqa: E402
 from review_agent_tools.postgres.coverage import (  # noqa: E402
     CoverageSummary,
     FileIndexSummary,
@@ -88,6 +90,67 @@ class _FakeRegistry:
 
 
 class ToolContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        cache_patch = patch.object(review_source_tools, "_diff_cache", review_source_tools.ReviewDiffCache())
+        cache_patch.start()
+        self.addCleanup(cache_patch.stop)
+
+    def test_begin_keeps_transient_initialization_failure_retryable(self) -> None:
+        retry_at = datetime(2026, 10, 7, 18, 0, tzinfo=timezone.utc)
+        transient = review_tool_runtime.source_error(
+            GitHubGatewayRetryable("github_read_unavailable", retry_at=retry_at)
+        )
+        for failure, terminal in ((transient, False), (review_tool_runtime.ToolInputError("invalid snapshot"), True)):
+            with (
+                self.subTest(terminal=terminal),
+                patch.object(review_source_tools, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
+                patch.object(review_source_tools, "pull_request_identity", return_value=("example/project", 1, {})),
+                patch.object(review_source_tools, "postgres_runtime"),
+                patch.object(review_source_tools, "installed_review_contract"),
+                patch.object(review_source_tools, "initialize_review", side_effect=failure),
+                patch.object(review_source_tools, "mark_run_failed") as mark_failed,
+            ):
+                result = json.loads(review_source_tools.review_begin.__wrapped__({"existing_run_id": 41}))
+            self.assertEqual(mark_failed.called, terminal)
+            if not terminal:
+                self.assertTrue(result["retryable"])
+                self.assertEqual(result["retry_at"], retry_at.isoformat())
+
+    def test_delivery_keeps_transient_snapshot_failure_retryable(self) -> None:
+        transient = review_tool_runtime.source_error(GitHubGatewayRetryable("github_read_unavailable"))
+        for failure, terminal in ((transient, False), (review_tool_runtime.ToolInputError("invalid snapshot"), True)):
+            with (
+                self.subTest(terminal=terminal),
+                patch.object(review_delivery_tool, "gateway_source_session", return_value=SimpleNamespace(run_id=41)),
+                patch.object(review_delivery_tool, "pull_request_identity", return_value=("example/project", 1, {"head": {"sha": "a" * 40}})),
+                patch.object(review_delivery_tool, "postgres_runtime"),
+                patch.object(review_run_application, "load_live_run_state", return_value=SimpleNamespace(phase="reviewing")),
+                patch.object(review_delivery_tool, "review_run_snapshot", side_effect=failure),
+                patch.object(review_delivery_tool, "mark_run_failed") as mark_failed,
+                patch.object(review_delivery_tool.review_publication_application, "prepare_postgres_publication") as prepare,
+            ):
+                result = json.loads(review_delivery_tool.review_deliver.__wrapped__({"run_id": 41}))
+            self.assertEqual(mark_failed.called, terminal)
+            prepare.assert_not_called()
+            if not terminal:
+                self.assertTrue(result["retryable"])
+
+    def test_documentation_file_preserves_provider_retry_deadline(self) -> None:
+        retry_at = datetime(2026, 10, 7, 18, 0, tzinfo=timezone.utc)
+        client = Mock()
+        client.get_review_file_page.side_effect = GitHubGatewayRetryable(
+            "github_read_unavailable", retry_at=retry_at
+        )
+        source = SimpleNamespace(run_id=41, client=client,
+                                 lease=SimpleNamespace(job_id=7, lease_generation=3))
+        with (
+            patch.object(documentation_tools, "gateway_source_session", return_value=source),
+            patch.object(documentation_tools, "_result", return_value=SimpleNamespace(frozen=False)),
+        ):
+            result = json.loads(documentation_tools.docs_file.__wrapped__({"run_id": 41, "path": "README.md"}))
+        self.assertTrue(result["retryable"])
+        self.assertEqual(result["retry_at"], retry_at.isoformat())
+
     repository = "example-org/example-repository"
     session_id = "review-agent-job-7-lease-3"
 
@@ -139,11 +202,15 @@ class ToolContractTests(unittest.TestCase):
             with self.subTest(changed=changed):
                 files = {java: self._guidance_file(java, changed=changed == java),
                          changed: self._guidance_file(changed, changed=True)}
-                result, read = self._java_guidance_result(changed_path=changed, java_path=java, files=files)
+                with self.assertLogs("review_agent_tools.review_source_tools", level="INFO") as logs:
+                    result, read = self._java_guidance_result(changed_path=changed, java_path=java, files=files)
                 self.assertEqual(result["instructions"], "Java guidance body.")
                 self.assertEqual(result["changed_path"], changed)
                 self.assertEqual(result["java_path"], java)
                 read.assert_called_once()
+                self.assertIn("Java guidance returned run_id=41", logs.output[0])
+                self.assertNotIn(java, logs.output[0])
+                self.assertNotIn("Java guidance body", logs.output[0])
 
         deleted = "backend/src/main/resources/application.yml"
         result, read = self._java_guidance_result(
@@ -186,11 +253,12 @@ class ToolContractTests(unittest.TestCase):
 
     def test_java_guidance_returns_bounded_failure_without_truncating_instructions(self) -> None:
         java = "src/main/java/example/Service.java"
-        result, _ = self._java_guidance_result(
-            changed_path=java, java_path=java,
-            files={java: self._guidance_file(java, changed=True)},
-            body="x" * (capacity.current().result_max_chars + 1),
-        )
+        with self.assertNoLogs("review_agent_tools.review_source_tools", level="INFO"):
+            result, _ = self._java_guidance_result(
+                changed_path=java, java_path=java,
+                files={java: self._guidance_file(java, changed=True)},
+                body="x" * (capacity.current().result_max_chars + 1),
+            )
         self.assertIn("error", result)
         self.assertNotIn("instructions", result)
 
@@ -843,7 +911,7 @@ class ToolContractTests(unittest.TestCase):
         text = (
             "diff --git a/big.py b/big.py\n--- /dev/null\n+++ b/big.py\n" + patch_text
         )
-        pull = {"changed_files": 1}
+        pull = {"changed_files": 1, "base": {"sha": "a" * 40}, "head": {"sha": "b" * 40}}
         for state in ("ok", "diff_unavailable"):
             client = Mock()
             client.get_review_diff.return_value = SimpleNamespace(
@@ -870,6 +938,7 @@ class ToolContractTests(unittest.TestCase):
             )
             with (
                 self.subTest(state=state),
+                patch.object(review_source_tools, "_diff_cache", review_source_tools.ReviewDiffCache()),
                 patch.object(
                     review_source_tools, "gateway_source_session", return_value=source
                 ),
@@ -936,6 +1005,8 @@ class ToolContractTests(unittest.TestCase):
             index = SimpleNamespace(files=[], index_state=index_state)
             with (
                 self.subTest(index_state=index_state, registered=item is not None),
+                patch.object(review_source_tools, "_diff_cache", review_source_tools.ReviewDiffCache()),
+                patch.object(review_source_tools, "_validate_diff_fill"),
                 patch.object(
                     review_source_tools,
                     "_enumerate_changed_file_index",
@@ -967,7 +1038,7 @@ class ToolContractTests(unittest.TestCase):
                         path="missing.py",
                         max_chars=10_000,
                         start_char=0,
-                        reported=1,
+                        key=review_source_tools.DiffSnapshotKey(self.repository, 1, 41, 7, 3, "a" * 40, "b" * 40, 1),
                     )
                 )
 

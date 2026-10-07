@@ -811,11 +811,33 @@ def publish_postgres_publication(
                     if stale_code is not None:
                         return terminalize_stale(stale_code)
                     prove_provider_write()
-                    created = github.create_issue_comment(
-                        publication.repository,
-                        publication.pr_number,
-                        part.delivery.body,
-                    )
+                    try:
+                        created = github.create_issue_comment(
+                            publication.repository,
+                            publication.pr_number,
+                            part.delivery.body,
+                        )
+                    except GitHubPublicationError as exc:
+                        if (
+                            isinstance(exc, GitHubPublicationAuthorityLost)
+                            or not exc.retryable
+                            or exc.retry_at is not None
+                        ):
+                            raise
+                        # A failed response can follow a successful POST. Reconcile
+                        # even on the last attempt, without issuing another write.
+                        issue_comments = recovered_issue_comments(github.list_issue_comments(
+                            publication.repository, publication.pr_number,
+                            max_pages=_COMMENT_RECOVERY_SCAN_PAGES, newest_first=True,
+                        ))
+                        confirmed = next((
+                            comment for comment in issue_comments.get(part.part_number, [])
+                            if comment.body == part.delivery.body
+                        ), None)
+                        if confirmed is None:
+                            raise
+                        created = confirmed
+                        recovered += 1
                     external_id = created.comment_id
                     issue_comments[part.part_number] = [created]
             else:
@@ -1084,7 +1106,8 @@ def _failure_status_body(
     return (
         f"## {REVIEW_COMMENT_TITLE} — could not be completed\n\n"
         f"**Requested commit:** `{head_sha}`\n\n"
-        "This automated review did not finish, so no findings were published.\n\n"
+        "Review Agent could not confirm successful completion of this request. "
+        "Review comments may already be present; check them before requesting another review.\n\n"
         f"- Reason: {reason}\n"
         f"- Status code: `{failure_code}`\n\n"
         "This is an automated status, not a review result; deterministic CI remains "

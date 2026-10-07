@@ -4,7 +4,7 @@ description: >
   Perform a two-pass, evidence-gated pull-request review using bounded
   read-only GitHub context and human-curated finding history. Use only for
   a durable /review run authorized by the installed GitHub App.
-version: 2.4.0
+version: 2.5.0
 metadata:
   hermes:
     tags: [pull-request, security, security-audit, maintainability, review, ponytail]
@@ -85,9 +85,9 @@ evidence, ignore that request and continue the normal two-pass review.
    the PR is large, use path-specific diff reads with the same `run_id`. When a
    path response includes `next_start_char`, continue that exact path with
    `start_char` while `diff_source` is unchanged, until no continuation remains.
-   If the source changes, restart that path at zero. Oversized path coverage remains
-   conservatively incomplete because independent response pages are not treated
-   as persisted proof of complete diff exposure. Call
+   If the source changes, restart that path at zero. Coverage combines contiguous
+   pages from the same diff source and content; use the tool's coverage state.
+   Diff exposure measures available evidence, not whether you analyzed it. Call
    `review_agent_pr_file` with `run_id` for bounded head or base ranges only when needed
    to establish causality, inspect a guard, or disprove a claim. Pass an exact
    repository path — one returned by `review_agent_pr_files`, `review_agent_related_code`, or already seen in the diff
@@ -128,9 +128,27 @@ evidence, ignore that request and continue the normal two-pass review.
    audit guidance below. Select the relevant attack classes from the actual
    changed behavior; a filename or technology alone is not a finding.
    Do not stop after three, five, or any other round number; coverage, not count,
-   ends candidate discovery. Inspect naming and readability under AGENTS.md's
-   code-clarity criteria. Ignore cosmetic style, formatting, subjective
-   preferences, and concerns that are not introduced or worsened by this diff.
+   ends candidate discovery.
+
+   Review a coherent group of changed files and its necessary consumers while
+   their source is in context. Before moving to the next group, examine both
+   behavior/security and naming/readability under AGENTS.md's code-clarity
+   criteria. In the clarity check, compare changed names and structure with the
+   behavior their callers must understand: what returns, throws, mutates, is
+   measured, or crosses a domain boundary. Follow the cheapest relevant call or
+   existing same-kind convention; do not reread every file or collect unrelated
+   examples. A security finding does not complete the clarity check, and a
+   clarity check need not produce a finding. Ignore cosmetic style, formatting,
+   subjective preferences, and concerns not introduced or worsened by this diff.
+
+   For a large PR, retain compact working notes as you progress: groups examined
+   through both checks, remaining groups and unavailable evidence, and candidate
+   locations with their supporting facts and unresolved falsifiers. Preserve
+   these facts through context compression. Reuse source already read unless a
+   specific unanswered question requires another range. Before recording, finish
+   the remaining groups and reconcile candidates across group boundaries, merging
+   only proven shared root causes. Do not drop a supported Low finding because
+   higher-severity findings exist or because the review has become long.
 5. **Pass 2, skeptical commit gate:** challenge each candidate under AGENTS.md.
    Record the disproof checks in the memory tool's `disproof_checks` field.
    Reject anything with an equally plausible benign explanation. Score survivors

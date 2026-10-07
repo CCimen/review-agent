@@ -61,7 +61,7 @@ def review_memory_context(args: dict[str, Any], **context: Any) -> str:
         review_finding_application.ReviewFindingError,
         PostgreSQLRuntimeError,
     ) as exc:
-        return error_output(str(exc))
+        return error_output(exc)
     except Exception:
         return error_output("unexpected memory read failure")
 
@@ -207,6 +207,6 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
         review_finding_application.ReviewFindingError,
         PostgreSQLRuntimeError,
     ) as exc:
-        return error_output(str(exc))
+        return error_output(exc)
     except Exception:
         return error_output("unexpected memory write failure")

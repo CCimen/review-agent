@@ -98,6 +98,27 @@ def _http_error_with_body(code: int, message: str) -> urllib.error.HTTPError:
 
 
 class GitHubReadClientTests(unittest.TestCase):
+    def test_timeouts_are_retryable_during_open_and_bounded_body_read(self) -> None:
+        for during_read in (False, True):
+            with self.subTest(during_read=during_read):
+                opener = Mock()
+                response = _FakeResponse()
+                if during_read:
+                    opener.open.return_value = response
+                    response.read = Mock(side_effect=TimeoutError("private detail"))
+                else:
+                    opener.open.side_effect = TimeoutError("private detail")
+                client = source_control.GitHubReadClient(
+                    "installation-token", opener=opener, max_attempts=1
+                )
+                with self.assertRaises(source_control.GitHubReadError) as raised:
+                    client.request("/repos/example/project/pulls/1", max_bytes=100)
+                self.assertTrue(raised.exception.retryable)
+                self.assertEqual(raised.exception.kind, "timeout")
+                self.assertNotIn("private detail", str(raised.exception))
+                if during_read:
+                    self.assertTrue(response.exited)
+
     def test_archive_download_uses_an_exact_commit_and_rejects_truncation(self) -> None:
         opener = Mock()
         opener.open.return_value = _FakeResponse(b"archive")

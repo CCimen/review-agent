@@ -175,7 +175,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         self.assertEqual(complete.changed_files_registered, 2)
         self.assertTrue(complete.registration_complete)
 
-    def test_diff_page_reads_one_snapshot_and_stops_when_the_head_changes(self) -> None:
+    def test_diff_fill_rechecks_snapshot_and_stops_when_the_head_changes(self) -> None:
         run_id = self.start_run()
         review_run_application.register_postgres_changed_files(
             self.runtime,
@@ -227,7 +227,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                 )
             )
             self.assertEqual(first["diff"], diff)
-            self.assertEqual(client.get_review_pull.call_count, 1)
+            self.assertEqual(client.get_review_pull.call_count, 2)
             coverage = review_run_application.summarize_postgres_coverage(
                 self.runtime, run_id
             )
@@ -240,7 +240,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
                 )
             )
         self.assertEqual(second["status"], "superseded")
-        self.assertEqual(client.get_review_pull.call_count, 2)
+        self.assertEqual(client.get_review_pull.call_count, 3)
         self.assertEqual(client.get_review_diff.call_count, 1)
         with self.runtime.transaction() as connection:
             run = postgres_review_runs.get_run(connection, run_id)

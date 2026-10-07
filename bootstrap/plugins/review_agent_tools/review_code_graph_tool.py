@@ -74,8 +74,8 @@ def related_code(args: dict[str, Any], **context: Any) -> str:
     except ReviewRunTerminal:
         return output_json(run_terminal_payload(run_id))
     except GitHubGatewayError as exc:
-        return error_output(str(source_error(exc)))
+        return error_output(source_error(exc))
     except ToolInputError as exc:
-        return error_output(str(exc))
+        return error_output(exc)
     except (GraphError, SettingsError):
         return output_json({"status": "unavailable", "next_action": "Continue with the normal source tools."})

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 from dataclasses import dataclass
+from datetime import datetime
 from functools import wraps
 import json
 import logging
@@ -19,7 +20,7 @@ from . import (
     settings,
 )
 from .domain.review import ReviewRunId
-from .github.gateway import GitHubGatewayError, GitHubGatewayRejected
+from .github.gateway import GitHubGatewayError, GitHubGatewayRejected, GitHubGatewayRetryable
 from .github.gateway_client import ReviewGitHubGatewayClient
 from .postgres import jobs as postgres_jobs
 from .postgres.runtime import (
@@ -39,6 +40,14 @@ ReviewRunTerminal = review_run_application.ReviewRunTerminal
 
 class ToolInputError(ValueError):
     pass
+
+
+class RetryableSourceError(ToolInputError):
+    """A source read failed without invalidating the review snapshot."""
+
+    def __init__(self, *, retry_at: datetime | None) -> None:
+        super().__init__("GitHub source read is temporarily unavailable")
+        self.retry_at = retry_at
 
 
 def worker_lease_fence(
@@ -87,8 +96,18 @@ def output_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def error_output(message: str) -> str:
-    return output_json({"error": message})
+def error_output(message: str | Exception) -> str:
+    if isinstance(message, RetryableSourceError):
+        return output_json({
+            "error": str(message),
+            "retryable": True,
+            "retry_at": message.retry_at.isoformat() if message.retry_at else None,
+            "next_action": (
+                "The review remains open. Do not publish an empty result because this read failed. "
+                "Stop this turn if a retry time is supplied or the failure persists."
+            ),
+        })
+    return output_json({"error": str(message)})
 
 
 def _positive_id(raw: Any, *, field: str) -> int:
@@ -139,6 +158,8 @@ def gateway_source_session(
 
 
 def source_error(exc: GitHubGatewayError) -> ToolInputError:
+    if isinstance(exc, GitHubGatewayRetryable):
+        return RetryableSourceError(retry_at=exc.retry_at)
     if isinstance(exc, GitHubGatewayRejected) and exc.reason == "review_job_lease_lost":
         return ToolInputError("review worker lease is no longer current; stop this review turn")
     if isinstance(exc, GitHubGatewayRejected) and exc.reason == "repository_not_authorized":

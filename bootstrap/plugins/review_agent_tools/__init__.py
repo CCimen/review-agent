@@ -96,6 +96,12 @@ def register(ctx: ToolRegistry) -> None:
         handler=getattr(source_tools, "pr_file"),
     )
     ctx.register_tool(
+        name="review_agent_java_guidance",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_JAVA_GUIDANCE"),
+        handler=getattr(source_tools, "review_java_guidance"),
+    )
+    ctx.register_tool(
         name="review_agent_related_code",
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_RELATED_CODE"),

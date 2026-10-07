@@ -155,6 +155,11 @@ class ProfileBundleTests(unittest.TestCase):
 
             self.assertEqual(0, first)
             self.assert_profile_assets_installed(hermes_home)
+            with mock.patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
+                self.assertEqual(
+                    (PROFILE_SOURCE / "skills" / "review-agent-pr" / "JAVA.md").read_text(encoding="utf-8"),
+                    self.install.review_contract.load_installed_java_guidance(),
+                )
             self.assertEqual(
                 tree_bytes(PLUGIN_SOURCE),
                 tree_bytes(hermes_home / "plugins" / "review_agent_tools"),
@@ -378,6 +383,9 @@ class ProfileBundleTests(unittest.TestCase):
             shutil.copytree(PROFILE_SOURCE, profiles / "default-standard")
             custom = profiles / "team-standard"
             shutil.copytree(profiles / "default-standard", custom)
+            (custom / "skills" / "review-agent-pr" / "JAVA.md").write_text(
+                "# Team Java guidance\n", encoding="utf-8",
+            )
             (custom / "SOUL.md").write_text(
                 "# Team reviewer\n\nAnswer review explanations in Swedish.\n",
                 encoding="utf-8",
@@ -427,6 +435,11 @@ class ProfileBundleTests(unittest.TestCase):
                 )
             )
             self.assertEqual("team-standard", receipt["contract"]["profile"])
+            with mock.patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
+                self.assertEqual(
+                    "# Team Java guidance\n",
+                    self.install.review_contract.load_installed_java_guidance(),
+                )
 
     def test_profile_contract_rejects_unknown_and_runtime_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

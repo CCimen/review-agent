@@ -78,6 +78,45 @@ def page_output(value: Any) -> str:
     )
 
 
+@worker_lease_fence()
+def review_java_guidance(args: dict[str, Any], **context: Any) -> str:
+    try:
+        source = gateway_source_session(args, context)
+        repository, number, _ = pull_request_identity(source)
+        changed_path = parse_path(args.get("changed_path"))
+        java_path = parse_path(args.get("java_path"))
+        resolved = review_run_application.require_live_java_guidance_context(
+            postgres_runtime(),
+            run_subject(repository=repository, pr_number=number, run_id=source.run_id),
+            changed_path=changed_path, java_path=java_path,
+        )
+        installed = installed_review_contract()
+        review_contract.require_matching_execution_contract(
+            cast(JsonObject, json.loads(resolved.canonical_json)), installed,
+        )
+        return page_output({
+            "run_id": source.run_id,
+            "changed_path": changed_path,
+            "java_path": java_path,
+            "profile": installed.profile,
+            "instructions": review_contract.load_installed_java_guidance(),
+            "scope_notice": (
+                "This installed companion supplements AGENTS.md for the relevant Java module. "
+                "Path membership is not proof that configuration affects that module; verify "
+                "the actual consumer and framework before applying its checks."
+            ),
+        })
+    except ReviewRunTerminal as terminal:
+        return output_json(run_terminal_payload(terminal.run_id))
+    except (
+        ToolInputError, review_contract.ReviewContractError,
+        review_run_application.ReviewRunError, PostgreSQLRuntimeError,
+    ) as exc:
+        return error_output(str(exc))
+    except Exception:
+        return error_output("Java review guidance could not be loaded")
+
+
 def parse_bool(raw: Any, *, field: str, default: bool) -> bool:
     if raw is None:
         return default

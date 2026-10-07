@@ -11,9 +11,13 @@ USER root
 # published after that image was built still need to be applied to the release
 # candidate. The configured review gateway uses Python; Hermes' frontend builds
 # and npm-based tools are disabled. Remove their unused dependency trees.
+# SSH, XML processing, and native compilation are outside the managed review
+# path; graph parsers use prebuilt wheels. Purge their inherited OS packages.
 RUN apt-get -o Acquire::Retries=3 update \
     && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 upgrade \
         -y --no-install-recommends \
+    && DEBIAN_FRONTEND=noninteractive apt-get purge \
+        -y linux-libc-dev openssh-client libxml2 \
     && rm -rf /var/lib/apt/lists/* \
         /usr/local/lib/node_modules/npm /opt/hermes/node_modules \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/uvx

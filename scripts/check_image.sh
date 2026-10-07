@@ -19,12 +19,41 @@ docker run --rm --entrypoint /opt/hermes/.venv/bin/python "$image" -c '
 from importlib.metadata import version
 from pathlib import Path
 from packaging.requirements import Requirement
+import subprocess
+
+for package in ("linux-libc-dev", "openssh-client", "libxml2"):
+    status = subprocess.run(
+        ["dpkg-query", "-W", "-f=${db:Status-Status}", package],
+        capture_output=True, text=True,
+    )
+    assert status.returncode in (0, 1), status.stderr
+    assert status.stdout.strip() in ("", "not-installed"), package
 
 for line in Path("/opt/review-agent-requirements.txt").read_text().splitlines():
     if line and not line.startswith("#"):
         requirement = Requirement(line)
         installed = version(requirement.name)
         assert installed in requirement.specifier, f"{requirement}: installed {installed}"
+'
+
+docker run --rm --network none \
+    --env PYTHONPATH=/opt/review-agent-bootstrap/plugins \
+    --entrypoint /opt/review-agent-code-graph/bin/python "$image" -c '
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from review_agent_tools.code_graph_indexer import execute
+
+with TemporaryDirectory() as directory:
+    root = Path(directory)
+    source = root / "source"
+    source.mkdir()
+    (source / "sample.py").write_text("def answer():\n    return 42\n")
+    (source / "sample.ts").write_text("export function answer(): number { return 42; }\n")
+    (source / "sample.c").write_text("int answer(void) { return 42; }\n")
+    result = execute({"operation": "build", "source": str(source),
+                      "database": str(root / "graph.db"), "embeddings": "disabled"})
+    assert result["parse_errors"] == 0, result
+    assert result["nodes"] >= 3, result
 '
 
 for entrypoint in \

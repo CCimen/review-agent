@@ -154,6 +154,11 @@ This addresses [WebSocket TLS through SOCKS proxies](https://github.com/pydantic
 and [unbounded response decompression](https://github.com/pydantic/httpx2/security/advisories/GHSA-8xx6-hgc6-gc2m).
 It also pins `anyio` 4.15.1 over the inherited 4.12.1 to fix the critical
 CVE-2026-63374, matching the admin and code-graph environments.
+The inherited `urllib3` is pinned to 2.8.0 for its
+[HTTPS proxy TLS and streaming fixes](https://github.com/urllib3/urllib3/releases/tag/2.8.0).
+The runtime image removes the inherited SSH client, C headers, and system
+libxml2 with their dependent build, browser, and media packages. The managed
+review uses HTTPS and text, and graph parsers use prebuilt wheels.
 Reassess these pins when updating the Hermes base, using the built image's
 dependency inventory, compatibility checks and vulnerability report.
 

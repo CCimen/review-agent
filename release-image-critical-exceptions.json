@@ -1,25 +1,6 @@
 {
   "schema_version": 1,
   "scope": "release-image",
-  "expires_on": "2026-09-30",
-  "exceptions": [
-    {
-      "vulnerability_id": "CVE-2026-43185",
-      "package_name": "linux-libc-dev",
-      "installed_version": "6.12.111-1",
-      "reason": "This package supplies build headers and no executable runtime path; Debian 13 has not published a fixed package."
-    },
-    {
-      "vulnerability_id": "CVE-2026-60002",
-      "package_name": "openssh-client",
-      "installed_version": "1:10.0p1-7+deb13u4",
-      "reason": "The managed review path uses GitHub HTTPS APIs and exposes no SSH execution; Debian 13 has no fixed package."
-    },
-    {
-      "vulnerability_id": "CVE-2026-6653",
-      "package_name": "libxml2",
-      "installed_version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3",
-      "reason": "Repository files are handled as text and are not parsed through inherited libxml2; Debian 13 has no fixed package."
-    }
-  ]
+  "expires_on": "2026-10-14",
+  "exceptions": []
 }

@@ -191,6 +191,35 @@ boundary prevents inspection. Retained bounds have one of four owners:
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` defaults to 65,000 UTF-8 bytes including framing and metadata, below the API's [reported 65,536-character ceiling](https://github.com/actions/dependency-review-action/issues/730). Larger reviews are deterministically split. | Per-comment delivery budget; the separate 200-pending-finding bound still applies. |
 | Webhook and stored payloads | Request bodies, persisted JSON aggregates, text fields, database pools, timeouts, and retry counts remain bounded. | Denial-of-service protection, typed storage integrity, and predictable resource use. |
 
+Repeated diff pages reuse prepared source blocks within the same tool process,
+review run, worker lease, and base/head commits. The cache retains at most 16
+snapshots and 32 MiB of accounted Python storage. Every request still checks
+current authority and revisions; a newly fetched snapshot is checked again before
+use. Eviction, restart, or a snapshot above the cache budget causes a fresh read
+without omitting files. These limits bound retained source memory, not review
+size. Debug logs from `review_agent_tools.review_diff_cache` report hits and
+snapshots that exceed the cache budget without logging source content.
+
+The coverage count measures full diffs exposed to the reviewer, not analysis
+progress. It can stop below the changed-file count when GitHub omits a text patch,
+even while source reads and analysis continue. A transient source error keeps the
+run open and returns a retryable tool result; it does not establish clean coverage
+or a completed review. A returned retry time is a provider signal, not confirmation
+that the worker's next attempt has been scheduled for that time.
+
+The default reviewer examines behavior and code clarity within each related group
+of changed files, retaining compact evidence notes across large reviews. It still
+requires a demonstrated mismatch for a naming suggestion; formatting preferences
+and arbitrary fixture keys are excluded. This procedure does not guarantee that
+the model will identify every relevant issue.
+
+An INFO log from `review_agent_tools.review_source_tools` reports
+`Java guidance returned` with the review run ID and installed profile digest after
+the guidance tool returns its bounded instructions. It records neither source
+content nor paths. This confirms delivery of the companion to the model, not that
+the model applied every check. Older runs without that log cannot be verified
+from coarse worker events alone.
+
 The managed configuration deliberately does not set `agent.max_turns` or
 `context_file_max_chars`. Current Hermes runs turns to completion by default and
 derives the context-file allowance from the selected model's context window.

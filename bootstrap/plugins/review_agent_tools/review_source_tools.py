@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Literal, cast
 
 from . import (
@@ -19,6 +20,7 @@ from . import (
 )
 from .domain.review import DiffState
 from .github.gateway import GitHubGatewayError
+from .review_diff_cache import DiffSnapshot, DiffSnapshotKey, ReviewDiffCache
 from .review_code_graph_tool import prepare_graph
 from .review_source_initialization import (
     enumerate_changed_file_index as _enumerate_changed_file_index,
@@ -30,6 +32,7 @@ from .postgres.runtime import PostgreSQLRuntimeError
 from .review_tool_runtime import (
     JsonObject,
     ReviewRunTerminal,
+    RetryableSourceError,
     ToolInputError,
     GatewaySourceSession,
     SHA_RE,
@@ -44,6 +47,7 @@ from .review_tool_runtime import (
     postgres_runtime,
     pull_request_identity,
     pull_base_sha,
+    pull_head_sha,
     pull_snapshot,
     review_run_snapshot,
     run_subject,
@@ -63,8 +67,8 @@ FileTerminalState = Literal[
 ]
 
 
-class DiffUnavailableError(ToolInputError):
-    """Use per-file patches while preserving the outer tool-input error contract."""
+_diff_cache = ReviewDiffCache()
+logger = logging.getLogger(__name__)
 
 
 def page_output(value: Any) -> str:
@@ -94,7 +98,7 @@ def review_java_guidance(args: dict[str, Any], **context: Any) -> str:
         review_contract.require_matching_execution_contract(
             cast(JsonObject, json.loads(resolved.canonical_json)), installed,
         )
-        return page_output({
+        response = page_output({
             "run_id": source.run_id,
             "changed_path": changed_path,
             "java_path": java_path,
@@ -106,13 +110,19 @@ def review_java_guidance(args: dict[str, Any], **context: Any) -> str:
                 "the actual consumer and framework before applying its checks."
             ),
         })
+        if "instructions" in json.loads(response):
+            logger.info(
+                "Java guidance returned run_id=%d profile=%s profile_sha256=%s",
+                source.run_id, installed.profile, installed.profile_bundle_sha256,
+            )
+        return response
     except ReviewRunTerminal as terminal:
         return output_json(run_terminal_payload(terminal.run_id))
     except (
         ToolInputError, review_contract.ReviewContractError,
         review_run_application.ReviewRunError, PostgreSQLRuntimeError,
     ) as exc:
-        return error_output(str(exc))
+        return error_output(exc)
     except Exception:
         return error_output("Java review guidance could not be loaded")
 
@@ -359,6 +369,8 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
         return rendered
     except ReviewRunTerminal as terminal:
         return output_json(run_terminal_payload(terminal.run_id))
+    except RetryableSourceError as exc:
+        return error_output(exc)
     except review_contract.ReviewContractError as exc:
         if repository and number and run_id:
             mark_run_failed(
@@ -367,7 +379,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
                 run_id=run_id,
                 failure_code=failure_codes.REVIEW_CONTRACT_CHANGED,
             )
-        return error_output(str(exc))
+        return error_output(exc)
     except (
         ToolInputError,
         memory_validation.ReviewMemoryError,
@@ -381,7 +393,7 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
                 run_id=run_id,
                 failure_code=failure_codes.REVIEW_FAILED,
             )
-        return error_output(str(exc))
+        return error_output(exc)
     except Exception:
         if repository and number and run_id:
             mark_run_failed(
@@ -435,7 +447,7 @@ def pr_files(args: dict[str, Any], **context: Any) -> str:
         review_run_application.ReviewRunError,
         PostgreSQLRuntimeError,
     ) as exc:
-        return error_output(str(exc))
+        return error_output(exc)
     except Exception:
         return error_output("unexpected changed-file listing failure")
 
@@ -474,6 +486,15 @@ def _pr_diff_terminal_handoff(
     )
 
 
+def _validate_diff_fill(source: GatewaySourceSession, key: DiffSnapshotKey) -> None:
+    review_run_snapshot(
+        source=source,
+        repository=key.repository,
+        pr_number=key.pr_number,
+        phase="collecting_diff",
+    )
+
+
 def _pr_diff_from_patches(
     *,
     source: GatewaySourceSession,
@@ -483,12 +504,18 @@ def _pr_diff_from_patches(
     path: str,
     max_chars: int,
     start_char: int,
-    reported: int,
+    key: DiffSnapshotKey,
 ) -> str:
     """Render the diff from per-file patches when GitHub refuses the whole-PR diff."""
-    index = _enumerate_changed_file_index(source, reported=reported)
-    assembled = diff_render.assemble_fallback_diff(
-        index.files,
+    snapshot = _diff_cache.get(key, "patches")
+    if snapshot is None:
+        index = _enumerate_changed_file_index(source, reported=key.reported_files)
+        snapshot = DiffSnapshot(diff_render.prepare_fallback_diff(index.files), index.index_state)
+        _validate_diff_fill(source, key)
+        if index.index_state != "incomplete":
+            _diff_cache.put(key, "patches", snapshot)
+    assert snapshot.diff is not None
+    assembled = snapshot.diff.assemble(
         only_path=path or None,
         max_chars=max_chars,
         start_char=start_char,
@@ -503,7 +530,7 @@ def _pr_diff_from_patches(
             postgres_runtime(), subject, path=path
         )
         mark_unavailable = (
-            index.index_state == "complete"
+            snapshot.index_state == "complete"
             and registered.item is not None
             and registered.item.is_changed_path
             and registered.item.diff_state is not DiffState.COMPLETE
@@ -518,7 +545,7 @@ def _pr_diff_from_patches(
                 ),
             ),
         )
-        if index.index_state == "complete":
+        if snapshot.index_state == "complete":
             path_state: Literal[
                 "not_in_changed_files", "not_in_changed_index"
             ] = "not_in_changed_files"
@@ -539,7 +566,7 @@ def _pr_diff_from_patches(
             number=number,
             path=path,
             path_state=path_state,
-            index_state=index.index_state,
+            index_state=snapshot.index_state,
             unavailable_paths=[path] if mark_unavailable else [],
             next_action=next_action,
         )
@@ -561,7 +588,7 @@ def _pr_diff_from_patches(
             number=number,
             path=path,
             path_state="diff_unavailable",
-            index_state=index.index_state,
+            index_state=snapshot.index_state,
             unavailable_paths=assembled.unavailable_paths,
             next_action=(
                 "GitHub did not provide a text patch for this large or binary path. "
@@ -622,53 +649,42 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
             phase="collecting_diff",
             observed_pull=initial_pull,
         )
-        try:
-            source_diff = source.client.get_review_diff(
-                run_id=source.run_id,
-                job_id=source.lease.job_id,
-                lease_generation=source.lease.lease_generation,
-            )
-            if source_diff.state == "diff_unavailable":
-                raise DiffUnavailableError("GitHub could not render this diff")
-            if source_diff.state != "ok":
+        key = DiffSnapshotKey(
+            repository=repository, pr_number=number, run_id=run_id,
+            job_id=source.lease.job_id, lease_generation=source.lease.lease_generation,
+            base_sha=pull_base_sha(pull), head_sha=pull_head_sha(pull),
+            reported_files=max(parse_int(pull.get("changed_files")), 0),
+        )
+        snapshot = _diff_cache.get(key, "rendered")
+        if snapshot is None:
+            try:
+                source_diff = source.client.get_review_diff(
+                    run_id=source.run_id,
+                    job_id=source.lease.job_id,
+                    lease_generation=source.lease.lease_generation,
+                )
+            except GitHubGatewayError as exc:
+                raise source_error(exc) from exc
+            if source_diff.state == "diff_unavailable" or (
+                source_diff.state == "ok" and source_diff.truncated
+            ):
+                # A capped prefix cannot establish exact file boundaries.
+                snapshot = DiffSnapshot(None)
+            elif source_diff.state == "ok":
+                snapshot = DiffSnapshot(diff_render.prepare_rendered_diff(
+                    source_diff.body.decode("utf-8", errors="replace")
+                ))
+            else:
                 raise ToolInputError("GitHub diff is unavailable")
-            raw = source_diff.body
-            transport_truncated = source_diff.truncated
-        except GitHubGatewayError as exc:
-            raise source_error(exc) from exc
-        except DiffUnavailableError:
-            # The whole-PR diff is too large for GitHub to render (HTTP 406); fall
-            # back to per-file patches instead of looping on an unrecoverable read.
+            _validate_diff_fill(source, key)
+            _diff_cache.put(key, "rendered", snapshot)
+        if snapshot.diff is None:
             return _pr_diff_from_patches(
-                source=source,
-                repository=repository,
-                number=number,
-                run_id=run_id,
-                path=path,
-                max_chars=max_chars,
-                start_char=start_char,
-                reported=max(parse_int(pull.get("changed_files")), 0),
+                source=source, repository=repository, number=number, run_id=run_id,
+                path=path, max_chars=max_chars, start_char=start_char, key=key,
             )
-        if transport_truncated:
-            # A capped whole-PR prefix cannot prove that a requested path is
-            # absent or that its last block is complete. Per-file patches carry
-            # exact file boundaries and honest availability state.
-            return _pr_diff_from_patches(
-                source=source,
-                repository=repository,
-                number=number,
-                run_id=run_id,
-                path=path,
-                max_chars=max_chars,
-                start_char=start_char,
-                reported=max(parse_int(pull.get("changed_files")), 0),
-            )
-        text = raw.decode("utf-8", errors="replace")
-        assembled = diff_render.assemble_rendered_diff(
-            text,
-            only_path=path or None,
-            max_chars=max_chars,
-            start_char=start_char,
+        assembled = snapshot.diff.assemble(
+            only_path=path or None, max_chars=max_chars, start_char=start_char,
         )
         if path and not assembled.path_present:
             # GitHub may omit an otherwise registered changed path from the
@@ -682,7 +698,7 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
                 path=path,
                 max_chars=max_chars,
                 start_char=start_char,
-                reported=max(parse_int(pull.get("changed_files")), 0),
+                key=key,
             )
         review_run_application.record_live_diff_result(
             postgres_runtime(),
@@ -720,7 +736,7 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
         review_run_application.ReviewRunError,
         PostgreSQLRuntimeError,
     ) as exc:
-        return error_output(str(exc))
+        return error_output(exc)
     except Exception:
         return error_output("unexpected diff failure")
 
@@ -959,6 +975,6 @@ def pr_file(args: dict[str, Any], **context: Any) -> str:
         review_run_application.ReviewRunError,
         PostgreSQLRuntimeError,
     ) as exc:
-        return error_output(str(exc))
+        return error_output(exc)
     except Exception:
         return error_output("unexpected file read failure")

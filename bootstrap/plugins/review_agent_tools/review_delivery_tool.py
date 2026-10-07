@@ -17,6 +17,7 @@ from .postgres.runtime import PostgreSQLRuntimeError
 from .review_tool_runtime import (
     ReviewRunTerminal,
     ToolInputError,
+    RetryableSourceError,
     GatewaySourceSession,
     error_output,
     gateway_source_session,
@@ -157,7 +158,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                 review_run_application.ReviewRunError,
                 PostgreSQLRuntimeError,
             ) as phase_error:
-                return error_output(str(phase_error))
+                return error_output(phase_error)
             return output_json(
                 {
                     "stage": "validation_failed",
@@ -173,7 +174,9 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                     ),
                 }
             )
-        return error_output(str(exc))
+        return error_output(exc)
+    except RetryableSourceError as exc:
+        return error_output(exc)
     except (
         ToolInputError,
         review_run_application.ReviewRunError,
@@ -186,7 +189,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                 run_id=run_id,
                 failure_code=failure_codes.REVIEW_DELIVER_ERROR,
             )
-        return error_output(str(exc))
+        return error_output(exc)
     except Exception:
         if repository and number and run_id:
             mark_run_failed(

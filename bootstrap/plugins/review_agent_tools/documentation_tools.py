@@ -15,7 +15,7 @@ from .review_source_tools import page_output
 from .review_tool_runtime import (
     GatewaySourceSession, ReviewRunTerminal, ToolInputError, error_output,
     gateway_source_session, output_json, postgres_runtime, review_run_snapshot,
-    run_terminal_payload, worker_lease_fence,
+    run_terminal_payload, source_error, worker_lease_fence,
 )
 
 
@@ -68,8 +68,10 @@ def docs_begin(args: dict[str, Any], **context: Any) -> str:
         })
     except ReviewRunTerminal as terminal:
         return output_json(run_terminal_payload(terminal.run_id))
-    except (ValueError, GitHubGatewayError, PostgreSQLRuntimeError) as exc:
-        return error_output(str(exc))
+    except GitHubGatewayError as exc:
+        return error_output(source_error(exc))
+    except (ValueError, PostgreSQLRuntimeError) as exc:
+        return error_output(exc)
 
 
 @worker_lease_fence()
@@ -97,8 +99,10 @@ def docs_scope(args: dict[str, Any], **context: Any) -> str:
         return page_output({"section": section, "page": page, "total": len(items),
             "items_untrusted": items[offset:offset + limit],
             "next_page": page + 1 if offset + limit < len(items) else None})
-    except (ValueError, GitHubGatewayError, PostgreSQLRuntimeError) as exc:
-        return error_output(str(exc))
+    except GitHubGatewayError as exc:
+        return error_output(source_error(exc))
+    except (ValueError, PostgreSQLRuntimeError) as exc:
+        return error_output(exc)
 
 
 @worker_lease_fence()
@@ -128,8 +132,10 @@ def docs_file(args: dict[str, Any], **context: Any) -> str:
                 and page.complete_lines > 0 and start + page.complete_lines <= page.total_lines else None,
             "verified_absent": page.state == "not_found_at_revision",
         })
-    except (ValueError, GitHubGatewayError, PostgreSQLRuntimeError) as exc:
-        return error_output(str(exc))
+    except GitHubGatewayError as exc:
+        return error_output(source_error(exc))
+    except (ValueError, PostgreSQLRuntimeError) as exc:
+        return error_output(exc)
 
 
 @worker_lease_fence()
@@ -161,5 +167,7 @@ def docs_deliver(args: dict[str, Any], **context: Any) -> str:
             "outcome": result.outcome, "coverage_complete": result.coverage_complete})
     except ReviewRunTerminal as terminal:
         return output_json(run_terminal_payload(terminal.run_id))
-    except (ValueError, GitHubGatewayError, PostgreSQLRuntimeError) as exc:
-        return error_output(str(exc))
+    except GitHubGatewayError as exc:
+        return error_output(source_error(exc))
+    except (ValueError, PostgreSQLRuntimeError) as exc:
+        return error_output(exc)

@@ -25,6 +25,7 @@ GitHubReadErrorKind = Literal[
     "diff_unavailable",
     "http_error",
     "unreachable",
+    "timeout",
     "response_too_large",
     "invalid_json",
 ]
@@ -341,9 +342,14 @@ class GitHubReadClient:
                     retryable=retryable,
                     retry_at=retry_at,
                 ) from exc
+            except TimeoutError as exc:
+                raise GitHubReadError(
+                    "timeout", "GitHub read timed out", retryable=True
+                ) from exc
             except urllib.error.URLError as exc:
                 raise GitHubReadError(
-                    "unreachable", "GitHub could not be reached", retryable=True
+                    "timeout" if isinstance(exc.reason, TimeoutError) else "unreachable",
+                    "GitHub could not be reached", retryable=True
                 ) from exc
         raise GitHubReadError(
             "unreachable", "GitHub could not be reached", retryable=True

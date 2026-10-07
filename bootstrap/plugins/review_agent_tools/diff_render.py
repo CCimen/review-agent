@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sys
 from dataclasses import dataclass
 
 try:
@@ -50,11 +51,121 @@ class AssembledDiff:
     page: DiffPage | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _DiffChunk:
     path: str
     text: str
+    content_sha256: str
 
+    @classmethod
+    def create(cls, path: str, text: str) -> _DiffChunk:
+        return cls(path, text, hashlib.sha256(text.encode("utf-8")).hexdigest())
+
+
+class PreparedDiff:
+    """Immutable source blocks, indexed once for repeated exact-path pages."""
+
+    def __init__(self, chunks: list[_DiffChunk], unavailable: list[str]) -> None:
+        self._chunks = tuple(chunks)
+        self._by_path: dict[str, _DiffChunk] = {}
+        for chunk in chunks:
+            self._by_path.setdefault(chunk.path, chunk)
+        self._unavailable = tuple(unavailable)
+        self._unavailable_set = frozenset(unavailable)
+
+    @property
+    def retained_bytes(self) -> int:
+        # Count Python string storage, containers, and records, including Unicode.
+        # Shared path references are deliberately over-counted for a safe budget.
+        return (
+            sys.getsizeof(self) + sys.getsizeof(self.__dict__)
+            + sys.getsizeof(self._chunks) + sys.getsizeof(self._by_path)
+            + sys.getsizeof(self._unavailable) + sys.getsizeof(self._unavailable_set)
+            + sum(sys.getsizeof(chunk) + 2 * sys.getsizeof(chunk.path)
+                  + sys.getsizeof(chunk.text) + sys.getsizeof(chunk.content_sha256)
+                  for chunk in self._chunks)
+            + sum(2 * sys.getsizeof(path) for path in self._unavailable)
+        )
+
+    def assemble(
+        self, *, only_path: str | None, max_chars: int, start_char: int = 0
+    ) -> AssembledDiff:
+        if only_path is not None:
+            selected_unavailable = [only_path] if only_path in self._unavailable_set else []
+            match = self._by_path.get(only_path)
+            if match is None:
+                return AssembledDiff(
+                    "",
+                    [],
+                    [],
+                    selected_unavailable,
+                    False,
+                    path_present=only_path in self._unavailable_set,
+                )
+            if start_char >= len(match.text) and start_char > 0:
+                raise DiffPageError("start_char is past the end of this path diff")
+            end_char = min(start_char + max_chars, len(match.text))
+            if start_char > 0 or len(match.text) > max_chars:
+                return AssembledDiff(
+                    match.text[start_char:end_char],
+                    [],
+                    [only_path],
+                    selected_unavailable,
+                    False,
+                    path_present=True,
+                    next_start_char=end_char if end_char < len(match.text) else None,
+                    path_total_chars=len(match.text),
+                    page=DiffPage(
+                        path=only_path,
+                        content_sha256=match.content_sha256,
+                        start_char=start_char,
+                        end_char=end_char,
+                        total_chars=len(match.text),
+                    ),
+                )
+            return AssembledDiff(
+                match.text,
+                [only_path],
+                [],
+                selected_unavailable,
+                False,
+                path_present=True,
+                path_total_chars=len(match.text),
+            )
+
+        parts: list[str] = []
+        exposed: list[str] = []
+        truncated: list[str] = []
+        used = 0
+        more = False
+        page = None
+        for chunk in self._chunks:
+            if used + len(chunk.text) > max_chars:
+                if not parts:
+                    parts.append(chunk.text[:max_chars])
+                    truncated.append(chunk.path)
+                    page = DiffPage(
+                        path=chunk.path,
+                        content_sha256=chunk.content_sha256,
+                        start_char=0,
+                        end_char=max_chars,
+                        total_chars=len(chunk.text),
+                    )
+                more = True
+                break
+            parts.append(chunk.text)
+            if chunk.path not in exposed:
+                exposed.append(chunk.path)
+            used += len(chunk.text)
+        return AssembledDiff(
+            "".join(parts),
+            exposed,
+            truncated,
+            list(self._unavailable),
+            more,
+            path_present=True,
+            page=page,
+        )
 
 @dataclass(frozen=True)
 class _RightSideHunk:
@@ -333,111 +444,25 @@ def _rendered_chunks(text: str) -> list[_DiffChunk]:
         chunk_text = text[start:end]
         path = _chunk_destination_path(chunk_text)
         if path is not None:
-            chunks.append(_DiffChunk(path=path, text=chunk_text))
+            chunks.append(_DiffChunk.create(path, chunk_text))
     return chunks
 
-
-def _assemble_chunks(
-    chunks: list[_DiffChunk],
-    *,
-    only_path: str | None,
-    max_chars: int,
-    start_char: int = 0,
-    unavailable_paths: list[str] | None = None,
-) -> AssembledDiff:
-    unavailable = unavailable_paths or []
-    if only_path is not None:
-        selected_unavailable = [only_path] if only_path in unavailable else []
-        match = next((chunk for chunk in chunks if chunk.path == only_path), None)
-        if match is None:
-            return AssembledDiff(
-                "",
-                [],
-                [],
-                selected_unavailable,
-                False,
-                path_present=only_path in unavailable,
-            )
-        if start_char >= len(match.text) and start_char > 0:
-            raise DiffPageError("start_char is past the end of this path diff")
-        end_char = min(start_char + max_chars, len(match.text))
-        if start_char > 0 or len(match.text) > max_chars:
-            return AssembledDiff(
-                match.text[start_char:end_char],
-                [],
-                [only_path],
-                selected_unavailable,
-                False,
-                path_present=True,
-                next_start_char=end_char if end_char < len(match.text) else None,
-                path_total_chars=len(match.text),
-                page=DiffPage(
-                    path=only_path,
-                    content_sha256=hashlib.sha256(
-                        match.text.encode("utf-8")
-                    ).hexdigest(),
-                    start_char=start_char,
-                    end_char=end_char,
-                    total_chars=len(match.text),
-                ),
-            )
-        return AssembledDiff(
-            match.text,
-            [only_path],
-            [],
-            selected_unavailable,
-            False,
-            path_present=True,
-            path_total_chars=len(match.text),
-        )
-
-    parts: list[str] = []
-    exposed: list[str] = []
-    truncated: list[str] = []
-    used = 0
-    more = False
-    page = None
-    for chunk in chunks:
-        if used + len(chunk.text) > max_chars:
-            if not parts:
-                parts.append(chunk.text[:max_chars])
-                truncated.append(chunk.path)
-                page = DiffPage(
-                    path=chunk.path,
-                    content_sha256=hashlib.sha256(
-                        chunk.text.encode("utf-8")
-                    ).hexdigest(),
-                    start_char=0,
-                    end_char=max_chars,
-                    total_chars=len(chunk.text),
-                )
-            more = True
-            break
-        parts.append(chunk.text)
-        if chunk.path not in exposed:
-            exposed.append(chunk.path)
-        used += len(chunk.text)
-    return AssembledDiff(
-        "".join(parts),
-        exposed,
-        truncated,
-        unavailable,
-        more,
-        path_present=True,
-        page=page,
-    )
 
 
 def assemble_rendered_diff(
     text: str, *, only_path: str | None, max_chars: int, start_char: int = 0
 ) -> AssembledDiff:
     """Select and pack exact file blocks from a complete GitHub-rendered diff."""
-    return _assemble_chunks(
-        _rendered_chunks(text),
+    return prepare_rendered_diff(text).assemble(
         only_path=only_path,
         max_chars=max_chars,
         start_char=start_char,
     )
+
+
+def prepare_rendered_diff(text: str) -> PreparedDiff:
+    """Parse a complete rendering once, preserving its exact block order."""
+    return PreparedDiff(_rendered_chunks(text), [])
 
 
 def synthesize_file_diff(changed_file: ChangedFile) -> str | None:
@@ -475,6 +500,13 @@ def assemble_fallback_diff(
     Files whose patch GitHub omitted are reported in ``unavailable_paths`` and
     never silently dropped.
     """
+    return prepare_fallback_diff(files).assemble(
+        only_path=only_path, max_chars=max_chars, start_char=start_char
+    )
+
+
+def prepare_fallback_diff(files: list[ChangedFile]) -> PreparedDiff:
+    """Frame per-file patches once, retaining explicit unavailable paths."""
     chunks: list[_DiffChunk] = []
     unavailable: list[str] = []
     for changed_file in files:
@@ -482,11 +514,5 @@ def assemble_fallback_diff(
         if synthesized is None:
             unavailable.append(changed_file["path"])
             continue
-        chunks.append(_DiffChunk(path=changed_file["path"], text=synthesized))
-    return _assemble_chunks(
-        chunks,
-        only_path=only_path,
-        max_chars=max_chars,
-        start_char=start_char,
-        unavailable_paths=unavailable,
-    )
+        chunks.append(_DiffChunk.create(changed_file["path"], synthesized))
+    return PreparedDiff(chunks, unavailable)

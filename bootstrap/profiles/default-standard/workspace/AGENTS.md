@@ -133,7 +133,11 @@ Try to disprove the mismatch using adjacent code and documentation, language and
 framework idioms, and project conventions; do not infer a convention from another
 ecosystem. Drop the candidate when this context makes the meaning clear at that
 usage. Do not flag names solely for length, casing style, or a missing preferred
-prefix. A diff that spells one established domain term two ways is eligible only
+prefix. Reading a callee's implementation to discover what a misleading name
+actually does is not by itself a disproof: check whether the name and surrounding
+contract let a maintainer correctly interpret the usage without that detour.
+A familiar language or framework idiom can settle the meaning.
+A diff that spells one established domain term two ways is eligible only
 with the same evidence of misunderstanding or reconstruction work. Do not
 prescribe a refactor solely from function-length or nesting metrics. A helper
 named as an unconditional rejection that actually validates and returns for

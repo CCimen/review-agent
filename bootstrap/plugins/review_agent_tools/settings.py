@@ -11,10 +11,11 @@ from urllib.parse import urlsplit
 
 DEFAULT_PROFILE = "default-standard"
 DEFAULT_POLICY_REVISION = "policy-v1"
-DEFAULT_PUBLISH_MAX_BYTES = 60_000
-DEFAULT_OPERATOR_EXPORT_MAX_ROWS = 10_000
 MIN_PUBLISH_MAX_BYTES = 1_000
+# UTF-8 bytes also bound character counts below GitHub's reported 65,536 ceiling.
 MAX_PUBLISH_MAX_BYTES = 65_000
+DEFAULT_PUBLISH_MAX_BYTES = MAX_PUBLISH_MAX_BYTES
+DEFAULT_OPERATOR_EXPORT_MAX_ROWS = 10_000
 PostgresDatabaseUrl = NewType("PostgresDatabaseUrl", str)
 _PROFILE_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 

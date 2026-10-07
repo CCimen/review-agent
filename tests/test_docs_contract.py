@@ -697,6 +697,22 @@ class DocsContractTests(unittest.TestCase):
             canonical_words,
         )
         self.assertIn("Test the consumer boundary", canonical)
+        self.assertIn("For a code-clarity finding", canonical)
+        self.assertIn("misstates behavior", canonical)
+        self.assertIn("data-flow, or units distinction", canonical)
+        self.assertIn("same kind of element in this repository", canonical)
+        self.assertIn("Use category `maintainability` for clarity-only mismatches", canonical)
+        self.assertIn("clear at that\nusage", canonical)
+        self.assertIn("public or persisted name alone", canonical)
+        self.assertIn("language and framework idioms", canonical_words)
+        self.assertIn("unconditional rejection", canonical_words)
+        self.assertIn("arbitrary fixture keys", canonical)
+        self.assertIn("Clarity-only findings default to Low", canonical)
+        self.assertIn("cosmetic style", canonical)
+        self.assertIn("AGENTS.md's code-clarity criteria", words(skill))
+        self.assertNotIn("style, naming, formatting", canonical_words)
+        self.assertNotIn("Ignore style, naming, formatting", words(skill))
+        self.assertNotIn("No watchlist, style feedback", skill)
 
     def test_runtime_contract_forbids_merge_gate_language(self):
         canonical = read("bootstrap/profiles/default-standard/workspace/AGENTS.md")
@@ -772,12 +788,12 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("coverage, not count, ends candidate discovery", skill_words)
         self.assertIn("Do not optimize for a larger finding count", skill)
         self.assertNotIn("under a minute", canonical)
-        self.assertIn(
-            "Render every published finding as a normal expanded `###` section",
-            canonical,
-        )
-        self.assertIn("Lower severity controls priority and ordering", canonical)
-        self.assertIn("not\n  visibility", canonical)
+        self.assertIn("Render every published finding as a complete `###` section", canonical)
+        self.assertIn("expanded except Low/P3 `maintainability` improvements", canonical)
+        self.assertIn("Medium findings and all security", canonical)
+        self.assertIn("findings stay expanded", canonical)
+        self.assertIn("without dropping or truncating a finding", canonical)
+        self.assertIn("all other active findings stay expanded", skill_words)
         self.assertIn("The only allowed collapsed sections", canonical_words)
         self.assertIn("single `text` fenced code block", canonical)
         self.assertIn("more than ten findings", canonical)

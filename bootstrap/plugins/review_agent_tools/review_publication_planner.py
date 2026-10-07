@@ -503,13 +503,13 @@ def build_publication(
         review_number=context.review_number,
         previous_review_number=context.previous_review_number,
         previous_head_sha=context.previous_head_sha,
-        # Packing appends one newline to each rendered block.
-        max_header_bytes=(
+        # A blank line keeps Markdown after an HTML disclosure parseable.
+        max_block_bytes=(
             publication_content_budget(
                 review_heading(context.review_number),
                 max_comment_bytes=max_comment_bytes,
             )
-            - 1
+            - 2
         ),
     )
     key = _publication_key(context, rendered.markdown)

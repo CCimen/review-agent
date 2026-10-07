@@ -23,6 +23,72 @@ class ReviewRendererTests(unittest.TestCase):
         visible = rendered.split("<!--", 1)[0]
         self.assertIn("**Reviewed commit:**", visible)
         self.assertIn("https://github.com/example/repository/commit/" + "a" * 40, visible)
+        self.assertNotIn("<summary>Code quality and readability", rendered)
+
+    def test_only_low_maintainability_is_grouped_and_all_references_remain(self) -> None:
+        findings = [
+            self.finding(local_reference="F1", severity="High", category="security"),
+            self.finding(local_reference="F2", category="maintainability"),
+            self.finding(local_reference="F3", severity="Low", category="correctness"),
+            self.finding(local_reference="F4", severity="Low", category="maintainability"),
+            self.finding(local_reference="F5", severity="Low", category="maintainability"),
+            self.finding(local_reference="F6", severity="Low", category="security"),
+        ]
+        rendered = review_renderer.render_review(
+            repository="example/repository", pr_number=12, head_sha="a" * 40,
+            findings=findings, closed=[], still_present=[], partially_resolved=[],
+            new_refs=[], not_checked_refs=[], coverage=self.coverage(),
+        )
+        summary = "<summary>Code quality and readability (2 Low/P3 improvements)</summary>"
+        self.assertEqual(rendered.markdown.count(summary), 1)
+        before, after = rendered.markdown.split(summary)
+        quality, following = after.split("</details>", 1)
+        for reference in ("F1", "F2", "F3", "F6"):
+            self.assertIn(f"### {reference} ·", before)
+            self.assertNotIn(f"### {reference} ·", quality)
+        for reference in ("F4", "F5"):
+            self.assertIn(f"### {reference} ·", quality)
+            self.assertIn(f"{reference} - Low (P3) - maintainability", following)
+        self.assertIn("Code quality and readability: 2 improvements.", before)
+        self.assertEqual(
+            rendered.markdown, review_renderer.review_markdown_from_blocks(rendered.blocks)
+        )
+
+    def test_quality_only_review_keeps_the_current_finding_count(self) -> None:
+        rendered = review_renderer.render_review_markdown(
+            repository="example/repository", pr_number=12, head_sha="a" * 40,
+            findings=[self.finding(severity="Low", category="maintainability")],
+            closed=[], still_present=[], partially_resolved=[], new_refs=[],
+            not_checked_refs=[], coverage=self.coverage(),
+        )
+        self.assertIn("There is 1 current finding: 1 Low (P3).", rendered)
+        self.assertIn("Code quality and readability (1 Low/P3 improvement)", rendered)
+        self.assertNotIn("No current findings", rendered)
+        self.assertNotIn("safe to merge", rendered)
+
+    def test_repeat_review_keeps_quality_count_with_severity_totals(self) -> None:
+        rendered = review_renderer.render_review_markdown(
+            repository="example/repository", pr_number=12, head_sha="a" * 40,
+            findings=[self.finding(
+                local_reference="F4", severity="Low", category="maintainability",
+            )],
+            closed=[], still_present=[], partially_resolved=[], new_refs=["F4"],
+            not_checked_refs=[], coverage=self.coverage(), previous_review_number=1,
+        )
+        totals, comparison = rendered.split("\n\n**Compared with Review 1:**", 1)
+        self.assertIn("1 Low (P3). Code quality and readability: 1 improvement.", totals)
+        self.assertEqual(comparison.split("\n", 1)[0], " F4 is new")
+
+    def test_oversized_quality_finding_fails_without_truncating_evidence(self) -> None:
+        with self.assertRaisesRegex(review_renderer.PublicationDomainError, "body_too_large"):
+            review_renderer.render_review(
+                repository="example/repository", pr_number=12, head_sha="a" * 40,
+                findings=[self.finding(
+                    severity="Low", category="maintainability", evidence="Å" * 2000,
+                )],
+                closed=[], still_present=[], partially_resolved=[], new_refs=[],
+                not_checked_refs=[], coverage=self.coverage(), max_block_bytes=2000,
+            )
 
     def test_partial_review_keeps_the_result_visible_and_details_collapsed(
         self,

@@ -38,6 +38,8 @@ class DeploymentSettingsTests(unittest.TestCase):
             }
         )
         self.assertEqual(policy.job_retry_seconds, 45)
+        self.assertEqual(policy.publish_max_bytes, 65_000)
+        self.assertEqual(DeploymentSettings().publish_max_bytes, 65_000)
         self.assertEqual(policy.admission_max_concurrent_requests, 12)
         self.assertEqual(
             policy, DeploymentSettings.from_environment(policy.environment())
@@ -82,6 +84,7 @@ class DeploymentSettingsTests(unittest.TestCase):
         ):
             revision = store.latest(connection)
         assert revision is not None
+        self.assertEqual(revision.settings.publish_max_bytes, 60_000)
         self.assertEqual(revision.settings.job_retry_seconds, 47)
         self.assertEqual(revision.settings.worker_concurrency, 4)
         self.assertFalse(revision.settings.documentation_review_enabled)

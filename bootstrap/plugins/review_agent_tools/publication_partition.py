@@ -86,7 +86,7 @@ def _publication_blocks(
     for block in blocks:
         markdown = block.markdown.replace(marker, "").strip()
         if markdown:
-            content_blocks.append(markdown + "\n")
+            content_blocks.append(markdown + "\n\n")
     return content_blocks
 
 

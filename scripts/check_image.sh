@@ -15,6 +15,18 @@ docker run --rm --entrypoint sh "$image" -c \
      ! command -v npm >/dev/null && ! command -v npx >/dev/null && \
      test ! -d /opt/hermes/node_modules'
 
+docker run --rm --entrypoint /opt/hermes/.venv/bin/python "$image" -c '
+from importlib.metadata import version
+from pathlib import Path
+from packaging.requirements import Requirement
+
+for line in Path("/opt/review-agent-requirements.txt").read_text().splitlines():
+    if line and not line.startswith("#"):
+        requirement = Requirement(line)
+        installed = version(requirement.name)
+        assert installed in requirement.specifier, f"{requirement}: installed {installed}"
+'
+
 for entrypoint in \
     review-agent-admission \
     review-agent-worker \

@@ -10,7 +10,7 @@ import urllib.parse
 
 from ..domain.feedback import resolve_repository
 from ..postgres import github_app, registry
-from .app_auth import GitHubAppAuthenticator
+from .app_auth import GitHubAppAuthenticator, InstallationToken
 
 
 _REPOSITORIES_PER_PAGE = 100
@@ -50,6 +50,27 @@ class InstallationMetadata:
 class RepositoryInventory:
     installation: InstallationMetadata
     repository: github_app.InstallationRepositoryDefinition
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubUser:
+    id: int
+    login: str
+
+
+def read_user(
+    authenticator: GitHubAppAuthenticator, *, token: InstallationToken, login: str,
+) -> GitHubUser:
+    """Resolve a personal account without trusting a submitted numeric ID."""
+    payload = _object(authenticator.installation_json(
+        f"/users/{urllib.parse.quote(login, safe='')}", token
+    ), "user")
+    user_id = _positive(payload.get("id"), "user id")
+    resolved_login = _text(payload.get("login"), "user login")
+    if (payload.get("type") != "User" or resolved_login.casefold() != login.casefold()
+            or user_id > 9223372036854775807):
+        raise GitHubAppInventoryPermanent("GitHub did not return the requested personal account")
+    return GitHubUser(user_id, resolved_login)
 
 
 def _settings_url(metadata: object) -> str | None:

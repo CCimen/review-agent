@@ -42,7 +42,9 @@ first signed `/review`, the private gateway asks GitHub for a short-lived
 installation token restricted to that one stable repository ID, verifies the repository identity,
 and records only that repository. Normal source and publication tokens remain
 restricted to the same exact repository. The commenter must still have current
-`write` or `admin` permission, and the PR snapshot is checked before admission.
+`write` or `admin` permission, or be explicitly allowed for that repository in
+the console's **Who can request reviews** list. The PR snapshot is checked before
+admission.
 
 ## 1. Register the App
 
@@ -223,7 +225,8 @@ repositories is therefore a valid initial state. Requester authorization still
 gates whether the review itself runs.
 
 In an open same-repository pull request, post a new top-level comment as a user
-with current `write` or `admin` permission:
+with current GitHub `write` or `admin` permission, or as an additional user
+allowed in **Repositories → Who can request reviews**:
 
 ```text
 /review
@@ -276,7 +279,7 @@ explicit mode, rerun `github-app onboard` for the named repository.
 | A public installation cannot review | Expected: an operator must approve that installation first. |
 | `repository_onboarding_failed` | Explicit onboarding requires an active installation that grants access to the named repository and the required review permissions. |
 | `repository_not_authorized` | Confirm the installation is approved for automatic activation or explicitly onboard the repository. |
-| `sender_not_authorized` | The commenter needs current `write` or `admin` permission. |
+| `sender_not_authorized` | For review requests, the commenter needs current GitHub `write` or `admin` permission or an additional-user grant for this repository in the console. Feedback requires GitHub `write` or `admin`. |
 | `fork_source_not_supported` | Test with a branch in the selected base repository. |
 | `provider_authorization_denied` | Confirm the App is active and still includes the exact repository. |
 | Source or publication loses authority | Check the worker lease and whether the repository, installation, or activation policy changed. |

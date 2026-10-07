@@ -1378,6 +1378,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/repositories/{repository_id}/review-requesters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Requesters */
+        get: operations["requesters_api_repositories__repository_id__review_requesters_get"];
+        put?: never;
+        /** Grant Requester */
+        post: operations["grant_requester_api_repositories__repository_id__review_requesters_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/repositories/{repository_id}/review-requesters/{github_user_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke Requester */
+        post: operations["revoke_requester_api_repositories__repository_id__review_requesters__github_user_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/repositories/{repository_id}/documentation": {
         parameters: {
             query?: never;
@@ -1900,7 +1935,7 @@ export interface components {
          * AuditAction
          * @enum {string}
          */
-        AuditAction: "integration_created" | "integration_revoked" | "integration_read" | "audit_access_started" | "audit_access_ended" | "audit_viewed" | "audit_exported" | "team_created" | "team_updated" | "member_added" | "member_updated" | "member_removed" | "repository_assigned" | "repository_transferred" | "repository_removed" | "repository_requested" | "request_approved" | "request_rejected" | "request_withdrawn" | "account_created" | "account_updated" | "password_changed" | "signed_in" | "signed_out" | "finding_decided" | "feedback_triaged" | "run_action" | "settings_updated" | "email_updated" | "registration_updated" | "access_updated" | "provider_login" | "provider_logout" | "provider_login_cancelled" | "connection_created" | "connection_updated" | "connection_removed" | "identity_linked" | "scim_provisioned" | "scim_updated" | "scim_deactivated";
+        AuditAction: "review_requester_granted" | "review_requester_revoked" | "integration_created" | "integration_revoked" | "integration_read" | "audit_access_started" | "audit_access_ended" | "audit_viewed" | "audit_exported" | "team_created" | "team_updated" | "member_added" | "member_updated" | "member_removed" | "repository_assigned" | "repository_transferred" | "repository_removed" | "repository_requested" | "request_approved" | "request_rejected" | "request_withdrawn" | "account_created" | "account_updated" | "password_changed" | "signed_in" | "signed_out" | "finding_decided" | "feedback_triaged" | "run_action" | "settings_updated" | "email_updated" | "registration_updated" | "access_updated" | "provider_login" | "provider_logout" | "provider_login_cancelled" | "connection_created" | "connection_updated" | "connection_removed" | "identity_linked" | "scim_provisioned" | "scim_updated" | "scim_deactivated";
         /** AuditEvent */
         AuditEvent: {
             /** Id */
@@ -3887,6 +3922,19 @@ export interface components {
             /** Next Before Id */
             next_before_id: number | null;
         };
+        /** RepositoryReviewRequesters */
+        RepositoryReviewRequesters: {
+            /** Repository Id */
+            repository_id: number;
+            /** Repository */
+            repository: string;
+            /** Can Manage */
+            can_manage: boolean;
+            /** Items */
+            items: components["schemas"]["ReviewRequester"][];
+            /** Next After User Id */
+            next_after_user_id: number | null;
+        };
         /**
          * RepositorySelection
          * @enum {string}
@@ -3992,6 +4040,23 @@ export interface components {
          * @enum {string}
          */
         ReviewPurpose: "code" | "documentation";
+        /** ReviewRequester */
+        ReviewRequester: {
+            /** Github User Id */
+            github_user_id: number;
+            /** Github Login */
+            github_login: string;
+            /**
+             * Granted At
+             * Format: date-time
+             */
+            granted_at: string;
+        };
+        /** ReviewRequesterGrant */
+        ReviewRequesterGrant: {
+            /** Login */
+            login: string;
+        };
         /**
          * ReviewStatus
          * @enum {string}
@@ -7828,6 +7893,110 @@ export interface operations {
                     "text/csv": string;
                     "application/x-ndjson": string;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    requesters_api_repositories__repository_id__review_requesters_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                after_user_id?: number;
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryReviewRequesters"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    grant_requester_api_repositories__repository_id__review_requesters_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewRequesterGrant"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewRequester"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_requester_api_repositories__repository_id__review_requesters__github_user_id__revoke_post: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: number;
+                github_user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

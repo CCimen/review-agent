@@ -22,9 +22,11 @@ model is trusted.
   only a bounded normalized delivery.
 - The private gateway holds the App key and installation tokens. They never
   enter Hermes, PostgreSQL, admission, worker payloads, or logs.
-- Before admitting a review or feedback command, the gateway verifies the
-  sender's current write or admin permission and the exact open,
-  same-repository pull-request snapshot.
+- Before admitting a manual review, the gateway verifies the signed sender's
+  stable GitHub ID against the repository's additional-user list, or checks
+  current GitHub write or admin permission. Feedback still requires GitHub write
+  or admin permission. Both paths verify the exact open, same-repository
+  pull-request snapshot. Console grants do not change GitHub permissions.
 - A worker leases the job and calls the private, authenticated Hermes API.
 - Hermes runs the review through the bundled plugin, not through a shell.
 - The model can read bounded PR context and record candidate findings.

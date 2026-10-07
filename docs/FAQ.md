@@ -16,7 +16,8 @@ last_verified: 2026-09-29
 
 Nothing to install or deploy. Comment `/review` on a pull request in a
 repository covered by the organization's GitHub App installation; you need
-write or admin permission on that repository. If reviews are not enabled for the
+GitHub write or admin permission, or a per-repository grant in the console's
+**Who can request reviews** list. If reviews are not enabled for the
 repository yet, a team maintainer can request it from the team's
 **Repositories** tab in the [admin console](./ADMIN_PANEL.md). Add an optional
 [`.review-agent/` package](./REPOSITORY_CONTEXT.md) for team instructions,
@@ -24,8 +25,9 @@ architecture context, accepted ADRs, and documentation mappings.
 
 ## Does it review automatically when a pull request opens?
 
-Code review starts only when a collaborator with write or admin permission
-comments `/review`; comments from bots, including GitHub Actions, are ignored.
+Code review starts when a user with GitHub write or admin permission, or an
+additional-user grant in the console, comments `/review`. Comments from bots,
+including GitHub Actions, are ignored.
 Push fixes and comment `/review` again for a new round. Documentation review can
 also run automatically when a team or repository selects its Automatic mode; see
 [Documentation review](./DOCUMENTATION_REVIEW.md#choose-when-reviews-run).

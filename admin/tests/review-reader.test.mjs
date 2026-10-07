@@ -28,6 +28,7 @@ let UsagePage;
 let TeamDocumentationSection;
 let RepositoryDocumentationSection;
 let RepositoryRequests;
+let RepositoryReviewRequestersSection;
 const account = (role = "owner", access_revision = 0) => ({
   id: "test-account",
   email: "owner@example.test",
@@ -62,6 +63,7 @@ before(async () => {
   ({ UsagePage } = await server.ssrLoadModule("/src/usage.tsx"));
   ({ TeamDocumentationSection, RepositoryDocumentationSection } = await server.ssrLoadModule("/src/documentation.tsx"));
   ({ RepositoryRequests } = await server.ssrLoadModule("/src/teams.tsx"));
+  ({ RepositoryReviewRequestersSection } = await server.ssrLoadModule("/src/reviewRequesters.tsx"));
   const contract = JSON.parse(
     await readFile(new URL("../openapi.json", import.meta.url), "utf8"),
   );
@@ -1268,6 +1270,35 @@ test("request usage distinguishes missing, partial and reported zero totals", as
     }),
     /^0 tokens$/,
   );
+});
+
+test("review access preserves automatic GitHub permissions and limits console controls to maintainers", () => {
+  for (const canManage of [true, false]) {
+    const data = {
+      repository_id: 7, repository: "example/api", can_manage: canManage,
+      next_after_user_id: null,
+      items: [{ github_user_id: 5001, github_login: "CCimen", granted_at: "2026-10-07T07:00:00Z" }],
+    };
+    const html = renderConsolePage(createElement(RepositoryReviewRequestersSection, {
+      repositoryId: 7, close() {},
+    }), [
+      [[...scopedKey(["review-requesters", 7], "viewer"), 0], data],
+    ], "/repositories?review_requesters_repository=7", "viewer");
+    assert.match(html, /Users with write or admin access.*can request reviews automatically/);
+    assert.match(html, /CCimen/);
+    assert.equal(Boolean(button(html, "Allow reviews")), canManage);
+    assert.equal(Boolean(button(html, "Remove CCimen")), canManage);
+    if (canManage) {
+      const usernameLabel = html.match(/<label for="([^"]+)"[^>]*>GitHub username<\/label>/);
+      assert.ok(usernameLabel);
+      assert.ok((html.match(/<input\b[^>]*>/g) ?? [])
+        .some((input) => input.includes(`id="${usernameLabel[1]}"`)));
+      assert.match(html, /maxLength="39"/);
+      assert.match(html, /required=""/);
+    } else {
+      assert.match(html, /A team maintainer or platform administrator can change this list/);
+    }
+  }
 });
 
 test("documentation policies distinguish deployment stop, inheritance, overrides and read-only access", () => {

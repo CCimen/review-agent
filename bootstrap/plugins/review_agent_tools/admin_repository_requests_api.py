@@ -13,7 +13,7 @@ from .domain.feedback import resolve_github_repository
 from .domain.documentation_operating_policy import DocumentationMode
 from .postgres import documentation_operating_policy as docs_policy
 from .github import app_auth, app_inventory
-from .postgres import github_app, repository_requests
+from .postgres import github_app, repository_requests, review_requesters
 from .postgres.runtime import PostgreSQLRuntime
 from .postgres.team_access import AccessRequest
 from .settings import ReviewAgentSettings
@@ -52,8 +52,54 @@ class RepositoryDocumentationUpdate(BaseModel):
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class ReviewRequesterGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    login: str = Field(min_length=1, max_length=39, pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}$")
+
+
 def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     router = APIRouter(tags=["repository requests"])
+
+    def requesters(
+        repository_id: ObjectId,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+        limit: Limit = 50,
+        after_user_id: Annotated[int, Query(ge=0, le=9223372036854775807)] = 0,
+    ) -> review_requesters.RepositoryReviewRequesters:
+        return admin_application.repository_review_requesters(runtime, access=access,
+            repository_id=repository_id, limit=limit, after_user_id=after_user_id)
+
+    def grant_requester(
+        repository_id: ObjectId, body: ReviewRequesterGrant,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> review_requesters.ReviewRequester:
+        try:
+            authenticator = operator_setup.github_app_authenticator(os.environ)
+        except (OSError, TypeError, ValueError) as exc:
+            raise HTTPException(503, "GitHub App credentials are not configured") from exc
+        try:
+            return admin_application.grant_review_requester(runtime, authenticator,
+                access=access, repository_id=repository_id, login=body.login)
+        except app_auth.GitHubAppTokenRetryable as exc:
+            raise HTTPException(503, "GitHub is temporarily unavailable. Try again shortly") from exc
+        except (app_auth.GitHubAppTokenPermanent, app_inventory.GitHubAppInventoryPermanent) as exc:
+            raise HTTPException(502, "GitHub could not verify this personal account. Check the username and App access") from exc
+        except github_app.GitHubAppStateError as exc:
+            raise HTTPException(409, "Enable this repository and verify its GitHub App access first") from exc
+
+    def revoke_requester(
+        repository_id: ObjectId, github_user_id: ObjectId,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> None:
+        admin_application.revoke_review_requester(runtime, access=access,
+            repository_id=repository_id, github_user_id=github_user_id)
+
+    router.add_api_route("/api/repositories/{repository_id}/review-requesters",
+        requesters, methods=["GET"])
+    router.add_api_route("/api/repositories/{repository_id}/review-requesters",
+        grant_requester, methods=["POST"], status_code=201)
+    router.add_api_route("/api/repositories/{repository_id}/review-requesters/{github_user_id}/revoke",
+        revoke_requester, methods=["POST"], status_code=204)
 
     def requests(
         access: Annotated[AccessRequest, Depends(auth.current_scope)],

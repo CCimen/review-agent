@@ -6471,6 +6471,243 @@
         }
       }
     },
+    "/api/repositories/{repository_id}/review-requesters": {
+      "get": {
+        "tags": [
+          "repository requests"
+        ],
+        "summary": "Requesters",
+        "operationId": "requesters_api_repositories__repository_id__review_requesters_get",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "after_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "default": 0,
+              "title": "After User Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositoryReviewRequesters"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "repository requests"
+        ],
+        "summary": "Grant Requester",
+        "operationId": "grant_requester_api_repositories__repository_id__review_requesters_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewRequesterGrant"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRequester"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/repositories/{repository_id}/review-requesters/{github_user_id}/revoke": {
+      "post": {
+        "tags": [
+          "repository requests"
+        ],
+        "summary": "Revoke Requester",
+        "operationId": "revoke_requester_api_repositories__repository_id__review_requesters__github_user_id__revoke_post",
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "github_user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Github User Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/repositories/{repository_id}/documentation": {
       "get": {
         "tags": [
@@ -8765,6 +9002,8 @@
       "AuditAction": {
         "type": "string",
         "enum": [
+          "review_requester_granted",
+          "review_requester_revoked",
           "integration_created",
           "integration_revoked",
           "integration_read",
@@ -14425,6 +14664,49 @@
         ],
         "title": "RepositoryRequestPage"
       },
+      "RepositoryReviewRequesters": {
+        "properties": {
+          "repository_id": {
+            "type": "integer",
+            "title": "Repository Id"
+          },
+          "repository": {
+            "type": "string",
+            "title": "Repository"
+          },
+          "can_manage": {
+            "type": "boolean",
+            "title": "Can Manage"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewRequester"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_after_user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After User Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "repository_id",
+          "repository",
+          "can_manage",
+          "items",
+          "next_after_user_id"
+        ],
+        "title": "RepositoryReviewRequesters"
+      },
       "RepositorySelection": {
         "type": "string",
         "enum": [
@@ -14702,6 +14984,47 @@
           "documentation"
         ],
         "title": "ReviewPurpose"
+      },
+      "ReviewRequester": {
+        "properties": {
+          "github_user_id": {
+            "type": "integer",
+            "title": "Github User Id"
+          },
+          "github_login": {
+            "type": "string",
+            "title": "Github Login"
+          },
+          "granted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Granted At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "github_user_id",
+          "github_login",
+          "granted_at"
+        ],
+        "title": "ReviewRequester"
+      },
+      "ReviewRequesterGrant": {
+        "properties": {
+          "login": {
+            "type": "string",
+            "maxLength": 39,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$",
+            "title": "Login"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "login"
+        ],
+        "title": "ReviewRequesterGrant"
       },
       "ReviewStatus": {
         "type": "string",

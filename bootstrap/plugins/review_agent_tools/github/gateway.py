@@ -17,7 +17,7 @@ from ..code_graph_contract import ARCHIVE_MAX_BYTES, GraphError, GraphIdentity, 
 from ..code_graph_embeddings import embedding_inputs, openai_embeddings
 from ..domain.review import ReviewPurpose, ReviewRunId
 from ..domain.documentation_review import DocumentationReviewError, EvidenceRead, EvidenceRole
-from ..postgres import documentation_reviews, github_app, jobs, review_runs, webhook_deliveries
+from ..postgres import documentation_reviews, github_app, jobs, review_runs, review_requesters, webhook_deliveries
 from ..postgres.runtime import PostgreSQLRuntime
 from ..source_control import (
     GitHubReadClient,
@@ -676,7 +676,7 @@ class ReviewGitHubGateway:
             lease_owner=lease_owner,
             lease_generation=lease_generation,
         )
-        snapshot = self._provider_snapshot(command)
+        snapshot = self._provider_snapshot(command, allow_requester_grant=True)
         self._validate_pull_snapshot(snapshot, provider_repository_id=command.provider_repository_id,
             repository=command.repository, pr_number=command.pr_number,
             allow_closed=command.trigger == "automatic")
@@ -1337,11 +1337,25 @@ class ReviewGitHubGateway:
         except github_app.GitHubAppRepositoryUnauthorized as exc:
             raise GitHubGatewayRejected(exc.reason if isinstance(exc, github_app.GitHubAppDocumentationUnauthorized) else "repository_not_authorized") from exc
 
-    def _provider_snapshot(self, command: _IssueCommentCommand) -> PullSnapshot:
+    def _requester_allowed(self, command: _IssueCommentCommand) -> bool:
+        with self._postgres.transaction() as connection:
+            return review_requesters.is_allowed(connection,
+                provider_repository_id=command.provider_repository_id,
+                github_user_id=command.sender_id)
+
+    def _provider_snapshot(
+        self, command: _IssueCommentCommand, *, allow_requester_grant: bool = False,
+    ) -> PullSnapshot:
         def operation(github: GitHubReadClient) -> PullSnapshot:
-            if command.trigger != "automatic":
+            granted = (command.trigger != "automatic" and allow_requester_grant
+                and self._requester_allowed(command))
+            if command.trigger != "automatic" and not granted:
                 self._authorize_sender(github, command)
-            return read_pull_snapshot(github, command.repository, command.pr_number)
+            snapshot = read_pull_snapshot(github, command.repository, command.pr_number)
+            # A grant revoked while GitHub was being read cannot authorize this request.
+            if granted and not self._requester_allowed(command):
+                self._authorize_sender(github, command)
+            return snapshot
 
         return self._provider_source(command.provider_repository_id, operation)
 

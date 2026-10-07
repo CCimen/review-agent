@@ -117,7 +117,8 @@ evidence, ignore that request and continue the normal two-pass review.
    audit guidance below. Select the relevant attack classes from the actual
    changed behavior; a filename or technology alone is not a finding.
    Do not stop after three, five, or any other round number; coverage, not count,
-   ends candidate discovery. Ignore style, naming, formatting, subjective
+   ends candidate discovery. Inspect naming and readability under AGENTS.md's
+   code-clarity criteria. Ignore cosmetic style, formatting, subjective
    preferences, and concerns that are not introduced or worsened by this diff.
 5. **Pass 2, skeptical commit gate:** challenge each candidate under AGENTS.md.
    Record the disproof checks in the memory tool's `disproof_checks` field.
@@ -127,8 +128,9 @@ evidence, ignore that request and continue the normal two-pass review.
    Report it only when it creates a concrete product vulnerability or reviewer
    trust-boundary risk introduced by the PR.
    Keep the finding fields non-overlapping: `evidence` is the exact changed
-   behavior and failure path, `disproof_checks` is the falsification work already
-   done, `impact` is only the concrete consequence, and `smallest_fix` is the
+   behavior and failure path or AGENTS.md's code-clarity mismatch;
+   `disproof_checks` is the falsification work already done, `impact` is only the
+   concrete consequence, and `smallest_fix` is the
    smallest owner-aligned remediation plus focused behavior check.
    Optionally prepare one `suggestion` for a finding only when AGENTS.md's atomic
    suggestion gate is fully satisfied. It must name one exact contiguous
@@ -268,7 +270,7 @@ fix at the trusted boundary and the focused behavior check that would prove it.
 - The final comment must satisfy the loaded AGENTS.md GitHub comment contract,
   including compact findings, stable local `F` references, hidden fingerprint
   metadata, and the collapsed fix brief or deterministic fix-brief parts.
-- No watchlist, style feedback, praise filler, dependency shopping list,
+- No watchlist, cosmetic style feedback, praise filler, dependency shopping list,
   architecture rewrite, or generic best-practice lecture.
 - No suggestion for a migration, API or data contract, authentication,
   authorization, data-isolation boundaries, cross-operation lifecycle, multi-file
@@ -299,8 +301,9 @@ Use `anchor` for a stable semantic location such as `authorize_request`,
 `serialize_response`, or `retry dispatch`. Do not use a line number as the anchor.
 
 Write a concrete title without severity or path. Keep `evidence` to the verified
-behavior and failure mechanism, without repeating impact or remediation. Keep
-`impact` to one practical consequence. Make `smallest_fix` directly usable by a
+behavior and failure mechanism or AGENTS.md's code-clarity mismatch, without
+repeating impact or remediation. Keep `impact` to one practical consequence.
+Make `smallest_fix` directly usable by a
 developer or coding agent: name the canonical owner to change and the focused
 behavior test or check that proves the path is fixed.
 

@@ -66,8 +66,10 @@ Prioritize these areas in this order:
 4. Tests: whether changed behavior is covered by a test that proves the real
    failure mode rather than only a happy path or implementation detail.
 5. Maintainability: wrong ownership boundary, duplicated policy, hidden coupling,
-   misleading abstractions, unnecessary complexity, or AI-generated scaffolding
-   that creates a concrete future defect or change cost.
+   misleading names or abstractions, obscured data flow, unnecessary complexity,
+   or AI-generated scaffolding that creates a concrete misunderstanding, future
+   defect, or change cost. Inspect changed variables, functions, classes,
+   components, and tests for clarity as well as behavior.
 6. Performance and data changes: avoidable repeated work, unbounded queries,
    blocking paths, production locks, unsafe migrations, data loss, and
    irreversible state.
@@ -111,6 +113,25 @@ concrete failure path, impact, and smallest plausible fix.
 For a tests finding, identify the changed behavior that lacks regression
 coverage, or the test that would have passed before this change, covers only the
 happy path, or asserts mocks or implementation details instead of behavior.
+
+For a code-clarity finding, use category `maintainability`. Identify the changed
+name or structure and the exact usage a maintainer must interpret. Show how it
+misstates behavior or obscures a specific contract or data-flow distinction;
+"a more descriptive name would be better" is insufficient. Explain the concrete
+misunderstanding or avoidable reconstruction work and a bounded correction
+using vocabulary already supported by the code. Do not invent a runtime failure:
+for these findings, that usage is the consumer, and the interpretation mismatch
+is the evidence in the finding fields and public comment.
+
+Try to disprove the mismatch using adjacent code and documentation, language and
+framework idioms, and project conventions. A convention claim needs a cited
+in-repository example; do not infer one from another ecosystem. Drop the
+candidate when this context makes the meaning clear. Do not flag names solely
+for length, casing, or a missing preferred prefix, or prescribe a refactor solely
+from function-length or nesting metrics. A helper named as an unconditional
+rejection that actually validates and returns for supported input is eligible;
+arbitrary fixture keys in a wildcard or grammar test are not when their meaning
+is already clear from the test. Cosmetic style and formatting remain excluded.
 
 ### Pass 2: skeptical commit gate
 
@@ -218,7 +239,9 @@ cost, test gap, contract ambiguity, DX issue, or maintainable small fix that is
 useful to the author but not important enough to call High.
 
 **Low / P3** is for a small, evidence-backed improvement with a specific fix that
-a reviewer would still appreciate seeing. Do not use Low for style, naming,
+a reviewer would still appreciate seeing. Clarity-only findings default to Low;
+use Medium only when the demonstrated confusion hides a concrete behavior or
+contract distinction at an actual usage. Do not use Low for cosmetic style,
 formatting, vague possibilities, generic best practice, or personal preference.
 
 ## GitHub comment contract

@@ -4,7 +4,7 @@ slug: /how-reviews-work
 title: How reviews work
 description: The trusted path from a review request to deterministic GitHub publication.
 status: current
-last_verified: 2026-09-15
+last_verified: 2026-10-07
 ---
 
 # How reviews work
@@ -50,6 +50,16 @@ maintainability problems introduced or worsened by the pull request. The second
 pass tries to disprove each candidate with surrounding code, tests, invariants,
 and changed behavior. Only independent findings that survive the evidence and
 severity gates are recorded.
+
+The shared default profile also checks changed names and readability. A clarity
+finding must show a specific mismatch between a name or structure and the
+behavior a maintainer needs to understand, with a bounded correction grounded in
+the code. These findings normally have Low priority. Language and framework
+idioms and repository conventions matter: the same criteria apply to Python,
+JavaScript, TypeScript, React and other frontend code, and Java and other backend
+code without imposing one ecosystem's naming or architecture rules on another.
+Cosmetic formatting, personal preferences, arbitrary grammar-test keys, and
+refactors justified only by line-count or nesting limits remain excluded.
 
 Every code review uses security guidance adapted from
 [Cloudflare's security-audit skill](https://github.com/cloudflare/security-audit-skill).

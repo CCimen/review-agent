@@ -2508,6 +2508,94 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             retained_job.status, jobs.ReviewJobStatus.AWAITING_PUBLICATION
         )
 
+    def test_final_attempt_recovers_comment_created_before_http_500(self) -> None:
+        run_id, batch = self.start_recorded_run()
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch), delivery_max_attempts=1
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        create = github.create_issue_comment
+
+        def create_then_fail(repository: str, number: int, body: str) -> IssueComment:
+            created = create(repository, number, body)
+            if github.create_calls == 1:
+                raise GitHubPublicationError(
+                    "github_http_500_create_issue_comment", status=500,
+                    operation="create_issue_comment", retryable=True,
+                )
+            return created
+
+        with patch.object(github, "create_issue_comment", side_effect=create_then_fail):
+            result = review_publication_application.publish_postgres_publication(
+                self.runtime, publication_id=int(prepared.id), github=github,
+                max_comment_bytes=60_000,
+            )
+        self.assertEqual(result.status, "posted")
+        self.assertEqual(result.recovered_parts, 1)
+        self.assertEqual(github.create_calls, 2)
+        self.assertEqual(len(github.comments), 2)
+        with self.runtime.transaction() as connection:
+            self.assertEqual(connection.execute(
+                "SELECT status FROM review_agent.review_runs WHERE id = %s", (run_id,)
+            ).fetchone(), ("completed",))
+            self.assertIsNone(review_runs.claim_next_failure_status(
+                connection, lease_owner="test-publisher", lease_duration=timedelta(seconds=30)
+            ))
+
+    def test_ambiguous_create_does_not_adopt_another_authors_comment(self) -> None:
+        run_id, batch = self.start_recorded_run()
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch), delivery_max_attempts=1
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+
+        def fail_with_spoof(repository: str, number: int, body: str) -> IssueComment:
+            github.comments.append(IssueComment(comment_id=700, body=body, author_login="another-user"))
+            raise GitHubPublicationError("github_http_500_create_issue_comment", status=500, retryable=True)
+
+        with patch.object(github, "create_issue_comment", side_effect=fail_with_spoof):
+            result = review_publication_application.publish_postgres_publication(
+                self.runtime, publication_id=int(prepared.id), github=github,
+                max_comment_bytes=60_000,
+            )
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.recovered_parts, 0)
+        body = review_publication_application._failure_status_body(
+            int(run_id), "a" * 40, "github_http_500_create_issue_comment"
+        )
+        self.assertNotIn("no findings were published", body)
+        self.assertIn("may already be present", body)
+
+    def test_confirmed_last_comment_is_acknowledged_if_head_moves_after_write(self) -> None:
+        run_id, batch = self.start_recorded_run()
+        with self.runtime.transaction() as connection:
+            prepared = publications.prepare_publication(
+                connection, run_id=run_id, plan=self.plan(batch), delivery_max_attempts=1
+            )
+        github = FakePostgresPublicationGitHub(self.runtime)
+        create = github.create_issue_comment
+
+        def create_then_move_head(repository: str, number: int, body: str) -> IssueComment:
+            created = create(repository, number, body)
+            if github.create_calls == 2:
+                github.head_sha = "f" * 40
+                raise GitHubPublicationError("github_http_500_create_issue_comment", status=500, retryable=True)
+            return created
+
+        with patch.object(github, "create_issue_comment", side_effect=create_then_move_head):
+            result = review_publication_application.publish_postgres_publication(
+                self.runtime, publication_id=int(prepared.id), github=github,
+                max_comment_bytes=60_000,
+            )
+        self.assertEqual(result.status, "posted")
+        self.assertEqual(result.recovered_parts, 1)
+        self.assertEqual(github.create_calls, 2)
+        with self.runtime.transaction() as connection:
+            retained = publications.get_publication(connection, prepared.id)
+            self.assertTrue(all(part.external_id is not None for part in retained.parts))
+
     def test_process_death_after_github_success_recovers_marker_without_duplicate(
         self,
     ) -> None:
@@ -2612,6 +2700,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             self.runtime, publication_id=int(prepared.id), github=github, max_comment_bytes=60_000,
         )
         self.assertEqual(result.status, "publish_failed")
+        self.assertEqual(github.list_issue_comments_calls, 1)
         restarted_github = FakePostgresPublicationGitHub(self.runtime)
         parked = review_publication_application.publish_postgres_publication(
             self.runtime, publication_id=int(prepared.id), github=restarted_github,

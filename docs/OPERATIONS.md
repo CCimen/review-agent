@@ -547,6 +547,14 @@ Inspect publication state:
 review-agent-memory publications --repo <org>/<repo> --pr <number>
 ```
 
+A GitHub comment POST can succeed even when its response reports a transient
+failure. The publisher checks recent comments for the same App author, stored
+publication marker, part number, and exact body before retrying, including on its
+last attempt. A confirmed comment is acknowledged without another POST. Provider
+retry deadlines still take precedence. If delivery cannot be confirmed, the
+failure status warns that review comments may already exist; check GitHub before
+requesting another review.
+
 Inspect coverage for one run:
 
 ```bash

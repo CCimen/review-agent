@@ -110,7 +110,7 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
         readiness = runtime.open()
 
         self.assertEqual(readiness.server_version // 10_000, 17)
-        self.assertEqual(readiness.applied_migration_version, 35)
+        self.assertEqual(readiness.applied_migration_version, 36)
         self.assertFalse(readiness.database_ahead)
         with runtime.transaction() as connection:
             isolation = connection.execute("SHOW transaction_isolation").fetchone()
@@ -127,99 +127,13 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
     def test_previous_image_accepts_a_database_with_a_newer_migration(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             current = Path(temp)
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "001_initial.sql",
-                current / "001_initial.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "002_review_jobs.sql",
-                current / "002_review_jobs.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "003_review_job_lifecycle.sql",
-                current / "003_review_job_lifecycle.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "004_publication_delivery_queue.sql",
-                current / "004_publication_delivery_queue.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "005_failure_status_delivery.sql",
-                current / "005_failure_status_delivery.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "006_github_app_installations.sql",
-                current / "006_github_app_installations.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "007_github_webhook_deliveries.sql",
-                current / "007_github_webhook_deliveries.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "008_feedback_authorization_audit.sql",
-                current / "008_feedback_authorization_audit.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "009_repository_decision_context.sql",
-                current / "009_repository_decision_context.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "010_intentional_design_evidence.sql",
-                current / "010_intentional_design_evidence.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "011_review_quality_feedback_triage.sql",
-                current / "011_review_quality_feedback_triage.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "012_coach_intervention_outcomes.sql",
-                current / "012_coach_intervention_outcomes.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "013_repository_guidance_context.sql",
-                current / "013_repository_guidance_context.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "014_github_app_repository_activation.sql",
-                current / "014_github_app_repository_activation.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "015_diff_page_coverage.sql",
-                current / "015_diff_page_coverage.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "016_finding_root_cause_groups.sql",
-                current / "016_finding_root_cause_groups.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "017_admin_accounts.sql",
-                current / "017_admin_accounts.sql",
-            )
-            shutil.copy2(
-                runner.MIGRATION_DIRECTORY / "018_admin_operations.sql",
-                current / "018_admin_operations.sql",
-            )
-            for name in (
-                "019_admin_run_actions.sql",
-                "020_deployment_settings.sql",
-                "021_settings_service_owners.sql",
-                "022_team_access.sql",
-                "023_audit_search.sql",
-                "024_model_connections.sql",
-                "025_model_capacity.sql",
-                "026_integrations.sql",
-                "027_console_identity.sql",
-                "028_console_registration.sql",
-                "029_review_purpose.sql",
-                "030_documentation_reviews.sql",
-                "031_documentation_check_publication.sql",
-                "032_documentation_operating_policy.sql",
-                "033_documentation_capability.sql",
-                "034_documentation_configuration.sql",
-                "035_documentation_admission.sql",
-            ):
-                shutil.copy2(runner.MIGRATION_DIRECTORY / name, current / name)
-            (current / "036_newer.sql").write_text(
+            migrations = runner.discover_migrations()
+            for migration in migrations:
+                shutil.copyfile(
+                    runner.MIGRATION_DIRECTORY / migration.name, current / migration.name
+                )
+            newer_version = migrations[-1].version + 1
+            (current / f"{newer_version:03d}_newer.sql").write_text(
                 "CREATE TABLE review_agent.newer_runtime_probe "
                 "(id integer PRIMARY KEY);\n",
                 encoding="utf-8",
@@ -231,7 +145,7 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
 
         readiness = runtime.open()
 
-        self.assertEqual(readiness.applied_migration_version, 36)
+        self.assertEqual(readiness.applied_migration_version, newer_version)
         self.assertTrue(readiness.database_ahead)
 
     def test_open_fails_closed_when_migrations_are_pending(self) -> None:

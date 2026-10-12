@@ -791,6 +791,7 @@ def load_live_changed_file_page(
     domain: str = "",
     review_mode: str = "",
     changed_only: bool = True,
+    diff_state: DiffState | None = None,
 ) -> postgres_coverage.RunFilePage:
     load_live_snapshot(
         runtime,
@@ -809,6 +810,7 @@ def load_live_changed_file_page(
             domain=domain,
             review_mode=review_mode,
             changed_only=changed_only,
+            diff_state=diff_state,
         )
 
 

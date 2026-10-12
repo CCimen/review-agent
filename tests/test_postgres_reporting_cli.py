@@ -1366,7 +1366,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 occurrence_id=int(prior_batch.items[0].occurrence_id),
                 expires_days=45,
             ),
-            now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
+            # The context reader uses the wall clock, so the decision must be
+            # recorded inside its own expiry window.
+            now=datetime.now(timezone.utc),
         )
         self.start(
             pr_number=60,

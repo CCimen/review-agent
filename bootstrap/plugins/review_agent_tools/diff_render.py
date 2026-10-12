@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 try:
@@ -51,6 +52,19 @@ class AssembledDiff:
     page: DiffPage | None = None
 
 
+@dataclass(frozen=True)
+class AssembledBatch:
+    """Whole-file diffs for requested paths, with one outcome for every path."""
+
+    text: str
+    exposed_paths: list[str]
+    # Fits one page, but not the remainder of this one.
+    deferred_paths: list[str]
+    # Larger than one page or absent from this source; needs an exact-path request.
+    exact_path_required: list[str]
+    unavailable_paths: list[str]
+
+
 @dataclass(frozen=True, slots=True)
 class _DiffChunk:
     path: str
@@ -86,6 +100,42 @@ class PreparedDiff:
                   for chunk in self._chunks)
             + sum(2 * sys.getsizeof(path) for path in self._unavailable)
         )
+
+    def assemble_paths(
+        self,
+        paths: Sequence[str],
+        *,
+        max_chars: int,
+        max_cost: int,
+        cost: Callable[[str], int],
+    ) -> AssembledBatch:
+        """Pack requested file diffs in order without ever returning a partial file.
+
+        ``max_chars`` bounds the diff text and ``max_cost`` its transport size as
+        measured by ``cost``. A file that can never fit needs an exact-path read.
+        """
+        parts: list[str] = []
+        exposed: list[str] = []
+        deferred: list[str] = []
+        exact: list[str] = []
+        unavailable: list[str] = []
+        used = spent = 0
+        for path in paths:
+            chunk = self._by_path.get(path)
+            if chunk is None:
+                (unavailable if path in self._unavailable_set else exact).append(path)
+                continue
+            # Measure transport size only for a file that can still fit the page.
+            if len(chunk.text) > max_chars or (size := cost(chunk.text)) > max_cost:
+                exact.append(path)
+            elif used + len(chunk.text) > max_chars or spent + size > max_cost:
+                deferred.append(path)
+            else:
+                parts.append(chunk.text)
+                exposed.append(path)
+                used += len(chunk.text)
+                spent += size
+        return AssembledBatch("".join(parts), exposed, deferred, exact, unavailable)
 
     def assemble(
         self, *, only_path: str | None, max_chars: int, start_char: int = 0

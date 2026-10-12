@@ -44,9 +44,10 @@ every issue in a large pull request.
 Coverage counts describe complete diff content available to the reviewer. A
 partial review can contain useful findings, but a result with no confirmed
 findings can still have gaps. Expand **Coverage details** for exact counts of
-unfetched, partially fetched, and unavailable diffs, plus up to 20 example files.
-The totals include files outside that example list. Deleted-file links open the
-base commit.
+unfetched, partially fetched, and unavailable diffs, a table of the directories
+with the most incomplete diffs, and up to 20 example files. The totals include
+files outside the table and the example list. Deleted-file links open the base
+commit.
 
 An unavailable diff does not necessarily mean its source file is missing.
 Repeating `/review` can encounter the same unavailable patches. Inspect the

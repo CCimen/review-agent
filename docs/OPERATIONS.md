@@ -200,8 +200,35 @@ without omitting files. These limits bound retained source memory, not review
 size. Debug logs from `review_agent_tools.review_diff_cache` report hits and
 snapshots that exceed the cache budget without logging source content.
 
+The reviewer reads a large pull request in batches. One diff call accepts up to
+50 exact changed paths and returns whole-file diffs in the requested order, up to
+the same text page budget. Every other requested path is reported as deferred,
+needing an exact-path request, or unavailable. Only returned diffs are recorded
+as exposed, and a response over its budget records nothing. The changed-file
+index can be filtered by diff state, so the reviewer can list unread and
+partially read paths after context compression without paging the whole index.
+
+The pinned Hermes runtime applies its own result limits. It replaces a tool result
+with a short preview when one result exceeds 100,000 characters, or when the
+results of the tool calls issued together in one model response exceed 200,000
+characters in total. The managed reviewer has no file tools and cannot open that
+preview. A batched diff result is therefore held, in its serialized form, to a
+fifth of the smaller of `result_max_chars` and that combined limit: 32,000
+characters by default. The review procedure allows at most four batch calls in
+one model response and no other tool call beside them; the number of batches in a
+review is not limited. Four batches then use at most four fifths of the combined
+limit whatever `result_max_chars` is set to. The plugin cannot see the other
+calls of a response, so the remaining fifth is headroom for a stray sibling
+result, not an enforced bound on mixed responses.
+Single-path diff and source pages are bounded by `result_max_chars` alone. A
+typical page is far below the single-result limit, but text that JSON-escapes
+heavily can serialize past it while `result_max_chars` is above 100,000.
+
 The coverage count measures full diffs exposed to the reviewer, not analysis
-progress. It can stop below the changed-file count when GitHub omits a text patch,
+progress. When coverage is incomplete, the comment's coverage details list the
+directories with the most incomplete diffs and their complete, not fetched,
+partial, and unavailable counts. The count can stop below the changed-file count
+when GitHub omits a text patch,
 even while source reads and analysis continue. A transient source error keeps the
 run open and returns a retryable tool result; it does not establish clean coverage
 or a completed review. A returned retry time is a provider signal, not confirmation

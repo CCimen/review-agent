@@ -1812,6 +1812,7 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertIn("diff_unseen=1\n", body)
         self.assertEqual(sum(path in body for path in paths), 20)
         self.assertIn("Showing 20 of 28 registered files with incomplete diffs", body)
+        self.assertIn("| `src` | 1 of 29 | 1 | 2 | 25 |", body)
         self.assertIn("GitHub did not provide a text patch", body)
         self.assertIn(
             "https://github.com/team/service/blob/" + "b" * 40 + "/src/file28.py",

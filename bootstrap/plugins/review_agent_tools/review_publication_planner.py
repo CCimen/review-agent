@@ -224,6 +224,7 @@ def _coverage(context: PublicationPreparationContext) -> ReviewCoverageSummary:
         "diff_unseen": item.unseen_count,
         "coverage_hash": hashlib.sha256(material.encode("utf-8")).hexdigest(),
         "examples": item.examples,
+        "groups": item.groups,
     }
 
 

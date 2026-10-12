@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import NewType, TypeAlias, cast
@@ -142,6 +142,53 @@ class DiffCoverageExample:
     revision: str
     state: DiffState
     unavailable_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class DiffCoverageGroup:
+    """Diff coverage of the changed files under one directory."""
+
+    directory: str
+    changed: int
+    complete: int
+    unseen: int
+    truncated: int
+    unavailable: int
+
+    @property
+    def incomplete(self) -> int:
+        return self.unseen + self.truncated + self.unavailable
+
+
+def group_diff_coverage(
+    files: Iterable[tuple[str, DiffState]], *, depth: int = 3, limit: int = 10
+) -> tuple[DiffCoverageGroup, ...]:
+    """Summarise where diffs are incomplete, largest gap first.
+
+    Files are grouped by the first ``depth`` segments of their directory; a
+    directory whose diffs are all complete is omitted.
+    """
+    counts: dict[str, dict[DiffState, int]] = {}
+    for path, state in files:
+        directory = "/".join(path.split("/")[:-1][:depth])
+        states = counts.setdefault(directory, {})
+        states[state] = states.get(state, 0) + 1
+    groups = (
+        DiffCoverageGroup(
+            directory=directory,
+            changed=sum(states.values()),
+            complete=states.get(DiffState.COMPLETE, 0),
+            unseen=states.get(DiffState.UNSEEN, 0),
+            truncated=states.get(DiffState.TRUNCATED, 0),
+            unavailable=states.get(DiffState.UNAVAILABLE, 0),
+        )
+        for directory, states in counts.items()
+    )
+    incomplete = sorted(
+        (group for group in groups if group.incomplete),
+        key=lambda group: (-group.incomplete, group.directory),
+    )
+    return tuple(incomplete[:limit])
 
 
 @dataclass(frozen=True, slots=True)

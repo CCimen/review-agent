@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import re
-from typing import Any, Literal, Sequence, TypedDict, cast
+from typing import Any, Literal, NotRequired, Sequence, TypedDict, cast
 import urllib.parse
 
 try:
@@ -14,7 +14,7 @@ try:
         PublicationDomainError,
         PublicationRenderedBlockKind,
     )
-    from .domain.review import DiffCoverageExample, DiffState
+    from .domain.review import DiffCoverageExample, DiffCoverageGroup, DiffState
     from .feedback_contract import feedback_templates
     from .memory_validation import (
         FINDING_TEXT_LIMITS,
@@ -35,7 +35,11 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
         PublicationDomainError,
         PublicationRenderedBlockKind,
     )
-    from domain.review import DiffCoverageExample, DiffState  # type: ignore[no-redef]
+    from domain.review import (  # type: ignore[no-redef]
+        DiffCoverageExample,
+        DiffCoverageGroup,
+        DiffState,
+    )
     from feedback_contract import feedback_templates
     from memory_validation import (
         FINDING_TEXT_LIMITS,
@@ -104,6 +108,8 @@ class ReviewCoverageSummary(TypedDict):
     diff_unseen: int
     coverage_hash: str
     examples: tuple[DiffCoverageExample, ...]
+    # Directories with incomplete diffs, largest gap first; absent when complete.
+    groups: NotRequired[tuple[DiffCoverageGroup, ...]]
 
 
 class RepositoryDecisionSummary(TypedDict):
@@ -425,6 +431,17 @@ def coverage_summary_line(coverage: ReviewCoverageSummary | None) -> str:
     )
 
 
+def _directory_cell(directory: str) -> str:
+    if not directory:
+        return "(repository root)"
+    return "`" + safe_source_label(directory, maximum=120).replace("|", "\\|") + "`"
+
+
+def _other_directories_line(count: int) -> str:
+    rest = count_label(count, "more incomplete file is", "more incomplete files are")
+    return f"{rest} in other directories."
+
+
 def coverage_details(
     repository: str,
     coverage: ReviewCoverageSummary | None,
@@ -489,13 +506,38 @@ def coverage_details(
                     f"Additional source context was read from {joined_labels(source_reads)}.",
                 ]
             )
-        examples: list[str] = []
-        example_bytes = 0
         incomplete = (
             coverage["diff_unseen"]
             + coverage["diff_truncated"]
             + coverage["unavailable"]
         )
+        table = [
+            "",
+            "| Directory | Complete diffs | Not fetched | Partial | Unavailable |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+        listed = 0
+        for group in coverage.get("groups", ()):
+            row = (
+                f"| {_directory_cell(group.directory)} "
+                f"| {group.complete} of {group.changed} | {group.unseen} "
+                f"| {group.truncated} | {group.unavailable} |"
+            )
+            # Reserve the longest remainder line so the block still closes in budget.
+            reserved = [*lines, *table, row, "", _other_directories_line(incomplete), *closing]
+            if (
+                max_bytes is not None
+                and len("\n".join(reserved).encode("utf-8")) > max_bytes
+            ):
+                break
+            table.append(row)
+            listed += group.incomplete
+        if listed:
+            lines.extend(table)
+            if incomplete > listed:
+                lines.extend(["", _other_directories_line(incomplete - listed)])
+        examples: list[str] = []
+        example_bytes = 0
         examples_label = f"of {incomplete} registered files with incomplete diffs:"
         example_budget = _COVERAGE_EXAMPLES_MAX_BYTES
         if max_bytes is not None:

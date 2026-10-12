@@ -135,6 +135,94 @@ class ReviewDiffReuseTests(unittest.TestCase):
         self.assertEqual(result["unavailable_paths"], ["c.py"])
         self.assertEqual(self.client.get_changed_files_page.call_count, 1)
 
+    def use_files(self, patches: dict[str, str | None]) -> None:
+        self.files = [
+            {"filename": name, "status": "added", "additions": 1, "deletions": 0, "changes": 1,
+             **({} if patch_text is None else {"patch": patch_text})}
+            for name, patch_text in patches.items()
+        ]
+        self.pull["changed_files"] = len(self.files)
+        self.client.get_changed_files_page.return_value.body = json.dumps(self.files).encode()
+
+    def read_batch(self, paths: object, **extra: object) -> dict[str, object]:
+        return json.loads(tools.pr_diff.__wrapped__({
+            "run_id": self.source.run_id, "paths": paths, "max_chars": 1000, **extra
+        }))
+
+    def test_batch_returns_whole_files_and_accounts_for_every_requested_path(self) -> None:
+        def patch_of(size: int) -> str:
+            return "@@ -0,0 +1 @@\n+" + "x" * size
+
+        self.use_files({
+            "small1.py": patch_of(10), "big.py": patch_of(2200), "mid.py": patch_of(600),
+            "nopatch.py": None, "mid2.py": patch_of(600), "small2.py": patch_of(10),
+        })
+
+        def framed(name: str, size: int) -> str:
+            return f"diff --git a/{name} b/{name}\n--- /dev/null\n+++ b/{name}\n{patch_of(size)}\n"
+
+        result = self.read_batch(
+            ["small1.py", "big.py", "mid.py", "nopatch.py", "mid2.py", "small2.py", "unknown.py"]
+        )
+
+        self.assertEqual(result["paths_returned"], ["small1.py", "mid.py", "small2.py"])
+        self.assertEqual(
+            result["diff"], framed("small1.py", 10) + framed("mid.py", 600) + framed("small2.py", 10)
+        )
+        self.assertEqual(result["deferred_paths"], ["mid2.py"])
+        self.assertEqual(result["exact_path_required"], ["big.py", "unknown.py"])
+        self.assertEqual(result["unavailable_paths"], ["nopatch.py"])
+        self.record.assert_called_once()
+        exposure = self.record.call_args.args[2]
+        self.assertEqual(exposure.exposed_paths, ("small1.py", "mid.py", "small2.py"))
+        self.assertEqual(exposure.unavailable_paths, ("nopatch.py",))
+        self.assertIsNone(exposure.page)
+        self.assertEqual(self.client.get_changed_files_page.call_count, 1)
+
+    def test_batch_over_the_result_budget_records_no_exposure(self) -> None:
+        limits = tools.capacity.CapacityLimits(result_max_chars=7000, text_page_max_chars=1000)
+        absent = [f"missing/{'d' * 180}{index}.py" for index in range(40)]
+        self.use_files({"a.py": "@@ -0,0 +1 @@\n+x"})
+        with patch.object(tools.capacity, "current", return_value=limits):
+            result = self.read_batch(["a.py", *absent])
+        self.assertIn("request fewer paths", result["error"])
+        self.record.assert_not_called()
+
+    def test_batch_stays_within_its_share_of_the_parallel_result_budget(self) -> None:
+        # Quotes double in JSON: 900 raw characters fit the text page but not the
+        # serialized share that four parallel batches may each use.
+        limits = tools.capacity.CapacityLimits(result_max_chars=8000, text_page_max_chars=1000)
+        self.use_files({
+            "plain.py": "@@ -0,0 +1 @@\n+x",
+            "quoted.py": "@@ -0,0 +1 @@\n+" + '"' * 900,
+        })
+        with patch.object(tools.capacity, "current", return_value=limits):
+            raw = tools.pr_diff.__wrapped__({
+                "run_id": self.source.run_id, "paths": ["quoted.py", "plain.py"], "max_chars": 1000
+            })
+        result = json.loads(raw)
+
+        self.assertLessEqual(len(raw), limits.batch_result_max_chars)
+        self.assertEqual(limits.batch_result_max_chars, 1600)
+        self.assertEqual(result["paths_returned"], ["plain.py"])
+        self.assertEqual(result["exact_path_required"], ["quoted.py"])
+        self.assertEqual(self.record.call_args.args[2].exposed_paths, ("plain.py",))
+
+    def test_batch_rejects_ambiguous_requests_before_reading_source(self) -> None:
+        for arguments in (
+            {"paths": ["a.py"], "path": "b.py"},
+            {"paths": ["a.py"], "start_char": 10},
+            {"paths": ["a.py", "a.py"]},
+            {"paths": []},
+            {"paths": "a.py"},
+            {"paths": [f"f{index}.py" for index in range(51)]},
+        ):
+            with self.subTest(arguments=arguments):
+                result = json.loads(tools.pr_diff.__wrapped__({"run_id": self.source.run_id, **arguments}))
+                self.assertIn("error", result)
+        self.client.get_review_diff.assert_not_called()
+        self.record.assert_not_called()
+
     def test_oversized_snapshot_stays_readable_without_repeating_the_406(self) -> None:
         with patch.object(tools, "_diff_cache", tools.ReviewDiffCache(max_bytes=3000)):
             self.assertNotIn("error", self.read("a.py"))

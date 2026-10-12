@@ -33,10 +33,12 @@ from ..domain.finding import FindingId, suppression_is_active
 from ..domain.review import (
     ReviewPurpose,
     DiffCoverageExample,
+    DiffCoverageGroup,
     DiffState,
     PullRequestId,
     ReviewRunId,
     ReviewStatus,
+    group_diff_coverage,
 )
 from ..repository_decision_context import RepositoryDecisionContext
 from . import repository_decisions as postgres_repository_decisions
@@ -266,6 +268,7 @@ class PreparationCoverage:
     unavailable_count: int
     truncated_count: int
     examples: tuple[DiffCoverageExample, ...]
+    groups: tuple[DiffCoverageGroup, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -586,6 +589,24 @@ def preparation_context(
         """,
         (run_id,),
     ).fetchall()
+    # Examples are bounded, so the per-directory summary reads the whole
+    # inventory; GitHub registers at most 3,000 changed files for one PR.
+    groups = (
+        group_diff_coverage(
+            (str(row[0]), DiffState(str(row[1])))
+            for row in connection.execute(
+                """
+                SELECT path, diff_state
+                FROM review_agent.review_run_files
+                WHERE review_run_id = %s
+                  AND is_changed_path
+                """,
+                (run_id,),
+            ).fetchall()
+        )
+        if path_rows
+        else ()
+    )
 
     def suggestion(row: _PreparationFindingRow) -> PreparationSuggestion | None:
         if row.suggestion_key is None:
@@ -717,6 +738,7 @@ def preparation_context(
                 )
                 for row in path_rows
             ),
+            groups=groups,
         ),
         repository_decisions=postgres_repository_decisions.load_context(
             connection,

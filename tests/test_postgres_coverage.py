@@ -274,6 +274,42 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             (("configuration", 1), ("normal", 1)),
         )
 
+    def test_changed_file_pages_can_list_only_unread_diffs(self) -> None:
+        run_id = self.start_run()
+        review_run_application.register_postgres_changed_files(
+            self.runtime,
+            run_id=run_id,
+            files=tuple(self.changed_file(f"src/{name}.py") for name in "abcd"),
+            changed_files_reported=4,
+            registration_complete=True,
+        )
+        review_run_application.record_postgres_diff_observation(
+            self.runtime, run_id=run_id, paths=("src/b.py",), state=DiffState.COMPLETE
+        )
+
+        def unseen(cursor: str = "") -> postgres_coverage.RunFilePage:
+            with self.runtime.transaction() as connection:
+                return postgres_coverage.list_run_files(
+                    connection,
+                    run_id=run_id,
+                    repository="team/coverage",
+                    pr_number=21,
+                    limit=2,
+                    cursor=cursor,
+                    diff_state=DiffState.UNSEEN,
+                )
+
+        first = unseen()
+        self.assertEqual(first.total_matching, 3)
+        self.assertEqual([item.path for item in first.items], ["src/a.py", "src/c.py"])
+        # Reading an earlier path between pages must not skip the remaining ones.
+        review_run_application.record_postgres_diff_observation(
+            self.runtime, run_id=run_id, paths=("src/a.py",), state=DiffState.COMPLETE
+        )
+        second = unseen(first.next_cursor or "")
+        self.assertEqual([item.path for item in second.items], ["src/d.py"])
+        self.assertIsNone(second.next_cursor)
+
     def test_empty_inventory_and_fail_closed_guards_are_explicit(self) -> None:
         run_id = self.start_run()
         unknown = review_run_application.summarize_postgres_coverage(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import re
-from typing import Any, Literal, Sequence, TypedDict, cast
+from typing import Any, Literal, NotRequired, Sequence, TypedDict, cast
 import urllib.parse
 
 try:
@@ -14,7 +14,7 @@ try:
         PublicationDomainError,
         PublicationRenderedBlockKind,
     )
-    from .domain.review import DiffCoverageExample, DiffState
+    from .domain.review import DiffCoverageExample, DiffCoverageGroup, DiffState
     from .feedback_contract import feedback_templates
     from .memory_validation import (
         FINDING_TEXT_LIMITS,
@@ -35,7 +35,11 @@ except ImportError:  # pragma: no cover - supports direct module imports in test
         PublicationDomainError,
         PublicationRenderedBlockKind,
     )
-    from domain.review import DiffCoverageExample, DiffState  # type: ignore[no-redef]
+    from domain.review import (  # type: ignore[no-redef]
+        DiffCoverageExample,
+        DiffCoverageGroup,
+        DiffState,
+    )
     from feedback_contract import feedback_templates
     from memory_validation import (
         FINDING_TEXT_LIMITS,
@@ -104,6 +108,8 @@ class ReviewCoverageSummary(TypedDict):
     diff_unseen: int
     coverage_hash: str
     examples: tuple[DiffCoverageExample, ...]
+    # Directories with incomplete diffs, largest gap first; absent when complete.
+    groups: NotRequired[tuple[DiffCoverageGroup, ...]]
 
 
 class RepositoryDecisionSummary(TypedDict):
@@ -425,6 +431,12 @@ def coverage_summary_line(coverage: ReviewCoverageSummary | None) -> str:
     )
 
 
+def _directory_cell(directory: str) -> str:
+    if not directory:
+        return "(repository root)"
+    return "`" + safe_source_label(directory, maximum=120).replace("|", "\\|") + "`"
+
+
 def coverage_details(
     repository: str,
     coverage: ReviewCoverageSummary | None,
@@ -489,13 +501,34 @@ def coverage_details(
                     f"Additional source context was read from {joined_labels(source_reads)}.",
                 ]
             )
-        examples: list[str] = []
-        example_bytes = 0
         incomplete = (
             coverage["diff_unseen"]
             + coverage["diff_truncated"]
             + coverage["unavailable"]
         )
+        groups = coverage.get("groups", ())
+        if groups:
+            lines.extend(
+                [
+                    "",
+                    "| Directory | Complete diffs | Not fetched | Partial | Unavailable |",
+                    "| --- | ---: | ---: | ---: | ---: |",
+                    *(
+                        f"| {_directory_cell(group.directory)} "
+                        f"| {group.complete} of {group.changed} | {group.unseen} "
+                        f"| {group.truncated} | {group.unavailable} |"
+                        for group in groups
+                    ),
+                ]
+            )
+            elsewhere = incomplete - sum(group.incomplete for group in groups)
+            if elsewhere > 0:
+                rest = count_label(
+                    elsewhere, "more incomplete file is", "more incomplete files are"
+                )
+                lines.extend(["", f"{rest} in other directories."])
+        examples: list[str] = []
+        example_bytes = 0
         examples_label = f"of {incomplete} registered files with incomplete diffs:"
         example_budget = _COVERAGE_EXAMPLES_MAX_BYTES
         if max_bytes is not None:

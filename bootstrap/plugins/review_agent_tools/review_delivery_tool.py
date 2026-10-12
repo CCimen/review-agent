@@ -103,9 +103,10 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                         ),
                         "changed_paths_unseen": coverage.unseen_paths,
                         "next_action": (
-                            "Call review_agent_pr_files and page the changed paths. "
-                            "For every item whose diff_state is unseen, call "
-                            "review_agent_pr_diff and follow any continuation. Then "
+                            "Page review_agent_pr_files with diff_state unseen. Pass "
+                            "each page's paths to review_agent_pr_diff in paths "
+                            "batches and follow deferred, exact-path, and "
+                            "continuation outcomes. Examine what they show, then "
                             "call review_agent_deliver again with this same run_id."
                         ),
                     }

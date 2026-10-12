@@ -849,14 +849,21 @@ class ToolContractTests(unittest.TestCase):
                 review_run_application,
                 "load_live_changed_file_page",
                 return_value=page,
-            ),
+            ) as load_page,
         ):
             result = json.loads(
                 review_source_tools.pr_files.__wrapped__({"run_id": 41})
             )
+            rejected = json.loads(
+                review_source_tools.pr_files.__wrapped__(
+                    {"run_id": 41, "diff_state": "skimmed"}
+                )
+            )
 
         self.assertEqual(result["total_matching"], 1)
         self.assertEqual(result["items"][0]["path"], "src/app.py")
+        self.assertIn("diff_state must be", rejected["error"])
+        self.assertEqual(load_page.call_count, 1)
 
     def test_pr_diff_falls_back_when_the_whole_diff_is_unavailable(self) -> None:
         pull = {
@@ -1332,7 +1339,7 @@ class ToolContractTests(unittest.TestCase):
         self.assertEqual(result["changed_paths_registered"], 2)
         self.assertEqual(result["changed_paths_with_complete_diff"], 1)
         self.assertEqual(result["changed_paths_unseen"], 1)
-        self.assertIn("diff_state is unseen", result["next_action"])
+        self.assertIn("diff_state unseen", result["next_action"])
         self.assertIn("review_agent_pr_files", result["next_action"])
         self.assertIn("review_agent_pr_diff", result["next_action"])
         prepare.assert_not_called()

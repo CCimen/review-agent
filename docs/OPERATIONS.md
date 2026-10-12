@@ -200,8 +200,27 @@ without omitting files. These limits bound retained source memory, not review
 size. Debug logs from `review_agent_tools.review_diff_cache` report hits and
 snapshots that exceed the cache budget without logging source content.
 
+The reviewer reads a large pull request in batches. One diff call accepts up to
+50 exact changed paths and returns whole-file diffs in the requested order, up to
+the same text page budget. Every other requested path is reported as deferred,
+needing an exact-path request, or unavailable. Only returned diffs are recorded
+as exposed, and a response over the result budget records nothing. The
+changed-file index can be filtered to paths whose diff has not been returned, so
+the reviewer can resume after context compression without paging the whole index.
+
+The pinned Hermes runtime applies its own result limits. It replaces a tool result
+with a short preview when one result exceeds 100,000 characters, or when the
+results of one assistant turn exceed 200,000 characters in total. The managed
+reviewer has no file tools and cannot open that preview. The default page budget
+keeps one diff or source result far below the single-result limit, and the review
+procedure limits diff calls to four per turn. Raising `result_max_chars` enlarges
+every page, so keep four typical pages under the per-turn limit when changing it.
+
 The coverage count measures full diffs exposed to the reviewer, not analysis
-progress. It can stop below the changed-file count when GitHub omits a text patch,
+progress. When coverage is incomplete, the comment's coverage details list the
+directories with the most incomplete diffs and their complete, not fetched,
+partial, and unavailable counts. The count can stop below the changed-file count
+when GitHub omits a text patch,
 even while source reads and analysis continue. A transient source error keeps the
 run open and returns a retryable tool result; it does not establish clean coverage
 or a completed review. A returned retry time is a provider signal, not confirmation

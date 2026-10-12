@@ -11,6 +11,7 @@ sys.path.insert(0, str(PLUGIN))
 
 import review_renderer  # noqa: E402
 import memory_validation  # noqa: E402
+from domain import review as review_domain  # noqa: E402
 
 
 class ReviewRendererTests(unittest.TestCase):
@@ -293,6 +294,55 @@ class ReviewRendererTests(unittest.TestCase):
                     "unchanged files are supporting evidence only.",
                     rendered,
                 )
+
+    def test_incomplete_diffs_are_grouped_by_directory_with_the_largest_gap_first(
+        self,
+    ) -> None:
+        state = review_domain.DiffState
+        groups = review_domain.group_diff_coverage(
+            [
+                ("backend/src/services/a.ts", state.COMPLETE),
+                ("backend/src/tests/a.test.ts", state.UNSEEN),
+                ("backend/src/tests/deep/b.test.ts", state.UNSEEN),
+                ("frontend/src/app/page.tsx", state.COMPLETE),
+                ("frontend/src/app/list.tsx", state.UNSEEN),
+                ("frontend/src/app/big.tsx", state.TRUNCATED),
+                ("frontend/src/app/form/field.tsx", state.UNAVAILABLE),
+                ("README.md", state.UNSEEN),
+            ],
+            limit=2,
+        )
+
+        self.assertEqual(
+            [
+                (g.directory, g.changed, g.complete, g.unseen, g.truncated, g.unavailable)
+                for g in groups
+            ],
+            [("frontend/src/app", 4, 1, 1, 1, 1), ("backend/src/tests", 2, 0, 2, 0, 0)],
+        )
+
+    def test_incomplete_coverage_details_show_where_the_gap_is(self) -> None:
+        rendered = review_renderer.coverage_details(
+            "example/repository",
+            self.coverage(
+                state="incomplete",
+                changed_paths=10,
+                changed_paths_with_diff=3,
+                diff_truncated=1,
+                groups=(
+                    review_renderer.DiffCoverageGroup("frontend/src/app", 6, 1, 4, 1, 0),
+                    review_renderer.DiffCoverageGroup("", 1, 0, 1, 0, 0),
+                ),
+            ),
+            None,
+        )
+
+        self.assertIn(
+            "| Directory | Complete diffs | Not fetched | Partial | Unavailable |", rendered
+        )
+        self.assertIn("| `frontend/src/app` | 1 of 6 | 4 | 1 | 0 |", rendered)
+        self.assertIn("| (repository root) | 0 of 1 | 1 | 0 | 0 |", rendered)
+        self.assertIn("1 more incomplete file is in other directories.", rendered)
 
     def test_complete_coverage_details_omit_empty_source_context_sentence(self) -> None:
         line = review_renderer.coverage_details(

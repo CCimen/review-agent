@@ -10,6 +10,12 @@ MIN_TEXT_PAGE_CHARS = 1_000
 _JSON_WORST_CASE_EXPANSION = 6
 _TEXT_PAGE_DIVISOR = _JSON_WORST_CASE_EXPANSION + 1
 MIN_RESULT_MAX_CHARS = MIN_TEXT_PAGE_CHARS * _TEXT_PAGE_DIVISOR
+# The pinned Hermes runtime replaces tool results with a preview the reviewer
+# cannot open once the results of one model response exceed this total
+# (tools/budget_config.py, DEFAULT_TURN_BUDGET_CHARS).
+RUNTIME_RESPONSE_RESULT_CHARS = 200_000
+# The review procedure issues at most this many diff calls in one response.
+PARALLEL_DIFF_CALLS = 4
 
 
 class CapacityError(ValueError):
@@ -20,6 +26,14 @@ class CapacityError(ValueError):
 class CapacityLimits:
     result_max_chars: int
     text_page_max_chars: int
+
+    @property
+    def batch_result_max_chars(self) -> int:
+        """Serialized size one batched diff may use when four run in parallel."""
+        return (
+            min(self.result_max_chars, RUNTIME_RESPONSE_RESULT_CHARS)
+            // PARALLEL_DIFF_CALLS
+        )
 
 
 _active = CapacityLimits(

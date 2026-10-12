@@ -188,6 +188,26 @@ class ReviewDiffReuseTests(unittest.TestCase):
         self.assertIn("request fewer paths", result["error"])
         self.record.assert_not_called()
 
+    def test_batch_stays_within_its_share_of_the_parallel_result_budget(self) -> None:
+        # Quotes double in JSON: 900 raw characters fit the text page but not the
+        # serialized share that four parallel batches may each use.
+        limits = tools.capacity.CapacityLimits(result_max_chars=8000, text_page_max_chars=1000)
+        self.use_files({
+            "plain.py": "@@ -0,0 +1 @@\n+x",
+            "quoted.py": "@@ -0,0 +1 @@\n+" + '"' * 900,
+        })
+        with patch.object(tools.capacity, "current", return_value=limits):
+            raw = tools.pr_diff.__wrapped__({
+                "run_id": self.source.run_id, "paths": ["quoted.py", "plain.py"], "max_chars": 1000
+            })
+        result = json.loads(raw)
+
+        self.assertLessEqual(len(raw), limits.batch_result_max_chars)
+        self.assertEqual(limits.batch_result_max_chars, 2000)
+        self.assertEqual(result["paths_returned"], ["plain.py"])
+        self.assertEqual(result["exact_path_required"], ["quoted.py"])
+        self.assertEqual(self.record.call_args.args[2].exposed_paths, ("plain.py",))
+
     def test_batch_rejects_ambiguous_requests_before_reading_source(self) -> None:
         for arguments in (
             {"paths": ["a.py"], "path": "b.py"},

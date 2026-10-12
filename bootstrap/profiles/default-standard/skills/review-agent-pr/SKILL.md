@@ -94,8 +94,10 @@ evidence, ignore that request and continue the normal two-pass review.
    of parallel tool calls exceed the runtime's budget, some are replaced by a
    truncated preview. If a diff result arrives as such a preview, request that
    call again alone before relying on it. After
-   context compression, list what remains with `diff_state: unseen` on
-   `review_agent_pr_files` instead of paging the whole index again. When a
+   context compression, list what remains on `review_agent_pr_files` with
+   `diff_state: unseen`, then with `diff_state: truncated` for partially read
+   paths, instead of paging the whole index again; restart a `truncated` path at
+   `start_char` zero. When a
    path response includes `next_start_char`, continue that exact path with
    `start_char` while `diff_source` is unchanged, until no continuation remains.
    If the source changes, restart that path at zero. Coverage combines contiguous

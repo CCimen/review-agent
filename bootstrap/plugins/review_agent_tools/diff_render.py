@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 try:
@@ -101,26 +101,40 @@ class PreparedDiff:
             + sum(2 * sys.getsizeof(path) for path in self._unavailable)
         )
 
-    def assemble_paths(self, paths: Sequence[str], *, max_chars: int) -> AssembledBatch:
-        """Pack requested file diffs in order without ever returning a partial file."""
+    def assemble_paths(
+        self,
+        paths: Sequence[str],
+        *,
+        max_chars: int,
+        max_cost: int,
+        cost: Callable[[str], int],
+    ) -> AssembledBatch:
+        """Pack requested file diffs in order without ever returning a partial file.
+
+        ``max_chars`` bounds the diff text and ``max_cost`` its transport size as
+        measured by ``cost``. A file that can never fit needs an exact-path read.
+        """
         parts: list[str] = []
         exposed: list[str] = []
         deferred: list[str] = []
         exact: list[str] = []
         unavailable: list[str] = []
-        used = 0
+        used = spent = 0
         for path in paths:
             chunk = self._by_path.get(path)
             if chunk is None:
                 (unavailable if path in self._unavailable_set else exact).append(path)
-            elif len(chunk.text) > max_chars:
+                continue
+            size = cost(chunk.text)
+            if len(chunk.text) > max_chars or size > max_cost:
                 exact.append(path)
-            elif used + len(chunk.text) > max_chars:
+            elif used + len(chunk.text) > max_chars or spent + size > max_cost:
                 deferred.append(path)
             else:
                 parts.append(chunk.text)
                 exposed.append(path)
                 used += len(chunk.text)
+                spent += size
         return AssembledBatch("".join(parts), exposed, deferred, exact, unavailable)
 
     def assemble(

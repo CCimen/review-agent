@@ -204,19 +204,22 @@ The reviewer reads a large pull request in batches. One diff call accepts up to
 50 exact changed paths and returns whole-file diffs in the requested order, up to
 the same text page budget. Every other requested path is reported as deferred,
 needing an exact-path request, or unavailable. Only returned diffs are recorded
-as exposed, and a response over the result budget records nothing. The
-changed-file index can be filtered to paths whose diff has not been returned, so
-the reviewer can resume after context compression without paging the whole index.
+as exposed, and a response over its budget records nothing. The changed-file
+index can be filtered by diff state, so the reviewer can list unread and
+partially read paths after context compression without paging the whole index.
 
 The pinned Hermes runtime applies its own result limits. It replaces a tool result
 with a short preview when one result exceeds 100,000 characters, or when the
 results of the tool calls issued together in one model response exceed 200,000
 characters in total. The managed reviewer has no file tools and cannot open that
-preview. The default page budget keeps one diff or source result far below the
-single-result limit, and the review procedure limits parallel diff calls to four
-per response; the number of batches in a review is not limited. Raising
-`result_max_chars` enlarges every page, so keep four typical pages under the
-combined limit when changing it.
+preview. A batched diff result is therefore held, in its serialized form, to a
+quarter of the smaller of `result_max_chars` and that combined limit: 40,000
+characters by default. The review procedure issues at most four diff calls in
+parallel, so four batches stay within the combined limit whatever
+`result_max_chars` is set to; the number of batches in a review is not limited.
+Single-path diff and source pages are bounded by `result_max_chars` alone. A
+typical page is far below the single-result limit, but text that JSON-escapes
+heavily can serialize past it while `result_max_chars` is above 100,000.
 
 The coverage count measures full diffs exposed to the reviewer, not analysis
 progress. When coverage is incomplete, the comment's coverage details list the

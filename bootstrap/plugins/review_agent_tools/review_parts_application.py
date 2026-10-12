@@ -144,21 +144,29 @@ def stage_report(
         job = _leased(connection, run_id=run_id, lease=lease)
         if job.part == 0:
             raise ReviewPartError("only a review part stages a report")
+        # An attempt that never called review_agent_begin still starts unread.
+        postgres_parts.begin_reading(
+            connection,
+            run_id=run_id,
+            part=job.part,
+            lease_generation=job.lease_generation,
+        )
         assigned, unread = postgres_parts.assigned_files(
             connection, run_id=run_id, part=job.part
         )
-        if unread:
-            raise PartReadingIncomplete(unread=unread, assigned=assigned)
-        postgres_parts.store_report(
-            connection, run_id=run_id, part=job.part, report=report
-        )
-        postgres_jobs.succeed_part_job(
-            connection,
-            job_id=job.id,
-            review_run_id=run_id,
-            lease_generation=job.lease_generation,
-        )
-        return job.part
+        if not unread:
+            postgres_parts.store_report(
+                connection, run_id=run_id, part=job.part, report=report
+            )
+            postgres_jobs.succeed_part_job(
+                connection,
+                job_id=job.id,
+                review_run_id=run_id,
+                lease_generation=job.lease_generation,
+            )
+            return job.part
+    # Raised after the transaction so the attempt's fresh start stays committed.
+    raise PartReadingIncomplete(unread=unread, assigned=assigned)
 
 
 def load_report(

@@ -334,6 +334,12 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             (totals.requests, totals.started_attempts, totals.reported_attempts, totals.total_tokens),
             (1, 2, 2, 40),
         )
+        # The main job only waits for its parts; the second part is the queued work.
+        review_queue = next(
+            queue for queue in operator_application.queue_health(self.runtime).progress
+            if queue.kind == "review"
+        )
+        self.assertEqual((review_queue.waiting, review_queue.leased), (1, 1))
 
     def test_review_history_keeps_publication_retry_and_recovery_in_delivery(self) -> None:
         from review_agent_tools import admin_application

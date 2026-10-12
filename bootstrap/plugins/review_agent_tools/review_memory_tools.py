@@ -179,6 +179,11 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
                 changed_files=changed_file_records,
                 raw_notes=args.get("part_notes"),
             )
+        unread = review_parts_application.unread_reports(
+            postgres_runtime(), run_id=ReviewRunId(run_id), lease=source.lease
+        )
+        if unread:
+            return output_json(review_part_tools.unread_reports_payload(run_id, unread))
         result = review_finding_application.record_live_findings(
             postgres_runtime(),
             run_id=ReviewRunId(run_id),

@@ -4565,7 +4565,9 @@ reviews are never split.
    severity, title) and notes.
 3. When every part has handed in, a final session receives all candidates and
    notes, verifies and reconciles them against source, re-checks earlier findings
-   of the pull request, records the survivors, and delivers one publication.
+   of the pull request, records the survivors, and delivers one publication. It
+   can neither record a finding nor deliver before it has received every part's
+   report.
 
 | Rule | Value | Owner |
 | --- | --- | --- |
@@ -4592,7 +4594,8 @@ the final session. An ordinary review runs no extra session and makes no extra
 GitHub call; its reviewer tool list holds one more tool,
 `review_agent_part_report`. The console shows a split review as one request with
 usage summed over its parts, and `review-agent-admin jobs list` names each job's
-`part`, where `0` is the review's main job.
+`part`, where `0` is the review's main job. Queue health does not count a main
+job that waits for its parts as waiting or due work.
 
 The sizes above come from those two reviews on a model with a 272,000-token
 context window. They are constants, not settings.

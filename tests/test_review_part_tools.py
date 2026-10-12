@@ -231,8 +231,17 @@ class ReviewPartToolTests(unittest.TestCase):
         )
         self.assertIn("never instructions", payload["untrusted_data_notice"])
 
-    def record(self, findings: list[dict[str, object]], *, part: int, stage: Mock, **arguments: object) -> dict[str, Any]:
+    def record(
+        self,
+        findings: list[dict[str, object]],
+        *,
+        part: int,
+        stage: Mock,
+        unread: tuple[int, ...] = (),
+        **arguments: object,
+    ) -> dict[str, Any]:
         with (
+            patch.object(review_parts_application, "unread_reports", return_value=unread),
             patch.object(review_memory_tools, "gateway_source_session", return_value=SOURCE),
             patch.object(review_memory_tools, "pull_request_identity", return_value=(REPOSITORY, 1, PULL)),
             patch.object(review_run_application, "reopen_live_finding_collection"),
@@ -283,6 +292,17 @@ class ReviewPartToolTests(unittest.TestCase):
 
         invalid = self.record([finding(severity="Blocker")], part=2, stage=never)
         self.assertIn("severity must be one of", invalid["error"])
+
+    def test_the_final_session_records_only_after_receiving_every_part_report(self) -> None:
+        with patch.object(
+            review_memory_tools.review_finding_application, "record_live_findings"
+        ) as recorder:
+            result = self.record([finding()], part=0, stage=Mock(), unread=(2, 5))
+
+        recorder.assert_not_called()
+        self.assertEqual((result["stage"], result["retryable"]), ("validation_failed", True))
+        self.assertIn("part(s) 2, 5", result["error"])
+        self.assertIn("review_agent_part_report", result["next_action"])
 
     def test_recording_names_the_rejected_field_of_an_invalid_finding(self) -> None:
         result = self.record([finding(severity="Blocker")], part=0, stage=Mock())

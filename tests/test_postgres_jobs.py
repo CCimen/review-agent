@@ -1740,7 +1740,6 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.assertEqual(self.claim_lease("other-part")[0].part, 2)
         retry, retry_lease = self.claim_lease("second-attempt")
         self.assertEqual((retry.id, retry.lease_generation), (part.id, 2))
-        review_parts_application.begin_part(self.runtime, run_id=run_id, lease=retry_lease)
 
         def states() -> list[tuple[object, ...]]:
             with self.runtime.transaction() as connection:
@@ -1750,6 +1749,14 @@ class PostgreSQLJobTests(unittest.TestCase):
                     (run_id,),
                 ).fetchall()
 
+        # Even a retry that skips review_agent_begin cannot hand in what its
+        # predecessor read.
+        self.assertEqual(states()[0], ("api/a.py", "complete"))
+        with self.assertRaises(review_parts_application.PartReadingIncomplete) as inherited:
+            review_parts_application.stage_report(
+                self.runtime, run_id=run_id, lease=retry_lease, report={"findings": [], "notes": []}
+            )
+        self.assertEqual((inherited.exception.unread, inherited.exception.assigned), (2, 2))
         self.assertEqual(
             states(), [("api/a.py", "unseen"), ("api/b.py", "unseen"), ("web/c.py", "unseen")]
         )

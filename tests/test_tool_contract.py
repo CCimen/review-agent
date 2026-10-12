@@ -1240,7 +1240,9 @@ class ToolContractTests(unittest.TestCase):
                 )
 
     def test_memory_record_keeps_machine_metadata_out_of_visible_review(self) -> None:
-        source = SimpleNamespace(run_id=41)
+        source = SimpleNamespace(
+            run_id=41, lease=SimpleNamespace(job_id=7, lease_generation=3)
+        )
         pull = {"state": "open", "head": {"sha": "b" * 40}}
         with (
             patch.object(
@@ -1265,6 +1267,9 @@ class ToolContractTests(unittest.TestCase):
                 return_value=pull,
             ),
             patch.object(review_memory_tools, "load_changed_files", return_value=[]),
+            patch.object(
+                review_memory_tools.review_parts_application, "unread_reports", return_value=()
+            ),
             patch.object(
                 review_memory_tools.review_finding_application,
                 "record_live_findings",

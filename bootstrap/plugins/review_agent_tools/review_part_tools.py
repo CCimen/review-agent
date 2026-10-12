@@ -111,6 +111,25 @@ def final_payload(parts: int) -> JsonObject:
     }
 
 
+def unread_reports_payload(run_id: int, unread: Sequence[int]) -> JsonObject:
+    """Refuse to record or deliver before the final session received every report."""
+    return {
+        "stage": "validation_failed",
+        "published": False,
+        "retryable": True,
+        "run_id": run_id,
+        "error": (
+            "this session has not received the report of part(s) "
+            + ", ".join(str(part) for part in unread)
+        ),
+        "next_action": (
+            "Call review_agent_part_report for each of those parts and reconcile "
+            "their candidates. Then record the surviving findings and deliver "
+            "with this same run_id."
+        ),
+    }
+
+
 def _notes(raw: Any) -> list[str]:
     if raw is None:
         return []

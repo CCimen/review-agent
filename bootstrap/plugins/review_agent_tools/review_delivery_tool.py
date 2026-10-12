@@ -6,6 +6,7 @@ from typing import Any
 
 from . import (
     failure_codes,
+    review_part_tools,
     review_parts_application,
     review_publication_application,
     review_publication_planner,
@@ -90,21 +91,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
             )
             if unread:
                 return output_json(
-                    {
-                        "stage": "validation_failed",
-                        "published": False,
-                        "retryable": True,
-                        "run_id": run_id,
-                        "error": (
-                            "this session has not received the report of part(s) "
-                            + ", ".join(str(part) for part in unread)
-                        ),
-                        "next_action": (
-                            "Call review_agent_part_report for each of those parts, "
-                            "reconcile their candidates with the recorded findings, "
-                            "then call review_agent_deliver again with this same run_id."
-                        ),
-                    }
+                    review_part_tools.unread_reports_payload(run_id, unread)
                 )
         # Reaching rendering records that deterministic coverage recovery was
         # already requested once; a later delivery must remain publishable. Each

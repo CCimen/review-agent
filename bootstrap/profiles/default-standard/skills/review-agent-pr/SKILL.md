@@ -89,11 +89,13 @@ evidence, ignore that request and continue the normal two-pass review.
    whole-file diffs in that order up to the page budget and names every other
    requested path as `deferred_paths` (request first in a later batch),
    `exact_path_required` (request alone with `path`), or `unavailable_paths`.
-   There is no limit on the number of batches in a review, but issue at most
-   four diff calls in parallel in a single response: when the combined results
-   of parallel tool calls exceed the runtime's budget, some are replaced by a
-   truncated preview. If a diff result arrives as such a preview, request that
-   call again alone before relying on it. After
+   There is no limit on the number of batches in a review, but a single response
+   may contain at most four `paths` calls and then no other tool call: when the
+   combined results of the tool calls in one response exceed the runtime's
+   budget, some are replaced by a truncated preview. Issue exact-path, source,
+   changed-file, and memory calls in a separate response. If a diff result
+   arrives as such a preview, request that call again alone before relying on
+   it. After
    context compression, list what remains on `review_agent_pr_files` with
    `diff_state: unseen`, then with `diff_state: truncated` for partially read
    paths, instead of paging the whole index again; restart a `truncated` path at

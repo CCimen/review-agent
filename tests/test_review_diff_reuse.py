@@ -203,7 +203,7 @@ class ReviewDiffReuseTests(unittest.TestCase):
         result = json.loads(raw)
 
         self.assertLessEqual(len(raw), limits.batch_result_max_chars)
-        self.assertEqual(limits.batch_result_max_chars, 2000)
+        self.assertEqual(limits.batch_result_max_chars, 1600)
         self.assertEqual(result["paths_returned"], ["plain.py"])
         self.assertEqual(result["exact_path_required"], ["quoted.py"])
         self.assertEqual(self.record.call_args.args[2].exposed_paths, ("plain.py",))

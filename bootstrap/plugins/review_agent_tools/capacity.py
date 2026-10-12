@@ -29,10 +29,13 @@ class CapacityLimits:
 
     @property
     def batch_result_max_chars(self) -> int:
-        """Serialized size one batched diff may use when four run in parallel."""
-        return (
-            min(self.result_max_chars, RUNTIME_RESPONSE_RESULT_CHARS)
-            // PARALLEL_DIFF_CALLS
+        """Serialized size of one batched diff.
+
+        Four parallel batches leave one equal share of the response total for
+        any other tool result issued beside them, which the plugin cannot see.
+        """
+        return min(self.result_max_chars, RUNTIME_RESPONSE_RESULT_CHARS) // (
+            PARALLEL_DIFF_CALLS + 1
         )
 
 

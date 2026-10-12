@@ -125,8 +125,8 @@ class PreparedDiff:
             if chunk is None:
                 (unavailable if path in self._unavailable_set else exact).append(path)
                 continue
-            size = cost(chunk.text)
-            if len(chunk.text) > max_chars or size > max_cost:
+            # Measure transport size only for a file that can still fit the page.
+            if len(chunk.text) > max_chars or (size := cost(chunk.text)) > max_cost:
                 exact.append(path)
             elif used + len(chunk.text) > max_chars or spent + size > max_cost:
                 deferred.append(path)

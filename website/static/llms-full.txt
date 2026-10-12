@@ -4530,10 +4530,13 @@ with a short preview when one result exceeds 100,000 characters, or when the
 results of the tool calls issued together in one model response exceed 200,000
 characters in total. The managed reviewer has no file tools and cannot open that
 preview. A batched diff result is therefore held, in its serialized form, to a
-quarter of the smaller of `result_max_chars` and that combined limit: 40,000
-characters by default. The review procedure issues at most four diff calls in
-parallel, so four batches stay within the combined limit whatever
-`result_max_chars` is set to; the number of batches in a review is not limited.
+fifth of the smaller of `result_max_chars` and that combined limit: 32,000
+characters by default. The review procedure allows at most four batch calls in
+one model response and no other tool call beside them; the number of batches in a
+review is not limited. Four batches then use at most four fifths of the combined
+limit whatever `result_max_chars` is set to. The plugin cannot see the other
+calls of a response, so the remaining fifth is headroom for a stray sibling
+result, not an enforced bound on mixed responses.
 Single-path diff and source pages are bounded by `result_max_chars` alone. A
 typical page is far below the single-result limit, but text that JSON-escapes
 heavily can serialize past it while `result_max_chars` is above 100,000.

@@ -547,7 +547,7 @@ def _pr_diff_batch(
     batch = snapshot.diff.assemble_paths(paths, max_chars=max_chars)
     guidance: list[str] = []
     if batch.deferred_paths:
-        guidance.append("Request deferred_paths in a later paths call.")
+        guidance.append("Request deferred_paths first in a later paths call.")
     if batch.exact_path_required:
         guidance.append(
             "Request each exact_path_required path alone with path and follow next_start_char."

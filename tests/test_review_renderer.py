@@ -344,6 +344,34 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("| (repository root) | 0 of 1 | 1 | 0 | 0 |", rendered)
         self.assertIn("1 more incomplete file is in other directories.", rendered)
 
+    def test_directory_table_stays_within_the_details_budget(self) -> None:
+        coverage = self.coverage(
+            state="incomplete",
+            changed_paths=100,
+            changed_paths_with_diff=10,
+            groups=tuple(
+                review_renderer.DiffCoverageGroup(
+                    f"services/area_{index:02}/handlers", 9, 1, 8, 0, 0
+                )
+                for index in range(10)
+            ),
+        )
+        unbounded = review_renderer.coverage_details("example/repository", coverage, None)
+        budget = len(unbounded.encode("utf-8")) - 200
+
+        rendered = review_renderer.coverage_details(
+            "example/repository", coverage, None, max_bytes=budget
+        )
+
+        self.assertLessEqual(len(rendered.encode("utf-8")), budget)
+        self.assertIn("| `services/area_00/handlers` | 1 of 9 | 8 | 0 | 0 |", rendered)
+        self.assertNotIn("area_09", rendered)
+        shown = rendered.count("/handlers` |")
+        self.assertIn(
+            f"{90 - 8 * shown} more incomplete files are in other directories.", rendered
+        )
+        self.assertTrue(rendered.endswith("</details>"))
+
     def test_complete_coverage_details_omit_empty_source_context_sentence(self) -> None:
         line = review_renderer.coverage_details(
             "example/repository",

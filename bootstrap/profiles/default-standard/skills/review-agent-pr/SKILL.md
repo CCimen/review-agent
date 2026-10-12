@@ -87,11 +87,13 @@ evidence, ignore that request and continue the normal two-pass review.
    the PR is large, read one coherent group of changed files per call by passing
    their exact paths as `paths` with the same `run_id`. The response returns
    whole-file diffs in that order up to the page budget and names every other
-   requested path as `deferred_paths` (request again in a later batch),
+   requested path as `deferred_paths` (request first in a later batch),
    `exact_path_required` (request alone with `path`), or `unavailable_paths`.
-   Make at most four diff calls in one turn: tool results beyond the runtime's
-   per-turn budget are replaced by a truncated preview. If a diff result arrives
-   as such a preview, request that call again alone before relying on it. After
+   There is no limit on the number of batches in a review, but issue at most
+   four diff calls in parallel in a single response: when the combined results
+   of parallel tool calls exceed the runtime's budget, some are replaced by a
+   truncated preview. If a diff result arrives as such a preview, request that
+   call again alone before relying on it. After
    context compression, list what remains with `diff_state: unseen` on
    `review_agent_pr_files` instead of paging the whole index again. When a
    path response includes `next_start_char`, continue that exact path with

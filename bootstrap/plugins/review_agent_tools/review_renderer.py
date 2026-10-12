@@ -437,6 +437,11 @@ def _directory_cell(directory: str) -> str:
     return "`" + safe_source_label(directory, maximum=120).replace("|", "\\|") + "`"
 
 
+def _other_directories_line(count: int) -> str:
+    rest = count_label(count, "more incomplete file is", "more incomplete files are")
+    return f"{rest} in other directories."
+
+
 def coverage_details(
     repository: str,
     coverage: ReviewCoverageSummary | None,
@@ -506,27 +511,31 @@ def coverage_details(
             + coverage["diff_truncated"]
             + coverage["unavailable"]
         )
-        groups = coverage.get("groups", ())
-        if groups:
-            lines.extend(
-                [
-                    "",
-                    "| Directory | Complete diffs | Not fetched | Partial | Unavailable |",
-                    "| --- | ---: | ---: | ---: | ---: |",
-                    *(
-                        f"| {_directory_cell(group.directory)} "
-                        f"| {group.complete} of {group.changed} | {group.unseen} "
-                        f"| {group.truncated} | {group.unavailable} |"
-                        for group in groups
-                    ),
-                ]
+        table = [
+            "",
+            "| Directory | Complete diffs | Not fetched | Partial | Unavailable |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+        listed = 0
+        for group in coverage.get("groups", ()):
+            row = (
+                f"| {_directory_cell(group.directory)} "
+                f"| {group.complete} of {group.changed} | {group.unseen} "
+                f"| {group.truncated} | {group.unavailable} |"
             )
-            elsewhere = incomplete - sum(group.incomplete for group in groups)
-            if elsewhere > 0:
-                rest = count_label(
-                    elsewhere, "more incomplete file is", "more incomplete files are"
-                )
-                lines.extend(["", f"{rest} in other directories."])
+            # Reserve the longest remainder line so the block still closes in budget.
+            reserved = [*lines, *table, row, "", _other_directories_line(incomplete), *closing]
+            if (
+                max_bytes is not None
+                and len("\n".join(reserved).encode("utf-8")) > max_bytes
+            ):
+                break
+            table.append(row)
+            listed += group.incomplete
+        if listed:
+            lines.extend(table)
+            if incomplete > listed:
+                lines.extend(["", _other_directories_line(incomplete - listed)])
         examples: list[str] = []
         example_bytes = 0
         examples_label = f"of {incomplete} registered files with incomplete diffs:"

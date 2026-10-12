@@ -151,12 +151,25 @@ def _audit(row: _AuditRow) -> AdminRunActionEvent:
         raise AdminRunActionError("stored admin run action is invalid") from exc
 
 
+def _live_lease(
+    connection: psycopg.Connection[TupleRow], run_id: ReviewRunId, now: datetime
+) -> bool:
+    """Whether any job of the run, including a review part, holds a live lease."""
+    row = connection.execute(
+        "SELECT EXISTS (SELECT 1 FROM review_agent.review_jobs "
+        "WHERE review_run_id = %s AND status = 'leased' AND lease_expires_at > %s)",
+        (run_id, now),
+    ).fetchone()
+    return bool(row and row[0])
+
+
 def _availability(
     run: review_runs.ReviewRun,
     job: jobs.ReviewJob | None,
     *,
     now: datetime,
     stale_after_minutes: int,
+    lease_live: bool,
 ) -> tuple[ActionAvailability, ActionAvailability, ActionAvailability]:
     if run.status is not ReviewStatus.RUNNING:
         unavailable = ActionAvailability(False, "The review run is terminal.")
@@ -188,11 +201,6 @@ def _availability(
     )
     cancel = ActionAvailability(cancellable, cancel_reason)
     cutoff = now - timedelta(minutes=stale_after_minutes)
-    lease_live = (
-        job.status is jobs.ReviewJobStatus.LEASED
-        and job.lease_expires_at is not None
-        and job.lease_expires_at > now
-    )
     stalled = (
         run.last_heartbeat_at < cutoff
         and job.status in {jobs.ReviewJobStatus.QUEUED, jobs.ReviewJobStatus.LEASED}
@@ -222,9 +230,12 @@ def controls(
     if not 1 <= stale_after_minutes <= 1440:
         raise AdminRunActionError("stale_after_minutes must be 1 to 1440")
     run = review_runs.get_run(connection, run_id)
+    # A delayed retry, of the main job or of a review part, is the job an
+    # operator can release; otherwise the controls describe the main job.
     job = connection.execute(
-        "SELECT id FROM review_agent.review_jobs WHERE review_run_id = %s",
-        (run.id,),
+        "SELECT id FROM review_agent.review_jobs WHERE review_run_id = %s "
+        "ORDER BY (status = 'queued' AND available_at > %s) DESC, part LIMIT 1",
+        (run.id, moment),
     ).fetchone()
     current_job = jobs.get_job(connection, int(job[0])) if job is not None else None
     release, cancel, mark_stalled = _availability(
@@ -232,6 +243,7 @@ def controls(
         current_job,
         now=moment,
         stale_after_minutes=stale_after_minutes,
+        lease_live=_live_lease(connection, run.id, moment),
     )
     with connection.cursor(row_factory=class_row(_AuditRow)) as cursor:
         rows = cursor.execute(
@@ -328,16 +340,11 @@ def apply_action(
     else:
         assert stale_minutes is not None
         cutoff = moment - timedelta(minutes=stale_minutes)
-        lease_live = (
-            job.status is jobs.ReviewJobStatus.LEASED
-            and job.lease_expires_at is not None
-            and job.lease_expires_at > moment
-        )
         if (
             run.last_heartbeat_at >= cutoff
             or job.status
             not in {jobs.ReviewJobStatus.QUEUED, jobs.ReviewJobStatus.LEASED}
-            or lease_live
+            or _live_lease(connection, run.id, moment)
         ):
             raise AdminRunActionError(
                 "The review heartbeat or worker lease is still current."

@@ -273,6 +273,68 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         )
         self.assertEqual(expired.item.state, "stalled")
 
+    def test_a_review_split_into_parts_stays_one_request_with_its_activity_and_usage(
+        self,
+    ) -> None:
+        from review_agent_tools import admin_application, review_contract
+        from review_agent_tools.postgres import jobs
+        from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
+
+        run = self.start(
+            pr_number=95,
+            request_suffix="split-review",
+            resolved_config=review_contract.resolved_config(
+                TEST_REVIEW_CONTRACT,
+                model_route=review_contract.ModelRoute(None, 1, 1, 1),
+            ),
+        )
+
+        def claim(connection: object, owner: str) -> jobs.ReviewJob:
+            job = jobs.claim_next_job(
+                connection, lease_owner=owner, lease_duration=timedelta(minutes=5),
+                priority_aging_interval=timedelta(minutes=5),
+            )
+            assert job is not None
+            return job
+
+        with self.runtime.transaction() as connection:
+            jobs.enqueue_run(connection, review_run_id=run.run.id, priority=0,
+                             max_attempts=3, active_job_limit=10)
+            main = claim(connection, "planner")
+            jobs.enqueue_part_jobs(connection, main=main, parts=2)
+            jobs.requeue_unstarted_job(
+                connection, job_id=main.id, lease_owner="planner",
+                lease_generation=main.lease_generation,
+            )
+            part = claim(connection, "part")
+            self.assertEqual(part.part, 1)
+            for job_id, tokens in ((main.id, 10), (part.id, 30)):
+                connection.execute(
+                    "INSERT INTO review_agent.review_attempt_usage "
+                    "(job_id, lease_generation, prompt_tokens, completion_tokens, total_tokens) "
+                    "VALUES (%s, 1, %s, 0, %s)",
+                    (job_id, tokens, tokens),
+                )
+
+        history = admin_application.history(self.runtime, access=self.admin_access)
+        self.assertEqual([item.id for item in history.items], [run.run.id])
+        item = history.items[0]
+        # The main job waits in the queue while a part holds the live lease.
+        self.assertEqual(item.state, "running")
+        self.assertEqual(
+            (item.usage.started_attempts, item.usage.reported_attempts, item.usage.total_tokens),
+            (2, 2, 40),
+        )
+        now = datetime.now(timezone.utc)
+        totals = admin_application.usage(
+            self.runtime, access=self.admin_access, start=now - timedelta(days=1),
+            end=now + timedelta(days=1), dimension="repository",
+        ).totals
+        self.assertEqual(
+            (totals.requests, totals.started_attempts, totals.reported_attempts, totals.total_tokens),
+            (1, 2, 2, 40),
+        )
+
     def test_review_history_keeps_publication_retry_and_recovery_in_delivery(self) -> None:
         from review_agent_tools import admin_application
 

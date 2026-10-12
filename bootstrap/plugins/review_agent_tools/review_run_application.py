@@ -306,6 +306,10 @@ def fail_claimed_job_in_transaction(
             run_ids=(run.id,),
             failure_code=run_failure_code or outcome.run_failure_code,
         )
+        # A review split into parts owns more jobs than the one that failed.
+        postgres_jobs.reconcile_run_jobs(
+            connection, run_ids=(run.id,), status=ReviewStatus.FAILED
+        )
     return outcome
 
 
@@ -318,6 +322,9 @@ def recover_expired_jobs_in_transaction(
         connection,
         run_ids=recovered.run_ids_to_fail,
         failure_code=failure_codes.JOB_RETRY_EXHAUSTED,
+    )
+    postgres_jobs.reconcile_run_jobs(
+        connection, run_ids=recovered.run_ids_to_fail, status=ReviewStatus.FAILED
     )
     return recovered
 

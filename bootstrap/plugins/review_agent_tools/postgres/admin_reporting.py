@@ -327,7 +327,20 @@ _HISTORY_SELECT = """
             JOIN review_agent.pull_requests AS pr ON pr.id = run.pull_request_id
             JOIN {repositories} AS repo ON repo.id = pr.repository_id
             JOIN review_agent.review_subjects AS subject ON subject.id = run.review_subject_id
-            LEFT JOIN review_agent.review_jobs AS job ON job.review_run_id = run.id
+            -- A review split into parts owns several jobs. Report the one that
+            -- shows what the review is doing: a live lease, an expired lease,
+            -- a waiting part, the job that exhausted its attempts, then the main job.
+            LEFT JOIN LATERAL (
+                SELECT candidate.* FROM review_agent.review_jobs AS candidate
+                WHERE candidate.review_run_id = run.id
+                ORDER BY (candidate.status = 'leased'
+                          AND candidate.lease_expires_at > statement_timestamp()) DESC,
+                         (candidate.status = 'leased') DESC,
+                         (candidate.status = 'queued' AND candidate.part > 0) DESC,
+                         (candidate.status = 'dead_letter') DESC,
+                         candidate.part
+                LIMIT 1
+            ) AS job ON TRUE
             LEFT JOIN review_agent.model_accounts AS account
               ON account.connection_id = subject.model_connection_id
              AND account.provider = subject.model_provider AND account.revision = subject.model_account_revision
@@ -416,12 +429,16 @@ def _history_items(
 ) -> tuple[HistoryItem, ...]:
     usage_rows = connection.execute(
         """
-        SELECT job.review_run_id, job.lease_generation, count(u.job_id),
+        SELECT job.review_run_id, sum(job.lease_generation)::bigint, sum(u.reported)::bigint,
             sum(u.prompt_tokens)::bigint, sum(u.completion_tokens)::bigint, sum(u.total_tokens)::bigint
         FROM review_agent.review_jobs job
-        LEFT JOIN review_agent.review_attempt_usage u ON u.job_id = job.id
+        LEFT JOIN LATERAL (
+            SELECT count(*) AS reported, sum(prompt_tokens) AS prompt_tokens,
+                sum(completion_tokens) AS completion_tokens, sum(total_tokens) AS total_tokens
+            FROM review_agent.review_attempt_usage WHERE job_id = job.id
+        ) u ON TRUE
         WHERE job.review_run_id = ANY(%s)
-        GROUP BY job.id
+        GROUP BY job.review_run_id
     """,
         ([row.id for row in selected],),
     ).fetchall()

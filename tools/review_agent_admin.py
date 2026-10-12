@@ -721,6 +721,7 @@ def _job_command(args: argparse.Namespace) -> int:
                             "available_at": report.job.available_at.isoformat(),
                             "job_id": report.job.id,
                             "max_attempts": report.job.max_attempts,
+                            "part": report.job.part,
                             "pr_number": report.pr_number,
                             "repository": report.repository,
                             "run_id": int(report.job.review_run_id),

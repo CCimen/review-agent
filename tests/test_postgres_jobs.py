@@ -1333,6 +1333,227 @@ class PostgreSQLJobTests(unittest.TestCase):
 
         self.assertEqual(sum(item is not None for item in claimed), 1)
 
+    def split_into_parts(
+        self,
+        pull_request: registry.PullRequest,
+        *,
+        request_key: str,
+        parts: int,
+        max_attempts: int = 3,
+    ) -> tuple[review_runs.RunStart, tuple[jobs.ReviewJob, ...]]:
+        run, _ = self.accept_job(
+            pull_request,
+            self.subject(pull_request, head_character="a"),
+            request_key=request_key,
+            max_attempts=max_attempts,
+        )
+        with self.runtime.transaction() as connection:
+            main = self.claim_job(
+                connection, lease_owner="planner", lease_duration=timedelta(minutes=2)
+            )
+            assert main is not None and main.part == 0
+            part_jobs = jobs.enqueue_part_jobs(connection, main=main, parts=parts)
+            jobs.requeue_unstarted_job(
+                connection,
+                job_id=main.id,
+                lease_owner="planner",
+                lease_generation=main.lease_generation,
+            )
+        return run, part_jobs
+
+    def test_review_parts_run_side_by_side_while_the_main_job_waits(self) -> None:
+        run, part_jobs = self.split_into_parts(
+            self.pull_request(provider_id=1300, number=70),
+            request_key="github:manual:parts",
+            parts=4,
+        )
+        self.assertEqual([job.part for job in part_jobs], [1, 2, 3, 4])
+        other_pull = self.pull_request(provider_id=1301, number=71)
+        other_run, _ = self.accept_job(
+            other_pull,
+            self.subject(other_pull, head_character="c"),
+            request_key="github:manual:beside-parts",
+        )
+
+        def claim(owner: str) -> jobs.ReviewJob | None:
+            with self.runtime.transaction() as connection:
+                return self.claim_job(
+                    connection, lease_owner=owner, lease_duration=timedelta(minutes=2)
+                )
+
+        def succeed(job: jobs.ReviewJob) -> None:
+            with self.runtime.transaction() as connection:
+                jobs.succeed_part_job(
+                    connection,
+                    job_id=job.id,
+                    review_run_id=job.review_run_id,
+                    lease_generation=job.lease_generation,
+                )
+
+        first = [claim(f"worker-{index}") for index in range(3)]
+        self.assertEqual([job.part if job else None for job in first], [1, 2, 3])
+        # The fourth part waits for the per-review limit and the main job waits
+        # for its parts, so the free slot goes to another repository's review.
+        beside = claim("worker-beside")
+        self.assertEqual(beside.review_run_id if beside else None, other_run.run.id)
+        self.assertIsNone(claim("worker-full"))
+
+        for job in first:
+            assert job is not None
+            succeed(job)
+        last = claim("worker-last-part")
+        self.assertEqual((last.review_run_id, last.part) if last else None, (run.run.id, 4))
+        self.assertIsNone(claim("worker-before-last-report"))
+        assert last is not None
+        succeed(last)
+        final = claim("worker-final")
+        self.assertEqual((final.review_run_id, final.part) if final else None, (run.run.id, 0))
+
+    def test_a_split_review_leaves_a_slot_to_other_reviews_during_its_handoff(self) -> None:
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.model_connections SET max_concurrency = 2"
+            )
+        pull = self.pull_request(provider_id=1310, number=80)
+        run, _ = self.accept_job(
+            pull, self.subject(pull, head_character="a"), request_key="github:manual:handoff"
+        )
+        instance = uuid4()
+        with self.runtime.transaction() as connection:
+            main = self.claim_job(
+                connection, lease_owner="planner", lease_duration=timedelta(minutes=2)
+            )
+            assert main is not None
+            session = jobs.WorkerLeaseSession(main.id, main.lease_generation)
+            jobs.begin_model_execution(
+                connection,
+                session=session,
+                runtime_key="shared",
+                runtime_instance=instance,
+                provider="openai-codex",
+                model="gpt-test",
+                reasoning_effort="high",
+                identity_sha256="a" * 64,
+                quota=None,
+            )
+            jobs.enqueue_part_jobs(connection, main=main, parts=2)
+            jobs.requeue_unstarted_job(
+                connection,
+                job_id=main.id,
+                lease_owner="planner",
+                lease_generation=main.lease_generation,
+            )
+        other_pull = self.pull_request(provider_id=1311, number=81)
+        other_run, _ = self.accept_job(
+            other_pull,
+            self.subject(other_pull, head_character="c"),
+            request_key="github:manual:beside-handoff",
+        )
+        with self.runtime.transaction() as connection:
+            # The planning session still runs, so the second slot is not a part's.
+            beside = self.claim_job(
+                connection, lease_owner="beside", lease_duration=timedelta(minutes=2)
+            )
+            jobs.finish_model_execution(
+                connection, session=session, runtime_instance=instance
+            )
+            part = self.claim_job(
+                connection, lease_owner="part", lease_duration=timedelta(minutes=2)
+            )
+        self.assertEqual(beside.review_run_id if beside else None, other_run.run.id)
+        self.assertEqual((part.review_run_id, part.part) if part else None, (run.run.id, 1))
+
+    def test_recovered_part_is_not_reclaimed_while_its_model_execution_runs(self) -> None:
+        self.split_into_parts(
+            self.pull_request(provider_id=1302, number=72),
+            request_key="github:manual:part-execution",
+            parts=1,
+        )
+        instance = uuid4()
+        with self.runtime.transaction() as connection:
+            part = self.claim_job(
+                connection, lease_owner="worker", lease_duration=timedelta(minutes=2)
+            )
+            assert part is not None and part.part == 1
+            session = jobs.WorkerLeaseSession(part.id, part.lease_generation)
+            jobs.begin_model_execution(
+                connection,
+                session=session,
+                runtime_key="shared",
+                runtime_instance=instance,
+                provider="openai-codex",
+                model="gpt-test",
+                reasoning_effort="high",
+                identity_sha256="a" * 64,
+                quota=None,
+            )
+            connection.execute(
+                "UPDATE review_agent.review_jobs SET last_heartbeat_at = started_at, "
+                "lease_expires_at = statement_timestamp() WHERE id = %s",
+                (part.id,),
+            )
+        with self.runtime.transaction() as connection:
+            jobs.recover_expired_leases(connection, limit=10)
+            self.assertIsNone(
+                self.claim_job(
+                    connection, lease_owner="retry", lease_duration=timedelta(minutes=2)
+                )
+            )
+            jobs.finish_model_execution(
+                connection, session=session, runtime_instance=instance
+            )
+            retry = self.claim_job(
+                connection, lease_owner="retry", lease_duration=timedelta(minutes=2)
+            )
+        self.assertEqual(retry.id if retry else None, part.id)
+
+    def test_a_part_out_of_attempts_fails_the_review_and_every_job_of_it(self) -> None:
+        for number, expire in enumerate((False, True), start=73):
+            with self.subTest(expired_lease=expire):
+                run, _ = self.split_into_parts(
+                    self.pull_request(provider_id=1300 + number, number=number),
+                    request_key=f"github:manual:part-dead:{number}",
+                    parts=2,
+                    max_attempts=1,
+                )
+                with self.runtime.transaction() as connection:
+                    part = self.claim_job(
+                        connection,
+                        lease_owner="worker-last-attempt",
+                        lease_duration=timedelta(minutes=2),
+                    )
+                    assert part is not None and part.part == 1
+                    if expire:
+                        connection.execute(
+                            "UPDATE review_agent.review_jobs SET "
+                            "last_heartbeat_at = started_at, "
+                            "lease_expires_at = statement_timestamp() WHERE id = %s",
+                            (part.id,),
+                        )
+                        review_run_application.recover_expired_jobs_in_transaction(
+                            connection, limit=10
+                        )
+                    else:
+                        review_run_application.fail_claimed_job_in_transaction(
+                            connection,
+                            job_id=part.id,
+                            lease_owner="worker-last-attempt",
+                            lease_generation=part.lease_generation,
+                            failure_code=failure_codes.JOB_RETRYABLE_EXECUTION,
+                            retryable=True,
+                            retry_delay=timedelta(seconds=1),
+                        )
+                    statuses = connection.execute(
+                        "SELECT part, status FROM review_agent.review_jobs "
+                        "WHERE review_run_id = %s ORDER BY part",
+                        (run.run.id,),
+                    ).fetchall()
+                    failed = review_runs.get_run(connection, run.run.id)
+                self.assertEqual(failed.status, ReviewStatus.FAILED)
+                self.assertEqual(
+                    statuses, [(0, "failed"), (1, "dead_letter"), (2, "failed")]
+                )
+
     def test_priority_aging_prevents_an_old_ready_job_from_starving(self) -> None:
         old_pull = self.pull_request(provider_id=1300, number=71)
         new_pull = self.pull_request(provider_id=1301, number=72)

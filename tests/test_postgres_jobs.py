@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -23,11 +24,17 @@ from review_agent_tools import (  # noqa: E402
     failure_codes,
     operator_application,
     review_contract,
+    review_parts_application,
     review_run_application,
+    review_source_initialization,
 )
+from review_agent_tools.github.source import ReviewSourceBytes  # noqa: E402
+from review_agent_tools.review_tool_runtime import GatewaySourceSession  # noqa: E402
 from review_agent_tools.domain.review import (  # noqa: E402
+    ReviewPartPlan,
     ReviewPhase,
     ReviewPurpose,
+    ReviewRunId,
     ReviewStatus,
     resolve_review_subject,
 )
@@ -1553,6 +1560,267 @@ class PostgreSQLJobTests(unittest.TestCase):
                 self.assertEqual(
                     statuses, [(0, "failed"), (1, "dead_letter"), (2, "failed")]
                 )
+
+    PART_FILES = (("api/a.py", "api/b.py"), ("web/c.py",))
+
+    def planned_review(
+        self, *, provider_id: int
+    ) -> tuple[ReviewRunId, jobs.WorkerLeaseSession, review_run_application.RunSubject]:
+        """A leased main job whose changed files are registered and not yet split."""
+        pull = self.pull_request(provider_id=provider_id, number=90)
+        run, _ = self.accept_job(
+            pull,
+            self.subject(pull, head_character="a"),
+            request_key=f"github:manual:split:{provider_id}",
+        )
+        review_run_application.register_postgres_changed_files(
+            self.runtime,
+            run_id=run.run.id,
+            files=tuple(
+                review_run_application.PostgresChangedFile(path=path, change_status="modified")
+                for part in self.PART_FILES
+                for path in part
+            ),
+            changed_files_reported=3,
+            registration_complete=True,
+        )
+        with self.runtime.transaction() as connection:
+            main = self.claim_job(
+                connection, lease_owner="planner", lease_duration=timedelta(minutes=2)
+            )
+            assert main is not None
+            review_runs.advance_phase(connection, run.run.id, ReviewPhase.FETCHING_PR)
+        return (
+            run.run.id,
+            jobs.WorkerLeaseSession(main.id, main.lease_generation),
+            review_run_application.RunSubject(
+                repository=f"team/service-{provider_id}", pr_number=90, run_id=int(run.run.id)
+            ),
+        )
+
+    def claim_lease(self, owner: str) -> tuple[jobs.ReviewJob, jobs.WorkerLeaseSession]:
+        with self.runtime.transaction() as connection:
+            job = self.claim_job(
+                connection, lease_owner=owner, lease_duration=timedelta(minutes=2)
+            )
+        assert job is not None
+        return job, jobs.WorkerLeaseSession(job.id, job.lease_generation)
+
+    def test_splitting_a_review_commits_parts_and_releases_the_main_job_together(
+        self,
+    ) -> None:
+        run_id, lease, _ = self.planned_review(provider_id=1320)
+        plan = ReviewPartPlan(parts=self.PART_FILES, unassigned=())
+
+        created = review_parts_application.split_review(
+            self.runtime, run_id=run_id, lease=lease, plan=plan
+        )
+
+        with self.runtime.transaction() as connection:
+            queue = connection.execute(
+                "SELECT part, status, attempt_count FROM review_agent.review_jobs "
+                "WHERE review_run_id = %s ORDER BY part",
+                (run_id,),
+            ).fetchall()
+            owners = connection.execute(
+                "SELECT path, part FROM review_agent.review_run_files "
+                "WHERE review_run_id = %s ORDER BY path",
+                (run_id,),
+            ).fetchall()
+            phase = review_runs.get_run(connection, run_id).phase
+        self.assertEqual(created, 2)
+        self.assertEqual(queue, [(0, "queued", 0), (1, "queued", 0), (2, "queued", 0)])
+        self.assertEqual(owners, [("api/a.py", 1), ("api/b.py", 1), ("web/c.py", 2)])
+        self.assertEqual(phase, ReviewPhase.COLLECTING_DIFF)
+        # The released planning lease cannot split the review a second time.
+        with self.assertRaises(jobs.ReviewJobLeaseLost):
+            review_parts_application.split_review(
+                self.runtime, run_id=run_id, lease=lease, plan=plan
+            )
+
+    def test_beginning_a_large_review_splits_it_from_the_changed_files_it_registers(
+        self,
+    ) -> None:
+        pull = self.pull_request(provider_id=1330, number=91)
+        run, _ = self.accept_job(
+            pull, self.subject(pull, head_character="a"), request_key="github:manual:begin-split"
+        )
+        _, lease = self.claim_lease("main")
+        client = Mock()
+        client.get_review_pull.return_value = SimpleNamespace(
+            repository="team/service-1330",
+            pr_number=91,
+            payload={
+                "state": "open",
+                "base": {"sha": "b" * 40},
+                "head": {"sha": "a" * 40},
+                "changed_files": 3,
+            },
+        )
+        client.get_changed_files_page.return_value = ReviewSourceBytes(
+            state="ok", truncated=False, headers={},
+            body=json.dumps([
+                {"filename": f"src/{name}.py", "status": "modified", "sha": "c" * 40,
+                 "additions": 1, "deletions": 1, "changes": 2, "patch": "+" * 300_000}
+                for name in "abc"
+            ]).encode(),
+        )
+
+        def initialize(session: jobs.WorkerLeaseSession, *, may_split: bool) -> object:
+            return review_source_initialization.initialize_review(
+                GatewaySourceSession(run_id=int(run.run.id), lease=session, client=client),
+                self.runtime,
+                TEST_REVIEW_CONTRACT,
+                may_split=may_split,
+            )
+
+        split = initialize(lease, may_split=True)
+
+        with self.runtime.transaction() as connection:
+            queue = connection.execute(
+                "SELECT part, status FROM review_agent.review_jobs "
+                "WHERE review_run_id = %s ORDER BY part",
+                (run.run.id,),
+            ).fetchall()
+            owners = connection.execute(
+                "SELECT path, part FROM review_agent.review_run_files "
+                "WHERE review_run_id = %s ORDER BY path",
+                (run.run.id,),
+            ).fetchall()
+        # Each 300,000-character diff is one part of at most 400,000 characters.
+        self.assertEqual(split.parts_planned, 3)
+        self.assertEqual(
+            queue, [(0, "queued"), (1, "queued"), (2, "queued"), (3, "queued")]
+        )
+        self.assertEqual(owners, [("src/a.py", 1), ("src/b.py", 2), ("src/c.py", 3)])
+        # A part session initializes the same review without planning it again.
+        part, part_lease = self.claim_lease("part")
+        resumed = initialize(part_lease, may_split=False)
+        self.assertEqual((part.part, resumed.parts, resumed.parts_planned), (1, 3, 0))
+        self.assertEqual(resumed.phase, "collecting_diff")
+
+    def test_a_part_reports_only_after_its_own_attempt_read_its_files(self) -> None:
+        run_id, lease, subject = self.planned_review(provider_id=1321)
+        review_parts_application.split_review(
+            self.runtime,
+            run_id=run_id,
+            lease=lease,
+            plan=ReviewPartPlan(parts=self.PART_FILES, unassigned=()),
+        )
+        part, part_lease = self.claim_lease("first-attempt")
+        briefing = review_parts_application.begin_part(
+            self.runtime, run_id=run_id, lease=part_lease
+        )
+        self.assertEqual(
+            (briefing.part, briefing.parts, briefing.assigned_files, briefing.earlier),
+            (1, 2, 2, ()),
+        )
+        # One own file, and a file the other part owns.
+        review_run_application.record_live_diff_result(
+            self.runtime,
+            subject,
+            review_run_application.DiffExposure(exposed_paths=("api/a.py", "web/c.py")),
+            part=1,
+        )
+        with self.assertRaises(review_parts_application.PartReadingIncomplete) as incomplete:
+            review_parts_application.stage_report(
+                self.runtime, run_id=run_id, lease=part_lease, report={"findings": [], "notes": []}
+            )
+        self.assertEqual((incomplete.exception.unread, incomplete.exception.assigned), (1, 2))
+
+        # The session is lost. Its retry is a new reviewer that has read nothing.
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_jobs SET last_heartbeat_at = started_at, "
+                "lease_expires_at = statement_timestamp() WHERE id = %s",
+                (part.id,),
+            )
+            review_run_application.recover_expired_jobs_in_transaction(connection, limit=10)
+        # The other part has waited longer and is claimed first.
+        self.assertEqual(self.claim_lease("other-part")[0].part, 2)
+        retry, retry_lease = self.claim_lease("second-attempt")
+        self.assertEqual((retry.id, retry.lease_generation), (part.id, 2))
+        review_parts_application.begin_part(self.runtime, run_id=run_id, lease=retry_lease)
+
+        def states() -> list[tuple[object, ...]]:
+            with self.runtime.transaction() as connection:
+                return connection.execute(
+                    "SELECT path, diff_state FROM review_agent.review_run_files "
+                    "WHERE review_run_id = %s ORDER BY path",
+                    (run_id,),
+                ).fetchall()
+
+        self.assertEqual(
+            states(), [("api/a.py", "unseen"), ("api/b.py", "unseen"), ("web/c.py", "unseen")]
+        )
+        review_run_application.record_live_diff_result(
+            self.runtime,
+            subject,
+            review_run_application.DiffExposure(exposed_paths=("api/a.py", "api/b.py")),
+            part=1,
+        )
+        # Beginning again in the same attempt keeps what it has read.
+        review_parts_application.begin_part(self.runtime, run_id=run_id, lease=retry_lease)
+        self.assertEqual(
+            states(), [("api/a.py", "complete"), ("api/b.py", "complete"), ("web/c.py", "unseen")]
+        )
+        report = {"findings": [], "notes": ["save() can now return None"]}
+        self.assertEqual(
+            review_parts_application.stage_report(
+                self.runtime, run_id=run_id, lease=retry_lease, report=report
+            ),
+            1,
+        )
+        with self.runtime.transaction() as connection:
+            self.assertEqual(jobs.get_job(connection, part.id).status, jobs.ReviewJobStatus.SUCCEEDED)
+
+    def test_the_final_session_is_told_which_part_reports_it_has_not_received(self) -> None:
+        run_id, lease, subject = self.planned_review(provider_id=1322)
+        review_parts_application.split_review(
+            self.runtime,
+            run_id=run_id,
+            lease=lease,
+            plan=ReviewPartPlan(parts=self.PART_FILES, unassigned=()),
+        )
+        earlier: list[tuple[int, ...]] = []
+        for number, paths in enumerate(self.PART_FILES, start=1):
+            _, part_lease = self.claim_lease(f"part-{number}")
+            briefing = review_parts_application.begin_part(
+                self.runtime, run_id=run_id, lease=part_lease
+            )
+            earlier.append(tuple(report.part for report in briefing.earlier))
+            review_run_application.record_live_diff_result(
+                self.runtime,
+                subject,
+                review_run_application.DiffExposure(exposed_paths=paths),
+                part=number,
+            )
+            review_parts_application.stage_report(
+                self.runtime,
+                run_id=run_id,
+                lease=part_lease,
+                report={"findings": [], "notes": [f"note from part {number}"]},
+            )
+        # A part that starts after another has reported is told what it found.
+        self.assertEqual(earlier, [(), (1,)])
+
+        final, final_lease = self.claim_lease("final")
+        self.assertEqual(final.part, 0)
+        self.assertEqual(
+            review_parts_application.unread_reports(self.runtime, run_id=run_id, lease=final_lease),
+            (1, 2),
+        )
+        self.assertEqual(
+            review_parts_application.load_report(self.runtime, run_id=run_id, part=1),
+            {"findings": [], "notes": ["note from part 1"]},
+        )
+        review_parts_application.confirm_report_read(
+            self.runtime, run_id=run_id, lease=final_lease, part=1
+        )
+        self.assertEqual(
+            review_parts_application.unread_reports(self.runtime, run_id=run_id, lease=final_lease),
+            (2,),
+        )
 
     def test_priority_aging_prevents_an_old_ready_job_from_starving(self) -> None:
         old_pull = self.pull_request(provider_id=1300, number=71)

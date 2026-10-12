@@ -123,15 +123,13 @@ def _postgres_context_hash(changed_file: ChangedFile, head_sha: str) -> str:
     return head_sha
 
 
-def record_postgres_findings(
-    runtime: PostgreSQLRuntime,
+def resolve_finding_batch(
     *,
-    run_id: ReviewRunId,
     head_sha: str,
     findings: Sequence[FindingInput],
     changed_files: Sequence[ChangedFile],
-) -> PostgresFindingBatch:
-    """Validate and atomically persist one pre-reviewed PostgreSQL finding batch."""
+) -> tuple[FindingDefinition, ...]:
+    """Apply the recording admission checks to one batch without persisting it."""
     if len(findings) > MAX_FINDINGS_PER_REVIEW:
         raise FindingDomainError(
             f"findings exceeds operational safety limit of {MAX_FINDINGS_PER_REVIEW}"
@@ -155,12 +153,27 @@ def record_postgres_findings(
             )
         )
     require_unique_finding_identities(definitions)
+    return tuple(definitions)
+
+
+def record_postgres_findings(
+    runtime: PostgreSQLRuntime,
+    *,
+    run_id: ReviewRunId,
+    head_sha: str,
+    findings: Sequence[FindingInput],
+    changed_files: Sequence[ChangedFile],
+) -> PostgresFindingBatch:
+    """Validate and atomically persist one pre-reviewed PostgreSQL finding batch."""
+    definitions = resolve_finding_batch(
+        head_sha=head_sha, findings=findings, changed_files=changed_files
+    )
     with runtime.transaction() as connection:
         return postgres_findings.record_findings(
             connection,
             run_id=run_id,
-            expected_head_sha=resolved_head,
-            definitions=tuple(definitions),
+            expected_head_sha=resolve_context_hash(head_sha),
+            definitions=definitions,
         )
 
 
@@ -390,6 +403,20 @@ def _finding_input(item: Mapping[str, object]) -> FindingInput:
         impact=text("impact"),
         smallest_fix=text("smallest_fix"),
         introduced_by_diff=introduced,
+    )
+
+
+def validate_live_findings(
+    *,
+    head_sha: str,
+    raw_findings: Sequence[Mapping[str, object]],
+    changed_files: Sequence[ChangedFile],
+) -> None:
+    """Check a tool payload exactly as recording would, without persisting it."""
+    resolve_finding_batch(
+        head_sha=head_sha,
+        findings=tuple(_finding_input(item) for item in raw_findings),
+        changed_files=changed_files,
     )
 
 

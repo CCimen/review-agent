@@ -191,6 +191,89 @@ def group_diff_coverage(
     return tuple(incomplete[:limit])
 
 
+# One reviewer session stopped reading after roughly 900,000 diff characters in
+# both measured production reviews (272K-token window). A part stays well below
+# that so its diffs, supporting source, and reasoning share one window.
+PART_TARGET_CHARS = 400_000
+PART_LIMIT_CHARS = 600_000
+MAX_REVIEW_PARTS = 12
+# GitHub omits the patch of a very large or binary file. Measured on a 662-file
+# production pull request: 48 patch characters per changed line.
+MISSING_PATCH_CHARS_PER_LINE = 48
+
+
+def changed_file_diff_size(*, patch: str | None, changes: int) -> int:
+    """Diff characters a reviewer must read for one changed file."""
+    if patch:
+        return len(patch)
+    return max(1, changes * MISSING_PATCH_CHARS_PER_LINE)
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewPartPlan:
+    """Changed paths per review part, and the paths no part could take."""
+
+    parts: tuple[tuple[str, ...], ...]
+    unassigned: tuple[str, ...]
+
+
+def _pack_in_order(
+    files: Sequence[tuple[str, int]], budget: int
+) -> list[tuple[str, ...]]:
+    parts: list[tuple[str, ...]] = []
+    current: list[str] = []
+    used = 0
+    for path, size in files:
+        if current and used + size > budget:
+            parts.append(tuple(current))
+            current, used = [], 0
+        current.append(path)
+        used += size
+    parts.append(tuple(current))
+    return parts
+
+
+def plan_review_parts(
+    files: Iterable[tuple[str, int]],
+    *,
+    part_target: int = PART_TARGET_CHARS,
+    part_limit: int = PART_LIMIT_CHARS,
+    max_parts: int = MAX_REVIEW_PARTS,
+) -> ReviewPartPlan:
+    """Split changed files into parts one reviewer session can read.
+
+    ``files`` pairs each changed path with its diff size. Paths are packed in
+    sorted order so a directory stays together. In a split review a file larger
+    than ``part_limit`` and the files after the last allowed part stay
+    unassigned: no part reads them. When the other files fit ``part_limit`` the
+    review is not split and nothing is excluded; its single session reads a
+    larger file as far as it gets.
+    """
+    ordered = sorted(files)
+    oversized = tuple(path for path, size in ordered if size > part_limit)
+    readable = [(path, size) for path, size in ordered if size <= part_limit]
+    total = sum(size for _, size in readable)
+    if total <= part_limit:
+        return ReviewPartPlan(parts=(), unassigned=())
+    # Whole files rarely fill a part exactly, so find the smallest part size
+    # that fits max_parts. Packing in a fixed order never needs more parts when
+    # the size grows.
+    low = min(part_limit, max(part_target, -(-total // max_parts)))
+    high = part_limit
+    while low < high:
+        middle = (low + high) // 2
+        if len(_pack_in_order(readable, middle)) <= max_parts:
+            high = middle
+        else:
+            low = middle + 1
+    parts = _pack_in_order(readable, low)
+    beyond = tuple(path for part in parts[max_parts:] for path in part)
+    return ReviewPartPlan(
+        parts=tuple(parts[:max_parts]),
+        unassigned=tuple(sorted(oversized + beyond)),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class DiffPage:
     """One exposed half-open character range of an exact path diff."""

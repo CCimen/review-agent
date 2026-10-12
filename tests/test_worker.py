@@ -210,6 +210,47 @@ class WorkerBoundaryTests(unittest.TestCase):
             worker._execute(claimed)
         fail.assert_not_called()
 
+    def test_a_split_review_tells_each_session_its_role_and_an_ordinary_one_nothing_new(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            skill_path = Path(directory) / "SKILL.md"
+            skill_path.write_text(
+                "---\nname: review-agent-pr\n---\nFollow the review procedure.\n",
+                encoding="utf-8",
+            )
+            client = HermesChatClient(
+                HermesChatSettings(
+                    endpoint=(
+                        f"http://127.0.0.1:{self.server.server_port}"
+                        "/v1/review-agent/review"
+                    ),
+                    bearer_token="test-token",
+                    skill_path=skill_path,
+                )
+            )
+            ordinary = self._claim(generation=1)
+            client.review(ordinary, timeout=self._timeout())
+            client.review(replace(ordinary, part=3, parts=11), timeout=self._timeout())
+            client.review(replace(ordinary, parts=11), timeout=self._timeout())
+
+        (system, user), (part_system, part_user), (final_system, final_user) = (
+            tuple(message["content"] for message in body["messages"])
+            for _, body in _ChatHandler.requests
+        )
+        self.assertEqual(system, "Follow the review procedure.\n")
+        self.assertTrue(user.startswith("Continue the assigned durable pull-request review."))
+        self.assertTrue(part_system.startswith(system))
+        self.assertIn("This session reviews one part", part_system)
+        self.assertIn("part 3 of 11", part_user)
+        self.assertIn("review_agent_memory_record", part_user)
+        self.assertTrue(final_system.startswith(system))
+        self.assertIn("review_agent_part_report", final_system)
+        self.assertNotIn("This session reviews one part", final_system)
+        self.assertIn("11 part reports", final_user)
+        for message in (user, part_user, final_user):
+            self.assertIn("existing_run_id 23", message)
+
     def test_reclaim_changes_identity_while_each_generation_is_stable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             skill_path = Path(directory) / "SKILL.md"

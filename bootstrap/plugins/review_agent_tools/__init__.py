@@ -48,6 +48,7 @@ def register(ctx: ToolRegistry) -> None:
     source_tools = import_module(f"{__name__}.review_source_tools")
     memory_tools = import_module(f"{__name__}.review_memory_tools")
     delivery_tool = import_module(f"{__name__}.review_delivery_tool")
+    part_tools = import_module(f"{__name__}.review_part_tools")
     graph_tool = import_module(f"{__name__}.review_code_graph_tool")
     runtime_api = import_module(f"{__name__}.hermes_runtime_api")
     docs_tools = import_module(f"{__name__}.documentation_tools")
@@ -118,6 +119,12 @@ def register(ctx: ToolRegistry) -> None:
         toolset="review_agent",
         schema=getattr(schemas, "REVIEW_AGENT_MEMORY_RECORD"),
         handler=getattr(memory_tools, "review_memory_record"),
+    )
+    ctx.register_tool(
+        name="review_agent_part_report",
+        toolset="review_agent",
+        schema=getattr(schemas, "REVIEW_AGENT_PART_REPORT"),
+        handler=getattr(part_tools, "review_part_report"),
     )
     ctx.register_tool(
         name="review_agent_deliver",

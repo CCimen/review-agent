@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .domain.review import MAX_REVIEW_PARTS
+
 
 DEFAULT_RESULT_MAX_CHARS = 160_000
 MIN_TEXT_PAGE_CHARS = 1_000
@@ -36,6 +38,17 @@ class CapacityLimits:
         """
         return min(self.result_max_chars, RUNTIME_RESPONSE_RESULT_CHARS) // (
             PARALLEL_DIFF_CALLS + 1
+        )
+
+    @property
+    def part_report_max_chars(self) -> int:
+        """Serialized size of one review part's report.
+
+        The final session may request every report in one response, so all of
+        them plus one equal share for another tool result fit the response total.
+        """
+        return min(self.result_max_chars, RUNTIME_RESPONSE_RESULT_CHARS) // (
+            MAX_REVIEW_PARTS + 1
         )
 
 

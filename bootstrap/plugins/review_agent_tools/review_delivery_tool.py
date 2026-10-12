@@ -6,6 +6,7 @@ from typing import Any
 
 from . import (
     failure_codes,
+    review_parts_application,
     review_publication_application,
     review_publication_planner,
     review_run_application,
@@ -29,6 +30,7 @@ from .review_tool_runtime import (
     review_run_snapshot,
     run_subject,
     run_terminal_payload,
+    session_part,
     worker_lease_fence,
 )
 
@@ -50,6 +52,11 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
     run_id = 0
     head_sha = ""
     source: GatewaySourceSession | None = None
+    if session_part(context):
+        return error_output(
+            "this session reviews one part of the pull request; finish it with "
+            "review_agent_memory_record and stop"
+        )
     try:
         source = gateway_source_session(args, context)
         repository, number, initial_pull = pull_request_identity(source)
@@ -77,9 +84,32 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
         )
         if pull.get("state") != "open":
             raise ToolInputError("the pull request is no longer open")
+        if persisted.parts:
+            unread = review_parts_application.unread_reports(
+                postgres_runtime(), run_id=ReviewRunId(run_id), lease=source.lease
+            )
+            if unread:
+                return output_json(
+                    {
+                        "stage": "validation_failed",
+                        "published": False,
+                        "retryable": True,
+                        "run_id": run_id,
+                        "error": (
+                            "this session has not received the report of part(s) "
+                            + ", ".join(str(part) for part in unread)
+                        ),
+                        "next_action": (
+                            "Call review_agent_part_report for each of those parts, "
+                            "reconcile their candidates with the recorded findings, "
+                            "then call review_agent_deliver again with this same run_id."
+                        ),
+                    }
+                )
         # Reaching rendering records that deterministic coverage recovery was
-        # already requested once; a later delivery must remain publishable.
-        if persisted.phase not in {"rendering", "publishing"}:
+        # already requested once; a later delivery must remain publishable. Each
+        # part of a split review already read its own files before reporting.
+        elif persisted.phase not in {"rendering", "publishing"}:
             coverage = review_run_application.summarize_postgres_coverage(
                 postgres_runtime(), ReviewRunId(run_id)
             )

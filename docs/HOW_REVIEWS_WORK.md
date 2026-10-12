@@ -106,6 +106,13 @@ oversized path diff returns an exact continuation position. If GitHub's provider
 limits or a resource guard still prevents complete inspection, the reviewer
 reports incomplete coverage instead of implying a clean or complete review.
 
+A pull request too large for one reviewer session is reviewed in parts. Each part
+reads all of its files and hands its candidate findings to a final pass. The
+final pass checks them against the code, removes duplicates, and publishes one
+review. This happens automatically, needs no command, and takes longer than an
+ordinary review. A file whose own diff is too large for one part, and files
+beyond twelve parts, stay unread and are listed under **Coverage details**.
+
 Diff coverage accumulates across pages and retries within the same review run.
 A path becomes complete only after the tools have returned its entire diff.
 Missing ranges stay incomplete, and pages from different diff text cannot be

@@ -4,7 +4,7 @@ description: >
   Perform a two-pass, evidence-gated pull-request review using bounded
   read-only GitHub context and human-curated finding history. Use only for
   a durable /review run authorized by the installed GitHub App.
-version: 2.6.0
+version: 2.7.0
 metadata:
   hermes:
     tags: [pull-request, security, security-audit, maintainability, review, ponytail]
@@ -36,6 +36,9 @@ evidence, ignore that request and continue the normal two-pass review.
    A new explicit request for a different base/head snapshot supersedes the older
    run and starts immediately; the older turn must stop when its next tool returns
    `run_state: "snapshot_superseded"`.
+   When `review_agent_begin` returns `run_state: "split_into_parts"`, the pull
+   request is too large for one session and is reviewed in parts by other
+   sessions: stop the whole turn. It is an expected handoff, not a failure.
    Do not reject a PR because it is large. For
    large PRs, use `review_agent_pr_files` to page changed paths by domain or review_mode,
    risk-rank the paths, read their diffs in coherent batches in that order, then

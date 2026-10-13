@@ -29,6 +29,7 @@ from review_agent_tools import (  # noqa: E402
     review_source_initialization,
 )
 from review_agent_tools.github.source import ReviewSourceBytes  # noqa: E402
+from review_agent_tools.model_window import ModelWindow  # noqa: E402
 from review_agent_tools.review_tool_runtime import GatewaySourceSession  # noqa: E402
 from review_agent_tools.domain.review import (  # noqa: E402
     ReviewPartPlan,
@@ -1666,15 +1667,25 @@ class PostgreSQLJobTests(unittest.TestCase):
             ]).encode(),
         )
 
-        def initialize(session: jobs.WorkerLeaseSession, *, may_split: bool) -> object:
+        def initialize(
+            session: jobs.WorkerLeaseSession, *, window: ModelWindow | None
+        ) -> object:
             return review_source_initialization.initialize_review(
                 GatewaySourceSession(run_id=int(run.run.id), lease=session, client=client),
                 self.runtime,
                 TEST_REVIEW_CONTRACT,
-                may_split=may_split,
+                split_window=window,
             )
 
-        split = initialize(lease, may_split=True)
+        split = initialize(
+            lease,
+            window=ModelWindow(
+                context_tokens=500_000,
+                result_chars=100_000,
+                turn_chars=200_000,
+                compaction_tokens=400_000,
+            ),
+        )
 
         with self.runtime.transaction() as connection:
             queue = connection.execute(
@@ -1687,7 +1698,8 @@ class PostgreSQLJobTests(unittest.TestCase):
                 "WHERE review_run_id = %s ORDER BY path",
                 (run.run.id,),
             ).fetchall()
-        # Each 300,000-character diff is one part of at most 400,000 characters.
+        # A 500K-token window prefers parts of about 372,000 diff characters, so
+        # each 300,000-character diff is one part.
         self.assertEqual(split.parts_planned, 3)
         self.assertEqual(
             queue, [(0, "queued"), (1, "queued"), (2, "queued"), (3, "queued")]
@@ -1695,7 +1707,7 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.assertEqual(owners, [("src/a.py", 1), ("src/b.py", 2), ("src/c.py", 3)])
         # A part session initializes the same review without planning it again.
         part, part_lease = self.claim_lease("part")
-        resumed = initialize(part_lease, may_split=False)
+        resumed = initialize(part_lease, window=None)
         self.assertEqual((part.part, resumed.parts, resumed.parts_planned), (1, 3, 0))
         self.assertEqual(resumed.phase, "collecting_diff")
 

@@ -27,7 +27,6 @@ from .review_tool_runtime import (
     output_json,
     postgres_runtime,
     pull_request_identity,
-    pull_head_sha,
     review_run_snapshot,
     run_subject,
     run_terminal_payload,
@@ -51,7 +50,6 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
     repository = ""
     number = 0
     run_id = 0
-    head_sha = ""
     source: GatewaySourceSession | None = None
     if session_part(context):
         return error_output(
@@ -61,7 +59,6 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
     try:
         source = gateway_source_session(args, context)
         repository, number, initial_pull = pull_request_identity(source)
-        head_sha = pull_head_sha(initial_pull)
         run_id = source.run_id
 
         persisted = review_run_application.load_live_run_state(
@@ -81,7 +78,8 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
             phase=(
                 "publishing" if persisted.phase == "publishing" else "rendering"
             ),
-            expected_head_sha=head_sha,
+            # A push after the review started supersedes the run.
+            observed_pull=initial_pull,
         )
         if pull.get("state") != "open":
             raise ToolInputError("the pull request is no longer open")
@@ -167,7 +165,6 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                     repository=repository,
                     pr_number=number,
                     phase="rendering",
-                    expected_head_sha=head_sha,
                 )
             except ReviewRunTerminal as terminal:
                 return output_json(run_terminal_payload(terminal.run_id))

@@ -4,6 +4,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import yaml
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
@@ -11,6 +13,34 @@ from review_agent_tools.domain import review as review_domain  # noqa: E402
 
 
 class ReviewPartPlanTests(unittest.TestCase):
+    def test_the_managed_config_compacts_at_its_threshold_of_the_window(self) -> None:
+        # Part sizing assumes Hermes compacts at window x threshold: no output
+        # reservation, per-model threshold, or absolute cap moves that point.
+        config = yaml.safe_load(
+            (PACKAGE_ROOT.parent / "config.yaml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(set(config["compression"]), {"threshold", "codex_gpt55_autoraise"})
+        self.assertNotIn("max_tokens", config["model"])
+        self.assertNotIn("context_length", config["model"])
+
+    def test_part_sizes_follow_the_session_window(self) -> None:
+        # At 500K tokens the preferred part matches the measured ~390K-character
+        # parts; the largest stays below the 80% compaction point.
+        self.assertEqual(
+            review_domain.part_sizes(context_tokens=500_000, compaction_tokens=400_000),
+            (371_653, 607_874),
+        )
+        # A smaller window gets proportionally smaller parts instead of compacting.
+        self.assertEqual(
+            review_domain.part_sizes(context_tokens=272_000, compaction_tokens=217_600),
+            (192_125, 320_629),
+        )
+        # The preferred part never exceeds the largest, even with an early threshold.
+        target, limit = review_domain.part_sizes(
+            context_tokens=272_000, compaction_tokens=100_000
+        )
+        self.assertEqual(target, limit)
+
     def test_a_pull_request_one_session_can_read_is_not_split(self) -> None:
         files = [(f"src/file{index:02}.py", 1_000) for index in range(50)]
 

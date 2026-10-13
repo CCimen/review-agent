@@ -15,6 +15,7 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools import (  # noqa: E402
     capacity,
+    model_window,
     review_contract,
     review_delivery_tool,
     review_memory_tools,
@@ -51,6 +52,9 @@ PULL = {
     "changed_files": 3,
 }
 SOURCE = SimpleNamespace(run_id=41, lease=SimpleNamespace(job_id=7, lease_generation=3))
+WINDOW = model_window.ModelWindow(
+    context_tokens=500_000, result_chars=100_000, turn_chars=200_000, compaction_tokens=400_000
+)
 
 
 def finding(**overrides: object) -> dict[str, object]:
@@ -106,14 +110,34 @@ def unregistered_state() -> review_run_application.LiveRunState:
 
 
 class ReviewPartToolTests(unittest.TestCase):
-    def test_the_lease_fence_tells_a_tool_which_part_its_session_reviews(self) -> None:
+    def test_a_large_window_keeps_batch_and_report_shares_under_hermes_result_cap(self) -> None:
+        limits = capacity.for_window(WINDOW)
+        # One result is capped at Hermes' 100K; the 160K operator setting still
+        # sizes the response shares, as before the window was known.
+        self.assertEqual(
+            (limits.result_max_chars, limits.batch_result_max_chars, limits.part_report_max_chars),
+            (100_000, 32_000, 12_307),
+        )
+
+    def test_the_lease_fence_applies_its_execution_part_window_and_limits(self) -> None:
+        small = model_window.ModelWindow(
+            context_tokens=128_000, result_chars=76_800, turn_chars=153_600, compaction_tokens=102_400
+        )
+
         @review_tool_runtime.worker_lease_fence()
         def handler(args: dict[str, Any], **context: Any) -> str:
-            return str(review_tool_runtime.session_part(context))
+            if args.get("fail"):
+                raise RuntimeError("handler failed")
+            limits = capacity.current()
+            return json.dumps([
+                review_tool_runtime.session_part(context),
+                review_tool_runtime.session_window(context).context_tokens,
+                limits.result_max_chars,
+                limits.batch_result_max_chars,
+            ])
 
-        for stored, expected in ((2, "2"), (0, "0")):
+        def call(stored: int, **args: object) -> str:
             with (
-                self.subTest(part=stored),
                 patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime()),
                 patch.object(
                     review_tool_runtime.postgres_jobs,
@@ -121,13 +145,34 @@ class ReviewPartToolTests(unittest.TestCase):
                     return_value=SimpleNamespace(part=stored),
                 ),
             ):
-                # A value the model could smuggle in is replaced by the job's part.
-                result = handler(
-                    {"run_id": 41}, session_id="review-agent-job-7-lease-3", review_part=9
+                # Values the model could smuggle in are replaced by the execution's.
+                return handler(
+                    {"run_id": 41, **args},
+                    session_id="review-agent-job-7-lease-3",
+                    review_part=9,
+                    model_window=WINDOW,
                 )
-            self.assertEqual(result, expected)
 
-    def initialize(self, *, may_split: bool) -> tuple[Any, Mock, Mock]:
+        before = capacity.current()
+        # Without an execution admitted by this runtime the tool does not run.
+        self.assertIn("not admitted by this runtime", json.loads(call(2))["error"])
+
+        model_window.register_execution(7, 3, small)
+        self.addCleanup(model_window.release_execution, 7, 3)
+        self.assertEqual(
+            json.loads(call(2)),
+            # One result within Hermes' 76,800; five batch shares within its 153,600.
+            [2, 128_000, 76_800, 30_720],
+        )
+        self.assertEqual(json.loads(call(0))[0], 0)
+        with self.assertRaises(RuntimeError):
+            call(2, fail=True)
+        # Limits apply only while the fenced call runs, also after a failure.
+        self.assertEqual(capacity.current(), before)
+
+    def initialize(
+        self, *, window: model_window.ModelWindow | None
+    ) -> tuple[Any, Mock, Mock]:
         client = Mock()
         client.get_review_pull.return_value = SimpleNamespace(
             repository=REPOSITORY, pr_number=1, payload=PULL
@@ -157,12 +202,12 @@ class ReviewPartToolTests(unittest.TestCase):
             patch.object(review_parts_application, "split_review", return_value=3) as split,
         ):
             result = review_source_initialization.initialize_review(
-                source, runtime(), TEST_REVIEW_CONTRACT, may_split=may_split
+                source, runtime(), TEST_REVIEW_CONTRACT, split_window=window
             )
         return result, split, snapshot
 
     def test_the_main_session_splits_a_large_review_and_does_nothing_after(self) -> None:
-        result, split, snapshot = self.initialize(may_split=True)
+        result, split, snapshot = self.initialize(window=WINDOW)
 
         self.assertEqual(result.parts_planned, 3)
         plan = split.call_args.kwargs["plan"]
@@ -175,7 +220,7 @@ class ReviewPartToolTests(unittest.TestCase):
         self.assertEqual([call.kwargs["phase"] for call in snapshot.call_args_list], ["accepted"])
 
     def test_a_caller_that_may_not_split_initializes_as_before(self) -> None:
-        result, split, snapshot = self.initialize(may_split=False)
+        result, split, snapshot = self.initialize(window=None)
 
         split.assert_not_called()
         self.assertEqual(result.parts_planned, 0)
@@ -196,9 +241,13 @@ class ReviewPartToolTests(unittest.TestCase):
             ) as initialize,
             patch.object(review_source_tools, "prepare_graph") as graph,
         ):
-            result = json.loads(review_source_tools.review_begin.__wrapped__({"existing_run_id": 41}))
+            result = json.loads(
+                review_source_tools.review_begin.__wrapped__(
+                    {"existing_run_id": 41}, model_window=WINDOW
+                )
+            )
 
-        self.assertTrue(initialize.call_args.kwargs["may_split"])
+        self.assertEqual(initialize.call_args.kwargs["split_window"], WINDOW)
         self.assertEqual((result["run_state"], result["parts"]), ("split_into_parts", 11))
         self.assertIn("Stop this turn", result["next_action"])
         graph.assert_not_called()

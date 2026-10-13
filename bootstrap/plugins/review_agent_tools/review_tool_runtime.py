@@ -13,8 +13,10 @@ import threading
 from typing import Any, Callable, TypeVar, cast
 
 from . import (
+    capacity,
     failure_codes,
     memory_validation,
+    model_window,
     review_contract,
     review_run_application,
     settings,
@@ -37,6 +39,7 @@ _process_runtime_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 ReviewRunTerminal = review_run_application.ReviewRunTerminal
 _REVIEW_PART = "review_part"
+_MODEL_WINDOW = "model_window"
 
 
 class ToolInputError(ValueError):
@@ -75,9 +78,13 @@ def worker_lease_fence(
                         review_run_id=ReviewRunId(run_id),
                         lease_generation=lease.lease_generation,
                     )
+                window = model_window.execution_window(
+                    lease.job_id, lease.lease_generation
+                )
             except (
                 ToolInputError,
                 postgres_jobs.ReviewJobError,
+                model_window.ModelWindowError,
                 PostgreSQLRuntimeError,
             ) as exc:
                 return error_output(f"{exc}; stop this review turn")
@@ -86,11 +93,25 @@ def worker_lease_fence(
                 return error_output(
                     "worker lease could not be verified; stop this review turn"
                 )
-            return handler(args, **{**context, _REVIEW_PART: job.part})
+            with capacity.execution(capacity.for_window(window)):
+                return handler(
+                    args, **{**context, _REVIEW_PART: job.part, _MODEL_WINDOW: window}
+                )
 
         return fenced
 
     return decorate
+
+
+def session_window(context: dict[str, Any]) -> model_window.ModelWindow:
+    """The window admitted for the calling session's execution.
+
+    The lease fence takes it from the execution's admission, never from the model.
+    """
+    window = context.get(_MODEL_WINDOW)
+    if not isinstance(window, model_window.ModelWindow):
+        raise ToolInputError("the review execution's model window is unavailable")
+    return window
 
 
 def session_part(context: dict[str, Any]) -> int:

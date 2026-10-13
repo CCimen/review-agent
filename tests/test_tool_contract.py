@@ -20,6 +20,7 @@ import review_agent_tools  # noqa: E402
 from review_agent_tools import (  # noqa: E402
     capacity,
     documentation_tools,
+    model_window,
     review_contract,
     review_code_graph_tool,
     review_delivery_tool,
@@ -89,11 +90,19 @@ class _FakeRegistry:
         }
 
 
+WINDOW = model_window.ModelWindow(
+    context_tokens=500_000, result_chars=100_000, turn_chars=200_000, compaction_tokens=400_000
+)
+
+
 class ToolContractTests(unittest.TestCase):
     def setUp(self) -> None:
         cache_patch = patch.object(review_source_tools, "_diff_cache", review_source_tools.ReviewDiffCache())
         cache_patch.start()
         self.addCleanup(cache_patch.stop)
+        # The execution admitted for the lease these tests' sessions carry.
+        model_window.register_execution(7, 3, WINDOW)
+        self.addCleanup(model_window.release_execution, 7, 3)
 
     def test_begin_keeps_transient_initialization_failure_retryable(self) -> None:
         retry_at = datetime(2026, 10, 7, 18, 0, tzinfo=timezone.utc)
@@ -110,7 +119,11 @@ class ToolContractTests(unittest.TestCase):
                 patch.object(review_source_tools, "initialize_review", side_effect=failure),
                 patch.object(review_source_tools, "mark_run_failed") as mark_failed,
             ):
-                result = json.loads(review_source_tools.review_begin.__wrapped__({"existing_run_id": 41}))
+                result = json.loads(
+                    review_source_tools.review_begin.__wrapped__(
+                        {"existing_run_id": 41}, model_window=WINDOW
+                    )
+                )
             self.assertEqual(mark_failed.called, terminal)
             if not terminal:
                 self.assertTrue(result["retryable"])
@@ -775,6 +788,7 @@ class ToolContractTests(unittest.TestCase):
                 return_value=capacity.CapacityLimits(
                     result_max_chars=7_000,
                     text_page_max_chars=1_000,
+                    response_max_chars=7_000,
                 ),
             ),
             patch.object(
@@ -1116,10 +1130,51 @@ class ToolContractTests(unittest.TestCase):
                     {"run_id": 41, "path": "src/new.py", "side": "base"}
                 )
             )
+            # On a small window the page is read within the session's result
+            # limit even when every character must be JSON-escaped.
+            small = capacity.for_window(
+                model_window.ModelWindow(
+                    context_tokens=128_000,
+                    result_chars=76_800,
+                    turn_chars=153_600,
+                    compaction_tokens=102_400,
+                )
+            )
+            escaped = "1: " + "\x1b" * (small.text_page_max_chars - 3)
+            client.get_review_file_page.return_value = replace(
+                client.get_review_file_page.return_value,
+                content=escaped,
+                complete_lines=0,
+                partial_line=True,
+            )
+            with capacity.execution(small):
+                partial = review_source_tools.pr_file.__wrapped__(
+                    {"run_id": 41, "path": "src/new.py", "side": "base"}
+                )
+            # A page the session's result budget cannot carry is refused unrecorded.
+            with capacity.execution(
+                capacity.CapacityLimits(
+                    result_max_chars=200, text_page_max_chars=1_000, response_max_chars=200
+                )
+            ):
+                rejected = json.loads(
+                    review_source_tools.pr_file.__wrapped__(
+                        {"run_id": 41, "path": "src/new.py", "side": "base"}
+                    )
+                )
 
         self.assertEqual(result["content"], "1: previous content")
         self.assertEqual(client.get_review_file_page.call_args.kwargs["path"], "src/old.py")
-        record.assert_called_once()
+        self.assertEqual(
+            client.get_review_file_page.call_args_list[1].kwargs["max_chars"],
+            small.text_page_max_chars,
+        )
+        self.assertLessEqual(len(partial), small.result_max_chars)
+        self.assertEqual(json.loads(partial)["content"], escaped)
+        self.assertIn("request a smaller page", rejected["error"])
+        # The first page and the partial line are recorded; the refused page is not.
+        self.assertEqual(record.call_count, 2)
+        self.assertEqual(record.call_args_list[1].kwargs["line_count"], 0)
 
     def test_pr_file_rejects_a_gateway_page_for_another_revision(self) -> None:
         pull = {
@@ -1548,11 +1603,19 @@ class ToolContractTests(unittest.TestCase):
 
     def test_plugin_manifest_and_registered_handlers_have_one_owner(self) -> None:
         registry = _FakeRegistry()
+        # Registration installs process-wide limits; restore the module default.
+        default = capacity.DEFAULT_RESULT_MAX_CHARS
+        self.addCleanup(
+            capacity.configure,
+            result_max_chars=default,
+            result_chars=default,
+            turn_chars=default,
+        )
         with patch.object(
             review_agent_tools,
             "_installed_result_max_chars",
             return_value=160_000,
-        ):
+        ), patch.object(model_window, "default_budget", return_value=(100_000, 200_000)):
             review_agent_tools.register(registry)
 
         manifest = (PACKAGE_ROOT / "review_agent_tools" / "plugin.yaml").read_text(

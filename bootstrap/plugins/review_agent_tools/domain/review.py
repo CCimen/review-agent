@@ -191,15 +191,40 @@ def group_diff_coverage(
     return tuple(incomplete[:limit])
 
 
-# One reviewer session stopped reading after roughly 900,000 diff characters in
-# both measured production reviews (272K-token window). A part stays well below
-# that so its diffs, supporting source, and reasoning share one window.
-PART_TARGET_CHARS = 400_000
-PART_LIMIT_CHARS = 600_000
 MAX_REVIEW_PARTS = 12
+# Part sizes follow the session's context window. This initial empirical policy
+# comes from the first split review (web-app-draken-public#1122 at cec7dd7,
+# 2026-10-13, reasoning xhigh, 500K-token window): 11 parts of 302K-400K diff
+# characters peaked at 174K-258K prompt tokens and none compacted.
+# The session's prompt before it reads any diff.
+PART_SESSION_OVERHEAD_TOKENS = 14_000
+# The largest observed (peak prompt - overhead) / part diff characters.
+PART_TOKENS_PER_DIFF_CHAR = 0.635
+# The preferred part reaches about half the window at that ratio, which matches
+# the parts measured above (worst peak 52% of the window).
+PART_TARGET_WINDOW_FRACTION = 0.5
 # GitHub omits the patch of a very large or binary file. Measured on a 662-file
 # production pull request: 48 patch characters per changed line.
 MISSING_PATCH_CHARS_PER_LINE = 48
+
+
+def part_sizes(*, context_tokens: int, compaction_tokens: int) -> tuple[int, int]:
+    """Preferred and largest part, in diff characters, for one session window.
+
+    The largest part is predicted to stay below the point where the session
+    starts compacting, which reduces the risk that a part loses the diffs it
+    read first; packing uses it only when the preferred size cannot cover the
+    pull request in MAX_REVIEW_PARTS parts.
+    """
+
+    def diff_chars(tokens: float) -> int:
+        return max(
+            1,
+            int((tokens - PART_SESSION_OVERHEAD_TOKENS) / PART_TOKENS_PER_DIFF_CHAR),
+        )
+
+    limit = diff_chars(compaction_tokens)
+    return min(limit, diff_chars(context_tokens * PART_TARGET_WINDOW_FRACTION)), limit
 
 
 def changed_file_diff_size(*, patch: str | None, changes: int) -> int:
@@ -236,8 +261,8 @@ def _pack_in_order(
 def plan_review_parts(
     files: Iterable[tuple[str, int]],
     *,
-    part_target: int = PART_TARGET_CHARS,
-    part_limit: int = PART_LIMIT_CHARS,
+    part_target: int,
+    part_limit: int,
     max_parts: int = MAX_REVIEW_PARTS,
 ) -> ReviewPartPlan:
     """Split changed files into parts one reviewer session can read.

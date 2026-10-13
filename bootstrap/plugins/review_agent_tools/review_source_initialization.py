@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from typing import cast
 
@@ -13,7 +14,13 @@ from . import (
     review_parts_application,
     review_run_application,
 )
-from .domain.review import ReviewRunId, changed_file_diff_size, plan_review_parts
+from .domain.review import (
+    ReviewRunId,
+    changed_file_diff_size,
+    part_sizes,
+    plan_review_parts,
+)
+from .model_window import ModelWindow
 from .github.gateway import GitHubGatewayError
 from .postgres.coverage import FileIndexSummary
 from .postgres.runtime import PostgreSQLRuntime
@@ -28,6 +35,9 @@ from .review_tool_runtime import (
     run_subject,
     source_error,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,22 +134,45 @@ def _split_large_review(
     source: GatewaySourceSession,
     runtime: PostgreSQLRuntime,
     files: list[JsonObject] | None,
+    window: ModelWindow,
 ) -> int:
     """Split a review too large for one session; return the number of parts."""
     inventory = files if files is not None else load_changed_files(source)
+    target, limit = part_sizes(
+        context_tokens=window.context_tokens,
+        compaction_tokens=window.compaction_tokens,
+    )
     plan = plan_review_parts(
         (
-            str(item["path"]),
-            changed_file_diff_size(
-                patch=patch if isinstance((patch := item.get("patch")), str) else None,
-                changes=int(item.get("changes") or 0),
-            ),
-        )
-        for item in inventory
+            (
+                str(item["path"]),
+                changed_file_diff_size(
+                    patch=patch if isinstance((patch := item.get("patch")), str) else None,
+                    changes=int(item.get("changes") or 0),
+                ),
+            )
+            for item in inventory
+        ),
+        part_target=target,
+        part_limit=limit,
     )
-    return review_parts_application.split_review(
+    planned = review_parts_application.split_review(
         runtime, run_id=ReviewRunId(source.run_id), lease=source.lease, plan=plan
     )
+    if planned:
+        # Unassigned files stay unseen and the published review reports partial
+        # coverage for them.
+        logger.info(
+            "Review run %s split into %s parts for a %s-token window "
+            "(target %s, limit %s diff chars); %s changed files unassigned",
+            source.run_id,
+            planned,
+            window.context_tokens,
+            target,
+            limit,
+            len(plan.unassigned),
+        )
+    return planned
 
 
 def initialize_review(
@@ -148,12 +181,13 @@ def initialize_review(
     installed_contract: review_contract.ReviewContract,
     *,
     pull_identity: tuple[str, int, JsonObject] | None = None,
-    may_split: bool = False,
+    split_window: ModelWindow | None = None,
 ) -> InitializedReview:
     """Validate and resume source collection without invoking a model or graph.
 
-    ``may_split`` is set by the main session of a code review: its first
-    initialization is the one point where a large review is split into parts.
+    ``split_window`` is set by the main session of a code review: its first
+    initialization is the one point where a large review is split into parts
+    sized for that window.
     """
     repository, number, pull = pull_identity or pull_request_identity(source)
     subject = run_subject(repository=repository, pr_number=number, run_id=source.run_id)
@@ -205,7 +239,11 @@ def initialize_review(
 
     if phase == "fetching_pr":
         # A split releases the calling session's lease, so nothing may follow it.
-        planned = _split_large_review(source, runtime, files) if may_split else 0
+        planned = (
+            _split_large_review(source, runtime, files, split_window)
+            if split_window is not None
+            else 0
+        )
         if planned:
             return InitializedReview(
                 repository=repository,

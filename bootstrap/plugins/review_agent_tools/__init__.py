@@ -42,7 +42,12 @@ def register(ctx: ToolRegistry) -> None:
     # Import concrete owners after package initialization so submodules can import
     # package-owned contracts without creating a static package import cycle.
     capacity = import_module(f"{__name__}.capacity")
-    limits = capacity.configure(result_max_chars=_installed_result_max_chars())
+    result_chars, turn_chars = import_module(f"{__name__}.model_window").default_budget()
+    limits = capacity.configure(
+        result_max_chars=_installed_result_max_chars(),
+        result_chars=result_chars,
+        turn_chars=turn_chars,
+    )
     schemas = import_module(f"{__name__}.schemas")
     schemas.apply_capacity(limits)
     source_tools = import_module(f"{__name__}.review_source_tools")

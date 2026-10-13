@@ -117,6 +117,12 @@ _ACTIVE_URL_SCHEME_RE = re.compile(r"(?i)\b(https?|ftp)://")
 _ACTIVE_WWW_RE = re.compile(r"(?i)\bwww\.")
 _MARKDOWN_PUNCTUATION_RE = re.compile(r"([*_\[\]()#!|>~])")
 _BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_CODE_SPAN_RE = re.compile(r"`([^`]{1,200})`")
+# A thematic break between the urgent findings and what follows them.
+_SECTION_BREAK = "---\n\n"
+_MARKER_NAMESPACE = "review-agent:"
+_MARKER_NAMESPACE_ESCAPED = "review-agent&#58;"
+_CODE_SPAN_FORBIDDEN = ("<!--", "-->", _MARKER_NAMESPACE)
 
 
 def review_markdown_from_blocks(blocks: Sequence[ReviewBlock]) -> str:
@@ -164,10 +170,7 @@ def review_blocks_from_json(
     return tuple(blocks)
 
 
-def safe_text(value: Any, *, maximum: int = 800) -> str:
-    text = compact_text(
-        _BIDI_CONTROL_RE.sub("", str(value or "")), maximum=maximum
-    )
+def _escape_markdown(text: str, *, line_start: bool) -> str:
     escaped = (
         text.replace("&", "&amp;")
         .replace("<", "&lt;")
@@ -176,11 +179,46 @@ def safe_text(value: Any, *, maximum: int = 800) -> str:
         .replace("\\", "\\\\")
     )
     escaped = _MARKDOWN_PUNCTUATION_RE.sub(r"\\\1", escaped)
-    escaped = re.sub(r"^([+-])", r"\\\1", escaped)
-    escaped = re.sub(r"^(\d+)\.", r"\1\\.", escaped)
+    if line_start:
+        escaped = re.sub(r"^([+-])", r"\\\1", escaped)
+        escaped = re.sub(r"^(\d+)\.", r"\1\\.", escaped)
     escaped = escaped.replace("@", "&#64;")
+    # Comment markers are found by plain search, so untrusted text never carries one.
+    escaped = escaped.replace(_MARKER_NAMESPACE, _MARKER_NAMESPACE_ESCAPED)
     escaped = _ACTIVE_URL_SCHEME_RE.sub(r"\1:&#8203;//", escaped)
     return _ACTIVE_WWW_RE.sub("www&#8203;.", escaped)
+
+
+def safe_text(value: Any, *, maximum: int = 800) -> str:
+    text = compact_text(
+        _BIDI_CONTROL_RE.sub("", str(value or "")), maximum=maximum
+    )
+    return _escape_markdown(text, line_start=True)
+
+
+def safe_prose(value: Any, *, maximum: int = 800) -> str:
+    """Escape reviewer prose like ``safe_text`` but keep its single-backtick code spans.
+
+    GitHub renders a code span literally, so it cannot carry links, mentions, or
+    HTML. A span that would carry a comment delimiter or marker, and any backtick
+    without a partner, is escaped as plain text instead.
+    """
+    text = compact_text(
+        _BIDI_CONTROL_RE.sub("", str(value or "")), maximum=maximum
+    )
+    pieces: list[str] = []
+    position = 0
+    for match in _CODE_SPAN_RE.finditer(text):
+        code = match.group(1)
+        if not code.strip() or any(token in code for token in _CODE_SPAN_FORBIDDEN):
+            continue
+        pieces.append(
+            _escape_markdown(text[position : match.start()], line_start=position == 0)
+        )
+        pieces.append(f"`{code}`")
+        position = match.end()
+    pieces.append(_escape_markdown(text[position:], line_start=position == 0))
+    return "".join(pieces)
 
 
 def safe_source_label(value: Any, *, maximum: int = 800) -> str:
@@ -267,15 +305,28 @@ def severity_summary(findings: Sequence[PublishedFinding]) -> str:
     return summary
 
 
+def _ref_runs(ordered: Sequence[str]) -> list[str]:
+    """Collapse three or more consecutive references, such as F8 to F24, into one range."""
+    runs: list[list[str]] = []
+    for reference in ordered:
+        run = runs[-1] if runs else None
+        if run is not None and (
+            local_reference_number(reference) == local_reference_number(run[-1]) + 1
+        ):
+            run.append(reference)
+        else:
+            runs.append([reference])
+    labels: list[str] = []
+    for run in runs:
+        if len(run) >= 3:
+            labels.append(f"{run[0]}–{run[-1]}")
+        else:
+            labels.extend(run)
+    return labels
+
+
 def joined_refs(items: Sequence[str]) -> str:
-    ordered = ordered_refs(items)
-    if not ordered:
-        return ""
-    if len(ordered) == 1:
-        return ordered[0]
-    if len(ordered) == 2:
-        return f"{ordered[0]} and {ordered[1]}"
-    return f"{', '.join(ordered[:-1])}, and {ordered[-1]}"
+    return joined_labels(_ref_runs(ordered_refs(items)))
 
 
 def ref_clause(items: Sequence[str], singular: str, plural: str) -> str:
@@ -618,50 +669,56 @@ def _closed_by_verdict(
     return grouped
 
 
-def _finding_ref_range(findings: Sequence[PublishedFinding]) -> str:
-    first = findings[0]["local_reference"]
-    last = findings[-1]["local_reference"]
-    return first if first == last else f"{first}-{last}"
-
-
-def _code_quality_summary(count: int, part_number: int, total_parts: int) -> str:
-    noun = "improvement" if count == 1 else "improvements"
-    summary = f"Code quality and readability ({count} Low/P3 {noun})"
+def _collapsed_summary(
+    title: str, refs: Sequence[str], *, total: int, part_number: int, total_parts: int
+) -> str:
+    summary = f"<strong>{title} ({total})</strong>"
     if total_parts > 1:
         summary += f" · Part {part_number} of {total_parts}"
-    return summary
+    return f"{summary} · Low (P3): {', '.join(refs)}"
 
 
-def _code_quality_blocks(
-    markdowns: Sequence[str], *, max_bytes: int | None
+def _collapsed_blocks(
+    title: str,
+    items: Sequence[tuple[str, str]],
+    *,
+    lead: str,
+    max_bytes: int | None,
 ) -> list[ReviewBlock]:
-    if not markdowns:
-        return []
-    count = len(markdowns)
+    """Fold Low findings into one collapsed section, split only to fit a comment.
 
-    def framing(part_number: int, total_parts: int) -> tuple[str, str]:
-        summary = _code_quality_summary(count, part_number, total_parts)
+    ``items`` pairs each F reference with its rendered finding; ``lead`` opens
+    the first section.
+    """
+    if not items:
+        return []
+    total = len(items)
+    all_refs = [reference for reference, _ in items]
+
+    def framing(refs: Sequence[str], part_number: int, total_parts: int) -> tuple[str, str]:
+        summary = _collapsed_summary(
+            title, refs, total=total, part_number=part_number, total_parts=total_parts
+        )
         return f"<details>\n<summary>{summary}</summary>\n\n", "\n\n</details>"
 
-    prefix, suffix = framing(1, 1)
-    body_bytes = sum(len(text.encode("utf-8")) for text in markdowns)
-    body_bytes += 2 * (count - 1)
-    if (
-        max_bytes is None
-        or body_bytes + len((prefix + suffix).encode("utf-8")) <= max_bytes
-    ):
-        return [
-            ReviewBlock(kind="finding", markdown=prefix + "\n\n".join(markdowns) + suffix)
-        ]
+    def block(chunk: Sequence[tuple[str, str]], part_number: int, total_parts: int) -> ReviewBlock:
+        prefix, suffix = framing([reference for reference, _ in chunk], part_number, total_parts)
+        body = "\n\n".join(markdown for _, markdown in chunk)
+        opening = lead if part_number == 1 else ""
+        return ReviewBlock(kind="finding", markdown=opening + prefix + body + suffix)
 
-    # Reserve the longest possible part label before the final part count is known.
-    prefix, suffix = framing(count, count)
-    content_budget = max_bytes - len((prefix + suffix).encode("utf-8"))
-    chunks: list[list[str]] = []
-    current: list[str] = []
+    single = block(items, 1, 1)
+    if max_bytes is None or len(single.markdown.encode("utf-8")) <= max_bytes:
+        return [single]
+
+    # Reserve the longest possible framing before the final part count is known.
+    prefix, suffix = framing(all_refs, total, total)
+    content_budget = max_bytes - len((lead + prefix + suffix).encode("utf-8"))
+    chunks: list[list[tuple[str, str]]] = []
+    current: list[tuple[str, str]] = []
     current_bytes = 0
-    for text in markdowns:
-        size = len(text.encode("utf-8"))
+    for item in items:
+        size = len(item[1].encode("utf-8"))
         if size > content_budget:
             raise PublicationDomainError("body_too_large")
         candidate_bytes = current_bytes + size + (2 if current else 0)
@@ -669,17 +726,13 @@ def _code_quality_blocks(
             chunks.append(current)
             current = []
             candidate_bytes = size
-        current.append(text)
+        current.append(item)
         current_bytes = candidate_bytes
     if current:
         chunks.append(current)
-    blocks: list[ReviewBlock] = []
-    for index, chunk in enumerate(chunks, start=1):
-        prefix, suffix = framing(index, len(chunks))
-        blocks.append(
-            ReviewBlock(kind="finding", markdown=prefix + "\n\n".join(chunk) + suffix)
-        )
-    return blocks
+    return [
+        block(chunk, index, len(chunks)) for index, chunk in enumerate(chunks, start=1)
+    ]
 
 
 def render_suggestion_tip(
@@ -747,10 +800,10 @@ def render_fix_brief(
 ) -> str:
     summary = "Copyable fix brief for a coding agent"
     if total_parts > 1:
-        summary = (
-            f"{summary} ({part_number} of {total_parts}, "
-            f"{_finding_ref_range(findings)})"
-        )
+        # Findings follow severity order, so name each one rather than a range.
+        refs = ", ".join(item["local_reference"] for item in findings)
+        summary = f"{summary} ({part_number} of {total_parts}: {refs})"
+    summary = f"<strong>{summary}</strong>"
     review_state_lines = [
         (
             "Changed-file diff context: incomplete. The findings below are "
@@ -902,7 +955,7 @@ def render_fix_brief_blocks(
         )
         blocks[0] = ReviewBlock(
             kind="fix_brief",
-            markdown=f"{next_step}\n\n{blocks[0].markdown}",
+            markdown=f"{_SECTION_BREAK}{next_step}\n\n{blocks[0].markdown}",
         )
     return blocks
 
@@ -1064,7 +1117,11 @@ def render_review(
         )
     )
 
-    quality_markdowns: list[str] = []
+    # Low findings fold away when higher-severity findings need the attention;
+    # code quality always does, and security findings never do.
+    fold_low = any(item["severity"] != "Low" for item in current)
+    low_items: list[tuple[str, str]] = []
+    quality_items: list[tuple[str, str]] = []
     for item in current:
         location = source_link(
             repository,
@@ -1075,28 +1132,41 @@ def render_review(
         finding_lines = [
             (
                 f"### {item['local_reference']} · {severity_label(item['severity'])}: "
-                f"{safe_text(item['title'], maximum=FINDING_TEXT_LIMITS['title'])}"
+                f"{safe_prose(item['title'], maximum=FINDING_TEXT_LIMITS['title'])}"
             ),
             f"{location} · {item['category']}",
             "",
-            safe_text(item["evidence"], maximum=FINDING_TEXT_LIMITS["evidence"]),
+            safe_prose(item["evidence"], maximum=FINDING_TEXT_LIMITS["evidence"]),
             "",
             (
                 "**Impact:** "
-                f"{safe_text(item['impact'], maximum=FINDING_TEXT_LIMITS['impact'])}"
+                f"{safe_prose(item['impact'], maximum=FINDING_TEXT_LIMITS['impact'])}"
             ),
             "",
             (
                 "**Smallest safe fix:** "
-                f"{safe_text(item['smallest_fix'], maximum=FINDING_TEXT_LIMITS['smallest_fix'])}"
+                f"{safe_prose(item['smallest_fix'], maximum=FINDING_TEXT_LIMITS['smallest_fix'])}"
             ),
         ]
         markdown = "\n".join(finding_lines)
         if _is_code_quality(item):
-            quality_markdowns.append(markdown)
+            quality_items.append((item["local_reference"], markdown))
+        elif fold_low and item["severity"] == "Low" and item["category"] != "security":
+            low_items.append((item["local_reference"], markdown))
         else:
             blocks.append(ReviewBlock(kind="finding", markdown=markdown))
-    blocks.extend(_code_quality_blocks(quality_markdowns, max_bytes=max_block_bytes))
+    low_blocks = _collapsed_blocks(
+        "Low-priority findings", low_items, lead=_SECTION_BREAK, max_bytes=max_block_bytes
+    )
+    blocks.extend(low_blocks)
+    blocks.extend(
+        _collapsed_blocks(
+            "Code quality and readability",
+            quality_items,
+            lead="" if low_blocks else _SECTION_BREAK,
+            max_bytes=max_block_bytes,
+        )
+    )
 
     suggestion_help = render_suggestion_tip(
         repository,
@@ -1120,8 +1190,8 @@ def render_review(
             "",
         ]
         for item in closed:
-            title = safe_text(item.get("title", ""), maximum=180)
-            evidence = safe_text(
+            title = safe_prose(item.get("title", ""), maximum=180)
+            evidence = safe_prose(
                 item.get("evidence", ""), maximum=PRIOR_VERDICT_EVIDENCE_MAX
             )
             label = item["verdict"].replace("_", " ")
@@ -1151,7 +1221,7 @@ def render_review(
             unchecked,
             key=lambda value: local_reference_number(value["local_reference"]),
         ):
-            title = safe_text(item.get("title", ""), maximum=180)
+            title = safe_prose(item.get("title", ""), maximum=180)
             line = f"- {item['local_reference']} - not rechecked"
             if title:
                 line += f": {title}"

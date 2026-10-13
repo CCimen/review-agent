@@ -4,6 +4,7 @@ import email.message
 import base64
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import hashlib
 import io
 import json
 from contextlib import nullcontext
@@ -53,6 +54,7 @@ from review_agent_tools.github.publication_gateway import (  # noqa: E402
 from review_agent_tools.github.source import (  # noqa: E402
     GitHubSourceError,
     ReviewComparison,
+    ReviewFilePatch,
     ReviewPullSource,
     read_review_comparison,
     read_review_pull,
@@ -1321,6 +1323,55 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         self.assertEqual(authority.call_count, 5)
         self.assertEqual(tokens.token_for.call_count, 2)
         self.assertEqual(github.request_json.call_count, 1)
+
+    def test_added_file_patch_is_built_from_the_runs_exact_head_blob(self) -> None:
+        raw = b"first\nsecond\n"
+        blob = hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()
+        identity = {"operation": "added_file_patch", "run_id": 51, "job_id": 61, "lease_generation": 7}
+        with self.assertRaises(GitHubGatewayProtocolError):
+            ReviewSourceRequest.from_mapping({**identity, "path": "a.ts", "blob_sha": "A" * 40})
+        with self.assertRaises(GitHubGatewayProtocolError):
+            ReviewSourceRequest.from_mapping({**identity, "path": "a.ts", "blob_sha": blob, "side": "base"})
+        github = Mock()
+        github.request_json.return_value = {
+            "type": "file", "encoding": "base64", "size": len(raw),
+            "content": base64.b64encode(raw).decode("ascii"),
+        }
+        tokens = Mock()
+        tokens.token_for.return_value = SimpleNamespace(value="installation-token")
+        service = ReviewGitHubGateway(
+            postgres=Mock(), tokens=tokens, profile="default-standard",
+            github_factory=Mock(return_value=github),
+        )
+        request = ReviewSourceRequest.from_mapping({**identity, "path": "a.ts", "blob_sha": blob})
+        with patch.object(ReviewGitHubGateway, "_require_source_authority", return_value=self._scope()):
+            result = service.read_review_source(request)
+        self.assertEqual(result, ReviewFilePatch("ok", "@@ -0,0 +1,2 @@\n+first\n+second"))
+        self.assertIn("ref=" + "a" * 40, github.request_json.call_args.args[0])
+
+        opener = _Opener(json.dumps(result.to_mapping()).encode("utf-8"))
+        client = ReviewGitHubGatewayClient(
+            "http://review-github-gateway:8646",
+            opener=cast(urllib.request.OpenerDirector, opener),
+        )
+        self.assertEqual(
+            client.get_added_file_patch(
+                run_id=51, job_id=61, lease_generation=7, path="a.ts", blob_sha=blob
+            ),
+            result,
+        )
+        self.assertEqual(
+            json.loads(getattr(opener.requests[0], "data")),
+            {**identity, "path": "a.ts", "blob_sha": blob},
+        )
+        refused = _Opener(json.dumps({"kind": "file_patch", "state": "too_large", "patch": "x"}).encode())
+        with self.assertRaises(GitHubGatewayProtocolError):
+            ReviewGitHubGatewayClient(
+                "http://review-github-gateway:8646",
+                opener=cast(urllib.request.OpenerDirector, refused),
+            ).get_added_file_patch(
+                run_id=51, job_id=61, lease_generation=7, path="a.ts", blob_sha=blob
+            )
 
     def test_source_gateway_preserves_transport_retry_classification(self) -> None:
         request = ReviewSourceRequest.from_mapping(

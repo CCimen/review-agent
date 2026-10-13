@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 from . import capacity, review_finding_application, review_parts_application
-from .domain.review import MAX_REVIEW_PARTS, ReviewRunId
+from .domain.review import ReviewRunId
 from .postgres import jobs as postgres_jobs
 from .postgres.runtime import PostgreSQLRuntimeError
 from .review_tool_runtime import (
@@ -86,11 +86,13 @@ def briefing_payload(briefing: review_parts_application.PartBriefing) -> JsonObj
         "part": briefing.part,
         "parts": briefing.parts,
         "changed_files": briefing.assigned_files,
+        "report_max_chars": capacity.current().part_report_max_chars(briefing.parts),
         "instruction": (
             "Review only this part. review_agent_pr_files lists its changed "
             "files; read every one of their diffs. Finish with "
             "review_agent_memory_record, which stores this part's candidates for "
-            "the final session. Do not call review_agent_deliver."
+            "the final session; their serialized text must fit report_max_chars. "
+            "Do not call review_agent_deliver."
         ),
         "earlier_parts_untrusted": shown,
     }
@@ -139,15 +141,18 @@ def _notes(raw: Any) -> list[str]:
     limit = review_parts_application.PART_MAX_NOTES
     if len(values) > limit:
         raise ToolInputError(f"part_notes holds at most {limit} notes")
-    notes: list[str] = []
-    for value in values:
-        note = " ".join(value.split()) if isinstance(value, str) else ""
-        if not note or len(note) > review_parts_application.PART_NOTE_MAX_CHARS:
-            raise ToolInputError(
-                "each part note must be 1 to "
-                f"{review_parts_application.PART_NOTE_MAX_CHARS} characters"
-            )
-        notes.append(note)
+    maximum = review_parts_application.PART_NOTE_MAX_CHARS
+    notes = [" ".join(value.split()) if isinstance(value, str) else "" for value in values]
+    invalid = [
+        f"{index} ({len(note)} characters)"
+        for index, note in enumerate(notes, start=1)
+        if not note or len(note) > maximum
+    ]
+    if invalid:
+        raise ToolInputError(
+            f"each part note must be 1 to {maximum} characters; rewrite note "
+            f"{', '.join(invalid)}"
+        )
     return notes
 
 
@@ -165,15 +170,18 @@ def stage_part(
         head_sha=head_sha, raw_findings=findings, changed_files=changed_files
     )
     report: JsonObject = {"findings": findings, "notes": notes}
-    limit = capacity.current().part_report_max_chars
-    parts = MAX_REVIEW_PARTS
-    if len(output_json(_report_payload(source.run_id, parts, parts, report))) > limit:
+    parts = review_parts_application.planned_parts(
+        postgres_runtime(), run_id=ReviewRunId(source.run_id)
+    )
+    limit = capacity.current().part_report_max_chars(parts)
+    size = len(output_json(_report_payload(source.run_id, parts, parts, report)))
+    if size > limit:
         raise ToolInputError(
-            f"this part's candidates and notes exceed {limit} characters. Keep "
-            "every candidate and shorten its evidence, disproof, impact, and fix "
-            "text; the final session reads the source again. Only if they still "
-            "do not fit, move the lowest-severity candidates into part_notes: "
-            "one note each with its path, line, and the failure it claims."
+            f"this part's candidates and notes take {size} characters; the limit "
+            f"is {limit}. Keep every candidate and shorten its evidence, disproof, "
+            "impact, and fix text; the final session reads the source again. Only "
+            "if they still do not fit, move the lowest-severity candidates into "
+            "part_notes: one note each with its path, line, and the failure it claims."
         )
     try:
         part = review_parts_application.stage_report(

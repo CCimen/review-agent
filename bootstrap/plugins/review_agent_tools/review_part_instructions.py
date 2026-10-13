@@ -31,8 +31,10 @@ changed files it has.
   candidate of your part in the normal finding shape. Add `part_notes`: short
   facts another part must know, such as a changed contract, a removed export, or
   a new failure mode, and questions you could not settle inside your part. The
-  call stores them for the final session and publishes nothing. If it answers
-  `part_incomplete`, read the files it names and call it again.
+  call stores them for the final session and publishes nothing. Their serialized
+  text must fit `review_part.report_max_chars`, so keep each candidate's
+  evidence, disproof, impact, and fix short. If it answers `part_incomplete`,
+  read the files it names and call it again.
 - Then stop. Do not call `review_agent_deliver`.
 """
 

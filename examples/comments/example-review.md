@@ -3,7 +3,7 @@ sidebar_label: Example review
 slug: /example-review
 title: Example review
 status: current
-last_verified: 2026-09-09
+last_verified: 2026-10-13
 ---
 
 # Example review
@@ -50,13 +50,15 @@ boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
 > `/review` as a new top-level PR comment. Applying a patch does not resolve its
 > finding; the fresh review re-checks the code.
 
+---
+
 **Next:** Address the current findings. Push the fixes, then post `/review` as a
 new top-level PR comment. The next review keeps the F references and reports what
 resolved, remains, returned, or is new. To hand off implementation, copy the
 coding-agent brief below.
 
 <details>
-<summary>Copyable fix brief for a coding agent</summary>
+<summary><strong>Copyable fix brief for a coding agent</strong></summary>
 
 ```text
 Task:

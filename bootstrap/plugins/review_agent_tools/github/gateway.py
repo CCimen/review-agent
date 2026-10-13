@@ -39,14 +39,17 @@ from .app_auth import (
     GitHubAppTokenService,
 )
 from .source import (
+    GIT_BLOB_SHA_RE,
     GitHubSourceError,
     GitHubComparisonUnavailable,
     ReviewComparison,
     ReviewPolicySource,
     ReviewFilePage,
+    ReviewFilePatch,
     ReviewFileCache,
     ReviewPullSource,
     ReviewSourceBytes,
+    read_added_file_patch,
     read_changed_files_page,
     read_review_diff,
     read_review_file_page,
@@ -101,6 +104,15 @@ def _positive(value: object, field: str) -> int:
     if type(value) is not int or value < 1:
         raise GitHubGatewayProtocolError(f"{field} must be a positive integer")
     return value
+
+
+def _source_path(value: object) -> str:
+    if not isinstance(value, str):
+        raise GitHubGatewayProtocolError("path must be text")
+    try:
+        return memory_validation.normalize_path(value)
+    except memory_validation.ReviewMemoryError as exc:
+        raise GitHubGatewayProtocolError(str(exc)) from exc
 
 
 def _text(value: object, field: str, maximum: int) -> str:
@@ -301,7 +313,7 @@ class OperatorAppStatus:
 class ReviewSourceRequest:
     """Closed source operation plus durable run and worker lease identity."""
 
-    operation: Literal["pull", "changed_files", "diff", "file", "graph_subject", "archive", "documentation_comparison", "documentation_file", "documentation_policy"]
+    operation: Literal["pull", "changed_files", "diff", "file", "added_file_patch", "graph_subject", "archive", "documentation_comparison", "documentation_file", "documentation_policy"]
     run_id: int
     job_id: int
     lease_generation: int
@@ -312,6 +324,7 @@ class ReviewSourceRequest:
     start_line: int | None = None
     max_lines: int | None = None
     max_chars: int | None = None
+    blob_sha: str | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, object]) -> "ReviewSourceRequest":
@@ -331,6 +344,7 @@ class ReviewSourceRequest:
             | {"path", "side", "start_line", "max_lines", "max_chars"},
             "documentation_file": common
             | {"path", "side", "start_line", "max_lines", "max_chars"},
+            "added_file_patch": common | {"path", "blob_sha"},
         }.get(operation)
         if expected is None or set(value) != expected:
             raise GitHubGatewayProtocolError(
@@ -338,7 +352,7 @@ class ReviewSourceRequest:
             )
         request = cls(
             operation=cast(
-                Literal["pull", "changed_files", "diff", "file", "graph_subject", "archive", "documentation_comparison", "documentation_file", "documentation_policy"], operation
+                Literal["pull", "changed_files", "diff", "file", "added_file_patch", "graph_subject", "archive", "documentation_comparison", "documentation_file", "documentation_policy"], operation
             ),
             run_id=_positive(value.get("run_id"), "run_id"),
             job_id=_positive(value.get("job_id"), "job_id"),
@@ -371,14 +385,20 @@ class ReviewSourceRequest:
                 per_page=per_page,
                 page=page,
             )
+        if operation == "added_file_patch":
+            blob_sha = value.get("blob_sha")
+            if not isinstance(blob_sha, str) or not GIT_BLOB_SHA_RE.fullmatch(blob_sha):
+                raise GitHubGatewayProtocolError("blob_sha must be a lowercase Git blob SHA")
+            return cls(
+                operation="added_file_patch",
+                run_id=request.run_id,
+                job_id=request.job_id,
+                lease_generation=request.lease_generation,
+                path=_source_path(value.get("path")),
+                blob_sha=blob_sha,
+            )
         if operation in {"file", "documentation_file"}:
-            raw_path = value.get("path")
-            if not isinstance(raw_path, str):
-                raise GitHubGatewayProtocolError("path must be text")
-            try:
-                path = memory_validation.normalize_path(raw_path)
-            except memory_validation.ReviewMemoryError as exc:
-                raise GitHubGatewayProtocolError(str(exc)) from exc
+            path = _source_path(value.get("path"))
             side = value.get("side")
             allowed_sides = {"head", "base", "comparison"} if operation == "documentation_file" else {"head", "base"}
             if side not in allowed_sides:
@@ -408,7 +428,7 @@ class ReviewSourceRequest:
         return request
 
 
-SourceResult = ReviewPullSource | ReviewSourceBytes | ReviewFilePage | ReviewComparison | ReviewPolicySource | GraphSubject | bytes
+SourceResult = ReviewPullSource | ReviewSourceBytes | ReviewFilePage | ReviewFilePatch | ReviewComparison | ReviewPolicySource | GraphSubject | bytes
 ProviderResult = TypeVar("ProviderResult")
 
 
@@ -870,6 +890,16 @@ class ReviewGitHubGateway:
         elif request.operation == "diff":
             def operation(github: GitHubReadClient) -> SourceResult:
                 return read_review_diff(github, scope)
+        elif request.operation == "added_file_patch":
+            assert request.path is not None and request.blob_sha is not None
+            patch_path = request.path
+            patch_blob = request.blob_sha
+
+            def operation(github: GitHubReadClient) -> SourceResult:
+                return read_added_file_patch(
+                    github, scope, path=patch_path, blob_sha=patch_blob,
+                    cache=self._file_cache,
+                )
         else:
             assert (
                 request.path is not None

@@ -22,7 +22,7 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertIn("https://github.com/example/repository/commit/" + "a" * 40, visible)
         self.assertNotIn("<summary>Code quality and readability", rendered)
 
-    def test_only_low_maintainability_is_grouped_and_all_references_remain(self) -> None:
+    def test_low_findings_fold_below_urgent_ones_and_all_references_remain(self) -> None:
         findings = [
             self.finding(local_reference="F1", severity="High", category="security"),
             self.finding(local_reference="F2", category="maintainability"),
@@ -36,20 +36,34 @@ class ReviewRendererTests(unittest.TestCase):
             findings=findings, closed=[], still_present=[], partially_resolved=[],
             new_refs=[], not_checked_refs=[], coverage=self.coverage(),
         )
-        summary = "<summary>Code quality and readability (2 Low/P3 improvements)</summary>"
-        self.assertEqual(rendered.markdown.count(summary), 1)
-        before, after = rendered.markdown.split(summary)
-        quality, following = after.split("</details>", 1)
-        for reference in ("F1", "F2", "F3", "F6"):
+        low = "---\n\n<details>\n<summary><strong>Low-priority findings (1)</strong> · Low (P3): F3</summary>"
+        quality = "<details>\n<summary><strong>Code quality and readability (2)</strong> · Low (P3): F4, F5</summary>"
+        self.assertEqual(rendered.markdown.count(low), 1)
+        self.assertEqual(rendered.markdown.count(quality), 1)
+        before, after = rendered.markdown.split(low)
+        low_section, rest = after.split(quality)
+        quality_section, following = rest.split("</details>", 1)
+        # Security findings stay expanded whatever their severity.
+        for reference in ("F1", "F2", "F6"):
             self.assertIn(f"### {reference} ·", before)
-            self.assertNotIn(f"### {reference} ·", quality)
+        self.assertIn("### F3 ·", low_section)
         for reference in ("F4", "F5"):
-            self.assertIn(f"### {reference} ·", quality)
+            self.assertIn(f"### {reference} ·", quality_section)
             self.assertIn(f"{reference} - Low (P3) - maintainability", following)
         self.assertIn("Code quality and readability: 2 improvements.", before)
         self.assertEqual(
             rendered.markdown, review_renderer.review_markdown_from_blocks(rendered.blocks)
         )
+
+    def test_low_findings_stay_open_when_nothing_more_urgent_exists(self) -> None:
+        rendered = review_renderer.render_review_markdown(
+            repository="example/repository", pr_number=12, head_sha="a" * 40,
+            findings=[self.finding(severity="Low", category="correctness")],
+            closed=[], still_present=[], partially_resolved=[], new_refs=[],
+            not_checked_refs=[], coverage=self.coverage(),
+        )
+        self.assertIn("\n\n### F1 · Low (P3): Example finding", rendered)
+        self.assertNotIn("Low-priority findings", rendered)
 
     def test_quality_only_review_keeps_the_current_finding_count(self) -> None:
         rendered = review_renderer.render_review_markdown(
@@ -59,7 +73,7 @@ class ReviewRendererTests(unittest.TestCase):
             not_checked_refs=[], coverage=self.coverage(),
         )
         self.assertIn("There is 1 current finding: 1 Low (P3).", rendered)
-        self.assertIn("Code quality and readability (1 Low/P3 improvement)", rendered)
+        self.assertIn("<strong>Code quality and readability (1)</strong> · Low (P3): F1", rendered)
         self.assertNotIn("No current findings", rendered)
         self.assertNotIn("safe to merge", rendered)
 
@@ -75,6 +89,34 @@ class ReviewRendererTests(unittest.TestCase):
         totals, comparison = rendered.split("\n\n**Compared with Review 1:**", 1)
         self.assertIn("1 Low (P3). Code quality and readability: 1 improvement.", totals)
         self.assertEqual(comparison.split("\n", 1)[0], " F4 is new")
+
+    def test_comparison_collapses_consecutive_references_into_ranges(self) -> None:
+        self.assertEqual(
+            review_renderer.joined_refs(["F9", "F1", "F2", "F3", "F5", "F6", "F8", "F10"]),
+            "F1–F3, F5, F6, and F8–F10",
+        )
+        self.assertEqual(review_renderer.joined_refs(["F2", "F4"]), "F2 and F4")
+
+    def test_reviewer_code_spans_render_as_code_without_escaping(self) -> None:
+        self.assertEqual(
+            review_renderer.safe_prose(
+                "Set `If-Match` in `update_status()` when `events: []` arrives."
+            ),
+            "Set `If-Match` in `update_status()` when `events: []` arrives.",
+        )
+
+    def test_reviewer_prose_cannot_open_markup_through_code_spans(self) -> None:
+        for text in (
+            "A trailing tick ` stays text",
+            "Hidden `<!-- marker -->` comment",
+            "Forged `review-agent:canonical publication=x` marker",
+            "Plain review-agent:canonical publication=sha256:" + "a" * 64,
+        ):
+            with self.subTest(text=text):
+                rendered = review_renderer.safe_prose(text)
+                self.assertNotIn("`", rendered)
+                self.assertNotIn("<!--", rendered)
+                self.assertNotIn("review-agent:", rendered)
 
     def test_oversized_quality_finding_fails_without_truncating_evidence(self) -> None:
         with self.assertRaisesRegex(review_renderer.PublicationDomainError, "body_too_large"):
@@ -577,8 +619,16 @@ class ReviewRendererTests(unittest.TestCase):
 
         self.assertEqual(rendered.count("**Next:** Address the current findings."), 1)
         self.assertEqual(rendered.count("post `/review` as a new top-level"), 1)
-        self.assertEqual(
-            rendered.count("<summary>Copyable fix brief for a coding agent"), 2
+        self.assertIn("\n\n---\n\n**Next:** Address the current findings.", rendered)
+        self.assertIn(
+            # Severity order puts F10 before F2 here; a first-last range would mislead.
+            "<summary><strong>Copyable fix brief for a coding agent "
+            "(1 of 2: F1, F10, F11, F2, F3, F4, F5, F6, F7, F8)</strong></summary>",
+            rendered,
+        )
+        self.assertIn(
+            "<summary><strong>Copyable fix brief for a coding agent (2 of 2: F9)</strong></summary>",
+            rendered,
         )
         self.assertIn("One line per F reference: fixed, skipped, or blocked", rendered)
         self.assertIn("Report exact commands and results", rendered)

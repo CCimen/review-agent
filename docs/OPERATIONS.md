@@ -299,9 +299,11 @@ is recorded as read.
 The coverage count measures full diffs exposed to the reviewer, not analysis
 progress. When coverage is incomplete, the comment's coverage details list the
 directories with the most incomplete diffs and their complete, not fetched,
-partial, and unavailable counts. The count can stop below the changed-file count
-when GitHub omits a text patch,
-even while source reads and analysis continue. A transient source error keeps the
+partial, and unavailable counts. GitHub omits the text patch of a very large
+file. For an added UTF-8 file up to 1 MB, the gateway builds the patch from the
+file's exact head content, up to 200,000 characters; for a modified, removed,
+binary, or larger file the count can stop below the changed-file count, even
+while source reads and analysis continue. A transient source error keeps the
 run open and returns a retryable tool result; it does not establish clean coverage
 or a completed review. A returned retry time is a provider signal, not confirmation
 that the worker's next attempt has been scheduled for that time.

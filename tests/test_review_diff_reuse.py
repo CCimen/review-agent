@@ -13,7 +13,10 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
 
 from review_agent_tools import review_source_tools as tools  # noqa: E402
-from review_agent_tools.github.gateway import GitHubGatewayRetryable  # noqa: E402
+from review_agent_tools.github.gateway import (  # noqa: E402
+    GitHubGatewayRejected,
+    GitHubGatewayRetryable,
+)
 
 
 class ReviewDiffReuseTests(unittest.TestCase):
@@ -64,6 +67,43 @@ class ReviewDiffReuseTests(unittest.TestCase):
         evidence = [call.args[2].page for call in self.record.call_args_list[:3]]
         self.assertEqual(len({page.content_sha256 for page in evidence}), 1)
         self.assertEqual([(page.start_char, page.end_char) for page in evidence], [(0, 1000), (1000, 2000), (2000, len(expected))])
+
+    def patchless(self) -> None:
+        """GitHub omits the patch of a large added a.py and a large modified b.py."""
+        del self.files[0]["patch"]
+        self.files[0]["sha"] = "c" * 40
+        del self.files[1]["patch"]
+        self.files[1].update(status="modified", sha="d" * 40)
+        self.client.get_changed_files_page.return_value = SimpleNamespace(
+            state="ok", body=json.dumps(self.files).encode(), truncated=False, headers={}
+        )
+
+    def test_a_large_added_file_gets_a_built_patch_after_a_transient_failure(self) -> None:
+        self.patchless()
+        self.client.get_added_file_patch.side_effect = [
+            GitHubGatewayRetryable("github_read_unavailable"),
+            SimpleNamespace(state="ok", patch="@@ -0,0 +1 @@\n+built"),
+        ]
+        first = self.read("a.py")
+        second = self.read("a.py")
+        self.assertEqual(first["unavailable_paths"], ["a.py"])
+        self.assertEqual(
+            second["diff"], "diff --git a/a.py b/a.py\n--- /dev/null\n+++ b/a.py\n@@ -0,0 +1 @@\n+built\n"
+        )
+        # The transient answer was not cached, and the modified file is never asked for.
+        self.assertEqual(self.client.get_changed_files_page.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["path"] for call in self.client.get_added_file_patch.call_args_list],
+            ["a.py", "a.py"],
+        )
+        self.assertEqual(self.client.get_added_file_patch.call_args.kwargs["blob_sha"], "c" * 40)
+        self.assertEqual(self.read("b.py")["unavailable_paths"], ["b.py"])
+
+    def test_a_lost_lease_while_building_a_patch_stops_the_turn(self) -> None:
+        self.patchless()
+        self.client.get_added_file_patch.side_effect = GitHubGatewayRejected("review_job_lease_lost")
+        self.assertIn("stop this review turn", str(self.read("c.py")["error"]))
+        self.record.assert_not_called()
 
     def test_a_page_over_the_session_result_budget_records_no_exposure(self) -> None:
         # The 1,000-character page fits the text page but not this session's

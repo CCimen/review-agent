@@ -230,7 +230,7 @@ class GitHubReadClientTests(unittest.TestCase):
             )
 
         self.assertEqual(opener.open.call_count, 2)
-        sleeper.assert_called_once_with(0.5)
+        sleeper.assert_called_once_with(1.0)
         self.assertTrue(transient.closed)
         self.assertEqual(response.read_limits, [5])
         self.assertTrue(response.exited)
@@ -367,17 +367,29 @@ class GitHubReadClientTests(unittest.TestCase):
                 self.assertTrue(raised.exception.retryable)
                 self.assertEqual(opener.open.call_count, 1)
 
-    def test_request_classifies_network_failure_without_retry(self) -> None:
-        opener = Mock(spec=urllib.request.OpenerDirector)
-        opener.open.side_effect = urllib.error.URLError("offline")
-        client = source_control.GitHubReadClient(
-            "", opener=cast(urllib.request.OpenerDirector, opener)
-        )
-        with self.assertRaises(source_control.GitHubReadError) as error:
-            client.request("/repos/example/project")
-        self.assertEqual(error.exception.kind, "unreachable")
-        self.assertTrue(error.exception.retryable)
-        self.assertEqual(opener.open.call_count, 1)
+    def test_request_retries_a_failed_connection_but_not_a_connect_timeout(self) -> None:
+        for reason, kind, attempts in (
+            ("offline", "unreachable", 3),
+            (TimeoutError("connect"), "timeout", 1),
+        ):
+            with self.subTest(kind=kind):
+                opener = Mock(spec=urllib.request.OpenerDirector)
+                opener.open.side_effect = urllib.error.URLError(reason)
+                client = source_control.GitHubReadClient(
+                    "", opener=cast(urllib.request.OpenerDirector, opener)
+                )
+                with (
+                    patch.object(source_control.time, "sleep") as sleeper,
+                    self.assertRaises(source_control.GitHubReadError) as error,
+                ):
+                    client.request("/repos/example/project")
+                self.assertEqual(error.exception.kind, kind)
+                self.assertTrue(error.exception.retryable)
+                self.assertEqual(opener.open.call_count, attempts)
+                self.assertEqual(
+                    [call.args[0] for call in sleeper.call_args_list],
+                    [1.0, 2.0][: attempts - 1],
+                )
 
     def test_request_json_rejects_truncated_or_invalid_payloads(self) -> None:
         client = source_control.GitHubReadClient("")

@@ -33,6 +33,11 @@ GitHubReadErrorKind = Literal[
 _API_ROOT = "https://api.github.com"
 _DEFAULT_MAX_ATTEMPTS = 3
 _DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
+
+
+def _retry_delay(attempt: int) -> float:
+    """Wait 1 s, then 2 s: long enough to outlast a short GitHub outage."""
+    return float(attempt + 1)
 _MAX_ERROR_RESPONSE_BYTES = 4_096
 _ARCHIVE_ENDPOINT = re.compile(
     r"^/repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/tarball/([0-9a-f]{40,64})$"
@@ -303,7 +308,7 @@ class GitHubReadClient:
                 )
                 exc.close()
                 if retryable and retry_at is None and attempt + 1 < self._max_attempts:
-                    time.sleep(0.5 * (attempt + 1))
+                    time.sleep(_retry_delay(attempt))
                     continue
                 if exc.code == 401:
                     raise GitHubReadError(
@@ -347,8 +352,14 @@ class GitHubReadClient:
                     "timeout", "GitHub read timed out", retryable=True
                 ) from exc
             except urllib.error.URLError as exc:
+                timed_out = isinstance(exc.reason, TimeoutError)
+                # A refused or reset connection fails fast, so another attempt fits
+                # the caller's deadline; a timeout already spent its share of it.
+                if not timed_out and attempt + 1 < self._max_attempts:
+                    time.sleep(_retry_delay(attempt))
+                    continue
                 raise GitHubReadError(
-                    "timeout" if isinstance(exc.reason, TimeoutError) else "unreachable",
+                    "timeout" if timed_out else "unreachable",
                     "GitHub could not be reached", retryable=True
                 ) from exc
         raise GitHubReadError(

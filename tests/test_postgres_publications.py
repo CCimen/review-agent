@@ -351,7 +351,10 @@ class PublicationDomainTests(unittest.TestCase):
             findings=findings, closed=[], still_present=[], partially_resolved=[],
             new_refs=[], not_checked_refs=[], max_block_bytes=budget,
         )
-        grouped = [block for block in rendered.blocks if "<summary>Code quality" in block.markdown]
+        grouped = [
+            block for block in rendered.blocks
+            if "<strong>Code quality and readability" in block.markdown
+        ]
         self.assertGreater(len(grouped), 1)
         for block in grouped:
             self.assertEqual(block.kind, "finding")
@@ -399,6 +402,41 @@ class PublicationDomainTests(unittest.TestCase):
         for part in history:
             self.assertLessEqual(len(part.body.encode()), maximum)
             self.assertEqual(part.body.count("<details>"), part.body.count("</details>"))
+
+    def test_a_split_review_starts_its_next_comment_at_the_handoff(self) -> None:
+        from review_agent_tools.publication_partition import split_publication_body
+        from review_agent_tools.review_renderer import render_review, review_blocks_to_json
+
+        findings = [
+            {
+                "local_reference": f"F{index}", "fingerprint": f"{index:064x}",
+                "observation_id": index, "context_hash": "b" * 64,
+                "rule_id": f"correctness.example-{index}", "category": "correctness",
+                "path": "example.py", "line": index, "title": f"Guard state {index}",
+                "severity": "Medium", "publication_score": 8, "evidence": "Ä" * 300,
+                "disproof_checks": "Callers checked.", "impact": "State is lost.",
+                "smallest_fix": "Guard the owner.", "suggestion_available": False,
+            }
+            for index in range(1, 22)
+        ]
+        rendered = render_review(
+            repository="example/service", pr_number=41, head_sha="a" * 40,
+            findings=findings, closed=[], still_present=[], partially_resolved=[],
+            new_refs=[], not_checked_refs=[], feedback_enabled=True,
+        )
+        # Only the tail overflows: greedy packing alone would put every finding
+        # and fix brief in the first comment and leave a near-empty second one.
+        maximum = len(rendered.markdown.encode()) - 1_500
+        parts = split_publication_body(
+            rendered.markdown, publication_key="sha256:" + "b" * 64,
+            max_comment_bytes=maximum,
+            rendered_blocks_json=review_blocks_to_json(rendered.blocks),
+        )
+        self.assertEqual(len(parts), 2)
+        self.assertIn("### F21 ·", parts[0].body)
+        self.assertNotIn("Copyable fix brief", parts[0].body)
+        self.assertNotIn("### F", parts[1].body)
+        self.assertIn("**Next:**", parts[1].body)
 
     def test_shortened_history_keeps_coverage_disclosures_balanced(self) -> None:
         from review_agent_tools.publication_partition import historical_bodies

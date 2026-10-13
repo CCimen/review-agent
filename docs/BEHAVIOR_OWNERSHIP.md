@@ -34,6 +34,7 @@ conditionals or copying policy into runtime code.
 | Identity, tone, and evidence posture | `bootstrap/profiles/default-standard/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
 | Review rules and visible contract | `bootstrap/profiles/default-standard/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
 | Review procedure and tool sequence | `bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
+| Instructions for the part and final sessions of a very large review | `bootstrap/plugins/review_agent_tools/review_part_instructions.py` | What a review part hands in, or how the final session reconciles parts, changes. |
 | Provider, model, and reasoning effort | Deployment environment; the console source candidate can save a policy used at admission | The inference route, model, or review depth changes. |
 | Toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
 | Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |

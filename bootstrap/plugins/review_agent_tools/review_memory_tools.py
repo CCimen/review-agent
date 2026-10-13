@@ -7,11 +7,15 @@ from typing import Any, cast
 from . import (
     capacity,
     review_finding_application,
+    review_part_tools,
+    review_parts_application,
     review_run_application,
     schemas,
 )
+from .domain.finding import FindingDomainError
 from .domain.review import ReviewRunId
 from .github.gateway import GitHubGatewayError
+from .postgres import findings as postgres_findings, jobs as postgres_jobs
 from .postgres.runtime import PostgreSQLRuntimeError
 from .review_source_tools import load_changed_files
 from .review_tool_runtime import (
@@ -28,6 +32,7 @@ from .review_tool_runtime import (
     review_run_snapshot,
     run_subject,
     run_terminal_payload,
+    session_part,
     worker_lease_fence,
 )
 
@@ -166,6 +171,19 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
             except (ToolInputError, GitHubGatewayError):
                 return None
 
+        if session_part(context):
+            return review_part_tools.stage_part(
+                source,
+                head_sha=head_sha,
+                findings=finding_objects,
+                changed_files=changed_file_records,
+                raw_notes=args.get("part_notes"),
+            )
+        unread = review_parts_application.unread_reports(
+            postgres_runtime(), run_id=ReviewRunId(run_id), lease=source.lease
+        )
+        if unread:
+            return output_json(review_part_tools.unread_reports_payload(run_id, unread))
         result = review_finding_application.record_live_findings(
             postgres_runtime(),
             run_id=ReviewRunId(run_id),
@@ -205,6 +223,11 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
     except (
         ToolInputError,
         review_finding_application.ReviewFindingError,
+        # Name the rejected field so the reviewer can correct the finding.
+        FindingDomainError,
+        postgres_findings.FindingStoreError,
+        review_parts_application.ReviewPartError,
+        postgres_jobs.ReviewJobError,
         PostgreSQLRuntimeError,
     ) as exc:
         return error_output(exc)

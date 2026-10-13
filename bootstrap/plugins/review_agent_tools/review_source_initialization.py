@@ -7,7 +7,13 @@ import json
 from dataclasses import dataclass
 from typing import cast
 
-from . import changed_files, review_contract, review_run_application
+from . import (
+    changed_files,
+    review_contract,
+    review_parts_application,
+    review_run_application,
+)
+from .domain.review import ReviewRunId, changed_file_diff_size, plan_review_parts
 from .github.gateway import GitHubGatewayError
 from .postgres.coverage import FileIndexSummary
 from .postgres.runtime import PostgreSQLRuntime
@@ -34,6 +40,10 @@ class InitializedReview:
     changed_files_reported: int
     phase: review_run_application.RunPhase
     started_at: str
+    # Review parts this run already had when the call started.
+    parts: int = 0
+    # Set when this call split the review: the calling session must stop.
+    parts_planned: int = 0
 
 
 def enumerate_changed_file_index(
@@ -110,14 +120,41 @@ def load_changed_files(
     return files
 
 
+def _split_large_review(
+    source: GatewaySourceSession,
+    runtime: PostgreSQLRuntime,
+    files: list[JsonObject] | None,
+) -> int:
+    """Split a review too large for one session; return the number of parts."""
+    inventory = files if files is not None else load_changed_files(source)
+    plan = plan_review_parts(
+        (
+            str(item["path"]),
+            changed_file_diff_size(
+                patch=patch if isinstance((patch := item.get("patch")), str) else None,
+                changes=int(item.get("changes") or 0),
+            ),
+        )
+        for item in inventory
+    )
+    return review_parts_application.split_review(
+        runtime, run_id=ReviewRunId(source.run_id), lease=source.lease, plan=plan
+    )
+
+
 def initialize_review(
     source: GatewaySourceSession,
     runtime: PostgreSQLRuntime,
     installed_contract: review_contract.ReviewContract,
     *,
     pull_identity: tuple[str, int, JsonObject] | None = None,
+    may_split: bool = False,
 ) -> InitializedReview:
-    """Validate and resume source collection without invoking a model or graph."""
+    """Validate and resume source collection without invoking a model or graph.
+
+    ``may_split`` is set by the main session of a code review: its first
+    initialization is the one point where a large review is split into parts.
+    """
     repository, number, pull = pull_identity or pull_request_identity(source)
     subject = run_subject(repository=repository, pr_number=number, run_id=source.run_id)
     persisted = review_run_application.load_live_run_state(runtime, subject)
@@ -146,6 +183,7 @@ def initialize_review(
         phase = "fetching_pr"
 
     file_index = persisted.file_index
+    files: list[JsonObject] | None = None
     if not file_index.registration_complete and phase in {
         "fetching_pr",
         "collecting_diff",
@@ -166,6 +204,20 @@ def initialize_review(
         changed_files_reported = file_index.changed_files_reported or 0
 
     if phase == "fetching_pr":
+        # A split releases the calling session's lease, so nothing may follow it.
+        planned = _split_large_review(source, runtime, files) if may_split else 0
+        if planned:
+            return InitializedReview(
+                repository=repository,
+                pr_number=number,
+                subject=subject,
+                pull=pull,
+                file_index=file_index,
+                changed_files_reported=changed_files_reported,
+                phase="collecting_diff",
+                started_at=persisted.started_at,
+                parts_planned=planned,
+            )
         pull = snapshot("collecting_diff")
         phase = "collecting_diff"
 
@@ -178,4 +230,5 @@ def initialize_review(
         changed_files_reported=changed_files_reported,
         phase=phase,
         started_at=persisted.started_at,
+        parts=persisted.parts,
     )

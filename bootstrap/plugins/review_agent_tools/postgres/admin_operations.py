@@ -258,7 +258,12 @@ def queue_status(
             """
             WITH work AS (
                 SELECT 'review' AS kind, 'job' AS source, job.id,
-                    job.status = 'queued' AS waiting, job.status = 'leased' AS leased,
+                    -- A main job that waits for its review parts is not due work.
+                    job.status = 'queued' AND NOT (job.part = 0 AND EXISTS (
+                        SELECT 1 FROM review_agent.review_jobs part_job
+                        WHERE part_job.review_run_id = job.review_run_id
+                          AND part_job.part > 0 AND part_job.status <> 'succeeded'
+                    )) AS waiting, job.status = 'leased' AS leased,
                     job.status IN ('failed', 'dead_letter') AS failed,
                     job.status = 'dead_letter' AS dead_letter,
                     job.status = 'awaiting_publication' AS awaiting_publication,

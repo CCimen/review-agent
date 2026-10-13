@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast
 
@@ -38,6 +38,7 @@ from .domain.review import (
 from .postgres import registry as postgres_registry
 from .postgres import coverage as postgres_coverage
 from .postgres import jobs as postgres_jobs
+from .postgres import parts as postgres_parts
 from .postgres import repository_guidance as postgres_repository_guidance
 from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import review_runs as postgres_review_runs
@@ -149,6 +150,8 @@ class LiveRunState:
     started_at: str
     file_index: postgres_coverage.FileIndexSummary
     resolved_config: ResolvedConfig
+    # Review parts planned for this run; zero for a review that was not split.
+    parts: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +309,10 @@ def fail_claimed_job_in_transaction(
             run_ids=(run.id,),
             failure_code=run_failure_code or outcome.run_failure_code,
         )
+        # A review split into parts owns more jobs than the one that failed.
+        postgres_jobs.reconcile_run_jobs(
+            connection, run_ids=(run.id,), status=ReviewStatus.FAILED
+        )
     return outcome
 
 
@@ -318,6 +325,9 @@ def recover_expired_jobs_in_transaction(
         connection,
         run_ids=recovered.run_ids_to_fail,
         failure_code=failure_codes.JOB_RETRY_EXHAUSTED,
+    )
+    postgres_jobs.reconcile_run_jobs(
+        connection, run_ids=recovered.run_ids_to_fail, status=ReviewStatus.FAILED
     )
     return recovered
 
@@ -647,12 +657,16 @@ def load_live_run_state(
         file_index = postgres_coverage.file_index_summary(
             connection, run_id=ReviewRunId(subject.run_id)
         )
+        parts = postgres_parts.planned_parts(
+            connection, run_id=ReviewRunId(subject.run_id)
+        )
     return LiveRunState(
         run_id=subject.run_id,
         phase=cast(RunPhase, scope.run.phase.value),
         started_at=_timestamp(scope.run.started_at),
         file_index=file_index,
         resolved_config=scope.resolved_config,
+        parts=parts,
     )
 
 
@@ -792,6 +806,7 @@ def load_live_changed_file_page(
     review_mode: str = "",
     changed_only: bool = True,
     diff_state: DiffState | None = None,
+    part: int = 0,
 ) -> postgres_coverage.RunFilePage:
     load_live_snapshot(
         runtime,
@@ -811,6 +826,7 @@ def load_live_changed_file_page(
             review_mode=review_mode,
             changed_only=changed_only,
             diff_state=diff_state,
+            part=part,
         )
 
 
@@ -893,31 +909,56 @@ def record_live_diff_result(
     exposure: DiffExposure,
     *,
     phase: RunPhase = "reviewing",
+    part: int = 0,
 ) -> None:
-    observations = tuple(
-        observation
-        for observation in (
-            resolve_diff_observation(
-                paths=exposure.unavailable_paths,
-                state=DiffState.UNAVAILABLE,
-                unavailable_reason=exposure.unavailable_reason,
-            )
-            if exposure.unavailable_paths
-            else None,
-            resolve_diff_observation(
-                paths=exposure.exposed_paths,
-                state=DiffState.COMPLETE,
-            )
-            if exposure.exposed_paths
-            else None,
-        )
-        if observation is not None
-    )
+    """Record what one diff response exposed.
+
+    In a review split into parts, ``part`` is the reading session's part: only
+    the part that owns a file records its coverage, so another part's read can
+    neither complete nor regress it.
+    """
     with runtime.transaction() as connection:
         postgres_review_runs.advance_review_activity(
             connection,
             ReviewRunId(subject.run_id),
             resolve_review_phase(phase),
+        )
+        if part:
+            page_path = (exposure.page.path,) if exposure.page is not None else ()
+            owned = postgres_parts.owned_paths(
+                connection,
+                run_id=ReviewRunId(subject.run_id),
+                part=part,
+                paths=(*exposure.exposed_paths, *exposure.unavailable_paths, *page_path),
+            )
+            exposure = replace(
+                exposure,
+                exposed_paths=tuple(
+                    path for path in exposure.exposed_paths if path in owned
+                ),
+                unavailable_paths=tuple(
+                    path for path in exposure.unavailable_paths if path in owned
+                ),
+                page=exposure.page if set(page_path) <= owned else None,
+            )
+        observations = tuple(
+            observation
+            for observation in (
+                resolve_diff_observation(
+                    paths=exposure.unavailable_paths,
+                    state=DiffState.UNAVAILABLE,
+                    unavailable_reason=exposure.unavailable_reason,
+                )
+                if exposure.unavailable_paths
+                else None,
+                resolve_diff_observation(
+                    paths=exposure.exposed_paths,
+                    state=DiffState.COMPLETE,
+                )
+                if exposure.exposed_paths
+                else None,
+            )
+            if observation is not None
         )
         for observation in observations:
             postgres_coverage.record_diff_observation(

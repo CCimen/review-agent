@@ -338,6 +338,7 @@ def list_run_files(
     review_mode: str = "",
     changed_only: bool = True,
     diff_state: DiffState | None = None,
+    part: int = 0,
 ) -> RunFilePage:
     _require_transaction(connection)
     _run_identity(
@@ -363,6 +364,9 @@ def list_run_files(
     if diff_state is not None:
         clauses.append(sql.SQL("diff_state = %s"))
         parameters.append(diff_state.value)
+    if part:
+        clauses.append(sql.SQL("part = %s"))
+        parameters.append(part)
     base_where = sql.SQL(" AND ").join(clauses)
     total = connection.execute(
         sql.SQL(

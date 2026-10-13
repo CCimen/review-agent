@@ -53,39 +53,41 @@ class UsageReport:
     has_more: bool
 
 
-# Restrict the cohort before reading telemetry. Aggregate attempts once per job
-# so retries cannot multiply requests, publications, or distinct repositories.
+# Restrict the cohort before reading telemetry. Aggregate attempts once per
+# review so retries and review parts cannot multiply requests, publications, or
+# distinct repositories.
 _REQUESTS = sql.SQL("""
     WITH cohort AS MATERIALIZED (
         SELECT run.id, run.status, repo.id AS repository_id,
             repo.full_name AS repository, ownership.team_id, team.name AS team_name,
             lower(nullif(btrim(run.trigger_user), '')) AS requester,
             (pub.posted_at IS NOT NULL) AS published,
-            job.id AS job_id, coalesce(job.lease_generation, 0) AS started_attempts
+            (SELECT coalesce(sum(job.lease_generation), 0)::bigint
+             FROM review_agent.review_jobs job WHERE job.review_run_id = run.id) AS started_attempts
         FROM review_agent.review_runs run
         JOIN review_agent.pull_requests pr ON pr.id = run.pull_request_id
         JOIN {repositories} repo ON repo.id = pr.repository_id
         LEFT JOIN review_agent.team_repositories ownership ON ownership.repository_id = repo.id
         LEFT JOIN review_agent.teams team ON team.id = ownership.team_id
         LEFT JOIN review_agent.publications pub ON pub.review_run_id = run.id
-        LEFT JOIN review_agent.review_jobs job ON job.review_run_id = run.id
         WHERE run.started_at >= %(start)s AND run.started_at < %(end)s
           AND (%(repository)s::text IS NULL OR lower(repo.full_name) = lower(%(repository)s))
           AND (%(purpose)s::text IS NULL OR run.purpose = %(purpose)s)
           AND (%(requester)s::text IS NULL
                OR lower(nullif(btrim(run.trigger_user), '')) = %(requester)s)
     ), attempts AS (
-        SELECT usage.job_id, count(*) AS reported_attempts,
+        SELECT job.review_run_id, count(*) AS reported_attempts,
             sum(usage.prompt_tokens)::bigint AS prompt_tokens,
             sum(usage.completion_tokens)::bigint AS completion_tokens,
             sum(usage.total_tokens)::bigint AS total_tokens
         FROM review_agent.review_attempt_usage usage
-        JOIN cohort ON cohort.job_id = usage.job_id
-        GROUP BY usage.job_id
+        JOIN review_agent.review_jobs job ON job.id = usage.job_id
+        JOIN cohort ON cohort.id = job.review_run_id
+        GROUP BY job.review_run_id
     ), requests AS (
         SELECT cohort.*, coalesce(attempts.reported_attempts, 0) AS reported_attempts,
             attempts.prompt_tokens, attempts.completion_tokens, attempts.total_tokens
-        FROM cohort LEFT JOIN attempts ON attempts.job_id = cohort.job_id
+        FROM cohort LEFT JOIN attempts ON attempts.review_run_id = cohort.id
     )
 """)
 

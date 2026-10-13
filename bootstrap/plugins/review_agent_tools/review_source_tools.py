@@ -15,10 +15,12 @@ from . import (
     repository_decision_context,
     repository_guidance_context,
     review_contract,
+    review_part_tools,
+    review_parts_application,
     review_run_application,
     schemas,
 )
-from .domain.review import DiffState
+from .domain.review import DiffState, ReviewRunId
 from .github.gateway import GitHubGatewayError
 from .review_diff_cache import DiffSnapshot, DiffSnapshotKey, ReviewDiffCache
 from .review_code_graph_tool import prepare_graph
@@ -52,6 +54,7 @@ from .review_tool_runtime import (
     review_run_snapshot,
     run_subject,
     run_terminal_payload,
+    session_part,
     source_error,
     worker_lease_fence,
 )
@@ -258,12 +261,20 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
         )
         run_id = source.run_id
         repository, number, pull = pull_request_identity(source)
+        part = session_part(context)
         initialized = initialize_review(
             source,
             postgres_runtime(),
             installed_review_contract(),
             pull_identity=(repository, number, pull),
+            may_split=not part,
         )
+        if initialized.parts_planned:
+            # The split released this session's lease: no source, graph, or
+            # guidance work may follow it.
+            return output_json(
+                review_part_tools.split_payload(run_id, initialized.parts_planned)
+            )
         subject = initialized.subject
         pull = initialized.pull
         file_index = initialized.file_index
@@ -285,6 +296,14 @@ def review_begin(args: dict[str, Any], **context: Any) -> str:
                 "continued": True,
             }
         )
+        if part:
+            result["review_part"] = review_part_tools.briefing_payload(
+                review_parts_application.begin_part(
+                    postgres_runtime(), run_id=ReviewRunId(run_id), lease=source.lease
+                )
+            )
+        elif initialized.parts:
+            result["review_parts"] = review_part_tools.final_payload(initialized.parts)
 
         base_sha = pull_base_sha(pull)
 
@@ -459,6 +478,8 @@ def pr_files(args: dict[str, Any], **context: Any) -> str:
                 review_mode=review_mode,
                 changed_only=changed_only,
                 diff_state=diff_state,
+                # A review part pages the changed files it owns.
+                part=session_part(context) if changed_only else 0,
             )
         )
         result = run_file_page_payload(page)
@@ -581,6 +602,7 @@ def _pr_diff_batch(
     max_chars: int,
     key: DiffSnapshotKey,
     rendered: DiffSnapshot,
+    part: int = 0,
 ) -> str:
     """Return whole-file diffs for several exact paths in one bounded page."""
     snapshot = rendered if rendered.diff is not None else _patch_snapshot(source, key)
@@ -621,6 +643,7 @@ def _pr_diff_batch(
             exposed_paths=tuple(batch.exposed_paths),
             unavailable_paths=tuple(batch.unavailable_paths),
         ),
+        part=part,
     )
     return response
 
@@ -635,6 +658,7 @@ def _pr_diff_from_patches(
     max_chars: int,
     start_char: int,
     key: DiffSnapshotKey,
+    part: int = 0,
 ) -> str:
     """Render the diff from per-file patches when GitHub refuses the whole-PR diff."""
     snapshot = _patch_snapshot(source, key)
@@ -668,6 +692,7 @@ def _pr_diff_from_patches(
                     "the registered path was absent from GitHub's changed-file patches"
                 ),
             ),
+            part=part,
         )
         if snapshot.index_state == "complete":
             path_state: Literal[
@@ -705,6 +730,7 @@ def _pr_diff_from_patches(
             unavailable_paths=tuple(assembled.unavailable_paths),
             page=assembled.page,
         ),
+        part=part,
     )
     if path and assembled.unavailable_paths:
         return _pr_diff_terminal_handoff(
@@ -750,6 +776,7 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
         source = gateway_source_session(args, context)
         repository, number, initial_pull = pull_request_identity(source)
         run_id = source.run_id
+        part = session_part(context)
         path = parse_path(args.get("path"), required=False)
         paths = parse_paths(args.get("paths"))
         if path and paths:
@@ -809,11 +836,13 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
             return _pr_diff_batch(
                 source=source, repository=repository, number=number, run_id=run_id,
                 paths=paths, max_chars=max_chars, key=key, rendered=snapshot,
+                part=part,
             )
         if snapshot.diff is None:
             return _pr_diff_from_patches(
                 source=source, repository=repository, number=number, run_id=run_id,
                 path=path, max_chars=max_chars, start_char=start_char, key=key,
+                part=part,
             )
         assembled = snapshot.diff.assemble(
             only_path=path or None, max_chars=max_chars, start_char=start_char,
@@ -831,6 +860,7 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
                 max_chars=max_chars,
                 start_char=start_char,
                 key=key,
+                part=part,
             )
         review_run_application.record_live_diff_result(
             postgres_runtime(),
@@ -843,6 +873,7 @@ def pr_diff(args: dict[str, Any], **context: Any) -> str:
                 exposed_paths=tuple(assembled.exposed_paths),
                 page=assembled.page,
             ),
+            part=part,
         )
         return page_output(
             {

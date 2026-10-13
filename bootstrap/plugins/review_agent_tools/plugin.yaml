@@ -14,6 +14,7 @@ provides_tools:
   - review_agent_related_code
   - review_agent_memory_context
   - review_agent_memory_record
+  - review_agent_part_report
   - review_agent_deliver
 requires_env:
   - name: REVIEW_AGENT_DATABASE_URL

@@ -4,6 +4,7 @@ import os
 import sys
 import unittest
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 from typing import cast
 from unittest.mock import Mock
@@ -251,6 +252,55 @@ class AdminRunActionTests(unittest.TestCase):
             )
         self.assertEqual(controls.run.status.value, "failed")
         self.assertEqual(controls.audit[0].stale_after_minutes, 15)
+
+    def test_a_live_part_lease_keeps_a_split_review_from_being_marked_stalled(
+        self,
+    ) -> None:
+        queued = self.queued_job(suffix=5)
+
+        def claim(connection: psycopg.Connection[tuple[object, ...]], owner: str) -> jobs.ReviewJob:
+            job = jobs.claim_next_job(
+                connection,
+                lease_owner=owner,
+                lease_duration=timedelta(minutes=2),
+                priority_aging_interval=timedelta(minutes=15),
+            )
+            assert job is not None
+            return job
+
+        with self.runtime.transaction() as connection:
+            main = claim(connection, "planner")
+            jobs.enqueue_part_jobs(connection, main=main, parts=1)
+            jobs.requeue_unstarted_job(
+                connection,
+                job_id=main.id,
+                lease_owner="planner",
+                lease_generation=main.lease_generation,
+            )
+            self.assertEqual(claim(connection, "part").part, 1)
+            connection.execute(
+                "UPDATE review_agent.review_runs "
+                "SET started_at = statement_timestamp() - INTERVAL '31 minutes', "
+                "last_heartbeat_at = statement_timestamp() - INTERVAL '30 minutes' "
+                "WHERE id = %s",
+                (queued.review_run_id,),
+            )
+            controls = admin_run_actions.controls(
+                connection, run_id=queued.review_run_id
+            )
+            waiting_main = jobs.get_job(connection, main.id)
+            with self.assertRaises(admin_run_actions.AdminRunActionError):
+                admin_run_actions.apply_action(
+                    connection,
+                    run_id=queued.review_run_id,
+                    request=replace(
+                        self.request(waiting_main, admin_run_actions.RunAction.MARK_STALLED),
+                        stale_after_minutes=15,
+                    ),
+                )
+        self.assertEqual(controls.job.id if controls.job else None, main.id)
+        self.assertFalse(controls.mark_stalled.available)
+        self.assertTrue(controls.cancel.available)
 
 
 if __name__ == "__main__":

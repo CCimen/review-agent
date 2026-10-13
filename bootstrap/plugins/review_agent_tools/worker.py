@@ -22,13 +22,20 @@ from typing import cast
 
 import psycopg
 
-from . import documentation_preflight, failure_codes, review_contract, review_run_application, settings
+from . import (
+    documentation_preflight,
+    failure_codes,
+    review_contract,
+    review_part_instructions,
+    review_run_application,
+    settings,
+)
 from .domain.review import JsonObject, ReviewPurpose
 from .hermes_control import MANAGED_REVIEW_PATH
 from .github.gateway import GitHubGatewayRejected, GitHubGatewayRetryable
 from .github.gateway_client import ReviewGitHubGatewayClient
 from .review_tool_runtime import GatewaySourceSession, ToolInputError
-from .postgres import jobs, review_runs
+from .postgres import jobs, parts as postgres_parts, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
 from .source_control import SameOriginHttpsRedirectHandler
 from .worker_telemetry import TokenUsage, WorkerTelemetry, parse_usage, record_usage
@@ -128,6 +135,10 @@ class ClaimedReview:
     pr_number: int
     resolved_config: JsonObject
     purpose: ReviewPurpose = ReviewPurpose.CODE
+    # A review split into parts: this job's part (zero is the main job) and the
+    # number of parts planned for the run (zero for a review that was not split).
+    part: int = 0
+    parts: int = 0
 
 
 class HermesChatClient:
@@ -173,19 +184,27 @@ class HermesChatClient:
                 raise HermesRequestError("Documentation review skill is not installed", retryable=False)
             instructions = self._documentation_instructions
             first_call = f"Call review_agent_docs_begin first with run_id {int(claimed.job.review_run_id)}. "
+        request_text = (
+            "Continue the assigned durable pull-request review. "
+            f"{first_call}"
+            "Follow the review skill and finish through deterministic "
+            "delivery."
+        )
+        if claimed.part:
+            instructions += review_part_instructions.PART_INSTRUCTIONS
+            request_text = review_part_instructions.part_request(
+                first_call, part=claimed.part, parts=claimed.parts
+            )
+        elif claimed.parts:
+            instructions += review_part_instructions.FINAL_INSTRUCTIONS
+            request_text = review_part_instructions.final_request(
+                first_call, parts=claimed.parts
+            )
         payload = json.dumps(
             {
                 "messages": [
                     {"role": "system", "content": instructions},
-                    {
-                        "role": "user",
-                        "content": (
-                            "Continue the assigned durable pull-request review. "
-                            f"{first_call}"
-                            "Follow the review skill and finish through deterministic "
-                            "delivery."
-                        ),
-                    },
+                    {"role": "user", "content": request_text},
                 ],
                 "stream": False,
                 "provider": contract.model_provider,
@@ -397,6 +416,10 @@ class ReviewWorker:
                     JsonObject, json.loads(scope.resolved_config.canonical_json)
                 ),
                 purpose=scope.run.purpose,
+                part=job.part,
+                parts=postgres_parts.planned_parts(
+                    connection, run_id=job.review_run_id
+                ),
             )
 
     def _recover_if_due(self) -> None:

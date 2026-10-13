@@ -36,6 +36,7 @@ _process_runtime: PostgreSQLRuntime | None = None
 _process_runtime_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 ReviewRunTerminal = review_run_application.ReviewRunTerminal
+_REVIEW_PART = "review_part"
 
 
 class ToolInputError(ValueError):
@@ -68,7 +69,7 @@ def worker_lease_fence(
                     )
                 run_id = _positive_id(args.get(run_id_field), field=run_id_field)
                 with postgres_runtime().transaction() as connection:
-                    postgres_jobs.require_live_lease(
+                    job = postgres_jobs.require_live_lease(
                         connection,
                         job_id=lease.job_id,
                         review_run_id=ReviewRunId(run_id),
@@ -85,11 +86,20 @@ def worker_lease_fence(
                 return error_output(
                     "worker lease could not be verified; stop this review turn"
                 )
-            return handler(args, **context)
+            return handler(args, **{**context, _REVIEW_PART: job.part})
 
         return fenced
 
     return decorate
+
+
+def session_part(context: dict[str, Any]) -> int:
+    """The review part of the calling session; zero is the review's main session.
+
+    The lease fence takes it from the leased job, never from the model.
+    """
+    part = context.get(_REVIEW_PART)
+    return part if type(part) is int and part > 0 else 0
 
 
 def output_json(value: Any) -> str:

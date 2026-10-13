@@ -47,6 +47,8 @@ class ReviewJobLeaseLost(ReviewJobError):
         self.current_job = current_job
 
 
+# Jobs of one review that may hold a lease or a running model execution at once.
+MAX_PARALLEL_PARTS = 3
 _WORKER_SESSION_PREFIX = "review-agent-job-"
 _WORKER_SESSION_RE = re.compile(r"^review-agent-job-([1-9][0-9]*)-lease-([1-9][0-9]*)$")
 
@@ -101,6 +103,8 @@ class ReviewJob:
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    # Zero is the review's main job; a positive value is one review part.
+    part: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +124,7 @@ class _ReviewJobRow:
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    part: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +158,7 @@ class _RecoveredJobRow:
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    part: int
     run_status: str
 
 
@@ -201,13 +207,13 @@ class ReviewQueueHealth:
 _JOB_COLUMNS = """
     id, review_run_id, status, priority, available_at, attempt_count,
     max_attempts, lease_owner, lease_generation, lease_expires_at,
-    last_heartbeat_at, failure_code, created_at, started_at, completed_at
+    last_heartbeat_at, failure_code, created_at, started_at, completed_at, part
 """
 _QUALIFIED_JOB_COLUMNS = """
     job.id, job.review_run_id, job.status, job.priority, job.available_at,
     job.attempt_count, job.max_attempts, job.lease_owner,
     job.lease_generation, job.lease_expires_at, job.last_heartbeat_at,
-    job.failure_code, job.created_at, job.started_at, job.completed_at
+    job.failure_code, job.created_at, job.started_at, job.completed_at, job.part
 """
 
 
@@ -237,6 +243,7 @@ def _job(row: _ReviewJobRow) -> ReviewJob:
         created_at=row.created_at,
         started_at=row.started_at,
         completed_at=row.completed_at,
+        part=row.part,
     )
 
 
@@ -261,7 +268,7 @@ def _by_run(
     with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
         row = cursor.execute(
             f"SELECT {_JOB_COLUMNS} FROM review_agent.review_jobs "
-            "WHERE review_run_id = %s",
+            "WHERE review_run_id = %s AND part = 0",
             (review_run_id,),
         ).fetchone()
     return _job(row) if row is not None else None
@@ -447,7 +454,7 @@ def enqueue_run(
     )
     active_count = connection.execute(
         "SELECT count(*) FROM review_agent.review_jobs "
-        "WHERE status IN ('queued', 'leased', 'awaiting_publication')"
+        "WHERE status IN ('queued', 'leased', 'awaiting_publication') AND part = 0"
     ).fetchone()
     if active_count is None or not isinstance(active_count[0], int):
         raise ReviewJobError("active review-job count could not be read")
@@ -465,7 +472,7 @@ def enqueue_run(
                     %s, 'queued', %s, statement_timestamp(), 0, %s, 0,
                     statement_timestamp()
                 )
-                ON CONFLICT (review_run_id) DO NOTHING
+                ON CONFLICT (review_run_id, part) DO NOTHING
                 RETURNING {_JOB_COLUMNS}
                 """,
                 (resolved_run_id, resolved_priority, resolved_max_attempts),
@@ -515,7 +522,8 @@ def claim_next_job(
                 SELECT job_id FROM review_agent.model_executions WHERE finished_at IS NULL
             ),
             occupancy AS MATERIALIZED (
-                SELECT pull_request.repository_id, subject.model_connection_id, subject.admission_team_id
+                SELECT pull_request.repository_id, subject.model_connection_id, subject.admission_team_id,
+                       job.id AS job_id, job.review_run_id
                 FROM occupied_jobs occupied
                 JOIN review_agent.review_jobs job ON job.id = occupied.id
                 JOIN review_agent.review_runs run ON run.id = job.review_run_id
@@ -553,7 +561,19 @@ def claim_next_job(
                   AND job.available_at <= statement_timestamp()
                   AND job.attempt_count < job.max_attempts
                   AND run.status = 'running'
-                  AND NOT EXISTS (SELECT 1 FROM occupancy WHERE occupancy.repository_id = repository.id)
+                  -- A recovered lease stays unclaimable until its model execution ends.
+                  AND NOT EXISTS (SELECT 1 FROM occupancy WHERE occupancy.job_id = job.id)
+                  -- One review per repository; the jobs of that review may overlap.
+                  AND NOT EXISTS (SELECT 1 FROM occupancy WHERE occupancy.repository_id = repository.id
+                                  AND occupancy.review_run_id <> run.id)
+                  -- The jobs of one review leave a connection slot to other reviews.
+                  AND (SELECT count(*) FROM occupancy WHERE occupancy.review_run_id = run.id)
+                      < LEAST(%s, GREATEST(1, model_connection.max_concurrency - 1))
+                  -- The main job continues only after every part has reported.
+                  AND (job.part > 0 OR NOT EXISTS (
+                        SELECT 1 FROM review_agent.review_jobs AS part_job
+                        WHERE part_job.review_run_id = job.review_run_id
+                          AND part_job.part > 0 AND part_job.status <> 'succeeded'))
                   AND model_connection.runtime_key = %s
                   AND model_connection.state = 'enabled'
                   AND (model_account.quota_wait_until IS NULL
@@ -600,9 +620,76 @@ def claim_next_job(
             )
             SELECT * FROM claimed
             """,
-            (runtime_key, priority_aging_interval, owner, lease_duration),
+            (
+                MAX_PARALLEL_PARTS,
+                runtime_key,
+                priority_aging_interval,
+                owner,
+                lease_duration,
+            ),
         ).fetchone()
     return _job(row) if row is not None else None
+
+
+def enqueue_part_jobs(
+    connection: psycopg.Connection[TupleRow], *, main: ReviewJob, parts: int
+) -> tuple[ReviewJob, ...]:
+    """Queue one job per review part beside the run's main job."""
+    _require_transaction(connection)
+    count = _integer(parts, field="parts", minimum=1)
+    if main.part != 0:
+        raise ReviewJobError("only a review's main job can own parts")
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        rows = cursor.execute(
+            f"""
+            INSERT INTO review_agent.review_jobs (
+                review_run_id, part, status, priority, available_at,
+                attempt_count, max_attempts, lease_generation, created_at
+            )
+            SELECT %s, part, 'queued', %s, statement_timestamp(), 0, %s, 0,
+                   statement_timestamp()
+            FROM generate_series(1, %s) AS part
+            RETURNING {_JOB_COLUMNS}
+            """,
+            (main.review_run_id, main.priority, main.max_attempts, count),
+        ).fetchall()
+    return tuple(sorted((_job(row) for row in rows), key=lambda job: job.part))
+
+
+def succeed_part_job(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    job_id: int,
+    review_run_id: ReviewRunId,
+    lease_generation: int,
+) -> ReviewJob:
+    """Complete one part job under its exact live lease."""
+    _require_transaction(connection)
+    resolved_job_id = _integer(job_id, field="job_id", minimum=1)
+    generation = _integer(lease_generation, field="lease_generation", minimum=1)
+    with connection.cursor(row_factory=class_row(_ReviewJobRow)) as cursor:
+        row = cursor.execute(
+            f"""
+            UPDATE review_agent.review_jobs
+            SET status = 'succeeded',
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                last_heartbeat_at = NULL,
+                failure_code = NULL,
+                completed_at = statement_timestamp()
+            WHERE id = %s
+              AND review_run_id = %s
+              AND part > 0
+              AND status = 'leased'
+              AND lease_generation = %s
+              AND lease_expires_at > statement_timestamp()
+            RETURNING {_JOB_COLUMNS}
+            """,
+            (resolved_job_id, review_run_id, generation),
+        ).fetchone()
+    if row is None:
+        raise ReviewJobLeaseLost(get_job(connection, resolved_job_id))
+    return _job(row)
 
 
 def begin_model_execution(
@@ -803,7 +890,7 @@ def requeue_unstarted_job(
     lease_owner: str,
     lease_generation: int,
 ) -> ReviewJob:
-    """Return one exact pre-activation lease without consuming an attempt."""
+    """Return one exact live lease to the queue without consuming an attempt."""
     _require_transaction(connection)
     resolved_job_id = _integer(job_id, field="job_id", minimum=1)
     owner = lease_owner.strip()
@@ -1020,7 +1107,7 @@ def recover_expired_leases(
                 job.available_at, job.attempt_count, job.max_attempts,
                 job.lease_owner, job.lease_generation, job.lease_expires_at,
                 job.last_heartbeat_at, job.failure_code, job.created_at,
-                job.started_at, job.completed_at, run.status AS run_status
+                job.started_at, job.completed_at, job.part, run.status AS run_status
     """
     with connection.cursor(row_factory=class_row(_RecoveredJobRow)) as cursor:
         rows = cursor.execute(
@@ -1098,6 +1185,7 @@ def recover_expired_leases(
                         created_at=row.created_at,
                         started_at=row.started_at,
                         completed_at=row.completed_at,
+                        part=row.part,
                     )
                 )
                 for row in rows

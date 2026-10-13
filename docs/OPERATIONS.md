@@ -220,6 +220,65 @@ review is not limited. Four batches then use at most four fifths of the combined
 limit whatever `result_max_chars` is set to. The plugin cannot see the other
 calls of a response, so the remaining fifth is headroom for a stray sibling
 result, not an enforced bound on mixed responses.
+
+### Very large pull requests
+
+One reviewer session reads a limited amount of diff. In two production reviews
+of a 600-file pull request the session stopped reading after about 150 files and
+30 minutes, whatever the procedure asked. A code review whose changed files hold
+more than 600,000 diff characters is therefore reviewed in parts. Documentation
+reviews are never split.
+
+1. The first session only registers the changed files. `review_agent_begin`
+   packs them in path order into parts of about 400,000 diff characters, so a
+   directory stays together, and ends that session.
+2. Every part is its own job in the review queue and its own reviewer session.
+   A part cannot hand in before the tools have returned the whole diff of each of
+   its files, and a retried part starts its reading again. It hands in candidate
+   findings and short notes instead of recording findings. A part that starts
+   after another part has handed in receives that part's findings (path, line,
+   severity, title) and notes.
+3. When every part has handed in, a final session receives all candidates and
+   notes, verifies and reconciles them against source, re-checks earlier findings
+   of the pull request, records the survivors, and delivers one publication. It
+   can neither record a finding nor deliver before it has received every part's
+   report.
+
+| Rule | Value | Owner |
+| --- | --- | --- |
+| A review is split above | 600,000 diff characters | `review_agent_tools.domain.review` |
+| Part size | about 400,000, at most 600,000 diff characters | `review_agent_tools.domain.review` |
+| Parts in one review | 12 | `review_agent_tools.domain.review` |
+| Jobs of one review that run at once | 3, and at most the model connection's concurrency minus one | `review_agent_tools.postgres.jobs` |
+| Report one part hands in | 12,307 serialized characters of candidates and notes by default, a thirteenth of the combined result limit | `review_agent_tools.capacity` |
+
+A part hands in every candidate that fits its report. When they do not fit, it
+shortens their text first. A candidate that still does not fit becomes a note
+with its path, line, and the failure it claims, and the final session verifies
+it like any other note. A report that cannot be made to fit is refused.
+
+A changed file without a GitHub patch counts as 48 characters per changed line.
+A file whose own diff exceeds a part, and files after the twelfth part, belong to
+no part. They stay unread and appear in the coverage details like any other
+unread file. When only such a file pushes a pull request over the threshold, the
+review is not split and its single session reads that file as far as it gets.
+
+Each part counts as one review job against the model connection's and the team's
+concurrency limits, and waits for model quota like any review. The per-review
+limit leaves a slot for other repositories whenever the connection allows two or
+more jobs. A part that uses up `REVIEW_AGENT_JOB_MAX_ATTEMPTS` fails the whole
+review with the usual failure status; no partial result is published.
+
+Model usage grows with the diff. A split review adds one short first session and
+the final session. An ordinary review runs no extra session and makes no extra
+GitHub call; its reviewer tool list holds one more tool,
+`review_agent_part_report`. The console shows a split review as one request with
+usage summed over its parts, and `review-agent-admin jobs list` names each job's
+`part`, where `0` is the review's main job. Queue health does not count a main
+job that waits for its parts as waiting or due work.
+
+The sizes above come from those two reviews on a model with a 272,000-token
+context window. They are constants, not settings.
 Single-path diff and source pages are bounded by `result_max_chars` alone. A
 typical page is far below the single-result limit, but text that JSON-escapes
 heavily can serialize past it while `result_max_chars` is above 100,000.
@@ -747,6 +806,12 @@ purpose per pull request. Existing records remain code reviews with their IDs,
 finding references, and decisions preserved. If rollback is required after
 documentation records have been created, restore the pre-upgrade database backup
 with its matching application revision; do not remove purpose columns in place.
+
+Migration 037 lets one review own several queue jobs. Deploy every service from
+the same source revision, as for migration 029: older images enqueue a review
+with a conflict target this migration replaces, so they cannot accept reviews on
+the migrated schema. Rolling back requires the pre-upgrade database backup with
+its matching images.
 
 Back up PostgreSQL securely. It may contain unpublished findings and
 human-entered reasons. Create a logical backup from the Compose host:

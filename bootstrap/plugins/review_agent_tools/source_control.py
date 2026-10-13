@@ -220,15 +220,25 @@ class GitHubReadClient:
         *,
         request_timeout_seconds: float = _DEFAULT_REQUEST_TIMEOUT_SECONDS,
         max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+        retry_window_seconds: float | None = None,
         opener: urllib.request.OpenerDirector | None = None,
     ) -> None:
+        """``retry_window_seconds`` bounds retries across every request this client
+        makes: a retry starts only if its wait and attempt end within the window
+        that opened when the client was created."""
         if request_timeout_seconds <= 0:
             raise ValueError("request_timeout_seconds must be positive")
         if type(max_attempts) is not int or max_attempts < 1:
             raise ValueError("max_attempts must be a positive integer")
+        if retry_window_seconds is not None and retry_window_seconds <= 0:
+            raise ValueError("retry_window_seconds must be positive")
         self._token = token
         self._request_timeout_seconds = request_timeout_seconds
         self._max_attempts = max_attempts
+        self._retry_until = (
+            None if retry_window_seconds is None
+            else time.monotonic() + retry_window_seconds
+        )
         self._opener = opener or urllib.request.build_opener(
             SameOriginHttpsRedirectHandler()
         )
@@ -307,7 +317,7 @@ class GitHubReadClient:
                     else None
                 )
                 exc.close()
-                if retryable and retry_at is None and attempt + 1 < self._max_attempts:
+                if retryable and retry_at is None and self._may_retry(attempt):
                     time.sleep(_retry_delay(attempt))
                     continue
                 if exc.code == 401:
@@ -348,16 +358,16 @@ class GitHubReadClient:
                     retry_at=retry_at,
                 ) from exc
             except TimeoutError as exc:
-                # A GET is safe to repeat; the caller sizes attempts and timeout
-                # to fit its own deadline.
-                if attempt + 1 < self._max_attempts:
+                # A GET is safe to repeat; the retry window keeps it within the
+                # caller's deadline.
+                if self._may_retry(attempt):
                     time.sleep(_retry_delay(attempt))
                     continue
                 raise GitHubReadError(
                     "timeout", "GitHub read timed out", retryable=True
                 ) from exc
             except urllib.error.URLError as exc:
-                if attempt + 1 < self._max_attempts:
+                if self._may_retry(attempt):
                     time.sleep(_retry_delay(attempt))
                     continue
                 raise GitHubReadError(
@@ -367,6 +377,14 @@ class GitHubReadClient:
         raise GitHubReadError(
             "unreachable", "GitHub could not be reached", retryable=True
         )
+
+    def _may_retry(self, attempt: int) -> bool:
+        if attempt + 1 >= self._max_attempts:
+            return False
+        if self._retry_until is None:
+            return True
+        finish = time.monotonic() + _retry_delay(attempt) + self._request_timeout_seconds
+        return finish <= self._retry_until
 
     def request_json(self, endpoint: str, *, max_bytes: int = 2_000_000) -> object:
         raw, truncated, _ = self.request(endpoint, max_bytes=max_bytes)

@@ -1465,14 +1465,16 @@ class ReviewGitHubGateway:
 def _gateway_github_client(token: str) -> GitHubReadClient:
     """Bound one gateway operation well inside its durable delivery lease.
 
-    Three 10-second attempts with 1 s and 2 s waits end within 33 s, inside the
-    plugin's 90-second gateway deadline, so a brief GitHub failure is retried here
-    instead of ending a review turn.
+    The gateway makes one client per operation. Retries fit within its first 33 s
+    (three 10-second attempts with 1 s and 2 s waits), so a brief GitHub failure
+    is retried here instead of ending a review turn, while an operation of many
+    reads never retries past that window toward the plugin's 90 s deadline.
     """
     return GitHubReadClient(
         token,
         request_timeout_seconds=10.0,
         max_attempts=3,
+        retry_window_seconds=33.0,
     )
 
 

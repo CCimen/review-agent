@@ -161,13 +161,6 @@ def stage_part(
 ) -> str:
     """Store a part session's candidates for the final session instead of recording them."""
     notes = _notes(raw_notes)
-    candidates = review_parts_application.PART_MAX_CANDIDATES
-    if len(findings) > candidates:
-        raise ToolInputError(
-            f"a review part stores at most {candidates} candidates. Keep the "
-            "highest-severity, best-proven ones and name in part_notes how many "
-            "lower-priority candidates were left out."
-        )
     review_finding_application.validate_live_findings(
         head_sha=head_sha, raw_findings=findings, changed_files=changed_files
     )
@@ -178,7 +171,9 @@ def stage_part(
         raise ToolInputError(
             f"this part's candidates and notes exceed {limit} characters. Keep "
             "every candidate and shorten its evidence, disproof, impact, and fix "
-            "text; the final session reads the source again."
+            "text; the final session reads the source again. Only if they still "
+            "do not fit, leave out the lowest-severity candidates and name the "
+            "path and line of each one in part_notes."
         )
     try:
         part = review_parts_application.stage_report(

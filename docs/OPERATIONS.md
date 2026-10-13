@@ -250,7 +250,11 @@ reviews are never split.
 | Part size | about 400,000, at most 600,000 diff characters | `review_agent_tools.domain.review` |
 | Parts in one review | 12 | `review_agent_tools.domain.review` |
 | Jobs of one review that run at once | 3, and at most the model connection's concurrency minus one | `review_agent_tools.postgres.jobs` |
-| Candidates one part hands in | 16 findings in 12,307 serialized characters by default | A twelfth of the 200-finding limit; a thirteenth of the combined result limit |
+| Report one part hands in | 12,307 serialized characters of candidates and notes by default, a thirteenth of the combined result limit | `review_agent_tools.capacity` |
+
+A part hands in every candidate that fits its report. When they do not fit, it
+shortens their text first; a candidate it still has to leave out is named by path
+and line in its notes, which the final session follows up.
 
 A changed file without a GitHub patch counts as 48 characters per changed line.
 A file whose own diff exceeds a part, and files after the twelfth part, belong to

@@ -7,14 +7,7 @@ from dataclasses import dataclass
 import psycopg
 from psycopg.rows import TupleRow
 
-from .domain.finding import MAX_FINDINGS_PER_REVIEW
-from .domain.review import (
-    MAX_REVIEW_PARTS,
-    JsonObject,
-    ReviewPartPlan,
-    ReviewPhase,
-    ReviewRunId,
-)
+from .domain.review import JsonObject, ReviewPartPlan, ReviewPhase, ReviewRunId
 from .postgres import (
     jobs as postgres_jobs,
     parts as postgres_parts,
@@ -22,8 +15,6 @@ from .postgres import (
 )
 from .postgres.runtime import PostgreSQLRuntime
 
-# Every part may stage an equal share of the findings one review can record.
-PART_MAX_CANDIDATES = MAX_FINDINGS_PER_REVIEW // MAX_REVIEW_PARTS
 PART_MAX_NOTES = 10
 PART_NOTE_MAX_CHARS = 300
 

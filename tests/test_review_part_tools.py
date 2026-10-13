@@ -278,17 +278,23 @@ class ReviewPartToolTests(unittest.TestCase):
             {"findings": [finding()], "notes": ["save() can now return None"]},
         )
 
+    def test_a_part_hands_in_every_candidate_that_fits_its_report(self) -> None:
+        # More than an equal share of the review's finding limit: only the
+        # report size bounds what one part hands to the final session.
+        candidates = [finding(anchor=f"anchor {index}") for index in range(17)]
+        stored = Mock(return_value=2)
+        done = self.record(candidates, part=2, stage=stored)
+        self.assertEqual((done["stage"], done["candidates"]), ("part_recorded", 17))
+        self.assertEqual(stored.call_args.kwargs["report"]["findings"], candidates)
+
     def test_a_part_report_names_what_to_change_when_it_cannot_be_stored(self) -> None:
         never = Mock(side_effect=AssertionError("an invalid report must not be stored"))
-        too_many = [
-            finding(anchor=f"anchor {index}")
-            for index in range(review_parts_application.PART_MAX_CANDIDATES + 1)
-        ]
-        self.assertIn("part_notes", self.record(too_many, part=2, stage=never)["error"])
-
         limit = capacity.current().part_report_max_chars
         long_text = [finding(anchor=f"anchor {index}", evidence="e" * 900) for index in range(limit // 900 + 1)]
-        self.assertIn("shorten", self.record(long_text, part=2, stage=never)["error"])
+        too_long = self.record(long_text, part=2, stage=never)["error"]
+        self.assertIn("shorten", too_long)
+        # What still does not fit stays recoverable: the final session follows notes.
+        self.assertIn("path and line", too_long)
 
         invalid = self.record([finding(severity="Blocker")], part=2, stage=never)
         self.assertIn("severity must be one of", invalid["error"])

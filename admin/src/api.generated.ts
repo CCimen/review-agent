@@ -2177,6 +2177,8 @@ export interface components {
         };
         /** DeploymentSettings */
         DeploymentSettings: {
+            /** Model */
+            model: string;
             /**
              * Active Job Limit
              * @default 100
@@ -2324,11 +2326,6 @@ export interface components {
              * @enum {string}
              */
             model_provider: "openai-codex" | "anthropic";
-            /**
-             * Model
-             * @default gpt-5.6-sol
-             */
-            model: string;
             /**
              * Reasoning Effort
              * @default xhigh

@@ -9777,6 +9777,10 @@
       },
       "DeploymentSettings": {
         "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
           "active_job_limit": {
             "type": "integer",
             "title": "Active Job Limit",
@@ -9930,11 +9934,6 @@
             "title": "Model Provider",
             "default": "openai-codex"
           },
-          "model": {
-            "type": "string",
-            "title": "Model",
-            "default": "gpt-5.6-sol"
-          },
           "reasoning_effort": {
             "type": "string",
             "enum": [
@@ -9952,6 +9951,9 @@
           }
         },
         "type": "object",
+        "required": [
+          "model"
+        ],
         "title": "DeploymentSettings"
       },
       "DeploymentSettingsPage": {

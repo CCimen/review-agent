@@ -70,7 +70,10 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         contract = review_contract.load_packaged_contract(
             "default-standard",
             Path(__file__).resolve().parents[1] / "bootstrap",
-            environment={"HERMES_IMAGE": "hermes@sha256:" + "a" * 64},
+            environment={
+                "HERMES_IMAGE": "hermes@sha256:" + "a" * 64,
+                "REVIEW_AGENT_MODEL": "test-review-model",
+            },
         )
         self.contract = contract
         self.enterContext(

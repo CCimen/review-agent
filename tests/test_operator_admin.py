@@ -173,6 +173,7 @@ class OperatorSetupTests(unittest.TestCase):
                 "API_SERVER_KEY": "configured-internal-api-key",
                 "REVIEW_AGENT_HERMES_IMAGE": PINNED_HERMES_IMAGE,
                 "REVIEW_AGENT_PROFILE": "default-standard",
+                "REVIEW_AGENT_MODEL": "test-review-model",
                 "REVIEW_AGENT_REASONING_EFFORT": "high",
             }
             with patch.dict(

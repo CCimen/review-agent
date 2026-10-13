@@ -82,6 +82,7 @@ docker run --rm --user 12345:0 \
     --tmpfs /opt/data:rw,mode=0770,uid=12345,gid=0 \
     --env HOME=/opt/data \
     --env HERMES_HOME=/opt/data \
+    --env REVIEW_AGENT_MODEL=image-check-model \
     --entrypoint sh \
     "$image" -ec '
         /opt/review-agent-bootstrap/install.sh

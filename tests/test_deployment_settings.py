@@ -30,6 +30,7 @@ class DeploymentSettingsTests(unittest.TestCase):
     ) -> None:
         policy = DeploymentSettings.from_environment(
             {
+                "REVIEW_AGENT_MODEL": "test-model",
                 "REVIEW_AGENT_JOB_PRIORITY": "0",
                 "REVIEW_AGENT_JOB_RETRY_SECONDS": "45",
                 "REVIEW_AGENT_PUBLICATION_LEASE_SECONDS": "180",
@@ -39,11 +40,15 @@ class DeploymentSettingsTests(unittest.TestCase):
         )
         self.assertEqual(policy.job_retry_seconds, 45)
         self.assertEqual(policy.publish_max_bytes, 65_000)
-        self.assertEqual(DeploymentSettings().publish_max_bytes, 65_000)
+        self.assertEqual(DeploymentSettings(model="test-model").publish_max_bytes, 65_000)
         self.assertEqual(policy.admission_max_concurrent_requests, 12)
         self.assertEqual(
             policy, DeploymentSettings.from_environment(policy.environment())
         )
+        # No model stands in for one the deployment did not name.
+        for missing in ({}, {"REVIEW_AGENT_MODEL": "  "}):
+            with self.assertRaisesRegex(ValueError, "REVIEW_AGENT_MODEL must name the review model"):
+                DeploymentSettings.from_environment(missing)
         with self.assertRaisesRegex(ValueError, "Publication heartbeat"):
             replace(policy, publication_heartbeat_seconds=90)
         with self.assertRaises(ValueError):
@@ -64,7 +69,7 @@ class DeploymentSettingsTests(unittest.TestCase):
             "REVIEW_AGENT_CODE_GRAPH_ENABLED": "false",
             "REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS": "none",
             "REVIEW_AGENT_MODEL_PROVIDER": "openai-codex",
-            "REVIEW_AGENT_MODEL": "gpt-5.6-sol",
+            "REVIEW_AGENT_MODEL": "stored-model",
             "REVIEW_AGENT_REASONING_EFFORT": "xhigh",
         }
         connection = MagicMock()
@@ -96,14 +101,17 @@ class DeploymentSettingsTests(unittest.TestCase):
         installed = review_contract.load_packaged_contract(
             "default-standard",
             Path(__file__).resolve().parents[1] / "bootstrap",
-            environment={"HERMES_IMAGE": "hermes@sha256:" + "a" * 64},
+            environment={
+                "HERMES_IMAGE": "hermes@sha256:" + "a" * 64,
+                "REVIEW_AGENT_MODEL": "installed-model",
+            },
         )
         queued = review_contract.with_model_route(
             installed, provider="anthropic", model="claude-test", effort="high"
         )
         frozen = review_contract.resolved_config(queued)
         review_contract.require_matching_execution_contract(frozen, installed)
-        later_selection = replace(DeploymentSettings(), model="next-model")
+        later_selection = DeploymentSettings(model="next-model")
         self.assertNotEqual(queued.model, later_selection.model)
         self.assertEqual(review_contract.queued_contract(frozen).model, "claude-test")
         with self.assertRaises(review_contract.ReviewContractError):
@@ -143,7 +151,7 @@ class DeploymentSettingsTests(unittest.TestCase):
         from dataclasses import asdict
 
         body = {
-            "settings": asdict(DeploymentSettings()),
+            "settings": asdict(DeploymentSettings(model="test-model")),
             "expected_revision": 0,
             "reason": "adjust capacity",
         }
@@ -210,7 +218,7 @@ class SettingsPersistenceTests(unittest.TestCase):
                 with self.assertRaises(store.SettingsConflict):
                     store.save(
                         connection,
-                        settings=DeploymentSettings(),
+                        settings=DeploymentSettings(model="test-model"),
                         expected_revision=revision,
                         actor="admin:test",
                         reason="stale",
@@ -218,7 +226,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             self.assertEqual(store.latest(connection), first)
             restored = store.save(
                 connection,
-                settings=DeploymentSettings(),
+                settings=DeploymentSettings(model="test-model"),
                 expected_revision=first.id,
                 actor="admin:test",
                 reason="restore defaults",

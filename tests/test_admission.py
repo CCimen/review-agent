@@ -36,7 +36,7 @@ class AdmissionTests(unittest.TestCase):
             ),
             profile="default-standard",
             github_app_secret="app-webhook-secret",
-            contract_environment={},
+            contract_environment={"REVIEW_AGENT_MODEL": "test-review-model"},
             webhook_delivery_max_attempts=4,
         )
         self.runtime = MagicMock()
@@ -182,7 +182,7 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
             ),
             profile="default-standard",
             github_app_secret="app-webhook-secret",
-            contract_environment={},
+            contract_environment={"REVIEW_AGENT_MODEL": "test-review-model"},
         )
         self.runtime = MagicMock()
         self.server = admission_entrypoint.AdmissionServer(

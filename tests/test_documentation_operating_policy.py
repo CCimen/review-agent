@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from unittest.mock import patch
 
 import psycopg
 
@@ -41,6 +42,10 @@ class DocumentationModeTests(unittest.TestCase):
 @unittest.skipUnless(DSN, "requires an isolated PostgreSQL test database")
 class DocumentationPolicyAPITests(unittest.TestCase):
     def setUp(self) -> None:
+        # A deployment always names its review model.
+        environment = patch.dict(os.environ, {"REVIEW_AGENT_MODEL": "test-review-model"})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.fixture = test_admin_api.AdminAPITests("runTest")
         self.addCleanup(self.fixture.doCleanups)
         self.fixture.setUp()

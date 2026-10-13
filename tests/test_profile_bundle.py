@@ -133,14 +133,6 @@ class ProfileBundleTests(unittest.TestCase):
             tree_bytes(PROFILE_SOURCE / "skills" / "review-agent-docs"),
             tree_bytes(hermes_home / "skills" / "review-agent-docs"),
         )
-        self.assertEqual(
-            tree_bytes(PROFILE_SOURCE / "skills" / "security-audit"),
-            tree_bytes(hermes_home / "skills" / "security-audit"),
-        )
-        self.assertEqual(
-            tree_bytes(PROFILE_SOURCE / "skills" / "ponytail"),
-            tree_bytes(hermes_home / "skills" / "ponytail"),
-        )
 
     def test_installer_copies_fixed_profile_and_plugin_byte_for_byte(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -205,7 +197,7 @@ class ProfileBundleTests(unittest.TestCase):
                 )
             )
             self.assertEqual("default-standard", receipt["contract"]["profile"])
-            self.assertEqual(["review-agent-pr", "review-agent-docs", "ponytail", "security-audit"], receipt["skills"])
+            self.assertEqual(["review-agent-pr", "review-agent-docs"], receipt["skills"])
             self.assertEqual(2, receipt["schema_version"])
             self.assertEqual(HERMES_IMAGE, receipt["contract"]["hermes_image"])
             self.assertTrue(receipt["files"])
@@ -399,9 +391,22 @@ class ProfileBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             profiles = root / "profiles"
-            shutil.copytree(PROFILE_SOURCE, profiles / "default-standard")
+            default = profiles / "default-standard"
+            shutil.copytree(PROFILE_SOURCE, default)
             custom = profiles / "team-standard"
-            shutil.copytree(profiles / "default-standard", custom)
+            shutil.copytree(default, custom)
+            extra = default / "skills" / "extra-guidance"
+            extra.mkdir()
+            (extra / "SKILL.md").write_text("# Extra guidance\n", encoding="utf-8")
+            (default / "profile.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "skills": ["review-agent-pr", "review-agent-docs", "extra-guidance"],
+                    }
+                ),
+                encoding="utf-8",
+            )
             (custom / "skills" / "review-agent-pr" / "JAVA.md").write_text(
                 "# Team Java guidance\n", encoding="utf-8",
             )
@@ -423,6 +428,7 @@ class ProfileBundleTests(unittest.TestCase):
                 hermes_home,
                 profiles_source=profiles,
             )
+            self.assertTrue((hermes_home / "skills" / "extra-guidance").is_dir())
             selected = self.run_installer(
                 hermes_home,
                 "--profile",
@@ -447,7 +453,7 @@ class ProfileBundleTests(unittest.TestCase):
                     encoding="utf-8"
                 ),
             )
-            self.assertFalse((hermes_home / "skills" / "ponytail").exists())
+            self.assertFalse((hermes_home / "skills" / "extra-guidance").exists())
             receipt = json.loads(
                 (hermes_home / ".review-agent-profile.json").read_text(
                     encoding="utf-8"
@@ -495,7 +501,7 @@ class ProfileBundleTests(unittest.TestCase):
                     )
 
                 (custom / "profile.json").write_text(
-                    json.dumps({"schema_version": 1, "skills": ["ponytail"]}),
+                    json.dumps({"schema_version": 1, "skills": ["review-agent-docs"]}),
                     encoding="utf-8",
                 )
                 with self.assertRaisesRegex(
@@ -512,7 +518,7 @@ class ProfileBundleTests(unittest.TestCase):
             selected = profiles / "default-standard"
             shutil.copytree(PROFILE_SOURCE, selected)
             (selected / "profile.json").write_text(
-                json.dumps({"schema_version": 1, "skills": ["ponytail"]}),
+                json.dumps({"schema_version": 1, "skills": ["review-agent-docs"]}),
                 encoding="utf-8",
             )
             hermes_home = root / "hermes-home"

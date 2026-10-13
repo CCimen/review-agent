@@ -11,17 +11,18 @@ Hermes Agent is licensed under the MIT License. See the
 
 ## Ponytail
 
-The `bootstrap/profiles/default-standard/skills/ponytail` directory contains the Ponytail skill by
-Dietrich Gebert, vendored from release v4.7.0 under the MIT License. See the
-adjacent `LICENSE` and `SOURCE.md` files.
+The default review profile adapts guidance from the Ponytail skill by Dietrich
+Gebert, release v4.7.0, under the MIT License. See
+`bootstrap/profiles/default-standard/skills/review-agent-pr/THIRD_PARTY.md` for
+the source and licence.
 
 ## Cloudflare security-audit
 
-The `bootstrap/profiles/default-standard/skills/security-audit` directory contains
-Cloudflare's security-audit skill at commit
-`c1c8a8c1471069fb0e188eeaff69b8e8db6564a8`, under the MIT License. The PR review
-procedure adapts its source-review guidance. See the adjacent `LICENSE` and
-`SOURCE.md` for attribution and integration boundaries.
+The PR review procedure adapts the source-review guidance of Cloudflare's
+security-audit skill at commit `c1c8a8c1471069fb0e188eeaff69b8e8db6564a8`, under
+the MIT License. See
+`bootstrap/profiles/default-standard/skills/review-agent-pr/THIRD_PARTY.md` for
+the source, licence, and integration boundaries.
 
 ## Code Review Graph
 

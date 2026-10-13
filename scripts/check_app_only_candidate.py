@@ -19,7 +19,6 @@ SCAN_ROOTS = (
     Path(".env.example"),
     Path(".github/workflows"),
     Path("Dockerfile"),
-    Path("PRODUCT.md"),
     Path("README.md"),
     Path("bootstrap"),
     Path("compose.yaml"),

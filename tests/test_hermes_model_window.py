@@ -54,11 +54,24 @@ class HermesModelWindowTests(unittest.TestCase):
         )
         self.assertEqual(model_window.default_budget(), (100_000, 200_000))
 
-    def test_an_output_reservation_moves_the_compaction_point(self) -> None:
-        # Hermes applies the threshold to the window minus HERMES_MAX_TOKENS.
-        with patch.dict("os.environ", {"HERMES_MAX_TOKENS": "100000"}):
-            window = self.resolve("openai-codex", "selected-model", 500_000)
-        self.assertEqual(window.compaction_tokens, 320_000)
+    def test_an_output_reservation_moves_the_compaction_point_as_in_hermes(self) -> None:
+        from agent.context_compressor import ContextCompressor
+
+        # Hermes applies the threshold to the window minus HERMES_MAX_TOKENS and
+        # keeps the whole window when the reservation leaves nothing.
+        for reserved in ("100000", "+100000", "100_000", "500000", "not-a-number"):
+            with self.subTest(reserved=reserved), patch.dict(
+                "os.environ", {"HERMES_MAX_TOKENS": reserved}
+            ):
+                window = self.resolve("openai-codex", "selected-model", 500_000)
+                try:
+                    max_tokens = int(reserved)
+                except ValueError:
+                    max_tokens = None
+                self.assertEqual(
+                    window.compaction_tokens,
+                    ContextCompressor._compute_threshold_tokens(500_000, 0.8, max_tokens),
+                )
 
     def test_budgets_follow_hermes_for_a_small_window(self) -> None:
         from tools.budget_config import budget_for_context_window

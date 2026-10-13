@@ -100,6 +100,21 @@ def _compression_threshold() -> float:
     return float(threshold)
 
 
+def _input_tokens(context_tokens: int) -> int:
+    """The window minus the output Hermes reserves, as Hermes computes it.
+
+    The managed config sets no output reservation, so only HERMES_MAX_TOKENS can
+    reserve one (api_server and context_compressor in the pinned Hermes).
+    """
+    raw = os.environ.get("HERMES_MAX_TOKENS")
+    try:
+        reserved = int(raw) if raw else 0
+    except ValueError:
+        reserved = 0
+    input_tokens = context_tokens - reserved
+    return input_tokens if input_tokens > 0 else context_tokens
+
+
 def default_budget() -> tuple[int, int]:
     """Hermes' per-result and per-turn budgets before a model is known."""
     try:
@@ -130,11 +145,9 @@ def resolve(provider: str, model: str) -> ModelWindow:
             )
         )
         result_chars, turn_chars = _window(context_tokens)
-        # Hermes reserves HERMES_MAX_TOKENS of output out of the window before it
-        # applies the threshold; the managed config sets no other reservation.
-        reserved = os.environ.get("HERMES_MAX_TOKENS", "").strip()
-        input_tokens = context_tokens - (int(reserved) if reserved.isdecimal() else 0)
-        compaction_tokens = int(max(input_tokens, 1) * _compression_threshold())
+        compaction_tokens = int(
+            _input_tokens(context_tokens) * _compression_threshold()
+        )
     except ModelWindowError:
         raise
     except Exception as exc:  # Hermes has no shared error base for provider resolution.

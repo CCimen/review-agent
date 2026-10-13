@@ -41,6 +41,8 @@ from review_agent_tools.postgres import review_runs as postgres_review_runs  # n
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools import (  # noqa: E402
+    review_delivery_tool,
+    review_memory_tools,
     review_run_application,
     review_source_tools,
     review_tool_runtime,
@@ -245,6 +247,74 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             run = postgres_review_runs.get_run(connection, run_id)
         self.assertEqual(run.failure_code, "snapshot_superseded")
+
+    def run_reaching(self, phase: ReviewPhase) -> tuple[ReviewRunId, dict[str, object], SimpleNamespace]:
+        run_id = self.start_run()
+        review_run_application.register_postgres_changed_files(
+            self.runtime,
+            run_id=run_id,
+            files=(self.changed_file("src/a.py"),),
+            changed_files_reported=1,
+            registration_complete=True,
+        )
+        with self.runtime.transaction() as connection:
+            for step in (ReviewPhase.FETCHING_PR, ReviewPhase.COLLECTING_DIFF, ReviewPhase.REVIEWING):
+                postgres_review_runs.advance_phase(connection, run_id, step)
+                if step is phase:
+                    break
+        pull: dict[str, object] = {
+            "state": "open",
+            "base": {"sha": "b" * 40},
+            "head": {"sha": "a" * 40},
+            "changed_files": 1,
+        }
+        client = Mock()
+        client.get_review_pull.return_value = SimpleNamespace(
+            repository="team/coverage", pr_number=21, payload=pull
+        )
+        source = SimpleNamespace(
+            run_id=int(run_id), client=client, lease=SimpleNamespace(job_id=7, lease_generation=1)
+        )
+        return run_id, pull, source
+
+    def test_recording_reaches_reviewing_and_a_push_supersedes_the_run(self) -> None:
+        run_id, pull, source = self.run_reaching(ReviewPhase.COLLECTING_DIFF)
+        with (
+            patch.object(review_memory_tools, "gateway_source_session", return_value=source),
+            patch.object(review_memory_tools, "postgres_runtime", return_value=self.runtime),
+            patch.object(review_tool_runtime, "postgres_runtime", return_value=self.runtime),
+            patch.object(review_memory_tools, "load_changed_files", return_value=[]),
+        ):
+            # A session that read only diffs records from collecting_diff.
+            recorded = json.loads(
+                review_memory_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+            )
+            with self.runtime.transaction() as connection:
+                reviewing = postgres_review_runs.get_run(connection, run_id)
+            pull["head"] = {"sha": "c" * 40}
+            pushed = json.loads(
+                review_memory_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+            )
+        self.assertEqual(recorded["recorded"], [])
+        self.assertEqual(reviewing.phase, ReviewPhase.REVIEWING)
+        self.assertEqual(pushed["status"], "superseded")
+        with self.runtime.transaction() as connection:
+            run = postgres_review_runs.get_run(connection, run_id)
+        self.assertEqual(run.failure_code, "snapshot_superseded")
+
+    def test_delivery_after_a_push_supersedes_instead_of_failing_the_run(self) -> None:
+        run_id, pull, source = self.run_reaching(ReviewPhase.REVIEWING)
+        pull["head"] = {"sha": "c" * 40}
+        with (
+            patch.object(review_delivery_tool, "gateway_source_session", return_value=source),
+            patch.object(review_delivery_tool, "postgres_runtime", return_value=self.runtime),
+            patch.object(review_tool_runtime, "postgres_runtime", return_value=self.runtime),
+        ):
+            result = json.loads(review_delivery_tool.review_deliver.__wrapped__({"run_id": run_id}))
+        self.assertEqual(result["status"], "superseded")
+        with self.runtime.transaction() as connection:
+            run = postgres_review_runs.get_run(connection, run_id)
+        self.assertEqual((run.status, run.failure_code), (ReviewStatus.SUPERSEDED, "snapshot_superseded"))
 
     def test_live_inventory_persists_classifications_and_returns_summary(self) -> None:
         run_id = self.start_run()

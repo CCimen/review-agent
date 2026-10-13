@@ -77,14 +77,24 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
         source = gateway_source_session(args, context)
         repository, number, initial_pull = pull_request_identity(source)
         run_id = source.run_id
-        head_sha = pull_head_sha(initial_pull)
         findings_value = args.get("findings", [])
         if not isinstance(findings_value, list):
             raise ToolInputError("findings must be an array")
         findings = cast(list[Any], findings_value)
 
+        # The run owner matches this pull to the run's snapshot: a push after the
+        # review started supersedes the run instead of failing it. Recording also
+        # reaches reviewing for a session that read only diffs.
+        pull = review_run_snapshot(
+            source=source,
+            repository=repository,
+            pr_number=number,
+            phase="reviewing",
+            observed_pull=initial_pull,
+        )
+        head_sha = pull_head_sha(pull)
         # Render validation may send the same run back for a bounded finding
-        # correction. Reopen that exact lifecycle edge before validating GitHub.
+        # correction; reopen that exact lifecycle edge.
         review_run_application.reopen_live_finding_collection(
             postgres_runtime(),
             run_subject(
@@ -94,15 +104,6 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
             ),
             expected_head_sha=head_sha,
         )
-        # The run-owned head is checked before GitHub I/O, then current GitHub state
-        # is matched to that same snapshot. A fabricated model SHA remains a hard error.
-        pull = review_run_snapshot(
-            source=source,
-            repository=repository,
-            pr_number=number,
-            phase="reviewing",
-        )
-        head_sha = pull_head_sha(pull)
         if pull.get("state") != "open":
             raise ToolInputError("the pull request is no longer open")
         files = load_changed_files(source)
@@ -227,6 +228,7 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
         FindingDomainError,
         postgres_findings.FindingStoreError,
         review_parts_application.ReviewPartError,
+        review_run_application.ReviewRunError,
         postgres_jobs.ReviewJobError,
         PostgreSQLRuntimeError,
     ) as exc:

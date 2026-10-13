@@ -61,11 +61,13 @@ class CapacityLimits:
 
 
 def _limits(configured: int, *, result_chars: int, turn_chars: int) -> CapacityLimits:
+    result_max_chars = min(configured, result_chars)
     return CapacityLimits(
-        result_max_chars=min(configured, result_chars),
+        result_max_chars=result_max_chars,
         # JSON may escape one source character as six. The seventh share keeps
-        # room for stable metadata; pages enforce the actual serialized result.
-        text_page_max_chars=configured // _TEXT_PAGE_DIVISOR,
+        # room for stable metadata, so any page fits the session's result limit.
+        # Hermes' smallest per-result limit (8,000) keeps it above the minimum page.
+        text_page_max_chars=result_max_chars // _TEXT_PAGE_DIVISOR,
         response_max_chars=min(configured, turn_chars),
     )
 

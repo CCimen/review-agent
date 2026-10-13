@@ -1130,6 +1130,27 @@ class ToolContractTests(unittest.TestCase):
                     {"run_id": 41, "path": "src/new.py", "side": "base"}
                 )
             )
+            # On a small window the page is read within the session's result
+            # limit even when every character must be JSON-escaped.
+            small = capacity.for_window(
+                model_window.ModelWindow(
+                    context_tokens=128_000,
+                    result_chars=76_800,
+                    turn_chars=153_600,
+                    compaction_tokens=102_400,
+                )
+            )
+            escaped = "1: " + "\x1b" * (small.text_page_max_chars - 3)
+            client.get_review_file_page.return_value = replace(
+                client.get_review_file_page.return_value,
+                content=escaped,
+                complete_lines=0,
+                partial_line=True,
+            )
+            with capacity.execution(small):
+                partial = review_source_tools.pr_file.__wrapped__(
+                    {"run_id": 41, "path": "src/new.py", "side": "base"}
+                )
             # A page the session's result budget cannot carry is refused unrecorded.
             with capacity.execution(
                 capacity.CapacityLimits(
@@ -1144,8 +1165,16 @@ class ToolContractTests(unittest.TestCase):
 
         self.assertEqual(result["content"], "1: previous content")
         self.assertEqual(client.get_review_file_page.call_args.kwargs["path"], "src/old.py")
+        self.assertEqual(
+            client.get_review_file_page.call_args_list[1].kwargs["max_chars"],
+            small.text_page_max_chars,
+        )
+        self.assertLessEqual(len(partial), small.result_max_chars)
+        self.assertEqual(json.loads(partial)["content"], escaped)
         self.assertIn("request a smaller page", rejected["error"])
-        record.assert_called_once()
+        # The first page and the partial line are recorded; the refused page is not.
+        self.assertEqual(record.call_count, 2)
+        self.assertEqual(record.call_args_list[1].kwargs["line_count"], 0)
 
     def test_pr_file_rejects_a_gateway_page_for_another_revision(self) -> None:
         pull = {

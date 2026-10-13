@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module
+import os
 import threading
 from typing import Protocol, cast
 
@@ -129,7 +130,11 @@ def resolve(provider: str, model: str) -> ModelWindow:
             )
         )
         result_chars, turn_chars = _window(context_tokens)
-        compaction_tokens = int(context_tokens * _compression_threshold())
+        # Hermes reserves HERMES_MAX_TOKENS of output out of the window before it
+        # applies the threshold; the managed config sets no other reservation.
+        reserved = os.environ.get("HERMES_MAX_TOKENS", "").strip()
+        input_tokens = context_tokens - (int(reserved) if reserved.isdecimal() else 0)
+        compaction_tokens = int(max(input_tokens, 1) * _compression_threshold())
     except ModelWindowError:
         raise
     except Exception as exc:  # Hermes has no shared error base for provider resolution.

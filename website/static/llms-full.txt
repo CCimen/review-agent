@@ -2170,9 +2170,10 @@ The package is optional model context, so it is bounded to avoid accidental
 multi-megabyte GitHub reads, database rows, RAM use, and prompt expansion. A
 configuration can list at most 10 context files; each file is limited to 400
 lines. The combined instructions and context use the smaller of the plugin's
-JSON-safe text-page capacity (`result_max_chars / 7`) and 81,920 characters.
-With the packaged 160,000-character result budget, repository guidance can use
-22,857 characters. The storage ceiling is derived from the 512 KiB immutable
+JSON-safe text-page capacity (a seventh of the session's result limit, the
+smaller of `result_max_chars` and Hermes' single-result limit) and 81,920
+characters. With the packaged settings and a context window of 166,667 tokens or
+more, repository guidance can use 14,285 characters. The storage ceiling is derived from the 512 KiB immutable
 snapshot contract with space reserved for paths, hashes, and lifecycle
 metadata. These guards do not limit pull request size, changed files, diff
 pagination, source reads, findings, or review depth.
@@ -4510,7 +4511,7 @@ boundary prevents inspection. Retained bounds have one of four owners:
 | --- | --- | --- |
 | Changed-file enumeration | GitHub returns at most 3,000 files for one pull request. A lower per-response byte budget retries with smaller pages; if even a one-file page does not fit, registration remains explicitly incomplete. | [GitHub's pull-request files contract](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files) and bounded network memory. |
 | Source files | Files are read in line pages. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files return a terminal unavailable state and keep coverage incomplete. Each page is fetched at the exact review revision and bounded independently. | [GitHub's repository-contents contract](https://docs.github.com/en/rest/repos/contents#get-repository-content), bounded gateway memory, and exact-subject validation. This is a per-file safety boundary, not a limit on PR size or total review depth. |
-| Diff and source output | `plugins.entries.review-agent-tools.settings.result_max_chars` defaults to 160,000 characters. The plugin derives a JSON-safe text page from that one budget, and each session is further held to the result limits Hermes sets for its model (see below). A diff response returns `next_start_char`, `path_total_chars`, and `diff_source` for exact continuation. A source response also carries at most 400 lines; low-newline source that crosses the character boundary is reported truncated and is not recorded as a complete line read. | One native Hermes plugin setting owns and enforces the complete page-result budget without rejecting unrelated memory or delivery payloads. Diff pages can continue without a total code limit; an indivisible source line may remain incomplete rather than flood model context. |
+| Diff and source output | `plugins.entries.review-agent-tools.settings.result_max_chars` defaults to 160,000 characters. Each session is further held to the result limits Hermes sets for its model (see below), and the plugin derives a JSON-safe text page from the session's single-result limit. A diff response returns `next_start_char`, `path_total_chars`, and `diff_source` for exact continuation. A source response also carries at most 400 lines; low-newline source that crosses the character boundary is reported truncated and is not recorded as a complete line read. | One native Hermes plugin setting owns and enforces the complete page-result budget without rejecting unrelated memory or delivery payloads. Diff pages can continue without a total code limit; an indivisible source line may remain incomplete rather than flood model context. |
 | Historical context | One call accepts the same 200 paths returned by a changed-path page. The review procedure processes further pages in additional calls. | Bounded database/result work per call; not a repository limit. |
 | Findings and suggestions | One atomic record transaction accepts at most 200 findings. Exceeding it rejects the record rather than dropping findings. At most 12 independent native suggestions are retained, while every accepted finding remains in the summary and coding-agent brief. | Bounded atomic persistence and GitHub head reads; suggestions are optional delivery metadata. |
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` defaults to 65,000 UTF-8 bytes including framing and metadata, below the API's [reported 65,536-character ceiling](https://github.com/actions/dependency-review-action/issues/730). Larger reviews are deterministically split. | Per-comment delivery budget; the separate 200-pending-finding bound still applies. |
@@ -4616,10 +4617,10 @@ tokens, and none compacted). It is an initial empirical policy that reduces the
 risk of a part compacting, not a guarantee; the gateway log records each
 session's window and each split's part sizes for recalibration.
 
-Single-path diff and source pages are bounded by the session's single-result
-limit. A typical page is far below it, but text that JSON-escapes heavily can
-serialize past it. Such a page is refused before anything is recorded as read,
-and the reviewer requests a smaller page.
+Single-path diff and source pages hold at most a seventh of the session's
+single-result limit in characters, so even text that JSON-escapes every
+character fits the result. A page is checked against that limit before anything
+is recorded as read.
 
 The coverage count measures full diffs exposed to the reviewer, not analysis
 progress. When coverage is incomplete, the comment's coverage details list the

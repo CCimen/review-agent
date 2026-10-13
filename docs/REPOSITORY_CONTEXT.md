@@ -346,9 +346,10 @@ The package is optional model context, so it is bounded to avoid accidental
 multi-megabyte GitHub reads, database rows, RAM use, and prompt expansion. A
 configuration can list at most 10 context files; each file is limited to 400
 lines. The combined instructions and context use the smaller of the plugin's
-JSON-safe text-page capacity (`result_max_chars / 7`) and 81,920 characters.
-With the packaged 160,000-character result budget, repository guidance can use
-22,857 characters. The storage ceiling is derived from the 512 KiB immutable
+JSON-safe text-page capacity (a seventh of the session's result limit, the
+smaller of `result_max_chars` and Hermes' single-result limit) and 81,920
+characters. With the packaged settings and a context window of 166,667 tokens or
+more, repository guidance can use 14,285 characters. The storage ceiling is derived from the 512 KiB immutable
 snapshot contract with space reserved for paths, hashes, and lifecycle
 metadata. These guards do not limit pull request size, changed files, diff
 pagination, source reads, findings, or review depth.

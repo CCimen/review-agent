@@ -7,9 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import admin_application
 from .admin_auth import AdminAuth
-from .admin_model_application import require_offered_models
-from .hermes_control import HermesControlClient, HermesControlError
-from .postgres.model_connections import ConnectionConflict
 from .postgres.team_access import AccessRequest
 from .deployment_settings import DeploymentSettings
 from .postgres import deployment_settings as store
@@ -23,11 +20,7 @@ class SaveSettings(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
-def create_router(
-    runtime: PostgreSQLRuntime,
-    auth: AdminAuth,
-    shared_control: HermesControlClient | None,
-) -> APIRouter:
+def create_router(runtime: PostgreSQLRuntime, auth: AdminAuth) -> APIRouter:
     router = APIRouter(
         prefix="/api/settings", dependencies=[Depends(auth.current_owner)]
     )
@@ -41,29 +34,6 @@ def create_router(
     def save_settings(
         body: SaveSettings, access: Annotated[AccessRequest, Depends(auth.current_scope)]
     ) -> store.SettingsRevision:
-        current = admin_application.deployment_settings(
-            runtime, access=access, before_id=None
-        ).settings
-        chosen = (body.settings.model_provider, body.settings.model)
-        if chosen != (current.model_provider, current.model):
-            # A deployment default the shared account does not offer would fail
-            # every inheriting review, so a change must be verified first.
-            if shared_control is None:
-                raise HTTPException(
-                    409,
-                    "Hermes provider control is not configured, so a model change "
-                    "cannot be verified here. Set REVIEW_AGENT_MODEL in the deployment.",
-                )
-            try:
-                require_offered_models(shared_control, (chosen,))
-            except ConnectionConflict as exc:
-                raise HTTPException(409, str(exc)) from exc
-            except HermesControlError as exc:
-                raise HTTPException(
-                    502,
-                    "Hermes provider control did not list the account's models; "
-                    "check the shared connection before retrying.",
-                ) from exc
         try:
             return admin_application.save_deployment_settings(runtime, access=access, settings=body.settings, expected_revision=body.expected_revision, reason=body.reason)
         except store.SettingsConflict as exc:

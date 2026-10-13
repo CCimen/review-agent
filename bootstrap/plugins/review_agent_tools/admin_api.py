@@ -458,9 +458,7 @@ def create_app(
         admin_provider_api.create_router(auth, controls["shared"].client)
     )
     app.include_router(admin_model_api.create_router(runtime, auth, controls))
-    app.include_router(
-        admin_settings_api.create_router(runtime, auth, controls["shared"].client)
-    )
+    app.include_router(admin_settings_api.create_router(runtime, auth))
     app.include_router(admin_deployment_api.create_router(auth))
     app.include_router(admin_access_api.create_router(runtime, auth))
     app.include_router(admin_teams_api.create_router(runtime, auth))

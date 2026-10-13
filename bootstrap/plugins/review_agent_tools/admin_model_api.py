@@ -144,10 +144,6 @@ def create_router(
             raise models.ConnectionConflict(
                 "A platform operator must provision this managed runtime first"
             )
-        application.require_offered(
-            request.runtime_key,
-            ((choice.provider.value, choice.model) for choice in request.allowed_routes),
-        )
 
         with authorized_transaction(runtime, access, write=True) as (connection, scope):
             return models.create_connection(
@@ -171,29 +167,17 @@ def create_router(
     ) -> AccountQuota:
         return application.quota(access, connection_id, provider, refresh=refresh)
 
-    def offered_models(
+    def listed_models(
         connection_id: ConnectionId,
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
     ) -> list[ProviderModel]:
-        return list(application.offered_models(access, connection_id))
+        return list(application.listed_models(access, connection_id))
 
     def update_connection(
         connection_id: ConnectionId,
         request: ConnectionUpdate,
         access: Annotated[AccessRequest, Depends(auth.current_scope)],
     ) -> models.ModelConnection:
-        current = application.get(access, connection_id, manage=True)
-        kept = {(choice.provider.value, choice.model) for choice in current.allowed_routes}
-        # Only newly added models are checked: a kept model the account stopped
-        # offering stays visible as such instead of blocking unrelated edits.
-        application.require_offered(
-            current.runtime_key,
-            (
-                (choice.provider.value, choice.model)
-                for choice in request.allowed_routes
-                if (choice.provider.value, choice.model) not in kept
-            ),
-        )
         with authorized_transaction(runtime, access, write=True) as (connection, scope):
             return models.update_connection(
                 connection,
@@ -337,7 +321,7 @@ def create_router(
     )
     router.add_api_route(
         "/api/model-connections/{connection_id}/models",
-        offered_models,
+        listed_models,
         methods=["GET"],
     )
     router.add_api_route(

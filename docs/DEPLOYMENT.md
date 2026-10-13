@@ -156,8 +156,9 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
    `REVIEW_AGENT_MODEL` is required and has no default; compose, the installer,
    admission readiness, and operator preflight stop with "REVIEW_AGENT_MODEL must
    name the review model" when it is missing. Set it to a model the provider
-   account offers; after the account is connected, the console's model
-   connection page lists them. The provider defaults to `openai-codex` and the
+   account can use; after the account is connected, the console suggests the
+   models Hermes lists for it. Once the console saves settings, their model
+   governs new reviews instead of this variable. The provider defaults to `openai-codex` and the
    effort to `xhigh`. We recommend the Codex route for the first deployment
    because Hermes supports a ChatGPT device-code login and you do not need to
    provision a model API key. Hermes

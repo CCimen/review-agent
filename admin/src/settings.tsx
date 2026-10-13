@@ -29,7 +29,7 @@ import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { DeploymentLink } from "./deployment";
 import { EmailDelivery } from "./email";
-import { ModelChoiceSelector } from "./modelChoice";
+import { ModelField } from "./modelField";
 import { Providers } from "./providers";
 import { Freshness, Prose, time } from "./ui";
 
@@ -376,26 +376,20 @@ function SettingsEditor({ data }: { data: Page }) {
               }
             />
 
-            <ModelChoiceSelector
+            <ModelField
               label="Model"
               provider={draft.model_provider}
               value={draft.model}
               onChange={(model) => setDraft({ ...draft, model })}
-              offered={models.data?.items}
-              isLoading={models.isPending}
-              error={
-                models.isError
-                  ? "Hermes did not list the shared account's models. Check the shared connection, then reload."
-                  : null
+              listed={models.data?.items}
+              state={
+                models.isPending
+                  ? "loading"
+                  : models.isError || models.data.capability.configured === false
+                    ? "unavailable"
+                    : "listed"
               }
-              isDisabled={
-                save.isPending || models.data?.capability.configured === false
-              }
-              disabledMessage={
-                models.data?.capability.configured === false
-                  ? "Hermes provider control is not configured, so the model can only be set through REVIEW_AGENT_MODEL."
-                  : undefined
-              }
+              isDisabled={save.isPending}
             />
             <Selector
               label="Reasoning effort"

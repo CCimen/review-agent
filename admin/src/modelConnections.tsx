@@ -33,7 +33,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { TeamPage } from "./api";
 import { read, write } from "./api";
 import type { components } from "./api.generated";
-import { ModelChoiceSelector } from "./modelChoice";
+import { ModelField } from "./modelField";
 import { ConnectionQuota } from "./modelQuota";
 import { ScopedLink as Link, useScope } from "./scope";
 import { ConfirmAction } from "./teams";
@@ -103,7 +103,7 @@ function ConnectionEditor({
   const [choices, setChoices] = useState<ModelChoice[]>(
     connection?.allowed_routes ?? [],
   );
-  const offered = useQuery({
+  const listed = useQuery({
     queryKey: ["model-connections", connection?.id, "models", "scoped", scope.key],
     queryFn: ({ signal }) =>
       read<ProviderModel[]>(
@@ -288,12 +288,6 @@ function ConnectionEditor({
         Teams may inherit the deployment model or choose one of these models
         and reasoning levels.
       </Text>
-      {connection ? null : (
-        <Text as="p" color="secondary">
-          Add models after the connection exists and its provider account is
-          connected; the choices come from that account.
-        </Text>
-      )}
       <VStack gap={4}>
         {choices.map((choice, index) => (
           <fieldset key={index}>
@@ -317,17 +311,18 @@ function ConnectionEditor({
                   }
                 />
 
-                <ModelChoiceSelector
+                <ModelField
                   label="Model"
                   provider={choice.provider}
                   value={choice.model}
                   onChange={(model) => updateChoice(index, { model })}
-                  offered={offered.data}
-                  isLoading={offered.isPending}
-                  error={
-                    offered.isError
-                      ? "The connection's provider account did not list its models. Check its login, then reload."
-                      : null
+                  listed={listed.data}
+                  state={
+                    connection === undefined || listed.isError
+                      ? "unavailable"
+                      : listed.isPending
+                        ? "loading"
+                        : "listed"
                   }
                 />
               </Grid>
@@ -368,7 +363,7 @@ function ConnectionEditor({
         label={"Add a model choice"}
         variant="secondary"
         type="button"
-        isDisabled={!connection || choices.length >= 50}
+        isDisabled={choices.length >= 50}
         onClick={() =>
           setChoices((items) => [
             ...items,

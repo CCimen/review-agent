@@ -134,56 +134,30 @@ class ModelConnectionTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
 
-    def test_model_choices_are_limited_to_models_the_account_offers(self) -> None:
-        refused_create = self.client.post(
-            "/api/model-connections",
-            json={
-                "runtime_key": "payments",
-                "name": "Payments account",
-                "team_id": self.team["id"],
-                "allowed_routes": [
-                    {"provider": "openai-codex", "model": "typo-model", "reasoning_efforts": ["high"]}
-                ],
-                "reason": "Dedicated account",
-            },
-        )
-        self.assertEqual(refused_create.status_code, 409)
+    def test_connection_lists_hermes_models_without_restricting_choices(self) -> None:
         managed = self.create_connection()
         path = f"/api/model-connections/{managed['id']}"
-        offered = self.client.get(path + "/models")
-        self.assertEqual(offered.status_code, 200, offered.text)
+        listed = self.client.get(path + "/models")
+        self.assertEqual(listed.status_code, 200, listed.text)
         self.assertEqual(
-            [item["model"] for item in offered.json()],
+            [item["model"] for item in listed.json()],
             ["allowed-model", "second-model"],
         )
-
-        def change(revision: int, *models: str, name: str = "Payments account") -> object:
-            return self.client.patch(
-                path,
-                json={
-                    "name": name,
-                    "allowed_routes": [
-                        {"provider": "openai-codex", "model": model, "reasoning_efforts": ["high"]}
-                        for model in models
-                    ],
-                    "expected_revision": revision,
-                    "reason": "Adjust models",
-                },
-            )
-
-        refused = change(1, "allowed-model", "typo-model")
-        self.assertEqual(refused.status_code, 409)
-        self.assertIn("does not offer: openai-codex typo-model", refused.text)
-        added = change(1, "allowed-model", "second-model")
+        # Hermes' list only suggests models, so an unlisted exact name is saved.
+        added = self.client.patch(
+            path,
+            json={
+                "name": "Payments account",
+                "allowed_routes": [
+                    {"provider": "openai-codex", "model": "unlisted-model", "reasoning_efforts": ["high"]}
+                ],
+                "expected_revision": 1,
+                "reason": "Adjust models",
+            },
+        )
         self.assertEqual(added.status_code, 200, added.text)
-        # A kept model the account stopped offering does not block other edits.
-        self.control.models.return_value = (ProviderModel("openai-codex", "second-model"),)
-        renamed = change(2, "allowed-model", "second-model", name="Payments")
-        self.assertEqual(renamed.status_code, 200, renamed.text)
-        # Without the account's model list a new model cannot be verified.
         self.control.models.side_effect = HermesControlError("unavailable")
-        unverified = change(3, "allowed-model", "second-model", "third-model")
-        self.assertEqual(unverified.status_code, 502)
+        self.assertEqual(self.client.get(path + "/models").status_code, 502)
 
     def test_owned_connection_permissions_policy_and_audit(self) -> None:
         managed = self.create_connection()

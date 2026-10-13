@@ -536,15 +536,14 @@ test("settings expose saved operational defaults and distinguish older startup o
     /aria-expanded="false"/,
   );
   assert.match(html, /value="47"/);
-  // The model is chosen from the account's models, not typed.
   assert.doesNotMatch(html, /<datalist/);
   assert.match(html, /gpt-demo/);
-  assert.doesNotMatch(html, /not offered by this account/);
+  assert.match(html, /Suggestions are the models Hermes lists/);
   assert.match(html, /Older settings loaded/);
   assert.match(html, /No unsaved changes/);
 });
 
-test("settings flag a saved model the shared account no longer offers", () => {
+test("settings keep the saved model visible while Hermes lists no models", () => {
   const data = {
     settings: { ...settingsDefaults, model: "retired-model" },
     revision: 2,
@@ -552,19 +551,19 @@ test("settings flag a saved model the shared account no longer offers", () => {
     next_before_id: null,
     startup_loads: [],
   };
-  const html = renderConsolePage(createElement(SettingsPage), [
+  const pages = [
     [["deployment-settings"], data],
     [["deployment-settings-history", null], data],
-    [
-      ["provider-models"],
-      {
-        capability: { configured: true },
-        items: [{ provider: "openai-codex", model: "gpt-demo" }],
-      },
-    ],
+  ];
+  const loading = renderConsolePage(createElement(SettingsPage), pages);
+  assert.match(loading, /retired-model/);
+  assert.match(loading, /Loading the models Hermes lists/);
+  const unavailable = renderConsolePage(createElement(SettingsPage), [
+    ...pages,
+    [["provider-models"], { capability: { configured: false }, items: [] }],
   ]);
-  assert.match(html, /retired-model \(not offered by this account\)/);
-  assert.match(html, /The account no longer offers this model/);
+  assert.match(unavailable, /retired-model/);
+  assert.match(unavailable, /Hermes did not list models for this account/);
 });
 
 test("quality shows feedback denominators and an empty report state without implying accuracy", () => {

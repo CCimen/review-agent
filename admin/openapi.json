@@ -3833,8 +3833,8 @@
         "tags": [
           "model connections"
         ],
-        "summary": "Offered Models",
-        "operationId": "offered_models_api_model_connections__connection_id__models_get",
+        "summary": "Listed Models",
+        "operationId": "listed_models_api_model_connections__connection_id__models_get",
         "security": [
           {
             "APIKeyCookie": []
@@ -3881,7 +3881,7 @@
                   "items": {
                     "$ref": "#/components/schemas/ProviderModel"
                   },
-                  "title": "Response Offered Models Api Model Connections  Connection Id  Models Get"
+                  "title": "Response Listed Models Api Model Connections  Connection Id  Models Get"
                 }
               }
             }

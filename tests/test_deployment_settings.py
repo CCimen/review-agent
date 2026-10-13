@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap/plugins"
 from review_agent_tools import review_contract  # noqa: E402
 from review_agent_tools.admin_settings_api import create_router  # noqa: E402
 from review_agent_tools.deployment_settings import DeploymentSettings  # noqa: E402
-from review_agent_tools.hermes_control import ProviderModel  # noqa: E402
 from review_agent_tools.postgres import deployment_settings as store  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
@@ -147,18 +146,10 @@ class DeploymentSettingsTests(unittest.TestCase):
 
         app = FastAPI()
         auth = Auth()
-        shared = MagicMock()
-        shared.models.return_value = (ProviderModel("openai-codex", "offered-model"),)
-        app.include_router(create_router(MagicMock(), auth, shared))  # type: ignore[arg-type]
-        unverified = FastAPI()
-        unverified.include_router(create_router(MagicMock(), auth, None))  # type: ignore[arg-type]
+        app.include_router(create_router(MagicMock(), auth))  # type: ignore[arg-type]
         client = TestClient(app)
         from dataclasses import asdict
 
-        current = SimpleNamespace(settings=DeploymentSettings(model="test-model"))
-        self.enterContext(
-            patch.object(admin_application, "deployment_settings", return_value=current)
-        )
         body = {
             "settings": asdict(DeploymentSettings(model="test-model")),
             "expected_revision": 0,
@@ -166,30 +157,6 @@ class DeploymentSettingsTests(unittest.TestCase):
         }
         with patch.object(admin_application, "save_deployment_settings", side_effect=store.SettingsConflict("Reload")):
             self.assertEqual(client.put("/api/settings", json=body).status_code, 409)
-        shared.models.assert_not_called()
-
-        # A changed deployment model is saved only when the shared account offers it.
-        def changed(model: str) -> dict[str, object]:
-            return {**body, "settings": asdict(DeploymentSettings(model=model))}
-
-        with patch.object(admin_application, "save_deployment_settings") as save:
-            refused = client.put("/api/settings", json=changed("unknown-model"))
-            self.assertEqual(refused.status_code, 409)
-            self.assertIn("does not offer: openai-codex unknown-model", refused.text)
-            unchecked = TestClient(unverified).put("/api/settings", json=changed("offered-model"))
-            self.assertEqual(unchecked.status_code, 409)
-            self.assertIn("cannot be verified", unchecked.text)
-            save.assert_not_called()
-            save.return_value = store.SettingsRevision(
-                1,
-                DeploymentSettings(model="offered-model"),
-                "operator:test",
-                "adjust capacity",
-                datetime(2026, 10, 13, tzinfo=timezone.utc),
-            )
-            saved = client.put("/api/settings", json=changed("offered-model"))
-            self.assertEqual(saved.status_code, 200, saved.text)
-            save.assert_called_once()
 
         def denied() -> None:
             raise HTTPException(403, "Forbidden")
@@ -213,7 +180,9 @@ class SettingsPersistenceTests(unittest.TestCase):
             saved = store.save(
                 connection,
                 settings=DeploymentSettings(
-                    publication_retry_seconds=53, admission_max_concurrent_requests=12
+                    model="saved-model",
+                    publication_retry_seconds=53,
+                    admission_max_concurrent_requests=12,
                 ),
                 expected_revision=current.id if current else 0,
                 actor="admin:test",
@@ -242,7 +211,7 @@ class SettingsPersistenceTests(unittest.TestCase):
             revision = initial.id if initial else 0
             first = store.save(
                 connection,
-                settings=DeploymentSettings(worker_concurrency=8),
+                settings=DeploymentSettings(model="test-model", worker_concurrency=8),
                 expected_revision=revision,
                 actor="admin:test",
                 reason="raise capacity",

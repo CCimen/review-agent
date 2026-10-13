@@ -897,8 +897,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Offered Models */
-        get: operations["offered_models_api_model_connections__connection_id__models_get"];
+        /** Listed Models */
+        get: operations["listed_models_api_model_connections__connection_id__models_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6751,7 +6751,7 @@ export interface operations {
             };
         };
     };
-    offered_models_api_model_connections__connection_id__models_get: {
+    listed_models_api_model_connections__connection_id__models_get: {
         parameters: {
             query?: {
                 team_id?: number | null;

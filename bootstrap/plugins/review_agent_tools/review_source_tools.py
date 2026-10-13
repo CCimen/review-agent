@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any, Literal, cast
 
 from . import (
@@ -23,11 +22,7 @@ from . import (
 )
 from .domain.review import DiffState, ReviewRunId
 from .github.source import GIT_BLOB_SHA_RE
-from .github.gateway import (
-    GitHubGatewayError,
-    GitHubGatewayRejected,
-    GitHubGatewayRetryable,
-)
+from .github.gateway import GitHubGatewayError, GitHubGatewayRejected
 from .review_diff_cache import DiffSnapshot, DiffSnapshotKey, ReviewDiffCache
 from .review_code_graph_tool import prepare_graph
 from .review_source_initialization import (
@@ -557,25 +552,23 @@ def _validate_diff_fill(source: GatewaySourceSession, key: DiffSnapshotKey) -> N
 
 # GitHub sends no patch for a large file. An added file's patch is its exact head
 # text, which the gateway builds; every other patchless file stays unavailable.
-# Each fill is bounded on its own, because a snapshot can be rebuilt after eviction.
-_ADDED_PATCHES_PER_FILL = 10
-_ADDED_PATCH_FILL_SECONDS = 60.0
+# Each request is bounded by the gateway's GitHub reads, and a fill makes at most
+# this many, so rebuilding an evicted snapshot stays affordable.
+_ADDED_PATCHES_PER_FILL = 5
 # Refusals that end the review turn rather than leave one file unavailable.
 _STOPPING_REJECTIONS = frozenset({"review_job_lease_lost", "repository_not_authorized"})
 
 
 def _with_added_file_patches(
     source: GatewaySourceSession, files: list[changed_files.ChangedFile]
-) -> tuple[list[changed_files.ChangedFile], bool]:
+) -> list[changed_files.ChangedFile]:
     """Fill the patches GitHub omitted for large added files.
 
-    Also returns whether every request reached a final answer. After a transient
-    failure the snapshot is not cached, so a later fill asks again.
+    A transient failure is raised as retryable, like any other source read, so
+    the file is never recorded as unavailable for a temporary reason.
     """
     filled: list[changed_files.ChangedFile] = []
     attempts = 0
-    settled = True
-    deadline = time.monotonic() + _ADDED_PATCH_FILL_SECONDS
     for entry in files:
         eligible = (
             entry["status"] == "added"
@@ -583,11 +576,7 @@ def _with_added_file_patches(
             and entry["changes"] > 0
             and GIT_BLOB_SHA_RE.fullmatch(entry["blob_sha"]) is not None
         )
-        if (
-            not eligible
-            or attempts >= _ADDED_PATCHES_PER_FILL
-            or time.monotonic() >= deadline
-        ):
+        if not eligible or attempts >= _ADDED_PATCHES_PER_FILL:
             filled.append(entry)
             continue
         attempts += 1
@@ -599,13 +588,10 @@ def _with_added_file_patches(
                 path=entry["path"],
                 blob_sha=entry["blob_sha"],
             )
-        except GitHubGatewayRetryable:
-            settled = False
-            filled.append(entry)
-            continue
         except GitHubGatewayRejected as exc:
             if exc.reason in _STOPPING_REJECTIONS:
                 raise source_error(exc) from exc
+            # Any other refusal leaves this file without a patch, as GitHub did.
             filled.append(entry)
             continue
         except GitHubGatewayError as exc:
@@ -616,17 +602,17 @@ def _with_added_file_patches(
                 {**entry, "patch": result.patch, "patch_available": True, "patch_state": "available"},
             )
         filled.append(entry)
-    return filled, settled
+    return filled
 
 
 def _patch_snapshot(source: GatewaySourceSession, key: DiffSnapshotKey) -> DiffSnapshot:
     snapshot = _diff_cache.get(key, "patches")
     if snapshot is None:
         index = _enumerate_changed_file_index(source, reported=key.reported_files)
-        files, settled = _with_added_file_patches(source, index.files)
+        files = _with_added_file_patches(source, index.files)
         snapshot = DiffSnapshot(diff_render.prepare_fallback_diff(files), index.index_state)
         _validate_diff_fill(source, key)
-        if index.index_state != "incomplete" and settled:
+        if index.index_state != "incomplete":
             _diff_cache.put(key, "patches", snapshot)
     return snapshot
 

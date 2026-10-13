@@ -348,18 +348,20 @@ class GitHubReadClient:
                     retry_at=retry_at,
                 ) from exc
             except TimeoutError as exc:
+                # A GET is safe to repeat; the caller sizes attempts and timeout
+                # to fit its own deadline.
+                if attempt + 1 < self._max_attempts:
+                    time.sleep(_retry_delay(attempt))
+                    continue
                 raise GitHubReadError(
                     "timeout", "GitHub read timed out", retryable=True
                 ) from exc
             except urllib.error.URLError as exc:
-                timed_out = isinstance(exc.reason, TimeoutError)
-                # A refused or reset connection fails fast, so another attempt fits
-                # the caller's deadline; a timeout already spent its share of it.
-                if not timed_out and attempt + 1 < self._max_attempts:
+                if attempt + 1 < self._max_attempts:
                     time.sleep(_retry_delay(attempt))
                     continue
                 raise GitHubReadError(
-                    "timeout" if timed_out else "unreachable",
+                    "timeout" if isinstance(exc.reason, TimeoutError) else "unreachable",
                     "GitHub could not be reached", retryable=True
                 ) from exc
         raise GitHubReadError(

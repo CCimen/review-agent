@@ -367,14 +367,15 @@ class GitHubReadClientTests(unittest.TestCase):
                 self.assertTrue(raised.exception.retryable)
                 self.assertEqual(opener.open.call_count, 1)
 
-    def test_request_retries_a_failed_connection_but_not_a_connect_timeout(self) -> None:
-        for reason, kind, attempts in (
-            ("offline", "unreachable", 3),
-            (TimeoutError("connect"), "timeout", 1),
+    def test_request_retries_failed_connections_and_timeouts_within_its_attempts(self) -> None:
+        for failure, kind in (
+            (urllib.error.URLError("offline"), "unreachable"),
+            (urllib.error.URLError(TimeoutError("connect")), "timeout"),
+            (TimeoutError("read"), "timeout"),
         ):
-            with self.subTest(kind=kind):
+            with self.subTest(kind=kind, failure=type(failure).__name__):
                 opener = Mock(spec=urllib.request.OpenerDirector)
-                opener.open.side_effect = urllib.error.URLError(reason)
+                opener.open.side_effect = failure
                 client = source_control.GitHubReadClient(
                     "", opener=cast(urllib.request.OpenerDirector, opener)
                 )
@@ -385,11 +386,21 @@ class GitHubReadClientTests(unittest.TestCase):
                     client.request("/repos/example/project")
                 self.assertEqual(error.exception.kind, kind)
                 self.assertTrue(error.exception.retryable)
-                self.assertEqual(opener.open.call_count, attempts)
-                self.assertEqual(
-                    [call.args[0] for call in sleeper.call_args_list],
-                    [1.0, 2.0][: attempts - 1],
-                )
+                self.assertEqual(opener.open.call_count, 3)
+                self.assertEqual([call.args[0] for call in sleeper.call_args_list], [1.0, 2.0])
+
+    def test_the_gateway_reader_retries_a_brief_github_failure(self) -> None:
+        from review_agent_tools.github import gateway
+
+        opener = Mock(spec=urllib.request.OpenerDirector)
+        opener.open.side_effect = [urllib.error.URLError("reset"), _FakeResponse(b"{}")]
+        with (
+            patch.object(source_control.urllib.request, "build_opener", return_value=opener),
+            patch.object(source_control.time, "sleep"),
+        ):
+            client = gateway._gateway_github_client("token")  # pyright: ignore[reportPrivateUsage]
+            self.assertEqual(client.request_json("/repos/example/project"), {})
+        self.assertEqual(opener.open.call_count, 2)
 
     def test_request_json_rejects_truncated_or_invalid_payloads(self) -> None:
         client = source_control.GitHubReadClient("")

@@ -120,9 +120,7 @@ _BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 _CODE_SPAN_RE = re.compile(r"`([^`]{1,200})`")
 # A thematic break between the urgent findings and what follows them.
 _SECTION_BREAK = "---\n\n"
-_MARKER_NAMESPACE = "review-agent:"
-_MARKER_NAMESPACE_ESCAPED = "review-agent&#58;"
-_CODE_SPAN_FORBIDDEN = ("<!--", "-->", _MARKER_NAMESPACE)
+_CODE_SPAN_FORBIDDEN = ("<!--", "-->")
 
 
 def review_markdown_from_blocks(blocks: Sequence[ReviewBlock]) -> str:
@@ -183,8 +181,6 @@ def _escape_markdown(text: str, *, line_start: bool) -> str:
         escaped = re.sub(r"^([+-])", r"\\\1", escaped)
         escaped = re.sub(r"^(\d+)\.", r"\1\\.", escaped)
     escaped = escaped.replace("@", "&#64;")
-    # Comment markers are found by plain search, so untrusted text never carries one.
-    escaped = escaped.replace(_MARKER_NAMESPACE, _MARKER_NAMESPACE_ESCAPED)
     escaped = _ACTIVE_URL_SCHEME_RE.sub(r"\1:&#8203;//", escaped)
     return _ACTIVE_WWW_RE.sub("www&#8203;.", escaped)
 
@@ -200,8 +196,8 @@ def safe_prose(value: Any, *, maximum: int = 800) -> str:
     """Escape reviewer prose like ``safe_text`` but keep its single-backtick code spans.
 
     GitHub renders a code span literally, so it cannot carry links, mentions, or
-    HTML. A span that would carry a comment delimiter or marker, and any backtick
-    without a partner, is escaped as plain text instead.
+    HTML. A span holding an HTML comment delimiter, and any backtick without a
+    partner, is escaped as plain text instead.
     """
     text = compact_text(
         _BIDI_CONTROL_RE.sub("", str(value or "")), maximum=maximum
@@ -693,7 +689,6 @@ def _collapsed_blocks(
     if not items:
         return []
     total = len(items)
-    all_refs = [reference for reference, _ in items]
 
     def framing(refs: Sequence[str], part_number: int, total_parts: int) -> tuple[str, str]:
         summary = _collapsed_summary(
@@ -711,25 +706,23 @@ def _collapsed_blocks(
     if max_bytes is None or len(single.markdown.encode("utf-8")) <= max_bytes:
         return [single]
 
-    # Reserve the longest possible framing before the final part count is known.
-    prefix, suffix = framing(all_refs, total, total)
-    content_budget = max_bytes - len((lead + prefix + suffix).encode("utf-8"))
+    def fits(chunk: Sequence[tuple[str, str]], first: bool) -> bool:
+        # Part labels use the largest possible numbers before the count is known.
+        candidate = block(chunk, 1 if first else total, total)
+        return len(candidate.markdown.encode("utf-8")) <= max_bytes
+
     chunks: list[list[tuple[str, str]]] = []
     current: list[tuple[str, str]] = []
-    current_bytes = 0
     for item in items:
-        size = len(item[1].encode("utf-8"))
-        if size > content_budget:
-            raise PublicationDomainError("body_too_large")
-        candidate_bytes = current_bytes + size + (2 if current else 0)
-        if current and candidate_bytes > content_budget:
+        if current and fits([*current, item], not chunks):
+            current.append(item)
+            continue
+        if current:
             chunks.append(current)
-            current = []
-            candidate_bytes = size
-        current.append(item)
-        current_bytes = candidate_bytes
-    if current:
-        chunks.append(current)
+        if not fits([item], not chunks):
+            raise PublicationDomainError("body_too_large")
+        current = [item]
+    chunks.append(current)
     return [
         block(chunk, index, len(chunks)) for index, chunk in enumerate(chunks, start=1)
     ]

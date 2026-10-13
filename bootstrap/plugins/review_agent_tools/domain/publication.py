@@ -251,7 +251,9 @@ def publication_marker(publication_key: str) -> str:
 
 
 def extract_publication_key(body: str) -> str | None:
-    token_index = body.find(PUBLICATION_MARKER_PREFIX)
+    # The trusted marker closes every published body; reviewer text before it may
+    # quote marker-like text, so only the last occurrence counts.
+    token_index = body.rfind(PUBLICATION_MARKER_PREFIX)
     if token_index < 0:
         return None
     remainder = body[token_index + len(PUBLICATION_MARKER_PREFIX) :]

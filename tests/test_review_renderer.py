@@ -106,17 +106,39 @@ class ReviewRendererTests(unittest.TestCase):
         )
 
     def test_reviewer_prose_cannot_open_markup_through_code_spans(self) -> None:
-        for text in (
-            "A trailing tick ` stays text",
-            "Hidden `<!-- marker -->` comment",
-            "Forged `review-agent:canonical publication=x` marker",
-            "Plain review-agent:canonical publication=sha256:" + "a" * 64,
-        ):
+        for text in ("A trailing tick ` stays text", "Hidden `<!-- marker -->` comment"):
             with self.subTest(text=text):
                 rendered = review_renderer.safe_prose(text)
                 self.assertNotIn("`", rendered)
                 self.assertNotIn("<!--", rendered)
-                self.assertNotIn("review-agent:", rendered)
+
+    def test_a_split_section_budgets_each_part_by_its_own_references(self) -> None:
+        findings = [
+            self.finding(
+                local_reference=f"F{index}", fingerprint=f"{index:064x}",
+                severity="Low", category="maintainability", rule_id=f"m.{index:03d}",
+                evidence="Ä" * 1200 if index == 1 else "Short.",
+            )
+            for index in range(1, 61)
+        ]
+        alone = review_renderer.render_review(
+            repository="example/repository", pr_number=12, head_sha="a" * 40,
+            findings=findings[:1], closed=[], still_present=[], partially_resolved=[],
+            new_refs=[], not_checked_refs=[], coverage=self.coverage(),
+        ).blocks
+        largest = max(len(block.markdown.encode()) for block in alone if block.kind == "finding")
+        # Room for the large finding with its own summary, not with all 60 references.
+        rendered = review_renderer.render_review(
+            repository="example/repository", pr_number=12, head_sha="a" * 40,
+            findings=findings, closed=[], still_present=[], partially_resolved=[],
+            new_refs=[], not_checked_refs=[], coverage=self.coverage(),
+            max_block_bytes=largest + 40,
+        )
+        sections = [block for block in rendered.blocks if "Code quality and readability (60)" in block.markdown]
+        self.assertGreater(len(sections), 1)
+        for block in sections:
+            self.assertLessEqual(len(block.markdown.encode()), largest + 40)
+        self.assertEqual(sum(block.markdown.count("\n### F") for block in sections), 60)
 
     def test_oversized_quality_finding_fails_without_truncating_evidence(self) -> None:
         with self.assertRaisesRegex(review_renderer.PublicationDomainError, "body_too_large"):

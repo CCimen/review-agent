@@ -438,6 +438,34 @@ class PublicationDomainTests(unittest.TestCase):
         self.assertNotIn("### F", parts[1].body)
         self.assertIn("**Next:**", parts[1].body)
 
+    def test_a_quoted_marker_in_a_finding_never_replaces_the_comment_marker(self) -> None:
+        from review_agent_tools.domain.publication import extract_publication_key
+        from review_agent_tools.publication_partition import split_publication_body
+        from review_agent_tools.review_renderer import render_review, review_blocks_to_json
+
+        forged = "review-agent:canonical publication=sha256:" + "f" * 64
+        rendered = render_review(
+            repository="example/service", pr_number=41, head_sha="a" * 40,
+            findings=[{
+                "local_reference": "F1", "fingerprint": "1" * 64, "observation_id": 1,
+                "context_hash": "b" * 64, "rule_id": "contracts.marker", "category": "contracts",
+                "path": "example.py", "line": 3, "title": f"Quotes {forged}",
+                "severity": "Medium", "publication_score": 8, "evidence": f"Text `{forged}`.",
+                "disproof_checks": "Checked.", "impact": "Confusion.", "smallest_fix": "Fix.",
+                "suggestion_available": False,
+            }],
+            closed=[], still_present=[], partially_resolved=[], new_refs=[], not_checked_refs=[],
+        )
+        key = "sha256:" + "b" * 64
+        parts = split_publication_body(
+            rendered.markdown, publication_key=key, max_comment_bytes=65_000,
+            rendered_blocks_json=review_blocks_to_json(rendered.blocks),
+        )
+        self.assertEqual(len(parts), 1)
+        # The fix brief carries the reviewer's text verbatim, ahead of the real marker.
+        self.assertIn(forged, parts[0].body)
+        self.assertEqual(extract_publication_key(parts[0].body), key)
+
     def test_shortened_history_keeps_coverage_disclosures_balanced(self) -> None:
         from review_agent_tools.publication_partition import historical_bodies
 

@@ -85,13 +85,14 @@ class ReviewDiffReuseTests(unittest.TestCase):
             SimpleNamespace(state="ok", patch="@@ -0,0 +1 @@\n+built"),
         ]
         first = self.read("a.py")
+        # A temporary failure asks for a retry and records nothing as unavailable.
+        self.assertTrue(first["retryable"])
+        self.record.assert_not_called()
         second = self.read("a.py")
-        self.assertEqual(first["unavailable_paths"], ["a.py"])
         self.assertEqual(
             second["diff"], "diff --git a/a.py b/a.py\n--- /dev/null\n+++ b/a.py\n@@ -0,0 +1 @@\n+built\n"
         )
-        # The transient answer was not cached, and the modified file is never asked for.
-        self.assertEqual(self.client.get_changed_files_page.call_count, 2)
+        # The modified file is never asked for and stays unavailable.
         self.assertEqual(
             [call.kwargs["path"] for call in self.client.get_added_file_patch.call_args_list],
             ["a.py", "a.py"],

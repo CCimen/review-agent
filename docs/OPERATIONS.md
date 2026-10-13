@@ -185,7 +185,7 @@ boundary prevents inspection. Retained bounds have one of four owners:
 | --- | --- | --- |
 | Changed-file enumeration | GitHub returns at most 3,000 files for one pull request. A lower per-response byte budget retries with smaller pages; if even a one-file page does not fit, registration remains explicitly incomplete. | [GitHub's pull-request files contract](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files) and bounded network memory. |
 | Source files | Files are read in line pages. Files above 1 MB use the raw Contents response up to a 2 MB per-request memory guard; larger or binary files return a terminal unavailable state and keep coverage incomplete. Each page is fetched at the exact review revision and bounded independently. | [GitHub's repository-contents contract](https://docs.github.com/en/rest/repos/contents#get-repository-content), bounded gateway memory, and exact-subject validation. This is a per-file safety boundary, not a limit on PR size or total review depth. |
-| Diff and source output | `plugins.entries.review-agent-tools.settings.result_max_chars` defaults to 160,000 characters and can be raised for larger-context models. The plugin derives a JSON-safe text page from that one budget and enforces it on diff and source page responses. A diff response returns `next_start_char`, `path_total_chars`, and `diff_source` for exact continuation. A source response also carries at most 400 lines; low-newline source that crosses the character boundary is reported truncated and is not recorded as a complete line read. | One native Hermes plugin setting owns and enforces the complete page-result budget without rejecting unrelated memory or delivery payloads. Diff pages can continue without a total code limit; an indivisible source line may remain incomplete rather than flood model context. |
+| Diff and source output | `plugins.entries.review-agent-tools.settings.result_max_chars` defaults to 160,000 characters. The plugin derives a JSON-safe text page from that one budget, and each session is further held to the result limits Hermes sets for its model (see below). A diff response returns `next_start_char`, `path_total_chars`, and `diff_source` for exact continuation. A source response also carries at most 400 lines; low-newline source that crosses the character boundary is reported truncated and is not recorded as a complete line read. | One native Hermes plugin setting owns and enforces the complete page-result budget without rejecting unrelated memory or delivery payloads. Diff pages can continue without a total code limit; an indivisible source line may remain incomplete rather than flood model context. |
 | Historical context | One call accepts the same 200 paths returned by a changed-path page. The review procedure processes further pages in additional calls. | Bounded database/result work per call; not a repository limit. |
 | Findings and suggestions | One atomic record transaction accepts at most 200 findings. Exceeding it rejects the record rather than dropping findings. At most 12 independent native suggestions are retained, while every accepted finding remains in the summary and coding-agent brief. | Bounded atomic persistence and GitHub head reads; suggestions are optional delivery metadata. |
 | Publication | `REVIEW_AGENT_PUBLISH_MAX_BYTES` defaults to 65,000 UTF-8 bytes including framing and metadata, below the API's [reported 65,536-character ceiling](https://github.com/actions/dependency-review-action/issues/730). Larger reviews are deterministically split. | Per-comment delivery budget; the separate 200-pending-finding bound still applies. |
@@ -208,13 +208,18 @@ as exposed, and a response over its budget records nothing. The changed-file
 index can be filtered by diff state, so the reviewer can list unread and
 partially read paths after context compression without paging the whole index.
 
-The pinned Hermes runtime applies its own result limits. It replaces a tool result
-with a short preview when one result exceeds 100,000 characters, or when the
-results of the tool calls issued together in one model response exceed 200,000
-characters in total. The managed reviewer has no file tools and cannot open that
-preview. A batched diff result is therefore held, in its serialized form, to a
-fifth of the smaller of `result_max_chars` and that combined limit: 32,000
-characters by default. The review procedure allows at most four batch calls in
+The pinned Hermes runtime applies its own result limits, derived from the
+session model's context window. It replaces a tool result with a short preview
+when one result exceeds its single-result limit, or when the results of the tool
+calls issued together in one model response exceed its combined limit. For any
+window of 166,667 tokens or more these are 100,000 and 200,000 characters;
+smaller windows get proportionally smaller limits. The managed reviewer has no
+file tools and cannot open that preview. When Hermes admits a review session,
+the plugin asks Hermes for that model's window and limits once and applies them
+to every tool call of the session. A result is held to the smaller of
+`result_max_chars` and the single-result limit. A batched diff result is held,
+in its serialized form, to a fifth of the smaller of `result_max_chars` and the
+combined limit: 32,000 characters by default. The review procedure allows at most four batch calls in
 one model response and no other tool call beside them; the number of batches in a
 review is not limited. Four batches then use at most four fifths of the combined
 limit whatever `result_max_chars` is set to. The plugin cannot see the other
@@ -226,12 +231,12 @@ result, not an enforced bound on mixed responses.
 One reviewer session reads a limited amount of diff. In two production reviews
 of a 600-file pull request the session stopped reading after about 150 files and
 30 minutes, whatever the procedure asked. A code review whose changed files hold
-more than 600,000 diff characters is therefore reviewed in parts. Documentation
-reviews are never split.
+more diff than one session's largest part is therefore reviewed in parts.
+Documentation reviews are never split.
 
 1. The first session only registers the changed files. `review_agent_begin`
-   packs them in path order into parts of about 400,000 diff characters, so a
-   directory stays together, and ends that session.
+   packs them in path order into parts sized for the session model's context
+   window, so a directory stays together, and ends that session.
 2. Every part is its own job in the review queue and its own reviewer session.
    A part cannot hand in before the tools have returned the whole diff of each of
    its files, and a retried part starts its reading again. It hands in candidate
@@ -246,11 +251,12 @@ reviews are never split.
 
 | Rule | Value | Owner |
 | --- | --- | --- |
-| A review is split above | 600,000 diff characters | `review_agent_tools.domain.review` |
-| Part size | about 400,000, at most 600,000 diff characters | `review_agent_tools.domain.review` |
+| A review is split above | the largest part | `review_agent_tools.domain.review` |
+| Preferred part | predicted to fill about half the context window: about 372,000 diff characters at 500,000 tokens, 192,000 at 272,000 | `review_agent_tools.domain.review` |
+| Largest part | predicted to stay below the compression threshold: about 608,000 diff characters at 500,000 tokens, 321,000 at 272,000 | `review_agent_tools.domain.review` |
 | Parts in one review | 12 | `review_agent_tools.domain.review` |
 | Jobs of one review that run at once | 3, and at most the model connection's concurrency minus one | `review_agent_tools.postgres.jobs` |
-| Report one part hands in | 12,307 serialized characters of candidates and notes by default, a thirteenth of the combined result limit | `review_agent_tools.capacity` |
+| Report one part hands in | 12,307 serialized characters of candidates and notes by default, a thirteenth of the smaller of `result_max_chars` and the combined result limit | `review_agent_tools.capacity` |
 
 A part hands in every candidate that fits its report. When they do not fit, it
 shortens their text first. A candidate that still does not fit becomes a note
@@ -277,11 +283,18 @@ usage summed over its parts, and `review-agent-admin jobs list` names each job's
 `part`, where `0` is the review's main job. Queue health does not count a main
 job that waits for its parts as waiting or due work.
 
-The sizes above come from those two reviews on a model with a 272,000-token
-context window. They are constants, not settings.
-Single-path diff and source pages are bounded by `result_max_chars` alone. A
-typical page is far below the single-result limit, but text that JSON-escapes
-heavily can serialize past it while `result_max_chars` is above 100,000.
+Part sizes follow the context window Hermes resolves for the review's model and
+the managed `compression.threshold`. The ratio between diff characters and
+prompt tokens comes from the first split review (11 parts of 302,000 to 400,000
+diff characters on a 500,000-token window peaked at 174,000 to 258,000 prompt
+tokens, and none compacted). It is an initial empirical policy that reduces the
+risk of a part compacting, not a guarantee; the gateway log records each
+session's window and each split's part sizes for recalibration.
+
+Single-path diff and source pages are bounded by the session's single-result
+limit. A typical page is far below it, but text that JSON-escapes heavily can
+serialize past it. Such a page is refused before anything is recorded as read,
+and the reviewer requests a smaller page.
 
 The coverage count measures full diffs exposed to the reviewer, not analysis
 progress. When coverage is incomplete, the comment's coverage details list the

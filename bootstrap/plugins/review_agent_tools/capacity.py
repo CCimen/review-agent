@@ -1,10 +1,14 @@
-"""Operator-tunable per-response capacity for model-facing review tools."""
+"""Per-response capacity for model-facing review tools."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from .domain.review import MAX_REVIEW_PARTS
+from .model_window import ModelWindow
 
 
 DEFAULT_RESULT_MAX_CHARS = 160_000
@@ -12,10 +16,6 @@ MIN_TEXT_PAGE_CHARS = 1_000
 _JSON_WORST_CASE_EXPANSION = 6
 _TEXT_PAGE_DIVISOR = _JSON_WORST_CASE_EXPANSION + 1
 MIN_RESULT_MAX_CHARS = MIN_TEXT_PAGE_CHARS * _TEXT_PAGE_DIVISOR
-# The pinned Hermes runtime replaces tool results with a preview the reviewer
-# cannot open once the results of one model response exceed this total
-# (tools/budget_config.py, DEFAULT_TURN_BUDGET_CHARS).
-RUNTIME_RESPONSE_RESULT_CHARS = 200_000
 # The review procedure issues at most this many diff calls in one response.
 PARALLEL_DIFF_CALLS = 4
 
@@ -26,8 +26,16 @@ class CapacityError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class CapacityLimits:
+    """The operator's result setting within what Hermes lets one session hold.
+
+    ``result_max_chars`` bounds one tool result and ``response_max_chars`` all
+    results of one model response; above either, Hermes replaces results with
+    a preview the reviewer cannot open.
+    """
+
     result_max_chars: int
     text_page_max_chars: int
+    response_max_chars: int
 
     @property
     def batch_result_max_chars(self) -> int:
@@ -36,8 +44,8 @@ class CapacityLimits:
         Four parallel batches leave one equal share of the response total for
         any other tool result issued beside them, which the plugin cannot see.
         """
-        return min(self.result_max_chars, RUNTIME_RESPONSE_RESULT_CHARS) // (
-            PARALLEL_DIFF_CALLS + 1
+        return min(
+            self.result_max_chars, self.response_max_chars // (PARALLEL_DIFF_CALLS + 1)
         )
 
     @property
@@ -47,35 +55,65 @@ class CapacityLimits:
         The final session may request every report in one response, so all of
         them plus one equal share for another tool result fit the response total.
         """
-        return min(self.result_max_chars, RUNTIME_RESPONSE_RESULT_CHARS) // (
-            MAX_REVIEW_PARTS + 1
+        return min(
+            self.result_max_chars, self.response_max_chars // (MAX_REVIEW_PARTS + 1)
         )
 
 
-_active = CapacityLimits(
+def _limits(configured: int, *, result_chars: int, turn_chars: int) -> CapacityLimits:
+    return CapacityLimits(
+        result_max_chars=min(configured, result_chars),
+        # JSON may escape one source character as six. The seventh share keeps
+        # room for stable metadata; pages enforce the actual serialized result.
+        text_page_max_chars=configured // _TEXT_PAGE_DIVISOR,
+        response_max_chars=min(configured, turn_chars),
+    )
+
+
+_configured = DEFAULT_RESULT_MAX_CHARS
+_default = CapacityLimits(
     result_max_chars=DEFAULT_RESULT_MAX_CHARS,
     text_page_max_chars=DEFAULT_RESULT_MAX_CHARS // _TEXT_PAGE_DIVISOR,
+    response_max_chars=DEFAULT_RESULT_MAX_CHARS,
+)
+_execution: ContextVar[CapacityLimits | None] = ContextVar(
+    "review_agent_capacity", default=None
 )
 
 
-def configure(*, result_max_chars: object) -> CapacityLimits:
-    """Validate and install the process-wide plugin capacity selected at startup."""
+def configure(
+    *, result_max_chars: object, result_chars: int, turn_chars: int
+) -> CapacityLimits:
+    """Install the operator setting and the limits used before a model is known."""
     if isinstance(result_max_chars, bool) or not isinstance(result_max_chars, int):
         raise CapacityError("result_max_chars must be an integer")
     if result_max_chars < MIN_RESULT_MAX_CHARS:
         raise CapacityError(
             f"result_max_chars must be at least {MIN_RESULT_MAX_CHARS}"
         )
-    global _active
-    _active = CapacityLimits(
-        result_max_chars=result_max_chars,
-        # JSON may escape one source character as six. The seventh share keeps
-        # room for stable metadata; _output enforces the actual complete result.
-        text_page_max_chars=result_max_chars // _TEXT_PAGE_DIVISOR,
+    global _configured, _default
+    _configured = result_max_chars
+    _default = _limits(result_max_chars, result_chars=result_chars, turn_chars=turn_chars)
+    return _default
+
+
+def for_window(window: ModelWindow) -> CapacityLimits:
+    """Limits for one execution of the model with this window."""
+    return _limits(
+        _configured, result_chars=window.result_chars, turn_chars=window.turn_chars
     )
-    return _active
+
+
+@contextmanager
+def execution(limits: CapacityLimits) -> Iterator[None]:
+    """Apply one execution's limits to the tool call running in this context."""
+    token = _execution.set(limits)
+    try:
+        yield
+    finally:
+        _execution.reset(token)
 
 
 def current() -> CapacityLimits:
-    """Return the immutable capacity selected when the plugin registered."""
-    return _active
+    """Return the running execution's limits, or the startup limits outside one."""
+    return _execution.get() or _default

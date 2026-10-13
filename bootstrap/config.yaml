@@ -2,9 +2,10 @@ _config_version: 39
 
 group_sessions_per_user: true
 
-# Raise this complete plugin-result budget for larger-context models if desired.
-# Text pages are derived from it and continue by cursor, so it never limits total
-# review depth. Diff and source page serializers enforce the configured value.
+# Operator ceiling for one plugin result and for the shares of one model response.
+# Each session is further held to the per-result and per-turn budgets Hermes
+# derives from its model's context window. Text pages are derived from this value
+# and continue by cursor, so it never limits total review depth.
 plugins:
   enabled:
     - review-agent-tools
@@ -37,16 +38,13 @@ display:
   busy_ack_enabled: false
   long_running_notifications: false
 
-# gpt-5.6 on the Codex OAuth route is hard-capped at a 272K context window, and the
-# global compression default (0.50) compacts at ~136K — half the usable window. That
-# caused frequent mid-review compaction and its noisy "Compacting context" /
-# "Session compressed" PR comments on larger PRs. Set the trigger to 0.80 (~218K) so
-# normal and medium reviews never compact; only genuinely huge PRs (>~218K) compact,
-# which is acceptable for them and keeps more context (less lossy). Keep
-# legacy codex_gpt55_autoraise setting off so its per-review "raised to 85%" notice
-# never posts as a comment — this explicit threshold gives the same high trigger
-# without that notice.
-# (The gateway session-hygiene safety net stays fixed at 85%.)
+# Hermes' default compression threshold (0.50) compacts at half the context window,
+# which caused frequent mid-review compaction and noisy "Compacting context" PR
+# comments. 0.80 keeps normal and medium reviews uncompacted. Keep the legacy
+# codex_gpt55_autoraise setting off so its "raised to 85%" notice never posts as a
+# comment. Review parts are sized from window x threshold, so this block sets no
+# per-model thresholds or absolute token caps, and model sets no max_tokens output
+# reservation. (The gateway session-hygiene safety net stays fixed at 85%.)
 compression:
   threshold: 0.80
   codex_gpt55_autoraise: false

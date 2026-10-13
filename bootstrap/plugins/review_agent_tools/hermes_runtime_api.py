@@ -13,7 +13,7 @@ from uuid import uuid4
 from aiohttp import web
 import psycopg
 
-from . import review_contract, review_tool_runtime
+from . import model_window, review_contract, review_tool_runtime
 from .hermes_control import MANAGED_REVIEW_PATH
 from .model_accounts import AccountAvailability, ModelProvider, read_accounts
 from .model_quota import ObservedQuota, QuotaCache, execution_quota
@@ -163,6 +163,8 @@ def wire_api(native: object, _adapter: object) -> None:
             raise jobs.ReviewJobError("The assigned provider account is unavailable")
         if quota.identity_sha256 != account.identity_sha256:
             raise jobs.ReviewJobError("Provider account changed during the quota check")
+        # Resolved before the transaction: Hermes may probe the provider.
+        window = model_window.resolve(provider.value, model)
         with review_tool_runtime.postgres_runtime().transaction() as connection:
             configuration = jobs.begin_model_execution(
                 connection,
@@ -180,9 +182,23 @@ def wire_api(native: object, _adapter: object) -> None:
             review_contract.require_matching_execution_contract(
                 configuration, installed
             )
+        model_window.register_execution(session.job_id, session.lease_generation, window)
+        logger.info(
+            "Review execution %s-%s admitted: provider=%s model=%s "
+            "context_tokens=%s compaction_tokens=%s result_chars=%s turn_chars=%s",
+            session.job_id,
+            session.lease_generation,
+            provider.value,
+            model,
+            window.context_tokens,
+            window.compaction_tokens,
+            window.result_chars,
+            window.turn_chars,
+        )
         return True
 
     def finished(session: jobs.WorkerLeaseSession) -> None:
+        model_window.release_execution(session.job_id, session.lease_generation)
         try:
             with review_tool_runtime.postgres_runtime().transaction() as connection:
                 jobs.finish_model_execution(
@@ -242,6 +258,11 @@ def wire_api(native: object, _adapter: object) -> None:
             logger.warning("Hermes execution admission failed: %s", type(exc).__name__)
             raise web.HTTPServiceUnavailable(
                 text="Review execution could not be admitted"
+            ) from exc
+        except model_window.ModelWindowError as exc:
+            logger.warning("Hermes execution admission failed: %s", exc)
+            raise web.HTTPServiceUnavailable(
+                text="The review model's context window could not be resolved"
             ) from exc
         # The pinned non-streaming handler awaits its executor before returning,
         # including ordinary error responses and HTTP rejection exceptions.

@@ -70,7 +70,7 @@ docker run --rm \
     --entrypoint /usr/local/bin/review-agent-hermes-contract \
     "$image"
 
-for check in test_hermes_auxiliary.py test_hermes_account_usage.py
+for check in test_hermes_auxiliary.py test_hermes_account_usage.py test_hermes_model_window.py
 do
     docker run --rm --network none \
         --mount "type=bind,source=$ROOT/tests/$check,target=/tmp/$check,readonly" \

@@ -13,7 +13,7 @@ from aiohttp.test_utils import TestClient, TestServer
 import jwt
 
 from tests import test_postgres_jobs
-from review_agent_tools import hermes_runtime_api, model_quota, review_contract
+from review_agent_tools import hermes_runtime_api, model_quota, model_window, review_contract
 from review_agent_tools.hermes_control import MANAGED_REVIEW_PATH
 from review_agent_tools.model_accounts import (
     AccountAvailability,
@@ -115,6 +115,17 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         self.quota_response = self.enterContext(
             patch.object(model_quota, "fetch_account_quota", return_value=None)
         )
+        self.window = model_window.ModelWindow(
+            context_tokens=500_000,
+            result_chars=100_000,
+            turn_chars=200_000,
+            compaction_tokens=400_000,
+        )
+        self.resolve_window = self.enterContext(
+            patch.object(
+                hermes_runtime_api.model_window, "resolve", return_value=self.window
+            )
+        )
         self.enterContext(
             patch.dict(
                 os.environ,
@@ -152,9 +163,23 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         self.calls = 0
         self.cancel_handler = False
         self.reject_handler = False
+        self.windows_seen: list[model_window.ModelWindow] = []
+        self.addCleanup(
+            model_window.release_execution,
+            self.session.job_id,
+            self.session.lease_generation,
+        )
 
-        async def chat(_request: web.Request) -> web.Response:
+        async def chat(request: web.Request) -> web.Response:
             self.calls += 1
+            # Tool calls during inference find the window admitted for them.
+            session = jobs.WorkerLeaseSession.parse(
+                request.headers["X-Hermes-Session-Id"]
+            )
+            assert session is not None
+            self.windows_seen.append(
+                model_window.execution_window(session.job_id, session.lease_generation)
+            )
             if self.reject_handler:
                 raise web.HTTPBadRequest(text="Synthetic request rejection")
             if self.cancel_handler:
@@ -186,6 +211,15 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status, 200, await response.text())
         self.assertEqual(self.calls, 1)
+        self.resolve_window.assert_called_with(
+            self.contract.model_provider, self.contract.model
+        )
+        self.assertEqual(self.windows_seen, [self.window])
+        # Recorded completion releases the window.
+        with self.assertRaises(model_window.ModelWindowError):
+            model_window.execution_window(
+                self.session.job_id, self.session.lease_generation
+            )
         with self.fixture.runtime.transaction() as connection:
             self.assertEqual(
                 jobs.active_model_executions(connection, connection_id=1), 0
@@ -250,6 +284,31 @@ class ManagedHermesTests(unittest.IsolatedAsyncioTestCase):
         with self.fixture.runtime.transaction() as connection:
             self.assertEqual(
                 jobs.active_model_executions(connection, connection_id=1), 1
+            )
+        # Cancellation does not prove inference stopped, so its tools keep the window.
+        self.assertEqual(
+            model_window.execution_window(
+                self.session.job_id, self.session.lease_generation
+            ),
+            self.window,
+        )
+
+    async def test_unresolved_model_window_admits_nothing(self) -> None:
+        self.resolve_window.side_effect = model_window.ModelWindowError(
+            "model context window could not be resolved"
+        )
+        response = await self.client.post(
+            MANAGED_REVIEW_PATH, json=self.body, headers=self.headers
+        )
+        self.assertEqual(response.status, 503)
+        self.assertEqual(self.calls, 0)
+        with self.fixture.runtime.transaction() as connection:
+            self.assertEqual(
+                jobs.active_model_executions(connection, connection_id=1), 0
+            )
+        with self.assertRaises(model_window.ModelWindowError):
+            model_window.execution_window(
+                self.session.job_id, self.session.lease_generation
             )
 
     async def test_pause_after_claim_returns_unstarted_review_to_queue(self) -> None:

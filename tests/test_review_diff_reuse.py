@@ -65,6 +65,17 @@ class ReviewDiffReuseTests(unittest.TestCase):
         self.assertEqual(len({page.content_sha256 for page in evidence}), 1)
         self.assertEqual([(page.start_char, page.end_char) for page in evidence], [(0, 1000), (1000, 2000), (2000, len(expected))])
 
+    def test_a_page_over_the_session_result_budget_records_no_exposure(self) -> None:
+        # The 1,000-character page fits the text page but not this session's
+        # result budget once serialized with its metadata.
+        limits = tools.capacity.CapacityLimits(
+            result_max_chars=1_200, text_page_max_chars=1_000, response_max_chars=1_200
+        )
+        with tools.capacity.execution(limits):
+            page = self.read("a.py")
+        self.assertIn("request a smaller page", str(page["error"]))
+        self.record.assert_not_called()
+
     def test_truncated_rendering_and_missing_rendered_paths_keep_patch_fallback(self) -> None:
         for truncated in (False, True):
             with self.subTest(truncated=truncated), patch.object(tools, "_diff_cache", tools.ReviewDiffCache()):
@@ -180,7 +191,9 @@ class ReviewDiffReuseTests(unittest.TestCase):
         self.assertEqual(self.client.get_changed_files_page.call_count, 1)
 
     def test_batch_over_the_result_budget_records_no_exposure(self) -> None:
-        limits = tools.capacity.CapacityLimits(result_max_chars=7000, text_page_max_chars=1000)
+        limits = tools.capacity.CapacityLimits(
+            result_max_chars=7000, text_page_max_chars=1000, response_max_chars=7000
+        )
         absent = [f"missing/{'d' * 180}{index}.py" for index in range(40)]
         self.use_files({"a.py": "@@ -0,0 +1 @@\n+x"})
         with patch.object(tools.capacity, "current", return_value=limits):
@@ -191,7 +204,9 @@ class ReviewDiffReuseTests(unittest.TestCase):
     def test_batch_stays_within_its_share_of_the_parallel_result_budget(self) -> None:
         # Quotes double in JSON: 900 raw characters fit the text page but not the
         # serialized share that four parallel batches may each use.
-        limits = tools.capacity.CapacityLimits(result_max_chars=8000, text_page_max_chars=1000)
+        limits = tools.capacity.CapacityLimits(
+            result_max_chars=8000, text_page_max_chars=1000, response_max_chars=8000
+        )
         self.use_files({
             "plain.py": "@@ -0,0 +1 @@\n+x",
             "quoted.py": "@@ -0,0 +1 @@\n+" + '"' * 900,

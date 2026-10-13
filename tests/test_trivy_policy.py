@@ -138,7 +138,7 @@ class TrivyPolicyTests(unittest.TestCase):
         self.assertIn("2999-12-31", summary)
         self.assertIn(exception["reason"], summary)
 
-    def test_empty_release_exception_policy_accepts_a_clean_report(self):
+    def test_empty_release_exception_policy_accepts_a_clean_report_after_its_date(self):
         completed, summary = self._run_policy_with_exceptions(
             {
                 "Results": [
@@ -149,7 +149,7 @@ class TrivyPolicyTests(unittest.TestCase):
                 ]
             },
             exceptions=[],
-            expires_on="2999-12-31",
+            expires_on="2000-01-01",
         )
 
         self.assertEqual(0, completed.returncode, completed.stderr)

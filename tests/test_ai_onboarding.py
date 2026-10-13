@@ -94,7 +94,6 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertIn("review-agent-memory quality --days 30", short)
         self.assertIn("explicit operator triage", short)
         self.assertNotIn("`review-agent-admin capabilities`", short)
-        self.assertNotIn("docs/goals/", full)
         self.assertNotIn("/Users/", full)
         self.assertNotIn("<TabItem", full)
         self.assertNotIn("import Tabs", full)

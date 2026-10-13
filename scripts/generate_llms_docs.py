@@ -148,7 +148,7 @@ def generate(*, revision: str = REVISION) -> tuple[str, str]:
     full = [
         "# Review Agent: full public documentation",
         "",
-        "Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.",
+        "Generated from the live documentation sources listed in `website/public-documents.json`. Internal review notes and private learning data are excluded.",
         f"Runtime release selected by `llms.txt`: {revision}",
         "",
     ]

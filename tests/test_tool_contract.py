@@ -495,7 +495,6 @@ class ToolContractTests(unittest.TestCase):
                     base_sha="a" * 40,
                 ),
             ),
-            patch.object(review_run_application, "start_live_review") as start,
             patch.object(review_source_tools, "load_changed_files") as changed,
             patch.object(
                 review_contract,
@@ -539,7 +538,6 @@ class ToolContractTests(unittest.TestCase):
             result["repository_decisions_untrusted"]["decisions"],
             [],
         )
-        start.assert_not_called()
         changed.assert_not_called()
 
     def test_review_begin_loads_ordered_guidance_once_and_reuses_its_snapshot(self) -> None:

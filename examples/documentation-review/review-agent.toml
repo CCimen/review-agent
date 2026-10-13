@@ -20,5 +20,5 @@ documents = ["docs/DEPLOYMENT.md", "docs/OPERATIONS.md", "docs/GITHUB_APP_PILOT.
 intent = "Keep installation permissions, service topology, operator settings, upgrade and recovery instructions accurate."
 
 [[ignore_documents]]
-paths = ["docs/assessments/**", "docs/goals/**"]
-reason = "Dated assessments and planning records preserve their historical context."
+paths = ["docs/assessments/**"]
+reason = "Dated assessments preserve their historical context."

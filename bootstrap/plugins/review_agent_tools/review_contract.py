@@ -682,13 +682,6 @@ def resolved_config(
     return result
 
 
-def require_matching_resolved_config(value: object, installed: ReviewContract) -> None:
-    if value != resolved_config(installed):
-        raise ReviewContractError(
-            "queued review contract does not match the installed reviewer"
-        )
-
-
 def with_model_route(
     installed: ReviewContract, *, provider: str, model: str, effort: str
 ) -> ReviewContract:

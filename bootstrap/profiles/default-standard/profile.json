@@ -2,8 +2,6 @@
   "schema_version": 1,
   "skills": [
     "review-agent-pr",
-    "review-agent-docs",
-    "ponytail",
-    "security-audit"
+    "review-agent-docs"
   ]
 }

@@ -68,7 +68,7 @@ def _pack_blocks(blocks: list[str], max_bytes: int) -> list[str]:
 
 def _publication_blocks(
     body: str, *, rendered_blocks_json: str, publication_key: str
-) -> list[str]:
+) -> list[tuple[str, str]]:
     marker = f"<!-- {publication_marker(publication_key)} -->"
     if rendered_blocks_json:
         try:
@@ -82,12 +82,31 @@ def _publication_blocks(
     else:
         blocks = (ReviewBlock(kind="header", markdown=body),)
 
-    content_blocks: list[str] = []
+    content_blocks: list[tuple[str, str]] = []
     for block in blocks:
         markdown = block.markdown.replace(marker, "").strip()
         if markdown:
-            content_blocks.append(markdown + "\n\n")
+            content_blocks.append((block.kind, markdown + "\n\n"))
     return content_blocks
+
+
+def _pack_review(blocks: list[tuple[str, str]], max_bytes: int) -> list[str]:
+    """Pack blocks greedily, starting a comment at the handoff when that is free.
+
+    Opening a new comment at the first fix brief keeps the findings together and
+    the next steps together, unless it would cost an extra comment.
+    """
+    texts = [markdown for _, markdown in blocks]
+    packed = _pack_blocks(texts, max_bytes)
+    handoff = next(
+        (index for index, (kind, _) in enumerate(blocks) if kind == "fix_brief"), None
+    )
+    if len(packed) < 2 or handoff is None or handoff == 0:
+        return packed
+    separated = _pack_blocks(texts[:handoff], max_bytes) + _pack_blocks(
+        texts[handoff:], max_bytes
+    )
+    return separated if len(separated) <= len(packed) else packed
 
 
 def _publication_heading(body: str) -> str:
@@ -161,7 +180,7 @@ def split_publication_body(
         rendered_blocks_json=rendered_blocks_json,
         publication_key=publication_key,
     )
-    chunks = _pack_blocks(blocks, content_budget)
+    chunks = _pack_review(blocks, content_budget)
     total_parts = len(chunks)
     parts: list[PublicationPart] = []
     for index, chunk in enumerate(chunks, start=1):

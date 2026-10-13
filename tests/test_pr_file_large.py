@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from dataclasses import replace
 import sys
 import unittest
@@ -86,6 +87,40 @@ class ReviewSourceFilePageTests(unittest.TestCase):
         )
         self.assertEqual(page.state, "not_regular")
         self.assertEqual(github.request_json.call_count, 2)
+
+    def test_an_added_file_patch_is_its_exact_head_text(self) -> None:
+        self.assertEqual(source.added_file_patch("only\n"), "@@ -0,0 +1 @@\n+only")
+        self.assertEqual(
+            source.added_file_patch("first\r\nlast"),
+            "@@ -0,0 +1,2 @@\n+first\r\n+last\n\\ No newline at end of file",
+        )
+        raw = b"one\ntwo\n"
+        github = Mock()
+        github.request_json.return_value = self._contents(
+            content=base64.b64encode(raw).decode("ascii"), size=len(raw)
+        )
+        blob = hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()
+        built = source.read_added_file_patch(
+            github, self._scope(), path="e2e/large.spec.ts", blob_sha=blob
+        )
+        self.assertEqual(built, source.ReviewFilePatch("ok", "@@ -0,0 +1,2 @@\n+one\n+two"))
+        self.assertIn("ref=" + "b" * 40, github.request_json.call_args.args[0])
+
+    def test_an_added_file_patch_refuses_other_bytes_and_oversized_text(self) -> None:
+        raw = b"x" * (source.ADDED_FILE_PATCH_MAX_CHARS + 1)
+        github = Mock()
+        github.request_json.return_value = self._contents(
+            content=base64.b64encode(raw).decode("ascii"), size=len(raw)
+        )
+        blob = hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()
+        for blob_sha, state in (("0" * 40, "blob_mismatch"), (blob, "too_large")):
+            with self.subTest(state=state):
+                self.assertEqual(
+                    source.read_added_file_patch(
+                        github, self._scope(), path="generated.ts", blob_sha=blob_sha
+                    ),
+                    source.ReviewFilePatch(state, None),
+                )
 
     @staticmethod
     def _scope() -> ReviewRunScope:

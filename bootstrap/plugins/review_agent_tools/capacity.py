@@ -48,16 +48,15 @@ class CapacityLimits:
             self.result_max_chars, self.response_max_chars // (PARALLEL_DIFF_CALLS + 1)
         )
 
-    @property
-    def part_report_max_chars(self) -> int:
-        """Serialized size of one review part's report.
+    def part_report_max_chars(self, parts: int) -> int:
+        """Serialized size of one report of a review split into ``parts`` parts.
 
         The final session may request every report in one response, so all of
         them plus one equal share for another tool result fit the response total.
         """
-        return min(
-            self.result_max_chars, self.response_max_chars // (MAX_REVIEW_PARTS + 1)
-        )
+        if not 1 <= parts <= MAX_REVIEW_PARTS:
+            raise CapacityError(f"parts must be between 1 and {MAX_REVIEW_PARTS}")
+        return min(self.result_max_chars, self.response_max_chars // (parts + 1))
 
 
 def _limits(configured: int, *, result_chars: int, turn_chars: int) -> CapacityLimits:

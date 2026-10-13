@@ -315,9 +315,10 @@ fix at the trusted boundary and the focused behavior check that would prove it.
 
 - Publish every finding that survives AGENTS.md. Do not hide lower-priority
   survivors. Follow AGENTS.md's comment contract: deterministic code groups
-  Low/P3 `maintainability` improvements in the collapsed section; all other
-  active findings stay expanded. Every survivor keeps its complete finding and
-  place in the counts, fix brief, and feedback flow.
+  Low/P3 `maintainability` improvements, and other non-security Low/P3 findings
+  when more severe ones exist, in collapsed sections; all other active findings
+  stay expanded. Every survivor keeps its complete finding and place in the
+  counts, fix brief, and feedback flow.
 - Do not optimize for a larger finding count. Publish every independent survivor,
   but reject duplicates, speculative concerns, and issues outside the current
   diff.
@@ -359,7 +360,10 @@ behavior and failure mechanism or AGENTS.md's code-clarity mismatch, without
 repeating impact or remediation. Keep `impact` to one practical consequence.
 Make `smallest_fix` directly usable by a
 developer or coding agent: name the canonical owner to change and the focused
-behavior test or check that proves the path is fixed.
+behavior test or check that proves the path is fixed. In the title and these
+three fields, wrap code identifiers, file paths, HTTP headers, configuration
+keys, and literal values in single backticks, such as `If-Match` or `events: []`;
+the comment renders them as code.
 
 An optional `suggestion` contains `start_line`, `end_line`, `expected_text`, and
 `replacement_text`. Lines refer to one contiguous right-side range in the same

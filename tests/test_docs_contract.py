@@ -789,7 +789,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("Do not optimize for a larger finding count", skill)
         self.assertNotIn("under a minute", canonical)
         self.assertIn("Render every published finding as a complete `###` section", canonical)
-        self.assertIn("expanded except Low/P3 `maintainability` improvements", canonical)
+        self.assertIn("collapsed `Low-priority findings` section", canonical_words)
         self.assertIn("Medium findings and all security", canonical)
         self.assertIn("findings stay expanded", canonical)
         self.assertIn("without dropping or truncating a finding", canonical)

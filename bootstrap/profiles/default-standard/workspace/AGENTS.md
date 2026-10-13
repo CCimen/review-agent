@@ -275,7 +275,7 @@ developer gets GitHub's native suggestion controls in **Files changed**.
 - Order findings deterministically by severity, practical impact, publication
   score, then `rule_id` alphabetically. Confidence is an internal admission gate,
   not visible ranking metadata. Present expanded findings first, then the
-  Low/P3 `maintainability` group; preserve this ordering within each group.
+  collapsed Low/P3 groups; preserve this ordering within each group.
 - Keep each finding compact. Spend words on evidence and the fix, never on
   padding.
 - Start with the configured review title, currently
@@ -285,10 +285,12 @@ developer gets GitHub's native suggestion controls in **Files changed**.
 - Do not include a top-level per-finding table. Long paths and memory
   fingerprints render poorly in GitHub tables, and each finding already carries
   its own heading and location.
-- Render every published finding as a complete `###` section. Keep all findings
-  expanded except Low/P3 `maintainability` improvements, which deterministic
-  code collects in one collapsed `Code quality and readability` section after
-  the expanded findings. Keep the total and severity counts visible, plus the
+- Render every published finding as a complete `###` section. Deterministic
+  code collects Low/P3 `maintainability` improvements in one collapsed `Code
+  quality and readability` section after the expanded findings. When the review
+  also has a higher-severity finding, it collects the other Low/P3 findings in a
+  collapsed `Low-priority findings` section before it. Each section summary
+  names its F references. Keep the total and severity counts visible, plus the
   number of improvements. Omit an empty group. Medium findings and all security
   findings stay expanded. Every grouped finding keeps its location, evidence,
   impact, smallest safe fix, stable F reference, and place in the fix brief and
@@ -381,11 +383,11 @@ and new findings.
 Then add a collapsed `<details>` section titled `Copyable fix brief for a coding
 agent` only when findings exist. Keep it compact and put the complete brief in a
 single `text` fenced code block so GitHub shows one copy button. For an exceptional
-review with more than ten findings, split the brief into deterministic F-reference
-parts; each part remains a complete fenced block. The only allowed collapsed
-sections are the deterministic coverage details, closed-finding evidence,
-Low/P3 `maintainability` group, fix-brief parts, and `Give feedback on this review`
-help section. The brief must include every published finding by local
+review with more than ten findings, split the brief into deterministic parts
+whose titles name their F references; each part remains a complete fenced block.
+The only allowed collapsed sections are the deterministic coverage details,
+closed-finding evidence, Low/P3 groups, fix-brief parts, and `Give feedback on
+this review` help section. The brief must include every published finding by local
 reference, severity, file, problem, observed behavior, impact, and smallest safe
 fix. It must tell the coding agent to re-check the current PR head, preserve every
 F reference in its completion report, report exact validation commands and

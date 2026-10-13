@@ -24,11 +24,16 @@ become a second documentation store.
 The summary identifies the reviewed commit, current findings, changes since the
 previous review, and diff coverage. Low/P3 maintainability improvements appear
 in a collapsed **Code quality and readability** section after the expanded
-findings, with the improvement count visible in the summary. All other current
-findings, including Medium and security findings, stay expanded. Every finding
-retains its full explanation, F reference, feedback commands, and entry in the
-copyable fix brief. Large groups split into complete numbered sections across
-comments. Coverage details and evidence for closed findings are expandable.
+findings, with the improvement count visible in the summary. When a review also
+has High or Medium findings, its other Low/P3 findings appear in a collapsed
+**Low-priority findings** section, so the findings that need attention come
+first. Security findings at any severity, and every Medium or higher finding,
+stay expanded. Each collapsed section and fix brief names the F references it
+holds. Every finding retains its full explanation, F reference, feedback
+commands, and entry in the copyable fix brief. Large groups split into complete
+numbered sections across comments; a review that needs a second comment starts
+it at the next steps and fix briefs. Coverage details and evidence for closed
+findings are expandable.
 
 The default publication budget is 65,000 UTF-8 bytes per complete comment,
 including framing and metadata. Explicit saved or environment values retain

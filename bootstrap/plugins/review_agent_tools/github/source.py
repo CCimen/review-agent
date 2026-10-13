@@ -30,6 +30,13 @@ _FILE_CACHE_MAX_BYTES = 2 * _GITHUB_RAW_FILE_MAX_BYTES
 _FILE_CACHE_MAX_ENTRIES = 32
 
 
+# A patch built for an added file GitHub sent without one: whole UTF-8 files
+# up to 1 MB, and patch text one review part can read alongside other files.
+ADDED_FILE_PATCH_MAX_BYTES = 1_000_000
+ADDED_FILE_PATCH_MAX_CHARS = 200_000
+GIT_BLOB_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+
 class GitHubSourceError(ValueError):
     """GitHub returned source data that does not match the durable subject."""
 
@@ -223,6 +230,32 @@ class ReviewSourceBytes:
             "truncated": self.truncated,
             "headers": self.headers,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewFilePatch:
+    """A patch the gateway built, or the state that prevented it."""
+
+    state: str
+    patch: str | None
+
+    def to_mapping(self) -> dict[str, object]:
+        return {"kind": "file_patch", "state": self.state, "patch": self.patch}
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "ReviewFilePatch":
+        if set(value) != {"kind", "state", "patch"} or value.get("kind") != "file_patch":
+            raise GitHubSourceError("gateway file patch has unexpected fields")
+        state = value["state"]
+        patch = value["patch"]
+        if not isinstance(state, str) or not state:
+            raise GitHubSourceError("gateway file patch state is invalid")
+        if state == "ok":
+            if not isinstance(patch, str) or not 0 < len(patch) <= ADDED_FILE_PATCH_MAX_CHARS:
+                raise GitHubSourceError("gateway file patch text is invalid")
+        elif patch is not None:
+            raise GitHubSourceError("an unavailable gateway file patch carries text")
+        return cls(state, patch)
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,6 +513,109 @@ def _regular_file_blob(
     return None, "not_found_at_revision"
 
 
+def _file_key(scope: ReviewRunScope, revision: str, path: str) -> ReviewFileKey:
+    return ReviewFileKey(
+        provider_repository_id=scope.provider_repository_id,
+        commit_sha=revision,
+        path=path,
+    )
+
+
+def _git_blob_sha(raw: bytes) -> str:
+    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
+
+
+def _file_bytes(
+    github: GitHubReadClient,
+    scope: ReviewRunScope,
+    *,
+    revision: str,
+    path: str,
+    cache: ReviewFileCache | None,
+) -> bytes | str:
+    """Return a file's exact bytes at ``revision``, or the state that prevents it."""
+    raw = cache.get(_file_key(scope, revision, path)) if cache is not None else None
+    if raw is not None:
+        return raw
+    repository = urllib.parse.quote(scope.repository, safe="/")
+    encoded_path = "/".join(
+        urllib.parse.quote(part, safe="") for part in path.split("/")
+    )
+    ref = urllib.parse.quote(revision, safe="")
+    endpoint = f"/repos/{repository}/contents/{encoded_path}?ref={ref}"
+    try:
+        value = github.request_json(endpoint, max_bytes=2_000_000)
+    except GitHubReadError as exc:
+        if exc.kind == "not_found":
+            return "not_found_at_revision"
+        raise
+    metadata = _object(value, "GitHub returned invalid file metadata")
+    if metadata.get("type") != "file":
+        return "not_regular"
+    raw_content = metadata.get("content")
+    if metadata.get("encoding") == "base64" and isinstance(raw_content, str):
+        try:
+            raw = base64.b64decode(raw_content, validate=False)
+        except (ValueError, binascii.Error) as exc:
+            raise GitHubSourceError("GitHub returned invalid file content") from exc
+    else:
+        size = metadata.get("size")
+        if type(size) is not int or size > _GITHUB_RAW_FILE_MAX_BYTES:
+            return "too_large"
+        raw, truncated, _ = github.request(
+            endpoint,
+            accept="application/vnd.github.raw+json",
+            max_bytes=_GITHUB_RAW_FILE_MAX_BYTES,
+        )
+        if truncated:
+            return "too_large"
+    if b"\x00" in raw[:8192]:
+        return "binary"
+    return raw
+
+
+def added_file_patch(text: str) -> str:
+    """Render an added file's complete text as the patch git would show for it."""
+    lines = text.split("\n")
+    complete = lines[-1] == ""
+    if complete:
+        lines.pop()
+    header = "@@ -0,0 +1 @@" if len(lines) == 1 else f"@@ -0,0 +1,{len(lines)} @@"
+    body = "\n".join(f"+{line}" for line in lines)
+    return f"{header}\n{body}" + ("" if complete else "\n\\ No newline at end of file")
+
+
+def read_added_file_patch(
+    github: GitHubReadClient,
+    scope: ReviewRunScope,
+    *,
+    path: str,
+    blob_sha: str,
+    cache: ReviewFileCache | None = None,
+) -> ReviewFilePatch:
+    """Build the patch GitHub omits for a large added file from its exact head bytes.
+
+    An added file has no base side, so its patch is its head text and needs no
+    merge base. ``blob_sha`` is the PR-files entry's blob; other bytes are refused.
+    """
+    raw = _file_bytes(github, scope, revision=scope.head_sha, path=path, cache=cache)
+    if isinstance(raw, str):
+        return ReviewFilePatch(raw, None)
+    if _git_blob_sha(raw) != blob_sha:
+        return ReviewFilePatch("blob_mismatch", None)
+    if cache is not None:
+        cache.put(_file_key(scope, scope.head_sha, path), raw)
+    if not raw or len(raw) > ADDED_FILE_PATCH_MAX_BYTES:
+        return ReviewFilePatch("empty" if not raw else "too_large", None)
+    try:
+        patch = added_file_patch(raw.decode("utf-8"))
+    except UnicodeDecodeError:
+        return ReviewFilePatch("not_utf8", None)
+    if len(patch) > ADDED_FILE_PATCH_MAX_CHARS:
+        return ReviewFilePatch("too_large", None)
+    return ReviewFilePatch("ok", patch)
+
+
 def read_review_file_page(
     github: GitHubReadClient,
     scope: ReviewRunScope,
@@ -495,9 +631,6 @@ def read_review_file_page(
 ) -> ReviewFilePage:
     """Return one bounded source page without returning the complete file to Hermes."""
     repository = urllib.parse.quote(scope.repository, safe="/")
-    encoded_path = "/".join(
-        urllib.parse.quote(part, safe="") for part in path.split("/")
-    )
     if side == "comparison":
         if scope.run.purpose is not ReviewPurpose.DOCUMENTATION or comparison_sha is None:
             raise GitHubSourceError("comparison reads require a documentation review identity")
@@ -513,48 +646,14 @@ def read_review_file_page(
         )
         if unavailable is not None:
             return _terminal_file(scope, revision, unavailable, start_line)
-    ref = urllib.parse.quote(revision, safe="")
-    endpoint = f"/repos/{repository}/contents/{encoded_path}?ref={ref}"
-    key = ReviewFileKey(
-        provider_repository_id=scope.provider_repository_id,
-        commit_sha=revision,
-        path=path,
-    )
-    raw = cache.get(key) if cache is not None else None
-    if raw is None:
-        try:
-            value = github.request_json(endpoint, max_bytes=2_000_000)
-        except GitHubReadError as exc:
-            if exc.kind == "not_found":
-                return _terminal_file(scope, revision, "not_found_at_revision", start_line)
-            raise
-        metadata = _object(value, "GitHub returned invalid file metadata")
-        if metadata.get("type") != "file":
-            return _terminal_file(scope, revision, "not_regular", start_line)
-        raw_content = metadata.get("content")
-        if metadata.get("encoding") == "base64" and isinstance(raw_content, str):
-            try:
-                raw = base64.b64decode(raw_content, validate=False)
-            except (ValueError, binascii.Error) as exc:
-                raise GitHubSourceError("GitHub returned invalid file content") from exc
-        else:
-            size = metadata.get("size")
-            if type(size) is not int or size > _GITHUB_RAW_FILE_MAX_BYTES:
-                return _terminal_file(scope, revision, "too_large", start_line)
-            raw, truncated, _ = github.request(
-                endpoint,
-                accept="application/vnd.github.raw+json",
-                max_bytes=_GITHUB_RAW_FILE_MAX_BYTES,
-            )
-            if truncated:
-                return _terminal_file(scope, revision, "too_large", start_line)
-        if b"\x00" in raw[:8192]:
-            return _terminal_file(scope, revision, "binary", start_line)
-    blob_sha = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
+    raw = _file_bytes(github, scope, revision=revision, path=path, cache=cache)
+    if isinstance(raw, str):
+        return _terminal_file(scope, revision, raw, start_line)
+    blob_sha = _git_blob_sha(raw)
     if expected_blob is not None and expected_blob != blob_sha:
         raise GitHubSourceError("GitHub file bytes do not match the exact tree blob")
     if cache is not None:
-        cache.put(key, raw)
+        cache.put(_file_key(scope, revision, path), raw)
     # Preserve line boundaries without accepting invalid bytes. Surrogate escapes
     # let a bounded page ignore invalid data outside the requested page while the
     # fragment actually returned below still fails closed.
@@ -649,6 +748,8 @@ def read_documentation_policy_at_revision(
 
 
 __all__ = [
+    "ADDED_FILE_PATCH_MAX_CHARS",
+    "GIT_BLOB_SHA_RE",
     "ReviewComparison",
     "ReviewPolicySource",
     "ReviewFileCache",
@@ -656,10 +757,12 @@ __all__ = [
     "GitHubReadError",
     "GitHubSourceError",
     "ReviewFilePage",
+    "ReviewFilePatch",
     "ReviewPullSource",
     "ReviewSourceBytes",
     "read_changed_files_page",
     "read_review_diff",
+    "read_added_file_patch",
     "read_review_file_page",
     "read_review_pull",
     "read_review_comparison",

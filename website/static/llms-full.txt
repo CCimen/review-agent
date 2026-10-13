@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal review notes and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.4.12
+Runtime release selected by `llms.txt`: v0.4.13
 
 ---
 
@@ -1937,7 +1937,7 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.4.12 \
+  ghcr.io/ccimen/review-agent:v0.4.13 \
   repository-context validate /repo
 ```
 
@@ -4641,9 +4641,11 @@ is recorded as read.
 The coverage count measures full diffs exposed to the reviewer, not analysis
 progress. When coverage is incomplete, the comment's coverage details list the
 directories with the most incomplete diffs and their complete, not fetched,
-partial, and unavailable counts. The count can stop below the changed-file count
-when GitHub omits a text patch,
-even while source reads and analysis continue. A transient source error keeps the
+partial, and unavailable counts. GitHub omits the text patch of a very large
+file. For an added UTF-8 file up to 1 MB, the gateway builds the patch from the
+file's exact head content, up to 200,000 characters; for a modified, removed,
+binary, or larger file the count can stop below the changed-file count, even
+while source reads and analysis continue. A transient source error keeps the
 run open and returns a retryable tool result; it does not establish clean coverage
 or a completed review. A returned retry time is a provider signal, not confirmation
 that the worker's next attempt has been scheduled for that time.
@@ -5451,11 +5453,16 @@ become a second documentation store.
 The summary identifies the reviewed commit, current findings, changes since the
 previous review, and diff coverage. Low/P3 maintainability improvements appear
 in a collapsed **Code quality and readability** section after the expanded
-findings, with the improvement count visible in the summary. All other current
-findings, including Medium and security findings, stay expanded. Every finding
-retains its full explanation, F reference, feedback commands, and entry in the
-copyable fix brief. Large groups split into complete numbered sections across
-comments. Coverage details and evidence for closed findings are expandable.
+findings, with the improvement count visible in the summary. When a review also
+has High or Medium findings, its other Low/P3 findings appear in a collapsed
+**Low-priority findings** section, so the findings that need attention come
+first. Security findings at any severity, and every Medium or higher finding,
+stay expanded. Each collapsed section and fix brief names the F references it
+holds. Every finding retains its full explanation, F reference, feedback
+commands, and entry in the copyable fix brief. Large groups split into complete
+numbered sections across comments; a review that needs a second comment starts
+it at the next steps and fix briefs. Coverage details and evidence for closed
+findings are expandable.
 
 The default publication budget is 65,000 UTF-8 bytes per complete comment,
 including framing and metadata. Explicit saved or environment values retain
@@ -6155,7 +6162,7 @@ infrastructure.
 Title: Example review
 Canonical URL: https://ccimen.github.io/review-agent/docs/example-review
 Status: current
-Last verified: 2026-09-09
+Last verified: 2026-10-13
 
 # Example review
 
@@ -6201,13 +6208,15 @@ boundary and add a focused test that proves 5,000 ms schedules a 5-second delay.
 > `/review` as a new top-level PR comment. Applying a patch does not resolve its
 > finding; the fresh review re-checks the code.
 
+---
+
 **Next:** Address the current findings. Push the fixes, then post `/review` as a
 new top-level PR comment. The next review keeps the F references and reports what
 resolved, remains, returned, or is new. To hand off implementation, copy the
 coding-agent brief below.
 
 <details>
-<summary>Copyable fix brief for a coding agent</summary>
+<summary><strong>Copyable fix brief for a coding agent</strong></summary>
 
 ```text
 Task:

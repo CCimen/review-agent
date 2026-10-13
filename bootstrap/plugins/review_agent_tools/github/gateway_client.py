@@ -33,10 +33,12 @@ from .gateway import (
     OperatorSmokeResult,
 )
 from .source import (
+    ADDED_FILE_PATCH_MAX_CHARS,
     GitHubSourceError,
     ReviewComparison,
     ReviewPolicySource,
     ReviewFilePage,
+    ReviewFilePatch,
     ReviewPullSource,
     ReviewSourceBytes,
 )
@@ -63,6 +65,7 @@ _MAX_CHANGED_FILES_RESPONSE_BYTES = (
 ) * 4 + 65_536
 _MAX_DIFF_RESPONSE_BYTES = ((1_000_000 + 2) // 3) * 4 + 65_536
 _MAX_FILE_RESPONSE_BYTES = capacity.DEFAULT_RESULT_MAX_CHARS * 12 + 65_536
+_MAX_FILE_PATCH_RESPONSE_BYTES = ADDED_FILE_PATCH_MAX_CHARS * 12 + 65_536
 _MAX_PUBLICATION_RESPONSE_BYTES = (
     PUBLICATION_REQUEST_MAX_PAGES * PROVIDER_RESPONSE_MAX_BYTES + 65_536
 )
@@ -361,6 +364,32 @@ class ReviewGitHubGatewayClient:
         )
         try:
             return ReviewFilePage.from_mapping(decoded)
+        except GitHubSourceError as exc:
+            raise GitHubGatewayProtocolError(str(exc)) from exc
+
+    def get_added_file_patch(
+        self,
+        *,
+        run_id: int,
+        job_id: int,
+        lease_generation: int,
+        path: str,
+        blob_sha: str,
+    ) -> ReviewFilePatch:
+        decoded = self._post(
+            READ_REVIEW_SOURCE_PATH,
+            {
+                "operation": "added_file_patch",
+                "run_id": run_id,
+                "job_id": job_id,
+                "lease_generation": lease_generation,
+                "path": path,
+                "blob_sha": blob_sha,
+            },
+            max_response_bytes=_MAX_FILE_PATCH_RESPONSE_BYTES,
+        )
+        try:
+            return ReviewFilePatch.from_mapping(decoded)
         except GitHubSourceError as exc:
             raise GitHubGatewayProtocolError(str(exc)) from exc
 

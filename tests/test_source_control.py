@@ -230,7 +230,7 @@ class GitHubReadClientTests(unittest.TestCase):
             )
 
         self.assertEqual(opener.open.call_count, 2)
-        sleeper.assert_called_once_with(0.5)
+        sleeper.assert_called_once_with(1.0)
         self.assertTrue(transient.closed)
         self.assertEqual(response.read_limits, [5])
         self.assertTrue(response.exited)
@@ -367,17 +367,75 @@ class GitHubReadClientTests(unittest.TestCase):
                 self.assertTrue(raised.exception.retryable)
                 self.assertEqual(opener.open.call_count, 1)
 
-    def test_request_classifies_network_failure_without_retry(self) -> None:
+    def test_request_retries_failed_connections_and_timeouts_within_its_attempts(self) -> None:
+        for failure, kind in (
+            (urllib.error.URLError("offline"), "unreachable"),
+            (urllib.error.URLError(TimeoutError("connect")), "timeout"),
+            (TimeoutError("read"), "timeout"),
+        ):
+            with self.subTest(kind=kind, failure=type(failure).__name__):
+                opener = Mock(spec=urllib.request.OpenerDirector)
+                opener.open.side_effect = failure
+                client = source_control.GitHubReadClient(
+                    "", opener=cast(urllib.request.OpenerDirector, opener)
+                )
+                with (
+                    patch.object(source_control.time, "sleep") as sleeper,
+                    self.assertRaises(source_control.GitHubReadError) as error,
+                ):
+                    client.request("/repos/example/project")
+                self.assertEqual(error.exception.kind, kind)
+                self.assertTrue(error.exception.retryable)
+                self.assertEqual(opener.open.call_count, 3)
+                self.assertEqual([call.args[0] for call in sleeper.call_args_list], [1.0, 2.0])
+
+    def test_the_gateway_reader_retries_a_brief_github_failure(self) -> None:
+        from review_agent_tools.github import gateway
+
         opener = Mock(spec=urllib.request.OpenerDirector)
-        opener.open.side_effect = urllib.error.URLError("offline")
-        client = source_control.GitHubReadClient(
-            "", opener=cast(urllib.request.OpenerDirector, opener)
-        )
-        with self.assertRaises(source_control.GitHubReadError) as error:
-            client.request("/repos/example/project")
-        self.assertEqual(error.exception.kind, "unreachable")
+        opener.open.side_effect = [urllib.error.URLError("reset"), _FakeResponse(b"{}")]
+        with (
+            patch.object(source_control.urllib.request, "build_opener", return_value=opener),
+            patch.object(source_control.time, "sleep"),
+        ):
+            client = gateway._gateway_github_client("token")  # pyright: ignore[reportPrivateUsage]
+            self.assertEqual(client.request_json("/repos/example/project"), {})
+        self.assertEqual(opener.open.call_count, 2)
+
+    def test_retries_stop_at_the_window_shared_by_one_operations_requests(self) -> None:
+        clock = [0.0]
+
+        def wait(seconds: float) -> None:
+            clock[0] += seconds
+
+        def timed_out(*_args: object, **_kwargs: object) -> object:
+            clock[0] += 10.0
+            raise TimeoutError("read")
+
+        def answered(*_args: object, **_kwargs: object) -> object:
+            clock[0] += 3.0
+            return _FakeResponse(b"{}")
+
+        steps = [timed_out, timed_out, answered, timed_out]
+        opener = Mock(spec=urllib.request.OpenerDirector)
+        opener.open.side_effect = lambda *a, **k: steps.pop(0)(*a, **k)
+        with (
+            patch.object(source_control.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(source_control.time, "sleep", side_effect=wait),
+        ):
+            client = source_control.GitHubReadClient(
+                "", opener=cast(urllib.request.OpenerDirector, opener),
+                request_timeout_seconds=10.0, max_attempts=3, retry_window_seconds=33.0,
+            )
+            # The first read retries twice inside the window and succeeds at 26 s.
+            self.assertEqual(client.request_json("/repos/example/project"), {})
+            # A later read of the same operation cannot retry past the window.
+            with self.assertRaises(source_control.GitHubReadError) as error:
+                client.request_json("/repos/example/project/contents/a.py")
+        self.assertEqual(error.exception.kind, "timeout")
         self.assertTrue(error.exception.retryable)
-        self.assertEqual(opener.open.call_count, 1)
+        self.assertEqual(opener.open.call_count, 4)
+        self.assertEqual(clock[0], 36.0)
 
     def test_request_json_rejects_truncated_or_invalid_payloads(self) -> None:
         client = source_control.GitHubReadClient("")

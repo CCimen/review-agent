@@ -700,7 +700,7 @@ def publish_postgres_publication(
             ):
                 continue
             token = f"{publication_marker(publication.plan.publication_key)} part="
-            token_index = comment.body.find(token)
+            token_index = comment.body.rfind(token)
             if token_index < 0:
                 continue
             raw_number = comment.body[token_index + len(token) :].split("/", 1)[0]

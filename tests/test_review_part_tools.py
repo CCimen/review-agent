@@ -115,8 +115,14 @@ class ReviewPartToolTests(unittest.TestCase):
         # One result is capped at Hermes' 100K; the 160K operator setting still
         # sizes the response shares, as before the window was known.
         self.assertEqual(
-            (limits.result_max_chars, limits.batch_result_max_chars, limits.part_report_max_chars),
-            (100_000, 32_000, 12_307),
+            (
+                limits.result_max_chars,
+                limits.batch_result_max_chars,
+                limits.part_report_max_chars(12),
+                limits.part_report_max_chars(3),
+            ),
+            # A run split into fewer parts gives each part's report a larger share.
+            (100_000, 32_000, 12_307, 40_000),
         )
 
     def test_the_lease_fence_applies_its_execution_part_window_and_limits(self) -> None:
@@ -268,6 +274,9 @@ class ReviewPartToolTests(unittest.TestCase):
 
         self.assertEqual((payload["part"], payload["parts"], payload["changed_files"]), (3, 11, 62))
         self.assertEqual(
+            payload["report_max_chars"], capacity.current().part_report_max_chars(11)
+        )
+        self.assertEqual(
             payload["earlier_parts_untrusted"],
             [{
                 "part": 1,
@@ -301,6 +310,7 @@ class ReviewPartToolTests(unittest.TestCase):
             }]),
             patch.object(review_memory_tools, "postgres_runtime"),
             patch.object(review_part_tools, "postgres_runtime"),
+            patch.object(review_parts_application, "planned_parts", return_value=12),
             patch.object(review_parts_application, "stage_report", stage),
             patch.object(
                 review_memory_tools.review_finding_application, "record_live_findings",
@@ -338,15 +348,19 @@ class ReviewPartToolTests(unittest.TestCase):
 
     def test_a_part_report_names_what_to_change_when_it_cannot_be_stored(self) -> None:
         never = Mock(side_effect=AssertionError("an invalid report must not be stored"))
-        limit = capacity.current().part_report_max_chars
+        limit = capacity.current().part_report_max_chars(12)
         long_text = [finding(anchor=f"anchor {index}", evidence="e" * 900) for index in range(limit // 900 + 1)]
         too_long = self.record(long_text, part=2, stage=never)["error"]
+        self.assertIn(f"the limit is {limit}", too_long)
         self.assertIn("shorten", too_long)
         # A candidate moved to a note keeps its own claim, not only its place.
         self.assertIn("path, line, and the failure it claims", too_long)
 
         invalid = self.record([finding(severity="Blocker")], part=2, stage=never)
         self.assertIn("severity must be one of", invalid["error"])
+
+        notes = self.record([finding()], part=2, stage=never, part_notes=["ok", "n" * 301])
+        self.assertIn("rewrite note 2 (301 characters)", notes["error"])
 
     def test_the_final_session_records_only_after_receiving_every_part_report(self) -> None:
         with patch.object(

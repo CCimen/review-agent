@@ -17,7 +17,6 @@ JsonValue: TypeAlias = (
 JsonObject: TypeAlias = Mapping[str, JsonValue]
 
 PublicationId = NewType("PublicationId", int)
-PublicationPartId = NewType("PublicationPartId", int)
 
 _SHA256_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _LOCAL_REFERENCE_RE = re.compile(r"^F[1-9][0-9]*$")

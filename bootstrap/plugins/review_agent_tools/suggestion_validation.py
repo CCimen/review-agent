@@ -9,15 +9,8 @@ import json
 import re
 from typing import Literal, TypedDict, cast
 
-try:
-    from . import diff_render
-    from .memory_validation import normalize_path, normalize_repository
-except ImportError:  # pragma: no cover - supports direct module imports in tests.
-    import diff_render  # type: ignore[no-redef]
-    from memory_validation import (  # type: ignore[no-redef]
-        normalize_path,
-        normalize_repository,
-    )
+from . import diff_render
+from .memory_validation import normalize_path, normalize_repository
 
 
 MAX_ATOMIC_SUGGESTIONS_PER_REVIEW = 12

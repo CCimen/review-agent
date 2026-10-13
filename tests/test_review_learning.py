@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-sys.path.insert(0, str(ROOT / "bootstrap" / "plugins" / "review_agent_tools"))
+sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
 from review_agent_learning import (
     CONTRADICTORY_DECISIONS,
@@ -20,7 +20,11 @@ from review_agent_learning import (
     build_learning_report,
     render_markdown,
 )
-from memory_validation import DECISIONS, REVIEW_FEEDBACK_CATEGORIES, SUPPRESSIVE_DECISIONS
+from review_agent_tools.memory_validation import (
+    DECISIONS,
+    REVIEW_FEEDBACK_CATEGORIES,
+    SUPPRESSIVE_DECISIONS,
+)
 
 
 def state_with(

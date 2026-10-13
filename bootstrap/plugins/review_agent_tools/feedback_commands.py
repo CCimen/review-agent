@@ -7,24 +7,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, cast
 
-try:
-    from .domain.review import ReviewPurpose
-    from .feedback_contract import contains_placeholder
-    from .memory_validation import (
-        ReviewMemoryError,
-        clean_multiline,
-        clean_text,
-        local_reference_number,
-    )
-except ImportError:  # pragma: no cover - supports direct module imports in tests.
-    from domain.review import ReviewPurpose
-    from feedback_contract import contains_placeholder
-    from memory_validation import (
-        ReviewMemoryError,
-        clean_multiline,
-        clean_text,
-        local_reference_number,
-    )
+from .domain.review import ReviewPurpose
+from .feedback_contract import contains_placeholder
+from .memory_validation import (
+    ReviewMemoryError,
+    clean_multiline,
+    clean_text,
+    local_reference_number,
+)
 
 DecisionFeedbackValue = Literal["false_positive", "intentional_by_design"]
 ReviewFeedbackCategory = Literal["missed_issue", "scope_confusion"]

@@ -4,14 +4,10 @@ import sys
 import unittest
 from pathlib import Path
 
-PLUGIN = (
-    Path(__file__).resolve().parents[1] / "bootstrap" / "plugins" / "review_agent_tools"
-)
-sys.path.insert(0, str(PLUGIN))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"))
 
-import review_renderer  # noqa: E402
-import memory_validation  # noqa: E402
-from domain import review as review_domain  # noqa: E402
+from review_agent_tools import memory_validation, review_renderer  # noqa: E402
+from review_agent_tools.domain import review as review_domain  # noqa: E402
 
 
 class ReviewRendererTests(unittest.TestCase):

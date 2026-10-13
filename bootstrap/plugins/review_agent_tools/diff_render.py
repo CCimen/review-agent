@@ -17,14 +17,9 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-try:
-    from .changed_files import ChangedFile
-    from .domain.review import DiffPage
-    from .memory_validation import ReviewMemoryError, normalize_path
-except ImportError:  # pragma: no cover - supports direct module imports in tests.
-    from changed_files import ChangedFile
-    from domain.review import DiffPage
-    from memory_validation import ReviewMemoryError, normalize_path
+from .changed_files import ChangedFile
+from .domain.review import DiffPage
+from .memory_validation import ReviewMemoryError, normalize_path
 
 
 class DiffPageError(ValueError):

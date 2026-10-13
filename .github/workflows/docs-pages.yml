@@ -6,7 +6,6 @@ on:
     paths:
       - '.github/workflows/docs-pages.yml'
       - 'docs/**'
-      - '!docs/goals/**'
       - '.agents/skills/install-review-agent/**'
       - '.claude/skills/install-review-agent/**'
       - 'examples/comments/**'

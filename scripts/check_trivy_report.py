@@ -100,15 +100,14 @@ def _load_critical_exceptions(path: Path) -> CriticalExceptionPolicy:
         raise TrivyReportError(
             f"{path}: expires_on must use YYYY-MM-DD"
         ) from error
-    today = datetime.now(UTC).date()
-    if expires_on < today:
-        raise TrivyReportError(
-            f"{path}: critical exceptions expired on {expires_on.isoformat()}"
-        )
-
     raw_exceptions = _sequence(
         root.get("exceptions"), context=f"{path}: exceptions"
     )
+    # The date bounds accepted exceptions; an empty list accepts nothing.
+    if raw_exceptions and expires_on < datetime.now(UTC).date():
+        raise TrivyReportError(
+            f"{path}: critical exceptions expired on {expires_on.isoformat()}"
+        )
     if len(raw_exceptions) > _MAX_EXCEPTIONS:
         raise TrivyReportError(
             f"{path}: exceptions must not exceed {_MAX_EXCEPTIONS} entries"

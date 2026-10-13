@@ -129,8 +129,8 @@ The policy is intentionally small:
 - an unfixed high vulnerability remains visible in the report;
 - the release-image gate may accept only the exact critical package identities
   in `release-image-critical-exceptions.json`. That reviewed file has one
-  release-only scope and expiry date. A new ID, package version, unused entry,
-  available fix, or expired review window fails closed;
+  release-only scope and expiry date that bounds its entries. A new ID, package
+  version, unused entry, available fix, or expired entry fails closed;
 - scanner suppressions are disabled. The exception file does not hide findings:
   the exact reports, machine-readable policy receipt, and generated human
   summary remain release evidence.

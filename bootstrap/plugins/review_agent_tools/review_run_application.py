@@ -42,7 +42,6 @@ from .postgres import parts as postgres_parts
 from .postgres import repository_guidance as postgres_repository_guidance
 from .postgres import repository_decisions as postgres_repository_decisions
 from .postgres import review_runs as postgres_review_runs
-from .postgres.coverage import RunFileLookup
 from .postgres.runtime import PostgreSQLRuntime
 
 if TYPE_CHECKING:
@@ -603,30 +602,6 @@ def _timestamp(value: datetime) -> str:
     return value.isoformat().replace("+00:00", "Z")
 
 
-def start_live_review(
-    runtime: PostgreSQLRuntime, request: PostgresRunRequest
-) -> RunStart:
-    """Start the deployed PostgreSQL review while preserving the tool contract."""
-    result = start_postgres_review(runtime, request)
-    run = result.run
-    phase = cast(RunPhase, run.phase.value)
-    if isinstance(result, postgres_review_runs.DuplicateRun):
-        return DuplicateRun(
-            existing_run_id=int(run.id),
-            status="duplicate",
-            phase=phase,
-            started_at=_timestamp(run.started_at),
-            last_heartbeat_at=_timestamp(run.last_heartbeat_at),
-            message="another review is already running for this pull request",
-        )
-    return StartedRun(
-        run_id=int(run.id),
-        status="running",
-        phase=phase,
-        started_at=_timestamp(run.started_at),
-    )
-
-
 def _require_live_scope(
     runtime: PostgreSQLRuntime,
     subject: RunSubject,
@@ -1048,13 +1023,6 @@ class ValidatedRun:
 class SnapshotResult(Generic[PullPayload]):
     pull: PullPayload
     run: ValidatedRun
-
-
-@dataclass(frozen=True, slots=True)
-class FileContextResult(Generic[PullPayload]):
-    pull: PullPayload
-    run: ValidatedRun
-    file: RunFileLookup
 
 
 @dataclass(frozen=True, slots=True)

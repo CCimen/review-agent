@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "website" / "public-documents.json"
 DOCS_ROUTE_BASE = "/docs"
 ALLOWED_STATUSES = {"current", "transitional", "target", "proposal"}
-FORBIDDEN_PREFIXES = ("docs/goals/", "docs-internal/", "review-learning/", "bootstrap/")
+FORBIDDEN_PREFIXES = ("docs-internal/", "review-learning/", "bootstrap/")
 LOCAL_PATH = re.compile(r"(?:^|[\s(`])(?:/Users/|/home/)")
 SECRET_MARKERS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),

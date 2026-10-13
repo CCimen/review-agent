@@ -39,7 +39,6 @@ EXCLUDED_PARTS = {
     "build",
     "node_modules",
 }
-EXCLUDED_PREFIXES = (Path("docs/goals"),)
 EXCLUDED_FILES = {
     Path("scripts/check_app_only_candidate.py"),
     Path("website/package-lock.json"),
@@ -97,7 +96,6 @@ def _is_excluded(relative: Path) -> bool:
     return (
         relative in EXCLUDED_FILES
         or any(part in EXCLUDED_PARTS for part in relative.parts)
-        or any(relative.is_relative_to(prefix) for prefix in EXCLUDED_PREFIXES)
     )
 
 

@@ -69,26 +69,11 @@ class FindingContextQuery:
 
 
 @dataclass(frozen=True, slots=True)
-class FindingRecordSubject:
-    repository: str
-    pr_number: int
-    run_id: int
-    base_sha: str
-    head_sha: str
-
-
-@dataclass(frozen=True, slots=True)
 class ChangedFile:
     path: str
     context_hash: str = ""
     context_hash_source: str = ""
     patch: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class FindingRecordResult:
-    items: list[RecordedFinding]
-    suggestions_recorded: int
 
 
 @dataclass(frozen=True, slots=True)

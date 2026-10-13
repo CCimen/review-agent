@@ -135,11 +135,6 @@ def _repository(value: str) -> str | None:
     return normalized
 
 
-def resolve_coach_repository(value: str) -> str | None:
-    """Normalize an optional repository scope for coaching queries."""
-    return _repository(value)
-
-
 def _candidate(item: CoachCandidateInput) -> CoachCandidateInput:
     if isinstance(item.independent_episode_count, bool) or (
         item.independent_episode_count < 1

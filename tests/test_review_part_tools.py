@@ -293,8 +293,8 @@ class ReviewPartToolTests(unittest.TestCase):
         long_text = [finding(anchor=f"anchor {index}", evidence="e" * 900) for index in range(limit // 900 + 1)]
         too_long = self.record(long_text, part=2, stage=never)["error"]
         self.assertIn("shorten", too_long)
-        # What still does not fit stays recoverable: the final session follows notes.
-        self.assertIn("path and line", too_long)
+        # A candidate moved to a note keeps its own claim, not only its place.
+        self.assertIn("path, line, and the failure it claims", too_long)
 
         invalid = self.record([finding(severity="Blocker")], part=2, stage=never)
         self.assertIn("severity must be one of", invalid["error"])

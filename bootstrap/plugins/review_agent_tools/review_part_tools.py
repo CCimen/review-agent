@@ -172,8 +172,8 @@ def stage_part(
             f"this part's candidates and notes exceed {limit} characters. Keep "
             "every candidate and shorten its evidence, disproof, impact, and fix "
             "text; the final session reads the source again. Only if they still "
-            "do not fit, leave out the lowest-severity candidates and name the "
-            "path and line of each one in part_notes."
+            "do not fit, move the lowest-severity candidates into part_notes: "
+            "one note each with its path, line, and the failure it claims."
         )
     try:
         part = review_parts_application.stage_report(

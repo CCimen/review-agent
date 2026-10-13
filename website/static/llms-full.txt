@@ -4578,8 +4578,9 @@ reviews are never split.
 | Report one part hands in | 12,307 serialized characters of candidates and notes by default, a thirteenth of the combined result limit | `review_agent_tools.capacity` |
 
 A part hands in every candidate that fits its report. When they do not fit, it
-shortens their text first; a candidate it still has to leave out is named by path
-and line in its notes, which the final session follows up.
+shortens their text first. A candidate that still does not fit becomes a note
+with its path, line, and the failure it claims, and the final session verifies
+it like any other note. A report that cannot be made to fit is refused.
 
 A changed file without a GitHub patch counts as 48 characters per changed line.
 A file whose own diff exceeds a part, and files after the twelfth part, belong to

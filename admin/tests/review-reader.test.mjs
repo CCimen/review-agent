@@ -22,6 +22,7 @@ let contextualTo;
 let AuditLog;
 let AuditJSON;
 let ConnectionQuota;
+let modelSuggestions;
 let IntegrationsPage;
 let OperationsPage;
 let UsagePage;
@@ -58,6 +59,7 @@ before(async () => {
   ({ HermesHealth } = await server.ssrLoadModule("/src/deployment.tsx"));
   ({ AuditLog, AuditJSON } = await server.ssrLoadModule("/src/audit.tsx"));
   ({ ConnectionQuota } = await server.ssrLoadModule("/src/modelQuota.tsx"));
+  ({ modelSuggestions } = await server.ssrLoadModule("/src/modelField.tsx"));
   ({ IntegrationsPage } = await server.ssrLoadModule("/src/integrations.tsx"));
   ({ OperationsPage } = await server.ssrLoadModule("/src/operations.tsx"));
   ({ UsagePage } = await server.ssrLoadModule("/src/usage.tsx"));
@@ -564,6 +566,16 @@ test("settings keep the saved model visible while Hermes lists no models", () =>
   ]);
   assert.match(unavailable, /retired-model/);
   assert.match(unavailable, /Hermes did not list models for this account/);
+});
+
+test("model suggestions keep an exact name selectable when many models match", () => {
+  const catalog = Array.from({ length: 13 }, (_, n) => `review-model-${n}`);
+  const listed = modelSuggestions([...catalog, "review-model"], "review-model");
+  assert.equal(listed.length, 12);
+  assert.deepEqual(listed[0], { id: "review-model", label: "review-model" });
+  const unlisted = modelSuggestions(catalog, " review-model ");
+  assert.equal(unlisted.length, 12);
+  assert.deepEqual(unlisted.at(-1), { id: "review-model", label: "Use “review-model”" });
 });
 
 test("quality shows feedback denominators and an empty report state without implying accuracy", () => {

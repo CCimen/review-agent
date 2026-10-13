@@ -1252,6 +1252,7 @@ class DocsContractTests(unittest.TestCase):
     def test_deployment_owns_the_model_provider_and_effort(self):
         config = read("bootstrap/config.yaml")
         compose = read("compose.yaml")
+        compose_admin = read("compose.admin.yaml")
         env_example = read(".env.example")
         installer = read("bootstrap/install.py")
         install_example = read("install/review-agent.example.yaml")
@@ -1261,16 +1262,24 @@ class DocsContractTests(unittest.TestCase):
         openshift = read("examples/openshift/review-agent-template.yaml")
         operations = read("docs/OPERATIONS.md")
 
+        # The review model is always named by the deployment; no packaged or
+        # templated model stands in for it.
         self.assertIn(
-            "model:\n  provider: openai-codex\n  default: gpt-5.6-sol\n", config
+            "model:\n  provider: openai-codex\n  default: set-by-REVIEW_AGENT_MODEL\n",
+            config,
         )
         self.assertIn("  reasoning_effort: xhigh\n", config)
         for value in (
-            "REVIEW_AGENT_MODEL_PROVIDER=openai-codex",
-            "REVIEW_AGENT_MODEL=gpt-5.6-sol",
-            "REVIEW_AGENT_REASONING_EFFORT=xhigh",
+            "REVIEW_AGENT_MODEL_PROVIDER=openai-codex\n",
+            "REVIEW_AGENT_MODEL=\n",
+            "REVIEW_AGENT_REASONING_EFFORT=xhigh\n",
         ):
             self.assertIn(value, env_example)
+        required_model = (
+            'REVIEW_AGENT_MODEL: "${REVIEW_AGENT_MODEL:?Set REVIEW_AGENT_MODEL to the review model}"'
+        )
+        self.assertEqual(5, compose.count(required_model))
+        self.assertEqual(1, compose_admin.count(required_model))
         self.assertEqual(
             5,
             compose.count(
@@ -1279,25 +1288,22 @@ class DocsContractTests(unittest.TestCase):
         )
         self.assertEqual(
             5,
-            compose.count('REVIEW_AGENT_MODEL: "${REVIEW_AGENT_MODEL:-gpt-5.6-sol}"'),
-        )
-        self.assertEqual(
-            5,
             compose.count(
                 'REVIEW_AGENT_REASONING_EFFORT: "${REVIEW_AGENT_REASONING_EFFORT:-xhigh}"'
             ),
         )
+        self.assertNotIn("REVIEW_AGENT_MODEL:-", compose + compose_admin)
         self.assertIn("  model_provider: openai-codex", install_example)
-        self.assertIn("  model: gpt-5.6-sol", install_example)
+        self.assertIn("  model: choose-a-model-your-provider-account-offers", install_example)
         self.assertIn("  reasoning_effort: xhigh", install_example)
         self.assertIn(
             "  - name: MODEL_PROVIDER\n    description: Hermes model provider identifier.\n    value: openai-codex",
             openshift,
         )
-        self.assertIn(
-            "  - name: MODEL\n    description: Model identifier available to the configured Hermes provider.\n    value: gpt-5.6-sol",
-            openshift,
-        )
+        self.assertIn("  - name: MODEL\n", openshift)
+        model_parameter = openshift.split("  - name: MODEL\n", 1)[1].split("  - name:", 1)[0]
+        self.assertIn("required: true", model_parameter)
+        self.assertNotIn("value:", model_parameter)
         self.assertIn(
             "  - name: REASONING_EFFORT\n    description: Reasoning effort used for new reviews.\n    value: xhigh",
             openshift,

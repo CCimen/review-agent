@@ -217,7 +217,13 @@ def render_managed_config(
     provider = _deployment_text(
         environment, "REVIEW_AGENT_MODEL_PROVIDER", default_provider
     )
-    model = _deployment_text(environment, "REVIEW_AGENT_MODEL", default_model)
+    # The review model is always an explicit operator choice: no packaged model
+    # stands in when the deployment does not name one.
+    model = environment.get("REVIEW_AGENT_MODEL", "").strip()
+    if not model or len(model) > 200 or not model.isprintable():
+        raise ReviewContractError(
+            "REVIEW_AGENT_MODEL must name the review model (at most 200 printable characters)"
+        )
     effort = (
         environment.get("REVIEW_AGENT_REASONING_EFFORT", default_effort).strip().lower()
     )

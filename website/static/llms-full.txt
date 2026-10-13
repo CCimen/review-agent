@@ -1,7 +1,7 @@
 # Review Agent: full public documentation
 
 Generated from the live documentation sources listed in `website/public-documents.json`. Internal goals, review notes, and private learning data are excluded.
-Runtime release selected by `llms.txt`: v0.4.11
+Runtime release selected by `llms.txt`: v0.4.12
 
 ---
 
@@ -481,9 +481,15 @@ and [package visibility](https://docs.github.com/en/packages/learn-github-packag
 
    `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
    `REVIEW_AGENT_REASONING_EFFORT` select inference behavior for new reviews.
-   The defaults are `openai-codex`, `gpt-5.6-sol`, and `xhigh`. We recommend
-   this route for the first deployment because Hermes supports a ChatGPT
-   device-code login and you do not need to provision a model API key. Hermes
+   `REVIEW_AGENT_MODEL` is required and has no default; compose, the installer,
+   admission readiness, and operator preflight stop with "REVIEW_AGENT_MODEL must
+   name the review model" when it is missing. Set it to a model the provider
+   account can use; after the account is connected, the console suggests the
+   models Hermes lists for it. Once the console saves settings, their model
+   governs new reviews instead of this variable. The provider defaults to `openai-codex` and the
+   effort to `xhigh`. We recommend the Codex route for the first deployment
+   because Hermes supports a ChatGPT device-code login and you do not need to
+   provision a model API key. Hermes
    does not document how this traffic counts against each ChatGPT plan's Codex
    allowance, so check your provider usage after the pilot.
 
@@ -1931,7 +1937,7 @@ docker run --rm --read-only \
   --network none \
   --entrypoint review-agent-admin \
   --mount type=bind,source="$PWD",target=/repo,readonly \
-  ghcr.io/ccimen/review-agent:v0.4.11 \
+  ghcr.io/ccimen/review-agent:v0.4.12 \
   repository-context validate /repo
 ```
 
@@ -2863,6 +2869,7 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `GET /api/providers/runtime` | Owner | Optional bounded Hermes readiness checks, version, active agents, shutdown state, API support, and default model. |
 | `GET /api/model-connections`, `GET /api/model-connections/{id}` | Scoped member, owner or admin | Shared or team-owned connections, recorded accounts, and permitted controls. |
 | `POST /api/model-connections`, `GET /api/model-connections/runtimes` | Owner | Register a pre-provisioned runtime from the server's trusted catalog. |
+| `GET /api/model-connections/{id}/models` | Scoped member, owner or admin | The models Hermes lists for the connection's authenticated provider accounts, used as suggestions. |
 | `PATCH /api/model-connections/{id}`, `POST /api/model-connections/{id}/retire` | Owner; admin for a team-owned connection | Update allowed model choices or retire a paused, drained, unassigned connection. |
 | `POST /api/model-connections/{id}/enabled`, `POST /api/model-connections/{id}/reconcile` | Owner; owning team maintainer or admin for a dedicated connection | Pause/enable dispatch or record an account change after draining. Recovery after an interrupted remote operation requires an owner and runtime restart. |
 | `GET /api/model-connections/{id}/runtime` | Connection manager | Redacted current account observation from the owning Hermes process. |
@@ -3092,8 +3099,12 @@ revision then owns the displayed policy values. Concurrent edits return a confli
 rather than overwriting a newer revision. **Restore to editor** loads an older
 revision into the form; saving it creates a new revision. The editor does not
 poll while you work. A conflicting save preserves the draft until you explicitly
-reload the saved settings. Model suggestions come from Hermes; supported model
-IDs can still be entered directly.
+reload the saved settings. The model is an exact name. The field suggests
+the models Hermes lists for the shared account when provider control is
+configured, and accepts another name otherwise. Hermes' list is a picker catalog,
+not proof of access: the provider accepts or rejects the model when a review
+runs, and no other model is substituted. Saved settings govern new reviews
+instead of `REVIEW_AGENT_MODEL`.
 
 Provider, model, and reasoning effort apply when a new GitHub review request is
 admitted. The selected route is recorded in its exact review contract and sent
@@ -3209,7 +3220,8 @@ rechecked on each operation. A browser reload can resume that person's pending
 operation; the one-time challenge is not stored in the database.
 
 Successful login records the account and leaves the connection paused. Review its
-state and choose **Enable** explicitly. A timeout or interrupted operation leaves
+state and choose **Enable** explicitly. Add the models teams may choose; after
+the login the editor suggests the models Hermes lists for that account. A timeout or interrupted operation leaves
 the connection requiring attention. An owner must stop the old Hermes process,
 its dashboard/login service and provider-control companion, restart the complete
 runtime, and confirm that recovery before recording its accounts. The API also
@@ -4136,9 +4148,13 @@ runtime unless it needs independent credentials. A connection can hold an
 authorized account for each supported provider; the team selects its route
 explicitly. Automatic fallback is not part of this implementation.
 
-Provider, model, and reasoning effort inherit deployment defaults. A team may
-override them within the administrator's allowed choices. Show both the effective
-value and where it came from. Avoid repository overrides until a concrete need
+Provider, model, and reasoning effort inherit the deployment's model. A team may
+override them within the administrator's allowed choices. An administrator picks
+those choices by exact model name, with the models Hermes lists for the
+connection's provider accounts as suggestions. That list is Hermes' picker
+catalog, not proof of access, so the provider accepts or rejects the model when
+a review runs and no other model is substituted. Show both the effective value and where
+it came from. Avoid repository overrides until a concrete need
 justifies another policy layer. Review behavior profiles continue to own review
 instructions; account routing does not create copies of those profiles.
 
@@ -4838,7 +4854,10 @@ API-key providers, and custom endpoints. Hermes documents that Anthropic OAuth
 requires Claude Max plus extra-usage credits; its API-key route is independent.
 The deployment variables `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
 `REVIEW_AGENT_REASONING_EFFORT` remain the review contract; rerunning the
-installer restores them after the wizard stores credentials. A selection
+installer restores them after the wizard stores credentials.
+`REVIEW_AGENT_MODEL` has no default, so a deployment without it does not start.
+Once the console has saved settings, their model governs new reviews instead of
+`REVIEW_AGENT_MODEL`; change it in **Settings**. An environment selection
 change applies after the installer and services restart. Already queued reviews
 fail closed and should be requested again. Verify:
 

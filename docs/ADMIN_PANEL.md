@@ -309,6 +309,7 @@ is available at `/api/openapi.json`. The frontend uses `admin/openapi.json` and 
 | `GET /api/providers/runtime` | Owner | Optional bounded Hermes readiness checks, version, active agents, shutdown state, API support, and default model. |
 | `GET /api/model-connections`, `GET /api/model-connections/{id}` | Scoped member, owner or admin | Shared or team-owned connections, recorded accounts, and permitted controls. |
 | `POST /api/model-connections`, `GET /api/model-connections/runtimes` | Owner | Register a pre-provisioned runtime from the server's trusted catalog. |
+| `GET /api/model-connections/{id}/models` | Scoped member, owner or admin | The models Hermes lists for the connection's authenticated provider accounts, used as suggestions. |
 | `PATCH /api/model-connections/{id}`, `POST /api/model-connections/{id}/retire` | Owner; admin for a team-owned connection | Update allowed model choices or retire a paused, drained, unassigned connection. |
 | `POST /api/model-connections/{id}/enabled`, `POST /api/model-connections/{id}/reconcile` | Owner; owning team maintainer or admin for a dedicated connection | Pause/enable dispatch or record an account change after draining. Recovery after an interrupted remote operation requires an owner and runtime restart. |
 | `GET /api/model-connections/{id}/runtime` | Connection manager | Redacted current account observation from the owning Hermes process. |
@@ -538,8 +539,12 @@ revision then owns the displayed policy values. Concurrent edits return a confli
 rather than overwriting a newer revision. **Restore to editor** loads an older
 revision into the form; saving it creates a new revision. The editor does not
 poll while you work. A conflicting save preserves the draft until you explicitly
-reload the saved settings. Model suggestions come from Hermes; supported model
-IDs can still be entered directly.
+reload the saved settings. The model is an exact name. The field suggests
+the models Hermes lists for the shared account when provider control is
+configured, and accepts another name otherwise. Hermes' list is a picker catalog,
+not proof of access: the provider accepts or rejects the model when a review
+runs, and no other model is substituted. Saved settings govern new reviews
+instead of `REVIEW_AGENT_MODEL`.
 
 Provider, model, and reasoning effort apply when a new GitHub review request is
 admitted. The selected route is recorded in its exact review contract and sent
@@ -655,7 +660,8 @@ rechecked on each operation. A browser reload can resume that person's pending
 operation; the one-time challenge is not stored in the database.
 
 Successful login records the account and leaves the connection paused. Review its
-state and choose **Enable** explicitly. A timeout or interrupted operation leaves
+state and choose **Enable** explicitly. Add the models teams may choose; after
+the login the editor suggests the models Hermes lists for that account. A timeout or interrupted operation leaves
 the connection requiring attention. An owner must stop the old Hermes process,
 its dashboard/login service and provider-control companion, restart the complete
 runtime, and confirm that recovery before recording its accounts. The API also

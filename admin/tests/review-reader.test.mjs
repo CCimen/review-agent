@@ -22,6 +22,7 @@ let contextualTo;
 let AuditLog;
 let AuditJSON;
 let ConnectionQuota;
+let modelSuggestions;
 let IntegrationsPage;
 let OperationsPage;
 let UsagePage;
@@ -58,6 +59,7 @@ before(async () => {
   ({ HermesHealth } = await server.ssrLoadModule("/src/deployment.tsx"));
   ({ AuditLog, AuditJSON } = await server.ssrLoadModule("/src/audit.tsx"));
   ({ ConnectionQuota } = await server.ssrLoadModule("/src/modelQuota.tsx"));
+  ({ modelSuggestions } = await server.ssrLoadModule("/src/modelField.tsx"));
   ({ IntegrationsPage } = await server.ssrLoadModule("/src/integrations.tsx"));
   ({ OperationsPage } = await server.ssrLoadModule("/src/operations.tsx"));
   ({ UsagePage } = await server.ssrLoadModule("/src/usage.tsx"));
@@ -507,7 +509,7 @@ test("teams follow requests to their outcome while the platform queue starts wit
 
 test("settings expose saved operational defaults and distinguish older startup observations", () => {
   const data = {
-    settings: { ...settingsDefaults, job_retry_seconds: 47 },
+    settings: { ...settingsDefaults, model: "gpt-demo", job_retry_seconds: 47 },
     revision: 2,
     history: [],
     next_before_id: null,
@@ -536,9 +538,44 @@ test("settings expose saved operational defaults and distinguish older startup o
     /aria-expanded="false"/,
   );
   assert.match(html, /value="47"/);
-  assert.match(html, /<datalist[^>]*><option value="gpt-demo"/);
+  assert.doesNotMatch(html, /<datalist/);
+  assert.match(html, /gpt-demo/);
+  assert.match(html, /Suggestions are the models Hermes lists/);
   assert.match(html, /Older settings loaded/);
   assert.match(html, /No unsaved changes/);
+});
+
+test("settings keep the saved model visible while Hermes lists no models", () => {
+  const data = {
+    settings: { ...settingsDefaults, model: "retired-model" },
+    revision: 2,
+    history: [],
+    next_before_id: null,
+    startup_loads: [],
+  };
+  const pages = [
+    [["deployment-settings"], data],
+    [["deployment-settings-history", null], data],
+  ];
+  const loading = renderConsolePage(createElement(SettingsPage), pages);
+  assert.match(loading, /retired-model/);
+  assert.match(loading, /Loading the models Hermes lists/);
+  const unavailable = renderConsolePage(createElement(SettingsPage), [
+    ...pages,
+    [["provider-models"], { capability: { configured: false }, items: [] }],
+  ]);
+  assert.match(unavailable, /retired-model/);
+  assert.match(unavailable, /Hermes did not list models for this account/);
+});
+
+test("model suggestions keep an exact name selectable when many models match", () => {
+  const catalog = Array.from({ length: 13 }, (_, n) => `review-model-${n}`);
+  const listed = modelSuggestions([...catalog, "review-model"], "review-model");
+  assert.equal(listed.length, 12);
+  assert.deepEqual(listed[0], { id: "review-model", label: "review-model" });
+  const unlisted = modelSuggestions(catalog, " review-model ");
+  assert.equal(unlisted.length, 12);
+  assert.deepEqual(unlisted.at(-1), { id: "review-model", label: "Use “review-model”" });
 });
 
 test("quality shows feedback denominators and an empty report state without implying accuracy", () => {

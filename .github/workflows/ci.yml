@@ -94,10 +94,11 @@ jobs:
 
       - name: Build and inspect container image
         run: |
-          docker compose --env-file .env.example config --quiet
+          REVIEW_AGENT_MODEL=ci-check-model \
+            docker compose --env-file .env.example config --quiet
           docker build --tag review-agent:ci .
           bash ./scripts/check_image.sh review-agent:ci
-          REVIEW_AGENT_ADMIN_PUBLIC_URL=https://admin.example.test \
+          REVIEW_AGENT_MODEL=ci-check-model REVIEW_AGENT_ADMIN_PUBLIC_URL=https://admin.example.test \
             docker compose --env-file .env.example -f compose.yaml -f compose.admin.yaml config --quiet
           docker build --file admin/Dockerfile --tag review-agent-admin:ci .
           sh ./scripts/check_admin_image.sh review-agent-admin:ci

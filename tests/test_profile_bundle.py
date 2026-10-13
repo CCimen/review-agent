@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import contextlib
+import io
 import os
 import shutil
 import sys
@@ -15,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILE_SOURCE = ROOT / "bootstrap" / "profiles" / "default-standard"
 PLUGIN_SOURCE = ROOT / "bootstrap" / "plugins" / "review_agent_tools"
 HERMES_IMAGE = "nousresearch/hermes-agent:test@sha256:" + "1" * 64
+# Every deployment names its review model; tests use a neutral one.
+TEST_MODEL = "test-review-model"
 
 
 def load_installer():
@@ -69,7 +73,7 @@ class ProfileBundleTests(unittest.TestCase):
     def load_installed_contract(self, hermes_home: Path):
         with mock.patch.dict(
             os.environ,
-            {"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
+            {"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
         ):
             return self.install.review_contract.load_installed_contract(hermes_home)
 
@@ -91,6 +95,7 @@ class ProfileBundleTests(unittest.TestCase):
                         else {}
                     ),
                     "REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE,
+                    "REVIEW_AGENT_MODEL": TEST_MODEL,
                     **(deployment_environment or {}),
                 },
                 clear=True,
@@ -168,7 +173,7 @@ class ProfileBundleTests(unittest.TestCase):
             _, expected_config_bytes = (
                 self.install.review_contract.render_managed_config(
                     self.install.SOURCE / "config.yaml",
-                    environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
+                    environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
                 )
             )
             self.assertEqual(expected_config_bytes, installed_config_bytes)
@@ -248,7 +253,7 @@ class ProfileBundleTests(unittest.TestCase):
 
             with mock.patch.dict(
                 os.environ,
-                {"HERMES_IMAGE": HERMES_IMAGE},
+                {"HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
                 clear=True,
             ):
                 contract = self.install.review_contract.load_installed_contract(
@@ -265,13 +270,13 @@ class ProfileBundleTests(unittest.TestCase):
 
             with mock.patch.dict(
                 os.environ,
-                {"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
+                {"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
             ):
                 packaged_contract = (
                     self.install.review_contract.load_packaged_contract(
                         "default-standard",
                         self.install.SOURCE,
-                        environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE},
+                        environment={"REVIEW_AGENT_HERMES_IMAGE": HERMES_IMAGE, "REVIEW_AGENT_MODEL": TEST_MODEL},
                     )
                 )
 
@@ -337,6 +342,20 @@ class ProfileBundleTests(unittest.TestCase):
                 self.install.load_yaml(hermes_home / "config.yaml")["model"]["default"],
             )
             self.assertEqual(packaged, self.load_installed_contract(hermes_home))
+
+    def test_a_deployment_without_a_review_model_fails_before_installation(self) -> None:
+        # No packaged model stands in for one the deployment did not name.
+        for missing in ("", "   "):
+            with self.subTest(model=missing), tempfile.TemporaryDirectory() as temp:
+                hermes_home = Path(temp) / "hermes-home"
+                errors = io.StringIO()
+                with contextlib.redirect_stderr(errors), self.assertRaises(SystemExit):
+                    self.run_installer(
+                        hermes_home,
+                        deployment_environment={"REVIEW_AGENT_MODEL": missing},
+                    )
+                self.assertIn("REVIEW_AGENT_MODEL must name the review model", errors.getvalue())
+                self.assertFalse((hermes_home / "config.yaml").exists())
 
     def test_invalid_reasoning_effort_fails_before_installation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

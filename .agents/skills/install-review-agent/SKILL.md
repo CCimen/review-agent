@@ -171,9 +171,10 @@ The last command returns the shipped behavior as bounded JSON.
    Opening and submitting the GitHub form is an owner action.
 4. Populate the deployment's protected secret store. Refer to secret names,
    never values, in the plan.
-   Keep the default `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
-   `REVIEW_AGENT_REASONING_EFFORT`, or select a provider/model pair supported by
-   Hermes and the owner's account. Prefer the default Codex device-code OAuth
+   Ask the owner which model to review with and set `REVIEW_AGENT_MODEL`; it is
+   required and has no default. Keep the default `REVIEW_AGENT_MODEL_PROVIDER`
+   and `REVIEW_AGENT_REASONING_EFFORT`, or select a provider supported by Hermes
+   and the owner's account. Prefer the default Codex device-code OAuth
    route for the first deployment because it needs no model API key. Use
    `hermes model` for OAuth, API keys, and custom endpoints. Keep provider
    secrets in Hermes' persisted credential store or Hermes-owned `.env`. The

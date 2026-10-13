@@ -14,14 +14,15 @@ plugins:
       settings:
         result_max_chars: 160000
 
-# The deployment may override provider, model, and reasoning effort through
-# REVIEW_AGENT_MODEL_PROVIDER, REVIEW_AGENT_MODEL, and
+# The deployment must name the review model in REVIEW_AGENT_MODEL and may
+# override provider and reasoning effort through REVIEW_AGENT_MODEL_PROVIDER and
 # REVIEW_AGENT_REASONING_EFFORT. The installer renders those values into this
-# managed config so every review records one exact behavior contract.
-# Authentication remains in Hermes' separate auth store.
+# managed config so every review records one exact behavior contract; the
+# placeholder below is never used as a model. Authentication remains in Hermes'
+# separate auth store.
 model:
   provider: openai-codex
-  default: gpt-5.6-sol
+  default: set-by-REVIEW_AGENT_MODEL
 
 # Admission freezes one provider account. Provider changes require a new review;
 # no implicit fallback may choose a different account after dispatch.

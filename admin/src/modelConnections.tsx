@@ -33,6 +33,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { TeamPage } from "./api";
 import { read, write } from "./api";
 import type { components } from "./api.generated";
+import { ModelField } from "./modelField";
 import { ConnectionQuota } from "./modelQuota";
 import { ScopedLink as Link, useScope } from "./scope";
 import { ConfirmAction } from "./teams";
@@ -41,6 +42,7 @@ import { Copy, Empty, Form, Freshness, time } from "./ui";
 type Connection = components["schemas"]["ModelConnection"];
 type ConnectionPage = components["schemas"]["ConnectionPage"];
 type ModelChoice = components["schemas"]["ModelChoiceInput"];
+type ProviderModel = components["schemas"]["ProviderModel"];
 type ModelLogin = components["schemas"]["ModelLogin"];
 type Runtime = components["schemas"]["ConnectionRuntime"];
 
@@ -101,6 +103,16 @@ function ConnectionEditor({
   const [choices, setChoices] = useState<ModelChoice[]>(
     connection?.allowed_routes ?? [],
   );
+  const listed = useQuery({
+    queryKey: ["model-connections", connection?.id, "models", "scoped", scope.key],
+    queryFn: ({ signal }) =>
+      read<ProviderModel[]>(
+        scope.path(`/api/model-connections/${connection?.id}/models`),
+        signal,
+      ),
+    enabled: connection !== undefined,
+    staleTime: 300_000,
+  });
   const runtimes = useQuery({
     queryKey: ["model-connections", "runtimes", "scoped", scope.key],
     queryFn: ({ signal }) =>
@@ -273,7 +285,7 @@ function ConnectionEditor({
       ) : null}
       <Heading level={3}>Allowed team choices</Heading>
       <Text as="p">
-        Teams may inherit deployment defaults or choose one of these models
+        Teams may inherit the deployment model or choose one of these models
         and reasoning levels.
       </Text>
       <VStack gap={4}>
@@ -299,17 +311,19 @@ function ConnectionEditor({
                   }
                 />
 
-                <TextInput
-                  label={"Model ID"}
-                  isRequired={true}
+                <ModelField
+                  label="Model"
+                  provider={choice.provider}
                   value={choice.model}
-                  onChange={(value) =>
-                    updateChoice(index, { model: value })
+                  onChange={(model) => updateChoice(index, { model })}
+                  listed={listed.data}
+                  state={
+                    connection === undefined || listed.isError
+                      ? "unavailable"
+                      : listed.isPending
+                        ? "loading"
+                        : "listed"
                   }
-                  {...({
-                    required: true,
-                    maxLength: 200,
-                  } satisfies InputHTMLAttributes<HTMLInputElement>)}
                 />
               </Grid>
               <VStack gap={4}>
@@ -333,7 +347,7 @@ function ConnectionEditor({
               </VStack>
               <Button
                 label={"Remove model"}
-                variant="primary"
+                variant="secondary"
                 type="button"
                 onClick={() =>
                   setChoices((items) =>
@@ -385,7 +399,9 @@ function ConnectionEditor({
         isDisabled={
           save.isPending ||
           (!connection && !runtimeKey) ||
-          choices.some((choice) => choice.reasoning_efforts.length === 0)
+          choices.some(
+            (choice) => choice.model === "" || choice.reasoning_efforts.length === 0,
+          )
         }
       />
     </Form>

@@ -14,6 +14,7 @@ from review_agent_tools.hermes_control import (
     Cancellation,
     HermesControlError,
     LoginSession,
+    ProviderModel,
 )
 from review_agent_tools.model_accounts import (
     AccountAvailability,
@@ -52,10 +53,17 @@ class ConnectionConfigurationTests(unittest.TestCase):
 )
 class ModelConnectionTests(unittest.TestCase):
     def setUp(self) -> None:
+        # A deployment always names its review model.
+        environment = patch.dict(os.environ, {"REVIEW_AGENT_MODEL": "test-review-model"})
+        environment.start()
+        self.addCleanup(environment.stop)
         contract = review_contract.load_packaged_contract(
             "default-standard",
             Path(__file__).resolve().parents[1] / "bootstrap",
-            environment={"HERMES_IMAGE": "hermes@sha256:" + "a" * 64},
+            environment={
+                "HERMES_IMAGE": "hermes@sha256:" + "a" * 64,
+                "REVIEW_AGENT_MODEL": "test-review-model",
+            },
         )
         self.observed = ManagedRuntimeStatus(
             "payments",
@@ -84,6 +92,10 @@ class ModelConnectionTests(unittest.TestCase):
             "s" * 32, "approved", None, None, None, 5
         )
         self.control.cancel_codex_login.return_value = Cancellation(True, "s" * 32)
+        self.control.models.return_value = (
+            ProviderModel("openai-codex", "allowed-model"),
+            ProviderModel("openai-codex", "second-model"),
+        )
         self.enterContext(
             patch(
                 "review_agent_tools.model_connection_config.load_controls",
@@ -121,6 +133,31 @@ class ModelConnectionTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()
+
+    def test_connection_lists_hermes_models_without_restricting_choices(self) -> None:
+        managed = self.create_connection()
+        path = f"/api/model-connections/{managed['id']}"
+        listed = self.client.get(path + "/models")
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(
+            [item["model"] for item in listed.json()],
+            ["allowed-model", "second-model"],
+        )
+        # Hermes' list only suggests models, so an unlisted exact name is saved.
+        added = self.client.patch(
+            path,
+            json={
+                "name": "Payments account",
+                "allowed_routes": [
+                    {"provider": "openai-codex", "model": "unlisted-model", "reasoning_efforts": ["high"]}
+                ],
+                "expected_revision": 1,
+                "reason": "Adjust models",
+            },
+        )
+        self.assertEqual(added.status_code, 200, added.text)
+        self.control.models.side_effect = HermesControlError("unavailable")
+        self.assertEqual(self.client.get(path + "/models").status_code, 502)
 
     def test_owned_connection_permissions_policy_and_audit(self) -> None:
         managed = self.create_connection()

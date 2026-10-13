@@ -291,7 +291,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
                 job_priority=0,
                 job_max_attempts=3,
                 active_job_limit=100,
-                contract_environment={},
+                contract_environment={"REVIEW_AGENT_MODEL": "test-review-model"},
                 retry_delay=timedelta(0),
                 capacity_retry_delay=capacity_retry_delay,
             ),
@@ -394,7 +394,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             connection.execute("UPDATE review_agent.github_app_installations SET checks_permission = 'write'")
             connection.execute("UPDATE review_agent.repositories SET documentation_mode = %s", (mode,))
-            deployment_settings.save(connection, settings=DeploymentSettings(documentation_review_enabled=True),
+            deployment_settings.save(connection, settings=DeploymentSettings(model="test-review-model", documentation_review_enabled=True),
                 expected_revision=0, actor="operator:test", reason="Enable documentation for the fixture")
 
     def documentation_event(self, action: str = "synchronize") -> dict[str, object]:
@@ -586,7 +586,7 @@ class GitHubAppProcessorTests(unittest.TestCase):
             self.assertTrue(all(review_runs.get_run(connection, run).status.value == "running" for run in explicit_runs))
             self.assertEqual(webhook_deliveries.get_delivery(connection, pending).status.value, "ignored")
             revision = deployment_settings.latest(connection)
-            deployment_settings.save(connection, settings=DeploymentSettings(documentation_review_enabled=False),
+            deployment_settings.save(connection, settings=DeploymentSettings(model="test-review-model", documentation_review_enabled=False),
                 expected_revision=revision.id, actor="operator:test", reason="Stop documentation")
             self.assertEqual(review_runs.get_run(connection, automatic_runs[0]).failure_code, "documentation_disabled")
             self.assertEqual(review_runs.get_run(connection, explicit_runs[0]).failure_code, "documentation_disabled")

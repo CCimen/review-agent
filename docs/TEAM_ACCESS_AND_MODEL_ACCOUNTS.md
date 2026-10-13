@@ -205,9 +205,13 @@ runtime unless it needs independent credentials. A connection can hold an
 authorized account for each supported provider; the team selects its route
 explicitly. Automatic fallback is not part of this implementation.
 
-Provider, model, and reasoning effort inherit deployment defaults. A team may
-override them within the administrator's allowed choices. Show both the effective
-value and where it came from. Avoid repository overrides until a concrete need
+Provider, model, and reasoning effort inherit the deployment's model. A team may
+override them within the administrator's allowed choices. An administrator picks
+those choices by exact model name, with the models Hermes lists for the
+connection's provider accounts as suggestions. That list is Hermes' picker
+catalog, not proof of access, so the provider accepts or rejects the model when
+a review runs and no other model is substituted. Show both the effective value and where
+it came from. Avoid repository overrides until a concrete need
 justifies another policy layer. Review behavior profiles continue to own review
 instructions; account routing does not create copies of those profiles.
 

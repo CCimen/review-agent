@@ -18,6 +18,8 @@ from .settings import (
 
 @dataclass(frozen=True, slots=True)
 class DeploymentSettings:
+    # The review model has no default: a deployment always names it.
+    model: str
     active_job_limit: int = 100
     capacity_retry_seconds: int = 300
     worker_concurrency: int = 4
@@ -47,7 +49,6 @@ class DeploymentSettings:
     code_graph_enabled: bool = False
     code_graph_embeddings: Literal["none", "openai"] = "none"
     model_provider: Literal["openai-codex", "anthropic"] = "openai-codex"
-    model: str = "gpt-5.6-sol"
     reasoning_effort: Literal[
         "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"
     ] = "xhigh"
@@ -85,7 +86,9 @@ class DeploymentSettings:
             or len(self.model) > 200
             or not self.model.isprintable()
         ):
-            raise ValueError("Model must be printable and at most 200 characters")
+            raise ValueError(
+                "REVIEW_AGENT_MODEL must name the review model (at most 200 printable characters)"
+            )
         if self.code_graph_embeddings not in {"none", "openai"}:
             raise ValueError("Unsupported embedding mode")
 
@@ -152,13 +155,6 @@ class DeploymentSettings:
     ) -> DeploymentSettings:
         env = os.environ if environment is None else environment
         core = ReviewAgentSettings(env)
-        docs_enabled = env.get(
-            "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED", "false"
-        ).lower()
-        if docs_enabled not in {"true", "false"}:
-            raise ValueError(
-                "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED must be true or false"
-            )
         provider = env.get("REVIEW_AGENT_MODEL_PROVIDER", "openai-codex")
         effort = env.get("REVIEW_AGENT_REASONING_EFFORT", "xhigh")
         embeddings = env.get("REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS", "none")
@@ -226,14 +222,14 @@ class DeploymentSettings:
                 env.get("REVIEW_AGENT_GITHUB_GATEWAY_MAX_CONCURRENT_REQUESTS", "8")
             ),
             feedback_enabled=core.feedback_enabled,
-            documentation_review_enabled=docs_enabled == "true",
+            documentation_review_enabled=documentation_review_enabled(env),
             code_graph_enabled=env.get(
                 "REVIEW_AGENT_CODE_GRAPH_ENABLED", "false"
             ).lower()
             == "true",
             code_graph_embeddings=cast(Literal["none", "openai"], embeddings),
             model_provider=cast(Literal["openai-codex", "anthropic"], provider),
-            model=env.get("REVIEW_AGENT_MODEL", "gpt-5.6-sol"),
+            model=env.get("REVIEW_AGENT_MODEL", "").strip(),
             reasoning_effort=cast(
                 Literal[
                     "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"
@@ -241,6 +237,16 @@ class DeploymentSettings:
                 effort,
             ),
         )
+
+
+def documentation_review_enabled(environment: Mapping[str, str]) -> bool:
+    """The deployment's documentation-review switch from its environment."""
+    value = environment.get("REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED", "false").lower()
+    if value not in {"true", "false"}:
+        raise ValueError(
+            "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED must be true or false"
+        )
+    return value == "true"
 
 
 _INTEGER_ENV = frozenset(

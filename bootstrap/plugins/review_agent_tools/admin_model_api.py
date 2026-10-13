@@ -15,6 +15,7 @@ from .admin_model_application import (
     ModelLogin,
 )
 from .admin_teams_api import ChangeReason
+from .hermes_control import ProviderModel
 from .model_accounts import ModelProvider
 from .model_quota import AccountQuota
 from .postgres import model_connections as models
@@ -166,6 +167,12 @@ def create_router(
     ) -> AccountQuota:
         return application.quota(access, connection_id, provider, refresh=refresh)
 
+    def listed_models(
+        connection_id: ConnectionId,
+        access: Annotated[AccessRequest, Depends(auth.current_scope)],
+    ) -> list[ProviderModel]:
+        return list(application.listed_models(access, connection_id))
+
     def update_connection(
         connection_id: ConnectionId,
         request: ConnectionUpdate,
@@ -310,6 +317,11 @@ def create_router(
     router.add_api_route(
         "/api/model-connections/{connection_id}/runtime",
         runtime_status,
+        methods=["GET"],
+    )
+    router.add_api_route(
+        "/api/model-connections/{connection_id}/models",
+        listed_models,
         methods=["GET"],
     )
     router.add_api_route(

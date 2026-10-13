@@ -12,8 +12,8 @@ parameters:
     description: Hermes model provider identifier.
     value: openai-codex
   - name: MODEL
-    description: Model identifier available to the configured Hermes provider.
-    value: gpt-5.6-sol
+    description: Review model identifier offered by the configured Hermes provider account; required, no default.
+    required: true
   - name: REASONING_EFFORT
     description: Reasoning effort used for new reviews.
     value: xhigh

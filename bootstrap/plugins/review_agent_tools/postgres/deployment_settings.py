@@ -58,17 +58,18 @@ def _revision(row: tuple[object, ...]) -> SettingsRevision:
     if not isinstance(raw, dict):
         raise ValueError("Stored deployment settings are invalid")
     env_raw = cast(dict[str, object], raw)
-    known = set(DeploymentSettings().environment())
-    if not known - _EXTENDED_ENV <= set(env_raw) <= known or any(
-        not isinstance(v, str) for v in env_raw.values()
-    ):
+    if any(not isinstance(v, str) for v in env_raw.values()):
         raise ValueError("Stored deployment settings are invalid")
     env = cast(dict[str, str], env_raw)
+    settings = DeploymentSettings.from_environment(
+        {**os.environ, "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED": "false", **env}
+    )
+    known = set(settings.environment())
+    if not known - _EXTENDED_ENV <= set(env) <= known:
+        raise ValueError("Stored deployment settings are invalid")
     return SettingsRevision(
         int(str(row[0])),
-        DeploymentSettings.from_environment(
-            {**os.environ, "REVIEW_AGENT_DOCUMENTATION_REVIEW_ENABLED": "false", **env}
-        ),
+        settings,
         str(row[2]),
         str(row[3]),
         cast(datetime, row[4]),

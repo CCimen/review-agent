@@ -9,7 +9,6 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@astryxdesign/core/Table";
-import { TextInput } from "@astryxdesign/core/TextInput";
 import type { InputHTMLAttributes } from "react";
 import { Form } from "./ui";
 // Settings layout adapted from Astryx's Settings Form template.
@@ -30,6 +29,7 @@ import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { DeploymentLink } from "./deployment";
 import { EmailDelivery } from "./email";
+import { ModelField } from "./modelField";
 import { Providers } from "./providers";
 import { Freshness, Prose, time } from "./ui";
 
@@ -376,27 +376,21 @@ function SettingsEditor({ data }: { data: Page }) {
               }
             />
 
-            <TextInput
-              label={"Model ID"}
-              id="setting-model"
-              isRequired={true}
+            <ModelField
+              label="Model"
+              provider={draft.model_provider}
               value={draft.model}
-              onChange={(value) => setDraft({ ...draft, model: value })}
-              description="Suggestions come from Hermes. You can also enter a supported model ID."
-              {...({
-                required: true,
-                maxLength: 200,
-                list: "review-model-options",
-              } satisfies InputHTMLAttributes<HTMLInputElement>)}
+              onChange={(model) => setDraft({ ...draft, model })}
+              listed={models.data?.items}
+              state={
+                models.isPending
+                  ? "loading"
+                  : models.isError || models.data.capability.configured === false
+                    ? "unavailable"
+                    : "listed"
+              }
+              isDisabled={save.isPending}
             />
-
-            <datalist id="review-model-options">
-              {models.data?.items
-                .filter((item) => item.provider === draft.model_provider)
-                .map((item) => (
-                  <option key={item.model} value={item.model} />
-                ))}
-            </datalist>
             <Selector
               label="Reasoning effort"
               value={draft.reasoning_effort}

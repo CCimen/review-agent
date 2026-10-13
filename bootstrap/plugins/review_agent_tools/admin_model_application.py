@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
-from .hermes_control import HermesControlClient, HermesControlError, LoginSession
+from .hermes_control import (
+    HermesControlClient,
+    HermesControlError,
+    LoginSession,
+    ProviderModel,
+)
 from .model_connection_config import ManagedControl
 from .model_accounts import AccountAvailability, ModelProvider
 from .model_quota import AccountQuota
@@ -74,6 +79,17 @@ class ModelConnectionsApplication:
             return models.get_connection(
                 connection, scope, connection_id, manage=manage
             )
+
+    def listed_models(
+        self, access: AccessRequest, connection_id: int
+    ) -> tuple[ProviderModel, ...]:
+        """Hermes' model picker list for the connection's provider accounts.
+
+        The list suggests choices; it does not prove the account can use a
+        model, so saved choices are not checked against it.
+        """
+        current = self.get(access, connection_id)
+        return self.control(current.runtime_key).models()
 
     def configured_runtimes(self, access: AccessRequest) -> tuple[str, ...]:
         with authorized_transaction(self.runtime, access) as (_connection, scope):

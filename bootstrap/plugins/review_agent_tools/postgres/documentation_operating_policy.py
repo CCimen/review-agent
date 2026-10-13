@@ -5,13 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from typing import Literal
 
 import psycopg
 from psycopg import sql
 from psycopg.rows import TupleRow, class_row
 
-from ..deployment_settings import DeploymentSettings
+from ..deployment_settings import documentation_review_enabled
 from ..domain.documentation_operating_policy import (
     DocumentationMode,
     ResolvedDocumentationMode,
@@ -100,15 +101,9 @@ def deployment(connection: psycopg.Connection[TupleRow]) -> tuple[bool, int]:
 
 def _deployment(connection: psycopg.Connection[TupleRow]) -> tuple[bool, int]:
     current = deployment_settings.latest(connection)
-    settings = (
-        current.settings
-        if current is not None
-        else DeploymentSettings.from_environment()
-    )
-    return (
-        settings.documentation_review_enabled,
-        current.id if current is not None else 0,
-    )
+    if current is None:
+        return documentation_review_enabled(os.environ), 0
+    return current.settings.documentation_review_enabled, current.id
 
 
 def _revision(*values: object) -> str:

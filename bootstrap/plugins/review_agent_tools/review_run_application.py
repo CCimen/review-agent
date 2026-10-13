@@ -120,27 +120,6 @@ class RunSubject:
 
 
 @dataclass(frozen=True, slots=True)
-class StartedRun:
-    run_id: int
-    status: Literal["running"]
-    phase: RunPhase
-    started_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class DuplicateRun:
-    existing_run_id: int
-    status: Literal["duplicate"]
-    phase: RunPhase
-    started_at: str
-    last_heartbeat_at: str
-    message: str
-
-
-RunStart = StartedRun | DuplicateRun
-
-
-@dataclass(frozen=True, slots=True)
 class LiveRunState:
     """Persisted continuation point for one exact active review."""
 

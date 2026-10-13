@@ -890,6 +890,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/model-connections/{connection_id}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Offered Models */
+        get: operations["offered_models_api_model_connections__connection_id__models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/model-connections/{connection_id}/quota/{provider}": {
         parameters: {
             query?: never;
@@ -6721,6 +6738,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConnectionRuntime"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    offered_models_api_model_connections__connection_id__models_get: {
+        parameters: {
+            query?: {
+                team_id?: number | null;
+            };
+            header?: never;
+            path: {
+                connection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderModel"][];
                 };
             };
             /** @description Validation Error */

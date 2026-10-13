@@ -164,9 +164,11 @@ explicitly indexed `.review-agent/` package.
 
 The deployment selects the Hermes provider, model, and reasoning effort with
 `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
-`REVIEW_AGENT_REASONING_EFFORT`. The defaults use `openai-codex`,
-`gpt-5.6-sol`, and `xhigh`. Hermes can authenticate this route with a ChatGPT
-device-code login, so the recommended setup needs no model API key. Anthropic
+`REVIEW_AGENT_REASONING_EFFORT`. `REVIEW_AGENT_MODEL` is required and has no
+default: the services refuse to start without it rather than review with a model
+nobody chose. The provider defaults to `openai-codex` and the effort to `xhigh`.
+Hermes can authenticate the Codex route with a ChatGPT device-code login, so the
+recommended setup needs no model API key. Anthropic
 Claude, API-key services, and self-hosted OpenAI-compatible endpoints use the
 same deployment settings and Hermes-owned credentials. Check Hermes'
 [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers),

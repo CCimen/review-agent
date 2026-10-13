@@ -512,7 +512,10 @@ API-key providers, and custom endpoints. Hermes documents that Anthropic OAuth
 requires Claude Max plus extra-usage credits; its API-key route is independent.
 The deployment variables `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
 `REVIEW_AGENT_REASONING_EFFORT` remain the review contract; rerunning the
-installer restores them after the wizard stores credentials. A selection
+installer restores them after the wizard stores credentials.
+`REVIEW_AGENT_MODEL` has no default, so a deployment without it does not start.
+Changing the deployment model in the console's settings requires Hermes provider
+control: the console saves only a model the shared account lists. A selection
 change applies after the installer and services restart. Already queued reviews
 fail closed and should be requested again. Verify:
 

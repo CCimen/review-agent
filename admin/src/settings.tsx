@@ -9,7 +9,6 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@astryxdesign/core/Table";
-import { TextInput } from "@astryxdesign/core/TextInput";
 import type { InputHTMLAttributes } from "react";
 import { Form } from "./ui";
 // Settings layout adapted from Astryx's Settings Form template.
@@ -30,6 +29,7 @@ import { read, write } from "./api";
 import type { components } from "./api.generated";
 import { DeploymentLink } from "./deployment";
 import { EmailDelivery } from "./email";
+import { ModelChoiceSelector } from "./modelChoice";
 import { Providers } from "./providers";
 import { Freshness, Prose, time } from "./ui";
 
@@ -376,27 +376,27 @@ function SettingsEditor({ data }: { data: Page }) {
               }
             />
 
-            <TextInput
-              label={"Model ID"}
-              id="setting-model"
-              isRequired={true}
+            <ModelChoiceSelector
+              label="Model"
+              provider={draft.model_provider}
               value={draft.model}
-              onChange={(value) => setDraft({ ...draft, model: value })}
-              description="Suggestions come from Hermes. You can also enter a supported model ID."
-              {...({
-                required: true,
-                maxLength: 200,
-                list: "review-model-options",
-              } satisfies InputHTMLAttributes<HTMLInputElement>)}
+              onChange={(model) => setDraft({ ...draft, model })}
+              offered={models.data?.items}
+              isLoading={models.isPending}
+              error={
+                models.isError
+                  ? "Hermes did not list the shared account's models. Check the shared connection, then reload."
+                  : null
+              }
+              isDisabled={
+                save.isPending || models.data?.capability.configured === false
+              }
+              disabledMessage={
+                models.data?.capability.configured === false
+                  ? "Hermes provider control is not configured, so the model can only be set through REVIEW_AGENT_MODEL."
+                  : undefined
+              }
             />
-
-            <datalist id="review-model-options">
-              {models.data?.items
-                .filter((item) => item.provider === draft.model_provider)
-                .map((item) => (
-                  <option key={item.model} value={item.model} />
-                ))}
-            </datalist>
             <Selector
               label="Reasoning effort"
               value={draft.reasoning_effort}

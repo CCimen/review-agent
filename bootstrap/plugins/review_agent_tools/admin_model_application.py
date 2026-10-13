@@ -1,11 +1,16 @@
 """Console model connections and Hermes-owned authentication coordination."""
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
-from .hermes_control import HermesControlClient, HermesControlError, LoginSession
+from .hermes_control import (
+    HermesControlClient,
+    HermesControlError,
+    LoginSession,
+    ProviderModel,
+)
 from .model_connection_config import ManagedControl
 from .model_accounts import AccountAvailability, ModelProvider
 from .model_quota import AccountQuota
@@ -52,6 +57,27 @@ class ConnectionRuntime:
     accounts: tuple[ProviderAccountStatus, ...]
 
 
+def require_offered_models(
+    client: HermesControlClient, choices: Iterable[tuple[str, str]]
+) -> None:
+    """Refuse a model the connection's provider account does not offer.
+
+    Hermes lists the models each authenticated provider offers; a name it does
+    not list is refused before it is saved rather than failing every review.
+    """
+    wanted = {(str(provider), model) for provider, model in choices}
+    if not wanted:
+        return
+    offered = {(item.provider, item.model) for item in client.models()}
+    missing = sorted(wanted - offered)
+    if missing:
+        names = ", ".join(f"{provider} {model}" for provider, model in missing)
+        raise models.ConnectionConflict(
+            f"The connected provider account does not offer: {names}. "
+            "Choose a model it lists, or connect an account that offers it."
+        )
+
+
 class ModelConnectionsApplication:
     def __init__(
         self, runtime: PostgreSQLRuntime, controls: Mapping[str, ManagedControl]
@@ -74,6 +100,20 @@ class ModelConnectionsApplication:
             return models.get_connection(
                 connection, scope, connection_id, manage=manage
             )
+
+    def offered_models(
+        self, access: AccessRequest, connection_id: int
+    ) -> tuple[ProviderModel, ...]:
+        """The models the connection's authenticated provider accounts offer."""
+        current = self.get(access, connection_id)
+        return self.control(current.runtime_key).models()
+
+    def require_offered(
+        self, runtime_key: str, choices: Iterable[tuple[str, str]]
+    ) -> None:
+        wanted = tuple(choices)
+        if wanted:
+            require_offered_models(self.control(runtime_key), wanted)
 
     def configured_runtimes(self, access: AccessRequest) -> tuple[str, ...]:
         with authorized_transaction(self.runtime, access) as (_connection, scope):

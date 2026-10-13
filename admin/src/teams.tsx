@@ -1450,18 +1450,12 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
         <Selector
           label={"Model"}
           options={[
-            { value: String(-1), label: "Inherit deployment defaults" },
+            { value: String(-1), label: "Inherit the deployment model" },
             selected.allowed_routes.map((choice, index) => ({
               value: String(index),
-              label:
-                String(
-                  choice.provider === "openai-codex"
-                    ? "OpenAI Codex"
-                    : "Anthropic",
-                ) +
-                " " +
-                "·" +
-                choice.model,
+              label: `${
+                choice.provider === "openai-codex" ? "OpenAI Codex" : "Anthropic"
+              } · ${choice.model}`,
             })),
           ]
             .flat()
@@ -1494,8 +1488,8 @@ function TeamModelEditor({ policy }: { policy: ModelPolicy }) {
       </Grid>
       {!selected.allowed_routes.length ? (
         <Text as="p" color="secondary">
-          This connection currently allows deployment defaults only. An
-          administrator can add model choices.
+          This connection currently allows only the deployment model. An
+          administrator can add models its provider account offers.
         </Text>
       ) : null}
       {admin ? (
@@ -1590,7 +1584,7 @@ function TeamModels({ team, maintain }: { team: Team; maintain: boolean }) {
             </MetadataListItem>
             <MetadataListItem label="Source">
               {policy.provider === null
-                ? "Inherited from deployment defaults"
+                ? "Inherited from the deployment model"
                 : "Team model policy"}
             </MetadataListItem>
           </MetadataList>

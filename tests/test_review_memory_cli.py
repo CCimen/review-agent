@@ -45,6 +45,19 @@ class ReviewAgentMemoryCliTests(unittest.TestCase):
             json.loads(stderr.getvalue())
         runtime.assert_not_called()
 
+    def test_run_modes_are_exclusive_before_resources_are_opened(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch.object(memory, "_runtime") as runtime,
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            memory.main(["runs", "--run-id", "123", "--mark-stalled"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("not allowed with argument", stderr.getvalue())
+        runtime.assert_not_called()
+
     def test_high_cost_limits_fail_before_resources_are_opened(self) -> None:
         environment = {
             "REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS": "100",

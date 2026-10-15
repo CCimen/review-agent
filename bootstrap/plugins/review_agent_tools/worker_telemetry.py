@@ -64,7 +64,8 @@ def parse_turn_failure(body: bytes) -> tuple[str, str | None] | None:
     unfinished = (
         hermes.get("failed") is True
         or hermes.get("completed") is False
-        or finish_reason in {"error", "length"}
+        or finish_reason == "error"
+        or finish_reason == "length"
     )
     if not unfinished:
         return None

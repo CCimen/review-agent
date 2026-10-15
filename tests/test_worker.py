@@ -186,6 +186,17 @@ class WorkerBoundaryTests(unittest.TestCase):
             }}).encode(), status=502)
             throttled = failure(b'{"error":{"code":"rate_limited","message":"secret detail"}}', status=429)
             unreadable = failure(b"<html>", status=503)
+            # Malformed failure metadata is ignored; valid usage still counts.
+            opener.open.side_effect = None
+            for finish_reason in ([], {}):
+                response.read.return_value = json.dumps({
+                    "choices": [{"finish_reason": finish_reason}],
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+                }).encode()
+                self.assertEqual(
+                    client.review(self._claim(generation=1), timeout=self._timeout()),
+                    TokenUsage(2, 1, 3),
+                )
 
         self.assertEqual(
             (overloaded.code, overloaded.detail, overloaded.usage, overloaded.retryable),

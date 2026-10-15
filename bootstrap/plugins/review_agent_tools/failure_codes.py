@@ -7,6 +7,7 @@ both named sets here prevents lifecycle and delivery paths from inventing codes.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 # A review run was abandoned/failed without a more specific code (best-effort failer).
@@ -33,6 +34,8 @@ PUBLICATION_ATTEMPTS_EXHAUSTED: Final = "publication_attempts_exhausted"
 OPERATOR_CANCELLED: Final = "operator_cancelled"
 # The immutable behavior captured at admission no longer matches this worker.
 REVIEW_CONTRACT_CHANGED: Final = "review_contract_changed"
+# The pull request was closed or merged, so the review stops without a status comment.
+PR_NOT_OPEN: Final = "pr_not_open"
 DOCUMENTATION_DISABLED: Final = "documentation_disabled"
 DOCUMENTATION_INELIGIBLE: Final = "documentation_ineligible"
 
@@ -57,6 +60,7 @@ ALL: Final = frozenset(
         PUBLICATION_ATTEMPTS_EXHAUSTED,
         OPERATOR_CANCELLED,
         REVIEW_CONTRACT_CHANGED,
+        PR_NOT_OPEN,
         DOCUMENTATION_DISABLED,
         DOCUMENTATION_INELIGIBLE,
     }
@@ -70,3 +74,18 @@ JOB_ALL: Final = frozenset(
         JOB_RUN_FAILED,
     }
 )
+
+FAILURE_DETAIL_MAX_CHARS: Final = 300
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]+")
+
+
+def failure_detail(text: str | None) -> str | None:
+    """One line of at most 300 characters for an operator-facing failure cause.
+
+    Callers pass code-owned messages or upstream text that Hermes already
+    redacted; this only removes control characters and bounds the length.
+    """
+    if text is None:
+        return None
+    line = " ".join(_CONTROL.sub(" ", text).split())
+    return line[:FAILURE_DETAIL_MAX_CHARS] or None

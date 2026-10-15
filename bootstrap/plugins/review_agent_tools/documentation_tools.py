@@ -67,7 +67,7 @@ def docs_begin(args: dict[str, Any], **context: Any) -> str:
             "next_action": "Page selected areas, unmapped paths, and previous findings with review_agent_docs_scope; read exact evidence with review_agent_docs_file.",
         })
     except ReviewRunTerminal as terminal:
-        return output_json(run_terminal_payload(terminal.run_id))
+        return output_json(run_terminal_payload(terminal.run_id, terminal.failure_code))
     except GitHubGatewayError as exc:
         return error_output(source_error(exc))
     except (ValueError, PostgreSQLRuntimeError) as exc:
@@ -166,7 +166,7 @@ def docs_deliver(args: dict[str, Any], **context: Any) -> str:
             "run_id": source.run_id, "publication_id": prepared.publication_id,
             "outcome": result.outcome, "coverage_complete": result.coverage_complete})
     except ReviewRunTerminal as terminal:
-        return output_json(run_terminal_payload(terminal.run_id))
+        return output_json(run_terminal_payload(terminal.run_id, terminal.failure_code))
     except GitHubGatewayError as exc:
         return error_output(source_error(exc))
     except (ValueError, PostgreSQLRuntimeError) as exc:

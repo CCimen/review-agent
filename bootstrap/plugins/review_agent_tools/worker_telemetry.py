@@ -35,14 +35,70 @@ class TokenUsage:
     total_tokens: int
 
 
-def parse_usage(body: bytes) -> TokenUsage | None:
+def _json_object(body: bytes) -> dict[str, object] | None:
     try:
         payload = json.loads(body)
     except (ValueError, UnicodeError, RecursionError):
         return None
-    if not isinstance(payload, dict):
+    return cast(dict[str, object], payload) if isinstance(payload, dict) else None
+
+
+def parse_turn_failure(body: bytes) -> tuple[str, str | None] | None:
+    """Return (code, redacted detail) when Hermes reports an unfinished turn.
+
+    Hermes marks a failed or truncated agent run in a 200 response with a
+    ``hermes`` block and ``finish_reason`` "error" or "length"; its ``error``
+    text is redacted by Hermes before it leaves the API server.
+    """
+    payload = _json_object(body)
+    if payload is None:
         return None
-    raw_usage = cast(dict[str, object], payload).get("usage")
+    raw_hermes = payload.get("hermes")
+    hermes = cast(dict[str, object], raw_hermes) if isinstance(raw_hermes, dict) else {}
+    finish_reason: object = None
+    raw_choices = payload.get("choices")
+    if isinstance(raw_choices, list) and raw_choices:
+        first = cast(list[object], raw_choices)[0]
+        if isinstance(first, dict):
+            finish_reason = cast(dict[str, object], first).get("finish_reason")
+    unfinished = (
+        hermes.get("failed") is True
+        or hermes.get("completed") is False
+        or finish_reason == "error"
+        or finish_reason == "length"
+    )
+    if not unfinished:
+        return None
+    truncated = (
+        hermes.get("error_code") == "output_truncated" or finish_reason == "length"
+    )
+    detail = hermes.get("error")
+    return (
+        "hermes_output_truncated" if truncated else "hermes_agent_error",
+        detail if isinstance(detail, str) else None,
+    )
+
+
+def parse_error_body(body: bytes) -> tuple[str | None, str | None]:
+    """Return the (code, message) of an OpenAI-style error envelope."""
+    payload = _json_object(body)
+    raw_error = payload.get("error") if payload is not None else None
+    if not isinstance(raw_error, dict):
+        return None, None
+    envelope = cast(dict[str, object], raw_error)
+    code = envelope.get("code")
+    message = envelope.get("message")
+    return (
+        code if isinstance(code, str) else None,
+        message if isinstance(message, str) else None,
+    )
+
+
+def parse_usage(body: bytes) -> TokenUsage | None:
+    payload = _json_object(body)
+    if payload is None:
+        return None
+    raw_usage = payload.get("usage")
     if not isinstance(raw_usage, dict):
         return None
     usage = cast(dict[str, object], raw_usage)

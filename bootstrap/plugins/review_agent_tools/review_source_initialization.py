@@ -196,8 +196,6 @@ def initialize_review(
         cast(JsonObject, json.loads(persisted.resolved_config.canonical_json)),
         installed_contract,
     )
-    if pull.get("state") != "open":
-        raise ToolInputError("the pull request is no longer open")
 
     def snapshot(phase: review_run_application.RunPhase) -> JsonObject:
         result = load_application_snapshot(

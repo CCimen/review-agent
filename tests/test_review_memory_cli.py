@@ -45,6 +45,19 @@ class ReviewAgentMemoryCliTests(unittest.TestCase):
             json.loads(stderr.getvalue())
         runtime.assert_not_called()
 
+    def test_run_modes_are_exclusive_before_resources_are_opened(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch.object(memory, "_runtime") as runtime,
+            redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            memory.main(["runs", "--run-id", "123", "--mark-stalled"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("not allowed with argument", stderr.getvalue())
+        runtime.assert_not_called()
+
     def test_high_cost_limits_fail_before_resources_are_opened(self) -> None:
         environment = {
             "REVIEW_AGENT_OPERATOR_PAGE_MAX_ITEMS": "100",
@@ -331,6 +344,64 @@ class ReviewAgentMemoryCliTests(unittest.TestCase):
         self.assertEqual(json.loads(stdout.getvalue()), {"status": "complete"})
         self.assertEqual(stderr.getvalue(), "")
         runtime.close.assert_called_once_with()
+
+    def test_run_diagnostics_stay_readable_in_one_512_kib_file_read(self) -> None:
+        from datetime import datetime, timezone
+
+        from review_agent_tools.domain.review import CoverageState, FailureStatusDelivery, ReviewRunId
+        from review_agent_tools.postgres import reporting
+
+        moment = datetime(2026, 10, 15, tzinfo=timezone.utc)
+        wide = "\N{GRINNING FACE}"  # four UTF-8 bytes per character
+        run = reporting.ReviewRunReport(
+            id=ReviewRunId(1), repository="o" * 100 + "/" + "r" * 100, pr_number=1,
+            base_sha="b" * 40, head_sha="a" * 40, status="failed", phase="failed",
+            findings_count=None, failure_code="f" * 80, failure_detail=wide * 300,
+            failure_status_comment_id=None,
+            failure_status_delivery_status=FailureStatusDelivery.SUPPRESSED,
+            failure_status_delivery_attempt_count=0,
+            failure_status_delivery_max_attempts=3,
+            failure_status_delivery_failure_code="c" * 80, started_at=moment,
+            last_heartbeat_at=moment, completed_at=moment,
+        )
+        paths = tuple(wide * 500 for _ in range(reporting.RUN_DIAGNOSTIC_PATH_LIMIT))
+        report = reporting.RunDiagnostics(
+            run=run, purpose="documentation", model_provider="p" * 200,
+            model="m" * 200, reasoning_effort="xhigh",
+            jobs=tuple(
+                reporting.JobDiagnostics(
+                    job_id=2**62, part=part, status="failed", attempt_count=10,
+                    max_attempts=10, lease_generation=2**62, failure_code="j" * 80,
+                    created_at=moment, started_at=moment, completed_at=moment,
+                )
+                for part in range(13)
+            ),
+            attempts=tuple(
+                reporting.AttemptDiagnostics(
+                    job_id=2**62, part=12, lease_generation=2**62, started_at=moment,
+                    finished_at=moment, provider="p" * 200, prompt_tokens=2**62,
+                    completion_tokens=2**62, total_tokens=2**62,
+                    failure_code="a" * 80, failure_detail=wide * 300,
+                )
+                for _ in range(reporting.RUN_DIAGNOSTIC_ATTEMPT_LIMIT)
+            ),
+            attempts_total=2**62, attempts_truncated=True,
+            parts=tuple(
+                reporting.PartDiagnostics(part=part, reported_at=moment, findings=2**31, notes=10)
+                for part in range(1, 13)
+            ),
+            usage=reporting.AttemptUsageTotals(2**62, 2**62, 2**62, 2**62, 2**62),
+            coverage=reporting.CoverageReport(
+                state=CoverageState.INCOMPLETE, coverage_hash="sha256:" + "0" * 64,
+                changed_files_reported=2**31, changed_files_registered=2**31,
+                registration_complete=False, changed_paths_with_complete_diff=2**31,
+                changed_paths_with_source_reads=2**31, supporting_context_paths_read=2**31,
+                context_ranges_read=2**31, unavailable_paths=paths, truncated_paths=paths,
+            ),
+            unavailable_paths_total=2**31, truncated_paths_total=2**31,
+        )
+
+        self.assertLess(len(memory._json(report).encode("utf-8")), 512 * 1024)
 
 
 if __name__ == "__main__":

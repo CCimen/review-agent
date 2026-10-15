@@ -985,6 +985,14 @@ def list_publications(
         )
 
 
+def run_diagnostics(
+    runtime: PostgreSQLRuntime, *, run_id: int
+) -> postgres_reporting.RunDiagnostics:
+    normalized_run_id = ReviewRunId(_positive(run_id, field="run_id"))
+    with runtime.transaction() as connection:
+        return postgres_reporting.run_diagnostics(connection, run_id=normalized_run_id)
+
+
 def coverage(
     runtime: PostgreSQLRuntime, *, run_id: int
 ) -> postgres_reporting.CoverageReport:

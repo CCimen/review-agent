@@ -14,6 +14,7 @@ import textwrap
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 from typing import Any, cast
 from unittest.mock import Mock, patch
@@ -142,6 +143,73 @@ class WorkerBoundaryTests(unittest.TestCase):
             {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 3},
         ):
             self.assertIsNone(parse_usage(json.dumps({"usage": usage}).encode()))
+
+    def test_unfinished_turns_keep_a_bounded_cause_and_their_usage(self) -> None:
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        opener = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            skill = Path(directory) / "SKILL.md"
+            skill.write_text("Review the assigned request.")
+            client = HermesChatClient(
+                HermesChatSettings(
+                    endpoint="http://127.0.0.1:8642/v1/review-agent/review",
+                    bearer_token="test-token",
+                    skill_path=skill,
+                ),
+                opener=opener,
+            )
+
+            def failure(body: bytes | None = None, status: int | None = None) -> HermesRequestError:
+                if status is None:
+                    opener.open.side_effect = None
+                    opener.open.return_value = response
+                    response.read.return_value = body
+                else:
+                    opener.open.side_effect = urllib.error.HTTPError(
+                        "http://127.0.0.1:8642", status, "error", HTTPMessage(),
+                        io.BytesIO(body or b""),
+                    )
+                with self.assertRaises(HermesRequestError) as caught:
+                    client.review(self._claim(generation=1), timeout=self._timeout())
+                return caught.exception
+
+            overloaded = failure(json.dumps({
+                "choices": [{"message": {"content": "x"}, "finish_reason": "error"}],
+                "usage": {"prompt_tokens": 9, "completion_tokens": 1, "total_tokens": 10},
+                "hermes": {"failed": True, "error": "API call failed after 3 retries: overloaded",
+                           "error_code": "agent_error"},
+            }).encode())
+            incomplete = failure(json.dumps({"error": {
+                "message": "Agent run did not produce a response.", "code": "agent_incomplete",
+            }}).encode(), status=502)
+            throttled = failure(b'{"error":{"code":"rate_limited","message":"secret detail"}}', status=429)
+            unreadable = failure(b"<html>", status=503)
+            # Malformed failure metadata is ignored; valid usage still counts.
+            opener.open.side_effect = None
+            for finish_reason in ([], {}):
+                response.read.return_value = json.dumps({
+                    "choices": [{"finish_reason": finish_reason}],
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
+                }).encode()
+                self.assertEqual(
+                    client.review(self._claim(generation=1), timeout=self._timeout()),
+                    TokenUsage(2, 1, 3),
+                )
+
+        self.assertEqual(
+            (overloaded.code, overloaded.detail, overloaded.usage, overloaded.retryable),
+            ("hermes_agent_error", "API call failed after 3 retries: overloaded",
+             TokenUsage(9, 1, 10), True),
+        )
+        self.assertEqual(
+            (incomplete.code, incomplete.detail),
+            ("hermes_agent_error", "Agent run did not produce a response."),
+        )
+        # Other error bodies keep only their machine-readable code.
+        self.assertEqual((throttled.code, throttled.detail), ("hermes_http_429", "rate_limited"))
+        self.assertEqual((unreadable.code, unreadable.detail), ("hermes_http_503", None))
 
     def test_code_review_receives_security_guidance_without_changing_docs_review(self) -> None:
         from review_agent_tools.domain.review import ReviewPurpose

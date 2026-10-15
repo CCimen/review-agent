@@ -71,8 +71,8 @@ def related_code(args: dict[str, Any], **context: Any) -> str:
         if len(rendered) > capacity.current().result_max_chars:
             raise GraphError("graph response exceeds the tool result budget")
         return rendered
-    except ReviewRunTerminal:
-        return output_json(run_terminal_payload(run_id))
+    except ReviewRunTerminal as terminal:
+        return output_json(run_terminal_payload(run_id, terminal.failure_code))
     except GitHubGatewayError as exc:
         return error_output(source_error(exc))
     except ToolInputError as exc:

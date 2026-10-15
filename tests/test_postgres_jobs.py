@@ -39,7 +39,7 @@ from review_agent_tools.domain.review import (  # noqa: E402
     ReviewStatus,
     resolve_review_subject,
 )
-from review_agent_tools.postgres import github_app, jobs, registry, review_runs  # noqa: E402
+from review_agent_tools.postgres import github_app, jobs, registry, reporting, review_runs  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,
@@ -675,6 +675,7 @@ class PostgreSQLJobTests(unittest.TestCase):
                 failure_code=failure_codes.JOB_RETRYABLE_EXECUTION,
                 retryable=True,
                 retry_delay=timedelta(seconds=1),
+                attempt_failure_code="hermes_unreachable",
             )
             connection.execute(
                 "UPDATE review_agent.review_jobs SET available_at = statement_timestamp() "
@@ -699,11 +700,32 @@ class PostgreSQLJobTests(unittest.TestCase):
                 failure_code=failure_codes.JOB_TERMINAL_EXECUTION,
                 retryable=False,
                 retry_delay=None,
+                attempt_failure_code="hermes_agent_error",
+                # A maximum-length cause still fits the composed run detail.
+                attempt_failure_detail="overloaded " * 40,
             )
             run = review_runs.get_run(connection, started.run.id)
+            diagnostics = reporting.run_diagnostics(connection, run_id=started.run.id)
         self.assertEqual(terminal.job.status, jobs.ReviewJobStatus.FAILED)
         self.assertEqual(run.status, ReviewStatus.FAILED)
         self.assertEqual(run.failure_code, failure_codes.JOB_EXECUTION_FAILED)
+        # Each attempt keeps its own cause after the next claim reset the job.
+        self.assertEqual(
+            [(item.lease_generation, item.failure_code) for item in diagnostics.attempts],
+            [(2, "hermes_agent_error"), (1, "hermes_unreachable")],
+        )
+        self.assertEqual(
+            (diagnostics.attempts_total, diagnostics.attempts_truncated), (2, False)
+        )
+        self.assertEqual(len(diagnostics.attempts[0].failure_detail or ""), 300)
+        detail = diagnostics.run.failure_detail or ""
+        self.assertTrue(detail.startswith("hermes_agent_error: overloaded"))
+        self.assertEqual(len(detail), 300)
+        self.assertEqual(
+            (diagnostics.usage.started_attempts, diagnostics.usage.reported_attempts,
+             diagnostics.usage.total_tokens),
+            (2, 0, None),
+        )
 
     def test_worker_tool_fence_requires_the_current_live_generation(self) -> None:
         pull_request = self.pull_request(provider_id=1024, number=34)

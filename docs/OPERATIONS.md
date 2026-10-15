@@ -674,6 +674,50 @@ review-agent-memory runs --repo <org>/<repo> --pr <number> --limit 10
 review-agent-memory runs --repo <org>/<repo> --pr <number> --stats
 ```
 
+`--stats` also counts terminal runs by `failure_code` and failed attempts by
+cause, and totals the tokens of the attempts that reported usage beside the
+number of attempts started.
+
+### Diagnose a review run
+
+```bash
+review-agent-memory runs --run-id <id> > /opt/data/review-memory/run-<id>.json
+```
+
+The JSON report covers one run:
+
+- the run's status, `failure_code`, and `failure_detail`;
+- the requested provider, model, and reasoning effort;
+- each job (the main job and any parts) with its attempts and lease generation;
+- the newest 100 attempts, with their tokens and why each ended;
+- part progress and coverage counts, with at most 20 unavailable and 20
+  truncated paths.
+
+It contains no review text, comment bodies, or requester identities. It stays
+small enough (under 512 KiB) for a tool that can only read files from the
+container.
+
+An attempt's `failure_code` names where it stopped:
+
+| Code | Meaning |
+| --- | --- |
+| `hermes_agent_error` | Hermes ended the turn early, for example after its model-call retries ran out during a provider overload. |
+| `hermes_output_truncated` | The model's output was cut off. |
+| `review_not_terminal` | The turn ended before the review recorded a terminal state. |
+| `hermes_http_<status>` | Hermes answered with that HTTP status. |
+| `hermes_timeout`, `hermes_unreachable` | The worker's request to Hermes timed out or could not connect. |
+| `source_unavailable`, `preflight_rejected` | Review source checks failed before the model ran. |
+
+`failure_detail` is at most 300 characters. It is either one of the reviewer's
+own messages or Hermes error text, which Hermes redacts before returning it.
+Treat it as untrusted text. When retries run out, the run's `failure_detail`
+repeats the last attempt's cause.
+
+Hermes retries each model call up to `agent.api_max_retries` times (8 in the
+managed `config.yaml`) with backoff growing from 2 to 60 seconds. That rides out
+a provider overload of about 3-4.5 minutes before the turn fails and the worker
+schedules a new attempt.
+
 Inspect publication state:
 
 ```bash
@@ -704,6 +748,8 @@ The ordinary publisher also delivers deterministic terminal failure statuses.
 It leases each status from PostgreSQL, recovers an existing marker after a
 crash, retries transient GitHub failures, and stops after the stored attempt
 limit. A later review for the same pull request suppresses obsolete status work.
+A closed or merged pull request gets no new failure status. A status already
+created before the close is recorded, not edited.
 Manual recovery reopens an exhausted status with a fresh stored attempt budget.
 
 For bounded manual recovery, mark stale runs. The ordinary publisher then claims
@@ -725,6 +771,7 @@ Common states:
 | `body_too_large` | Review could not fit within the configured per-comment byte budget. |
 | `review_contract_changed` | The queued provider/model/effort contract differs from the installed reviewer. Confirm the three model variables match across services, rerun the profile installer, restart the services, and request a fresh review. |
 | `stale` | PR base or head changed before posting. |
+| `pr_not_open` | The pull request was closed or merged during the review. The run stops at its next tool call without a retry or a failure comment. |
 | `stalled` or old `running` | Run heartbeat stopped; mark stale runs failed before retrying. |
 
 The run ledger includes `phase`, `heartbeat`, and `failure`. A healthy run moves

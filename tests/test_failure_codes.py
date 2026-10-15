@@ -58,11 +58,21 @@ class FailureCodesTests(unittest.TestCase):
             failure_codes.PUBLICATION_ATTEMPTS_EXHAUSTED,
             failure_codes.OPERATOR_CANCELLED,
             failure_codes.REVIEW_CONTRACT_CHANGED,
+            failure_codes.PR_NOT_OPEN,
             failure_codes.DOCUMENTATION_DISABLED,
             failure_codes.DOCUMENTATION_INELIGIBLE,
         ]
         self.assertEqual(failure_codes.ALL, frozenset(codes))
         self.assertEqual(len(failure_codes.ALL), len(codes))
+
+    def test_failure_detail_is_one_bounded_line(self):
+        self.assertEqual(
+            failure_codes.failure_detail("API call failed\n\x00after  3 retries\t"),
+            "API call failed after 3 retries",
+        )
+        self.assertEqual(len(failure_codes.failure_detail("x" * 400) or ""), 300)
+        self.assertIsNone(failure_codes.failure_detail(" \n "))
+        self.assertIsNone(failure_codes.failure_detail(None))
 
     def test_job_all_is_separate_from_run_codes(self):
         job_codes = {

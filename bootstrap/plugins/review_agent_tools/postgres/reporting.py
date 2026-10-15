@@ -144,6 +144,7 @@ class ReviewRunReport:
     phase: str
     findings_count: int | None
     failure_code: str | None
+    failure_detail: str | None
     failure_status_comment_id: int | None
     failure_status_delivery_status: FailureStatusDelivery
     failure_status_delivery_attempt_count: int
@@ -165,6 +166,83 @@ class RunStats:
     time_to_answer_seconds_p50: float | None
     time_to_answer_seconds_p95: float | None
     average_findings_per_completed_run: float | None
+    by_failure_code: tuple[CountByValue, ...]
+    attempt_failures_by_code: tuple[CountByValue, ...]
+    usage: AttemptUsageTotals
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptUsageTotals:
+    """Started attempts beside the tokens of those that reported usage."""
+
+    started_attempts: int
+    reported_attempts: int
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+
+
+# Row and path limits keep the encoded report under the 512 KiB a read-only
+# container file reader returns in one piece; tests check the worst case.
+RUN_DIAGNOSTIC_ATTEMPT_LIMIT = 100
+RUN_DIAGNOSTIC_PATH_LIMIT = 20
+
+
+@dataclass(frozen=True, slots=True)
+class JobDiagnostics:
+    job_id: int
+    part: int
+    status: str
+    attempt_count: int
+    max_attempts: int
+    lease_generation: int
+    failure_code: str | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptDiagnostics:
+    job_id: int
+    part: int
+    lease_generation: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    provider: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    failure_code: str | None
+    failure_detail: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PartDiagnostics:
+    part: int
+    reported_at: datetime | None
+    findings: int | None
+    notes: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class RunDiagnostics:
+    """One run's lifecycle, attempts, and coverage without review text or actors."""
+
+    run: ReviewRunReport
+    purpose: str
+    model_provider: str | None
+    model: str | None
+    reasoning_effort: str | None
+    jobs: tuple[JobDiagnostics, ...]
+    attempts: tuple[AttemptDiagnostics, ...]
+    attempts_total: int
+    attempts_truncated: bool
+    parts: tuple[PartDiagnostics, ...]
+    usage: AttemptUsageTotals
+    coverage: CoverageReport
+    unavailable_paths_total: int
+    truncated_paths_total: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,6 +375,7 @@ class _RunRow:
     phase: str
     findings_count: int | None
     failure_code: str | None
+    failure_detail: str | None
     failure_status_comment_id: int | None
     failure_status_delivery_status: FailureStatusDelivery
     failure_status_delivery_attempt_count: int
@@ -946,6 +1025,7 @@ def _run(row: _RunRow) -> ReviewRunReport:
         phase=row.phase,
         findings_count=row.findings_count,
         failure_code=row.failure_code,
+        failure_detail=row.failure_detail,
         failure_status_comment_id=row.failure_status_comment_id,
         failure_status_delivery_status=delivery_status,
         failure_status_delivery_attempt_count=row.failure_status_delivery_attempt_count,
@@ -961,7 +1041,7 @@ _RUN_SELECT = """
     SELECT run.id, repository.full_name AS repository,
            pull_request.number AS pr_number, subject.base_sha, subject.head_sha,
            run.status, run.phase, run.findings_count, run.failure_code,
-           run.failure_status_comment_id,
+           run.failure_detail, run.failure_status_comment_id,
            run.failure_status_delivery_status,
            run.failure_status_delivery_attempt_count,
            run.failure_status_delivery_max_attempts,
@@ -1094,6 +1174,36 @@ def run_stats(
         """,
         tuple(parameters),
     )
+    run_ids = f"""
+        SELECT run.id
+        FROM review_agent.review_runs AS run
+        JOIN review_agent.pull_requests AS pull_request
+          ON pull_request.id = run.pull_request_id
+        JOIN review_agent.repositories AS repository
+          ON repository.id = pull_request.repository_id
+        WHERE {where}
+    """
+    by_failure_code = _counts(
+        connection,
+        f"""
+        SELECT run.failure_code AS value, count(*)::integer AS count
+        FROM review_agent.review_runs AS run
+        WHERE run.id IN ({run_ids}) AND run.failure_code IS NOT NULL
+        GROUP BY run.failure_code ORDER BY count(*) DESC, run.failure_code
+        """,
+        tuple(parameters),
+    )
+    attempt_failures = _counts(
+        connection,
+        f"""
+        SELECT failure.failure_code AS value, count(*)::integer AS count
+        FROM review_agent.review_attempt_failures AS failure
+        JOIN review_agent.review_jobs AS job ON job.id = failure.job_id
+        WHERE job.review_run_id IN ({run_ids})
+        GROUP BY failure.failure_code ORDER BY count(*) DESC, failure.failure_code
+        """,
+        tuple(parameters),
+    )
     return RunStats(
         repository=repository,
         window_days=window_days,
@@ -1112,6 +1222,182 @@ def run_stats(
             if totals.average_findings is not None
             else None
         ),
+        by_failure_code=by_failure_code,
+        attempt_failures_by_code=attempt_failures,
+        usage=_attempt_usage(connection, run_ids, tuple(parameters)),
+    )
+
+
+def _attempt_usage(
+    connection: psycopg.Connection[TupleRow],
+    run_ids: str,
+    parameters: tuple[object, ...],
+) -> AttemptUsageTotals:
+    row = connection.execute(
+        _trusted_sql(f"""
+        SELECT (
+                   SELECT COALESCE(sum(job.lease_generation), 0)
+                   FROM review_agent.review_jobs AS job
+                   WHERE job.review_run_id IN ({run_ids})
+               )::bigint,
+               count(usage.job_id)::bigint,
+               sum(usage.prompt_tokens)::bigint,
+               sum(usage.completion_tokens)::bigint,
+               sum(usage.total_tokens)::bigint
+        FROM review_agent.review_attempt_usage AS usage
+        JOIN review_agent.review_jobs AS job ON job.id = usage.job_id
+        WHERE job.review_run_id IN ({run_ids})
+        """),
+        parameters + parameters,
+    ).fetchone()
+    if row is None:
+        raise ReportingError("attempt usage could not be computed")
+    return AttemptUsageTotals(
+        started_attempts=int(row[0]),
+        reported_attempts=int(row[1]),
+        prompt_tokens=None if row[2] is None else int(row[2]),
+        completion_tokens=None if row[3] is None else int(row[3]),
+        total_tokens=None if row[4] is None else int(row[4]),
+    )
+
+
+def run_diagnostics(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId
+) -> RunDiagnostics:
+    """Bounded diagnostic view of one run for operators and read-only agents."""
+    _require_transaction(connection)
+    (run,) = runs_by_id(connection, run_ids=(run_id,))
+    contract = connection.execute(
+        """
+        SELECT run.purpose,
+               subject.resolved_config -> 'review_contract' ->> 'model_provider',
+               subject.resolved_config -> 'review_contract' ->> 'model',
+               subject.resolved_config -> 'review_contract' ->> 'reasoning_effort'
+        FROM review_agent.review_runs AS run
+        JOIN review_agent.review_subjects AS subject
+          ON subject.id = run.review_subject_id
+        WHERE run.id = %s
+        """,
+        (run_id,),
+    ).fetchone()
+    if contract is None:
+        raise ReportingError("review run disappeared")
+    with connection.cursor(row_factory=class_row(JobDiagnostics)) as cursor:
+        jobs = tuple(
+            cursor.execute(
+                """
+                SELECT id AS job_id, part, status, attempt_count, max_attempts,
+                       lease_generation, failure_code, created_at, started_at,
+                       completed_at
+                FROM review_agent.review_jobs
+                WHERE review_run_id = %s
+                ORDER BY part, id
+                """,
+                (run_id,),
+            ).fetchall()
+        )
+    attempt_rows = connection.execute(
+        """
+        WITH run_jobs AS (
+            SELECT id, part FROM review_agent.review_jobs WHERE review_run_id = %s
+        ), attempt_keys AS (
+            SELECT job_id, lease_generation FROM review_agent.model_executions
+            WHERE job_id IN (SELECT id FROM run_jobs)
+            UNION
+            SELECT job_id, lease_generation FROM review_agent.review_attempt_usage
+            WHERE job_id IN (SELECT id FROM run_jobs)
+            UNION
+            SELECT job_id, lease_generation FROM review_agent.review_attempt_failures
+            WHERE job_id IN (SELECT id FROM run_jobs)
+        )
+        SELECT run_jobs.id, run_jobs.part, attempt_keys.lease_generation,
+               execution.started_at, execution.finished_at, execution.provider,
+               usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
+               failure.failure_code, failure.failure_detail,
+               count(*) OVER ()
+        FROM attempt_keys
+        JOIN run_jobs ON run_jobs.id = attempt_keys.job_id
+        LEFT JOIN review_agent.model_executions AS execution
+          ON execution.job_id = attempt_keys.job_id
+         AND execution.lease_generation = attempt_keys.lease_generation
+        LEFT JOIN review_agent.review_attempt_usage AS usage
+          ON usage.job_id = attempt_keys.job_id
+         AND usage.lease_generation = attempt_keys.lease_generation
+        LEFT JOIN review_agent.review_attempt_failures AS failure
+          ON failure.job_id = attempt_keys.job_id
+         AND failure.lease_generation = attempt_keys.lease_generation
+        ORDER BY COALESCE(
+                     execution.started_at, failure.recorded_at, usage.recorded_at
+                 ) DESC NULLS LAST,
+                 run_jobs.part, attempt_keys.lease_generation DESC
+        LIMIT %s
+        """,
+        (run_id, RUN_DIAGNOSTIC_ATTEMPT_LIMIT),
+    ).fetchall()
+    attempts = tuple(
+        AttemptDiagnostics(
+            job_id=int(row[0]),
+            part=int(row[1]),
+            lease_generation=int(row[2]),
+            started_at=cast(datetime | None, row[3]),
+            finished_at=cast(datetime | None, row[4]),
+            provider=cast(str | None, row[5]),
+            prompt_tokens=cast(int | None, row[6]),
+            completion_tokens=cast(int | None, row[7]),
+            total_tokens=cast(int | None, row[8]),
+            failure_code=cast(str | None, row[9]),
+            failure_detail=cast(str | None, row[10]),
+        )
+        for row in attempt_rows
+    )
+    attempts_total = int(attempt_rows[0][11]) if attempt_rows else 0
+    parts = tuple(
+        PartDiagnostics(
+            part=int(row[0]),
+            reported_at=cast(datetime | None, row[1]),
+            findings=cast(int | None, row[2]),
+            notes=cast(int | None, row[3]),
+        )
+        for row in connection.execute(
+            """
+            SELECT part, reported_at,
+                   jsonb_array_length(report -> 'findings'),
+                   jsonb_array_length(report -> 'notes')
+            FROM review_agent.review_parts
+            WHERE review_run_id = %s
+            ORDER BY part
+            """,
+            (run_id,),
+        ).fetchall()
+    )
+    coverage = coverage_report(connection, run_id=run_id)
+    return RunDiagnostics(
+        run=run,
+        purpose=str(contract[0]),
+        model_provider=cast(str | None, contract[1]),
+        model=cast(str | None, contract[2]),
+        reasoning_effort=cast(str | None, contract[3]),
+        jobs=jobs,
+        attempts=attempts,
+        attempts_total=attempts_total,
+        attempts_truncated=attempts_total > len(attempts),
+        parts=parts,
+        usage=_attempt_usage(connection, "%s", (run_id,)),
+        coverage=CoverageReport(
+            state=coverage.state,
+            coverage_hash=coverage.coverage_hash,
+            changed_files_reported=coverage.changed_files_reported,
+            changed_files_registered=coverage.changed_files_registered,
+            registration_complete=coverage.registration_complete,
+            changed_paths_with_complete_diff=coverage.changed_paths_with_complete_diff,
+            changed_paths_with_source_reads=coverage.changed_paths_with_source_reads,
+            supporting_context_paths_read=coverage.supporting_context_paths_read,
+            context_ranges_read=coverage.context_ranges_read,
+            unavailable_paths=coverage.unavailable_paths[:RUN_DIAGNOSTIC_PATH_LIMIT],
+            truncated_paths=coverage.truncated_paths[:RUN_DIAGNOSTIC_PATH_LIMIT],
+        ),
+        unavailable_paths_total=len(coverage.unavailable_paths),
+        truncated_paths_total=len(coverage.truncated_paths),
     )
 
 

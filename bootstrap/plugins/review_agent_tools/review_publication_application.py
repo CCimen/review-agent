@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 import threading
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
     from .domain.review import ReviewRunId
@@ -81,9 +81,11 @@ class PostgresSupersessionResult:
 @dataclass(frozen=True, slots=True)
 class PostgresFailureStatusResult:
     run_id: int
-    comment_id: int
+    # Both are None when the delivery was suppressed for a closed pull request.
+    comment_id: int | None
     failure_code: str
-    posted_at: str
+    posted_at: str | None
+    delivery_status: Literal["posted", "suppressed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +366,7 @@ def publish_postgres_run_failure_status(
                 run_id=run_id, comment_id=existing_target.comment_id,
                 failure_code=existing_target.failure_code,
                 posted_at=existing_target.posted_at.isoformat().replace("+00:00", "Z"),
+                delivery_status="posted",
             )
         owner = f"operator-recovery-{run_id}"
         with runtime.transaction() as connection:
@@ -393,8 +396,25 @@ def publish_postgres_run_failure_status(
         existing = next(
             (item for item in current_markers if marker in item.body), None
         )
+        # Nobody acts on a failure notice after a close or merge. A comment an
+        # earlier delivery created before closing is still recorded, not edited.
+        pull_open = (
+            github.get_pull_request(target.repository, target.pr_number).state
+            == "open"
+        )
         if lease_lost is not None and lease_lost.is_set():
             raise postgres_review_runs.FailureStatusLeaseLost("failure-status lease was lost")
+        if not pull_open and existing is None:
+            with runtime.transaction() as connection:
+                suppressed = postgres_review_runs.suppress_failure_status(
+                    connection, run_id=resolved_id, lease_owner=owner,
+                    lease_generation=generation,
+                )
+            return PostgresFailureStatusResult(
+                run_id=run_id, comment_id=None,
+                failure_code=suppressed.failure_code, posted_at=None,
+                delivery_status="suppressed",
+            )
         with runtime.transaction() as connection:
             postgres_review_runs.require_live_failure_status_lease(
                 connection, run_id=resolved_id, lease_owner=owner,
@@ -402,11 +422,16 @@ def publish_postgres_run_failure_status(
             )
         if lease_lost is not None and lease_lost.is_set():
             raise postgres_review_runs.FailureStatusLeaseLost("failure-status lease was lost")
-        comment = (
-            github.update_issue_comment(target.repository, existing.comment_id, body)
-            if existing is not None
-            else github.create_issue_comment(target.repository, target.pr_number, body)
-        )
+        if not pull_open and existing is not None:
+            comment = existing
+        elif existing is not None:
+            comment = github.update_issue_comment(
+                target.repository, existing.comment_id, body
+            )
+        else:
+            comment = github.create_issue_comment(
+                target.repository, target.pr_number, body
+            )
     except GitHubPublicationAuthorityLost as exc:
         raise postgres_review_runs.FailureStatusLeaseLost(
             "failure-status gateway authority was lost"
@@ -436,6 +461,7 @@ def publish_postgres_run_failure_status(
         comment_id=comment.comment_id,
         failure_code=recorded.failure_code,
         posted_at=recorded.posted_at.isoformat().replace("+00:00", "Z"),
+        delivery_status="posted",
     )
 
 

@@ -110,7 +110,7 @@ class PostgreSQLRuntimeTests(unittest.TestCase):
         readiness = runtime.open()
 
         self.assertEqual(readiness.server_version // 10_000, 17)
-        self.assertEqual(readiness.applied_migration_version, 37)
+        self.assertEqual(readiness.applied_migration_version, 38)
         self.assertFalse(readiness.database_ahead)
         with runtime.transaction() as connection:
             isolation = connection.execute("SHOW transaction_isolation").fetchone()

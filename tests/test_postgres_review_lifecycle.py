@@ -513,6 +513,7 @@ class PostgreSQLReviewStartTests(unittest.TestCase):
                 pr_number=14,
                 base_sha="b" * 40,
                 head_sha="a" * 40,
+                pull_open=True,
                 expected_head_sha="a" * 40,
                 phase=ReviewPhase.COLLECTING_DIFF,
             )

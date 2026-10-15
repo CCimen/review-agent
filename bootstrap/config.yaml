@@ -67,6 +67,10 @@ platform_toolsets:
 
 agent:
   reasoning_effort: xhigh
+  # Each model call retries with jittered backoff (2 s doubling to 60 s). The
+  # default of 3 gave up after about 15 s, and a provider overload then discarded
+  # the whole session; 8 rides out about 3-4.5 minutes before the turn fails.
+  api_max_retries: 8
   disabled_toolsets:
     - browser
     - clarify

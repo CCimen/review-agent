@@ -820,6 +820,29 @@ def begin_model_execution(
     return cast(dict[str, object], row[2])
 
 
+def record_attempt_failure(
+    connection: psycopg.Connection[TupleRow],
+    *,
+    job_id: int,
+    lease_generation: int,
+    failure_code: str,
+    failure_detail: str | None,
+) -> None:
+    """Keep why one attempt ended; a later claim resets the job's own code."""
+    connection.execute(
+        """INSERT INTO review_agent.review_attempt_failures
+               (job_id, lease_generation, failure_code, failure_detail)
+           VALUES (%s, %s, %s, %s)
+           ON CONFLICT (job_id, lease_generation) DO NOTHING""",
+        (
+            job_id,
+            lease_generation,
+            failure_code.strip()[:80],
+            failure_codes.failure_detail(failure_detail),
+        ),
+    )
+
+
 def finish_model_execution(
     connection: psycopg.Connection[TupleRow],
     *,

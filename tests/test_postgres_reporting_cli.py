@@ -1685,6 +1685,10 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             {"completed": 1, "failed": 1},
         )
         self.assertEqual(stats.average_findings_per_completed_run, 2.0)
+        self.assertEqual(
+            {item.value: item.count for item in stats.by_failure_code},
+            {"stale_timeout": 1},
+        )
         coverage = operator_application.coverage(self.runtime, run_id=int(stale.run.id))
         self.assertEqual(coverage.changed_files_registered, 1)
         self.assertTrue(coverage.coverage_hash.startswith("sha256:"))
@@ -1901,7 +1905,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_runs_cli_applies_pr_filter_to_listing_and_statistics(self) -> None:
         wanted = self.start(pr_number=12, request_suffix="filtered-run")
         self.start(pr_number=2, request_suffix="unrelated-run")
-        for extra in ([], ["--stats"]):
+        for extra in ([], ["--stats"], ["--run-id", str(wanted.run.id)]):
             with self.subTest(options=extra):
                 completed = subprocess.run(
                     [
@@ -1916,8 +1920,13 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                     text=True,
                 )
                 result = json.loads(completed.stdout)
-                if extra:
+                if extra == ["--stats"]:
                     self.assertEqual(result["total"], 1)
+                    self.assertEqual(result["by_failure_code"], [])
+                    self.assertEqual(result["usage"]["reported_attempts"], 0)
+                elif extra:
+                    self.assertEqual(result["run"]["id"], wanted.run.id)
+                    self.assertEqual(result["coverage"]["changed_files_registered"], 1)
                 else:
                     self.assertEqual([row["id"] for row in result], [wanted.run.id])
 

@@ -403,6 +403,14 @@ def get_run_scope(
     )
 
 
+def stopped_for_pull_request(run: ReviewRun) -> bool:
+    """The run ended because its pull request changed or closed, not by a fault."""
+    return run.status is ReviewStatus.SUPERSEDED or (
+        run.status is ReviewStatus.FAILED
+        and run.failure_code == failure_codes.PR_NOT_OPEN
+    )
+
+
 def validate_snapshot(
     connection: psycopg.Connection[TupleRow],
     *,
@@ -411,22 +419,27 @@ def validate_snapshot(
     pr_number: int,
     base_sha: str,
     head_sha: str,
+    pull_open: bool,
     expected_head_sha: str | None,
     phase: ReviewPhase,
 ) -> tuple[ReviewRunScope, bool, bool]:
-    """Validate one provider snapshot and atomically terminalize drift."""
+    """Validate one provider snapshot and atomically terminalize drift or closure."""
     scope = get_run_scope(connection, run_id, for_update=True)
     if scope.repository != repository or scope.pr_number != pr_number:
         raise ReviewRunError("run_id does not match this pull request")
     if expected_head_sha is not None and scope.head_sha != expected_head_sha:
         raise ReviewRunError("head_sha does not match the active review run")
-    if scope.run.status is ReviewStatus.SUPERSEDED:
+    if stopped_for_pull_request(scope.run):
         return scope, False, False
     if scope.run.status is not ReviewStatus.RUNNING:
         raise InvalidReviewTransition("review run is not active")
-    if scope.base_sha != base_sha or scope.head_sha != head_sha:
+    if not pull_open or scope.base_sha != base_sha or scope.head_sha != head_sha:
         return ReviewRunScope(
-            run=mark_superseded(connection, run_id),
+            run=(
+                fail_run(connection, run_id, failure_code=failure_codes.PR_NOT_OPEN)
+                if not pull_open
+                else mark_superseded(connection, run_id)
+            ),
             provider_repository_id=scope.provider_repository_id,
             repository=scope.repository,
             pr_number=scope.pr_number,
@@ -702,6 +715,32 @@ def complete_failure_status(
               WHERE newer.pull_request_id = run.pull_request_id AND newer.purpose = run.purpose
                 AND newer.id > run.id)""",
         (comment_id, run_id, lease_owner, lease_generation),
+    ).rowcount
+    if changed != 1:
+        raise FailureStatusLeaseLost("failure-status delivery lease was lost")
+    return failure_status_target(connection, run_id)
+
+
+def suppress_failure_status(
+    connection: psycopg.Connection[TupleRow], *, run_id: ReviewRunId,
+    lease_owner: str, lease_generation: int,
+) -> FailureStatusTarget:
+    """End one leased delivery without a comment, as for a closed pull request."""
+    _require_transaction(connection)
+    changed = connection.execute(
+        """UPDATE review_agent.review_runs
+        SET failure_status_delivery_status = 'suppressed',
+            failure_status_delivery_available_at = NULL,
+            failure_status_delivery_lease_owner = NULL,
+            failure_status_delivery_lease_expires_at = NULL,
+            failure_status_delivery_last_heartbeat_at = NULL,
+            failure_status_delivery_failure_code = NULL,
+            failure_status_delivery_completed_at = statement_timestamp()
+        WHERE id = %s AND failure_status_delivery_status = 'posting'
+          AND failure_status_delivery_lease_owner = %s
+          AND failure_status_delivery_lease_generation = %s
+          AND failure_status_delivery_lease_expires_at > statement_timestamp()""",
+        (run_id, lease_owner, lease_generation),
     ).rowcount
     if changed != 1:
         raise FailureStatusLeaseLost("failure-status delivery lease was lost")
@@ -1149,6 +1188,7 @@ def fail_run(
     *,
     failure_code: str,
     findings_count: int | None = None,
+    failure_detail: str | None = None,
 ) -> ReviewRun:
     """Fail one active run with a bounded canonical failure code."""
     _require_transaction(connection)
@@ -1169,6 +1209,7 @@ def fail_run(
             f"""
             UPDATE review_agent.review_runs
             SET status = 'failed', phase = 'failed', failure_code = %s,
+                failure_detail = %s,
                 findings_count = %s, completed_at = statement_timestamp(),
                 last_heartbeat_at = statement_timestamp(),
                 failure_status_delivery_status = 'pending',
@@ -1176,7 +1217,12 @@ def fail_run(
             WHERE id = %s AND status = 'running'
             RETURNING {_RUN_COLUMNS}
             """,
-            (code, findings_count, run_id),
+            (
+                code,
+                failure_codes.failure_detail(failure_detail),
+                findings_count,
+                run_id,
+            ),
         ).fetchone()
     if row is None:
         raise InvalidReviewTransition("review run stopped before failure update")
@@ -1188,6 +1234,7 @@ def fail_active_runs(
     *,
     run_ids: Sequence[ReviewRunId],
     failure_code: str,
+    failure_detail: str | None = None,
 ) -> tuple[ReviewRun, ...]:
     """Fail a bounded run set, ignoring rows already terminalized."""
     _require_transaction(connection)
@@ -1201,6 +1248,7 @@ def fail_active_runs(
             f"""
             UPDATE review_agent.review_runs
             SET status = 'failed', phase = 'failed', failure_code = %s,
+                failure_detail = %s,
                 completed_at = statement_timestamp(),
                 last_heartbeat_at = statement_timestamp(),
                 failure_status_delivery_status = 'pending',
@@ -1208,7 +1256,11 @@ def fail_active_runs(
             WHERE id = ANY(%s::bigint[]) AND status = 'running'
             RETURNING {_RUN_COLUMNS}
             """,
-            (code, [int(run_id) for run_id in run_ids]),
+            (
+                code,
+                failure_codes.failure_detail(failure_detail),
+                [int(run_id) for run_id in run_ids],
+            ),
         ).fetchall()
     return tuple(sorted((_run(row) for row in rows), key=lambda run: run.id))
 

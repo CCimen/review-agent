@@ -279,7 +279,23 @@ def pull_head_sha(pull: dict[str, Any]) -> str:
     return head_sha
 
 
-def run_terminal_payload(run_id: int) -> JsonObject:
+def run_terminal_payload(
+    run_id: int, failure_code: str = failure_codes.SNAPSHOT_SUPERSEDED
+) -> JsonObject:
+    if failure_code == failure_codes.PR_NOT_OPEN:
+        return {
+            "run_id": run_id,
+            "run_state": failure_code,
+            "status": "failed",
+            "terminal": True,
+            "retryable": False,
+            "failure_code": failure_code,
+            "message": (
+                "The pull request was closed or merged, so this review ends "
+                "without publishing findings."
+            ),
+            "next_action": "Stop this review turn now.",
+        }
     return {
         "run_id": run_id,
         "run_state": "snapshot_superseded",
@@ -318,6 +334,7 @@ def pull_snapshot(
         payload=pull,
         base_sha=pull_base_sha(pull),
         head_sha=pull_head_sha(pull),
+        open=pull.get("state") == "open",
     )
 
 
@@ -372,6 +389,24 @@ def review_run_snapshot(
     return result.pull
 
 
+def tool_failure_detail(exc: BaseException) -> str:
+    """The message of our own validation errors; only the type of anything else.
+
+    Database, provider, and unexpected exception text stays out of durable
+    state and logs, as for the model-facing error.
+    """
+    if isinstance(
+        exc,
+        (
+            ToolInputError,
+            memory_validation.ReviewMemoryError,
+            review_run_application.ReviewRunError,
+        ),
+    ):
+        return f"{type(exc).__name__}: {exc}"
+    return type(exc).__name__
+
+
 def mark_run_failed(
     *,
     repository: str,
@@ -379,9 +414,11 @@ def mark_run_failed(
     run_id: int,
     findings_count: int | None = None,
     failure_code: str = failure_codes.REVIEW_FAILED,
+    failure_detail: str | None = None,
 ) -> None:
+    """Fail a live run from a tool, keeping a code-owned cause for operators."""
     try:
-        review_run_application.fail_live_run(
+        failed = review_run_application.fail_live_run(
             postgres_runtime(),
             run_subject(
                 repository=repository,
@@ -390,7 +427,15 @@ def mark_run_failed(
             ),
             findings_count=findings_count,
             failure_code=failure_code,
+            failure_detail=failure_detail,
         )
+        if failed:
+            logger.warning(
+                "Review run failed: run_id=%d failure_code=%s detail=%s",
+                run_id,
+                failure_code,
+                failure_codes.failure_detail(failure_detail),
+            )
     except Exception as exc:
         # Keep the primary tool error public while making lost durable state
         # visible without serializing provider or database exception details.

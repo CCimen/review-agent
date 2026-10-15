@@ -233,6 +233,7 @@ def _parser() -> argparse.ArgumentParser:
     runs.add_argument("--limit", type=_positive_argument, default=50)
     runs.add_argument("--failed", action="store_true")
     runs.add_argument("--stats", action="store_true")
+    runs.add_argument("--run-id", type=_positive_argument)
     runs.add_argument("--days", type=int, default=30)
     runs.add_argument("--stale-after-minutes", type=int, default=30)
     runs.add_argument("--mark-stalled", action="store_true")
@@ -326,7 +327,10 @@ def _parser() -> argparse.ArgumentParser:
 def _validate_high_cost_limits(args: argparse.Namespace) -> None:
     settings = ReviewAgentSettings.from_environment()
     uses_page_limit = args.command in {"list", "publications"} or (
-        args.command == "runs" and not args.stats and not args.mark_stalled
+        args.command == "runs"
+        and not args.stats
+        and not args.mark_stalled
+        and args.run_id is None
     )
     if uses_page_limit:
         if args.limit > settings.operator_page_max_items:
@@ -557,6 +561,8 @@ def _run_live(args: argparse.Namespace, runtime: PostgreSQLRuntime) -> int:
                 runtime, repository=args.repo, pr_number=args.pr,
                 older_than_minutes=args.stale_after_minutes,
             )
+        elif args.run_id is not None:
+            result = operator_application.run_diagnostics(runtime, run_id=args.run_id)
         elif args.stats:
             result = operator_application.run_stats(
                 runtime, repository=args.repo, pr_number=args.pr, days=args.days,

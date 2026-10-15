@@ -75,6 +75,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     35,
                     36,
                     37,
+                    38,
                 ),
             )
             self.assertEqual(runner.apply_migrations(connection), ())
@@ -147,6 +148,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     (35, "035_documentation_admission.sql"),
                     (36, "036_repository_review_requesters.sql"),
                     (37, "037_review_parts.sql"),
+                    (38, "038_failure_diagnostics.sql"),
                 )
             ],
         )
@@ -276,7 +278,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 self.assertEqual(
                     runner.apply_migrations(connection),
-                    tuple(range(14, 38)),
+                    tuple(range(14, 39)),
                 )
                 classified = connection.execute(
                     """
@@ -389,10 +391,10 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
                     ).fetchall() for table in tables
                 }
             with psycopg.connect(DSN) as connection:
-                self.assertEqual(runner.apply_migrations(connection), tuple(range(29, 38)))
+                self.assertEqual(runner.apply_migrations(connection), tuple(range(29, 39)))
                 for table in tables:
                     rows = connection.execute(
-                        psycopg.sql.SQL("SELECT to_jsonb(record) - 'purpose', to_jsonb(record)->>'purpose' FROM review_agent.{} record ORDER BY id").format(
+                        psycopg.sql.SQL("SELECT to_jsonb(record) - 'purpose' - 'failure_detail', to_jsonb(record)->>'purpose' FROM review_agent.{} record ORDER BY id").format(
                             psycopg.sql.Identifier(table)
                         )
                     ).fetchall()
@@ -431,7 +433,7 @@ class PostgreSQLMigrationRunnerTests(unittest.TestCase):
             count = connection.execute(
                 "SELECT count(*) FROM review_agent.schema_migrations"
             ).fetchone()
-        self.assertEqual(count, (37,))
+        self.assertEqual(count, (38,))
 
     def test_previous_image_accepts_a_database_with_newer_migrations(self) -> None:
         with (

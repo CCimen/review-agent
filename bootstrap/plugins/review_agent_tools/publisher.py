@@ -203,13 +203,19 @@ class PublicationWorker:
                 lease_owner=self._lease_owner,
                 lease_generation=target.delivery_lease_generation,
             )
-            publish_postgres_run_failure_status(
+            result = publish_postgres_run_failure_status(
                 self._runtime, run_id=int(target.run_id), github=github,
                 lease_owner=self._lease_owner,
                 lease_generation=target.delivery_lease_generation,
                 retry_delay=self._policy.retry_delay, lease_lost=lost,
             )
-            logger.info("Failure status for review run %s posted", int(target.run_id))
+            logger.info(
+                "Failure status for review run %s %s",
+                int(target.run_id),
+                "posted"
+                if result.delivery_status == "posted"
+                else "suppressed because the pull request is not open",
+            )
         except GitHubPublicationError as exc:
             logger.warning(
                 "Failure status for review run %s could not be posted: %s; provider retry_at=%s",

@@ -192,6 +192,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             )
         client = Mock()
         pull = {
+            "state": "open",
             "base": {"sha": "b" * 40},
             "head": {"sha": "a" * 40},
             "changed_files": 1,
@@ -315,6 +316,30 @@ class PostgreSQLCoverageTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             run = postgres_review_runs.get_run(connection, run_id)
         self.assertEqual((run.status, run.failure_code), (ReviewStatus.SUPERSEDED, "snapshot_superseded"))
+
+    def test_a_closed_pull_request_ends_the_run_at_the_next_tool_call(self) -> None:
+        run_id, pull, source = self.run_reaching(ReviewPhase.REVIEWING)
+        pull["state"] = "closed"
+        with (
+            patch.object(review_memory_tools, "gateway_source_session", return_value=source),
+            patch.object(review_memory_tools, "postgres_runtime", return_value=self.runtime),
+            patch.object(review_delivery_tool, "gateway_source_session", return_value=source),
+            patch.object(review_delivery_tool, "postgres_runtime", return_value=self.runtime),
+            patch.object(review_tool_runtime, "postgres_runtime", return_value=self.runtime),
+        ):
+            recorded = json.loads(
+                review_memory_tools.review_memory_record.__wrapped__({"run_id": run_id, "findings": []})
+            )
+            # Later calls in the same turn stop the same way instead of erroring.
+            delivered = json.loads(review_delivery_tool.review_deliver.__wrapped__({"run_id": run_id}))
+        for result in (recorded, delivered):
+            self.assertEqual(
+                (result["status"], result["failure_code"], result["terminal"]),
+                ("failed", "pr_not_open", True),
+            )
+        with self.runtime.transaction() as connection:
+            run = postgres_review_runs.get_run(connection, run_id)
+        self.assertEqual((run.status, run.failure_code), (ReviewStatus.FAILED, "pr_not_open"))
 
     def test_live_inventory_persists_classifications_and_returns_summary(self) -> None:
         run_id = self.start_run()
@@ -686,7 +711,7 @@ class PostgreSQLCoverageTests(unittest.TestCase):
             with psycopg.connect(DSN) as connection:
                 self.assertEqual(
                     runner.apply_migrations(connection),
-                    tuple(range(15, 38)),
+                    tuple(range(15, 39)),
                 )
                 self.assertTrue(
                     runner.inspect_migrations(

@@ -104,8 +104,6 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
             ),
             expected_head_sha=head_sha,
         )
-        if pull.get("state") != "open":
-            raise ToolInputError("the pull request is no longer open")
         files = load_changed_files(source)
         # Honest-partial recording: when GitHub reports more changed files than were
         # enumerated (e.g. a PR beyond the files-API ceiling), record findings for the
@@ -220,7 +218,7 @@ def review_memory_record(args: dict[str, Any], **context: Any) -> str:
             }
         )
     except ReviewRunTerminal as terminal:
-        return output_json(run_terminal_payload(terminal.run_id))
+        return output_json(run_terminal_payload(terminal.run_id, terminal.failure_code))
     except (
         ToolInputError,
         review_finding_application.ReviewFindingError,

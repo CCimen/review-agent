@@ -87,6 +87,7 @@ class FakePostgresPublicationGitHub:
         self.kill_after_create = False
         self.fail_on_call = False
         self.head_sha = "a" * 40
+        self.pull_state = "open"
         self.issue_comments_newest_first = False
         self.issue_comment_page_size: int | None = None
         self.create_calls = 0
@@ -175,7 +176,7 @@ class FakePostgresPublicationGitHub:
         if before_target_read is not None:
             before_target_read()
         return PullRequestState(
-            state="open",
+            state=self.pull_state,
             draft=False,
             base_sha="b" * 40,
             head_sha=self.head_sha,
@@ -3649,6 +3650,67 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         self.assertEqual(stored.delivery_status, "posted")
         self.assertEqual(stored.comment_id, github.comments[0].comment_id)
         self.assertEqual(len(github.comments), 1)
+
+    def test_failure_status_is_not_posted_on_a_closed_pull_request(self) -> None:
+        github = FakePostgresPublicationGitHub(self.runtime)
+        github.pull_state = "closed"
+        run_id, _ = self.start_recorded_run(request_key="failure-status-closed")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(connection, run_id, failure_code="job_retry_exhausted")
+
+        result = review_publication_application.publish_postgres_run_failure_status(
+            self.runtime, run_id=int(run_id), github=github,
+        )
+
+        self.assertEqual(
+            (result.delivery_status, result.comment_id, result.posted_at),
+            ("suppressed", None, None),
+        )
+        self.assertEqual(github.comments, [])
+        with self.runtime.transaction() as connection:
+            stored = review_runs.failure_status_target(connection, run_id)
+        self.assertEqual((stored.delivery_status, stored.comment_id), ("suppressed", None))
+
+    def test_failure_status_created_before_a_close_is_recorded_unchanged(self) -> None:
+        github = FakePostgresPublicationGitHub(self.runtime)
+        run_id, _ = self.start_recorded_run(request_key="failure-status-close-after-create")
+        with self.runtime.transaction() as connection:
+            review_runs.fail_run(connection, run_id, failure_code="review_deliver_error")
+            claim = review_runs.claim_failure_status(
+                connection, run_id=run_id, lease_owner="dead-worker",
+                lease_duration=timedelta(seconds=30),
+            )
+        github.kill_after_create = True
+        with self.assertRaises(ProcessDeath):
+            review_publication_application.publish_postgres_run_failure_status(
+                self.runtime, run_id=int(run_id), github=github,
+                lease_owner="dead-worker",
+                lease_generation=claim.target.delivery_lease_generation,
+            )
+        created = github.comments[-1]
+        github.pull_state = "closed"
+        with self.runtime.transaction() as connection:
+            connection.execute(
+                "UPDATE review_agent.review_runs SET "
+                "failure_status_delivery_lease_expires_at = statement_timestamp() "
+                "WHERE id = %s", (run_id,),
+            )
+
+        worker = PublicationWorker(
+            self.runtime, github,
+            PublisherPolicy(
+                lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
+                retry_delay=timedelta(seconds=1), poll_interval=timedelta(milliseconds=10),
+                max_comment_bytes=60_000,
+            ), lease_owner="recovery-worker", stop_event=threading.Event(),
+        )
+
+        worker.run(once=True)
+
+        with self.runtime.transaction() as connection:
+            stored = review_runs.failure_status_target(connection, run_id)
+        self.assertEqual((stored.delivery_status, stored.comment_id), ("posted", created.comment_id))
+        self.assertEqual(github.comments, [created])
 
     def test_failure_status_reclaims_after_create_without_duplicate(self) -> None:
         github = FakePostgresPublicationGitHub(self.runtime)

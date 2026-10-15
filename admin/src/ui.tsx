@@ -167,6 +167,7 @@ const failureSentences: Record<string, string> = {
   publication_failed: "The result never reached GitHub",
   snapshot_changed: "The pull request changed while under review",
   snapshot_superseded: "A newer request replaced this one",
+  pr_not_open: "The pull request was closed or merged",
   authorization_failed: "The requester was not authorized",
   timeout: "The review ran out of time",
   provider_error: "The model provider returned an error",

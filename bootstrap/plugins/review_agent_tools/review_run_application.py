@@ -67,15 +67,24 @@ class ReviewRunError(ValueError):
 
 
 class ReviewRunTerminal(Exception):
-    """Expected stop for a review whose persisted snapshot is no longer current."""
+    """Expected stop for a review whose pull request changed or closed."""
 
     run_id: int
     newly_terminalized: bool
+    failure_code: str
 
-    def __init__(self, run_id: int, *, newly_terminalized: bool) -> None:
-        super().__init__(failure_codes.SNAPSHOT_SUPERSEDED)
+    def __init__(
+        self,
+        run_id: int,
+        *,
+        newly_terminalized: bool,
+        failure_code: str | None = None,
+    ) -> None:
+        code = failure_code or failure_codes.SNAPSHOT_SUPERSEDED
+        super().__init__(code)
         self.run_id = run_id
         self.newly_terminalized = newly_terminalized
+        self.failure_code = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +199,7 @@ def fail_run_in_transaction(
     *,
     failure_code: str,
     findings_count: int | None = None,
+    failure_detail: str | None = None,
 ) -> postgres_review_runs.ReviewRun:
     """Fail one review and its optional durable job atomically."""
     run = postgres_review_runs.fail_run(
@@ -197,6 +207,7 @@ def fail_run_in_transaction(
         run_id,
         failure_code=failure_code,
         findings_count=findings_count,
+        failure_detail=failure_detail,
     )
     postgres_jobs.reconcile_run_jobs(connection, run_ids=(run.id,), status=run.status)
     return run
@@ -261,8 +272,14 @@ def fail_claimed_job_in_transaction(
     retryable: bool,
     retry_delay: timedelta | None,
     run_failure_code: str | None = None,
+    attempt_failure_code: str | None = None,
+    attempt_failure_detail: str | None = None,
 ) -> postgres_jobs.JobFailureResult:
-    """Fail one claim after locking its run before its job row."""
+    """Fail one claim after locking its run before its job row.
+
+    ``attempt_failure_code`` records why this attempt ended. When the failure
+    also ends the run, that cause becomes the run's failure detail.
+    """
     current_job = postgres_jobs.get_job(connection, job_id)
     run = postgres_review_runs.lock_run(connection, current_job.review_run_id)
     if run.status is not ReviewStatus.RUNNING:
@@ -281,11 +298,24 @@ def fail_claimed_job_in_transaction(
         retryable=retryable,
         retry_delay=retry_delay,
     )
+    if attempt_failure_code is not None:
+        postgres_jobs.record_attempt_failure(
+            connection,
+            job_id=job_id,
+            lease_generation=lease_generation,
+            failure_code=attempt_failure_code,
+            failure_detail=attempt_failure_detail,
+        )
     if outcome.run_failure_code is not None:
         postgres_review_runs.fail_active_runs(
             connection,
             run_ids=(run.id,),
             failure_code=run_failure_code or outcome.run_failure_code,
+            failure_detail=(
+                f"{attempt_failure_code}: {attempt_failure_detail}"
+                if attempt_failure_code and attempt_failure_detail
+                else attempt_failure_code
+            ),
         )
         # A review split into parts owns more jobs than the one that failed.
         postgres_jobs.reconcile_run_jobs(
@@ -595,8 +625,12 @@ def _require_live_scope(
         raise ReviewRunError("run_id does not match this pull request")
     if expected_head_sha is not None and scope.head_sha != expected_head_sha:
         raise ReviewRunError("head_sha does not match the active review run")
-    if scope.run.status.value == "superseded":
-        raise ReviewRunTerminal(subject.run_id, newly_terminalized=False)
+    if postgres_review_runs.stopped_for_pull_request(scope.run):
+        raise ReviewRunTerminal(
+            subject.run_id,
+            newly_terminalized=False,
+            failure_code=scope.run.failure_code,
+        )
     if scope.run.status.value != "running":
         raise ReviewRunError("run_id is not an active review run")
     return scope
@@ -730,6 +764,7 @@ def load_live_snapshot(
                 pr_number=subject.pr_number,
                 base_sha=pull.base_sha,
                 head_sha=pull.head_sha,
+                pull_open=pull.open,
                 expected_head_sha=expected_head_sha,
                 phase=resolve_review_phase(phase),
             )
@@ -737,12 +772,16 @@ def load_live_snapshot(
                 postgres_jobs.reconcile_run_jobs(
                     connection,
                     run_ids=(ReviewRunId(subject.run_id),),
-                    status=ReviewStatus.SUPERSEDED,
+                    status=scope.run.status,
                 )
         except postgres_review_runs.ReviewRunError as exc:
             raise ReviewRunError(str(exc)) from exc
     if not current:
-        raise ReviewRunTerminal(subject.run_id, newly_terminalized=newly_terminalized)
+        raise ReviewRunTerminal(
+            subject.run_id,
+            newly_terminalized=newly_terminalized,
+            failure_code=scope.run.failure_code,
+        )
     return SnapshotResult(
         pull=pull.payload,
         run=ValidatedRun(base_sha=scope.base_sha, head_sha=scope.head_sha),
@@ -961,6 +1000,7 @@ def fail_live_run(
     *,
     failure_code: str,
     findings_count: int | None = None,
+    failure_detail: str | None = None,
 ) -> bool:
     try:
         _require_live_scope(runtime, subject)
@@ -970,6 +1010,7 @@ def fail_live_run(
                 ReviewRunId(subject.run_id),
                 failure_code=failure_code,
                 findings_count=findings_count,
+                failure_detail=failure_detail,
             )
         return True
     except ReviewRunTerminal:
@@ -990,6 +1031,7 @@ class PullSnapshot(Generic[PullPayload]):
     payload: PullPayload
     base_sha: str
     head_sha: str
+    open: bool
 
 
 @dataclass(frozen=True, slots=True)

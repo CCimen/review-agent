@@ -38,9 +38,17 @@ from .review_tool_runtime import GatewaySourceSession, ToolInputError
 from .postgres import jobs, parts as postgres_parts, review_runs
 from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
 from .source_control import SameOriginHttpsRedirectHandler
-from .worker_telemetry import TokenUsage, WorkerTelemetry, parse_usage, record_usage
+from .worker_telemetry import (
+    TokenUsage,
+    WorkerTelemetry,
+    parse_error_body,
+    parse_turn_failure,
+    parse_usage,
+    record_usage,
+)
 
 logger = logging.getLogger(__name__)
+_ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{0,59}")
 _TRANSIENT_DATABASE_ERRORS = (
     PostgreSQLUnavailable,
     psycopg.errors.DeadlockDetected,
@@ -54,13 +62,32 @@ class WorkerConfigurationError(ValueError):
 
 
 class HermesRequestError(RuntimeError):
-    """Hermes did not accept or finish one review turn."""
+    """Hermes did not accept or finish one review turn.
+
+    ``code`` and ``detail`` record why the attempt ended for operators; the
+    detail is code-owned or text Hermes redacted. ``usage`` keeps the tokens a
+    failed turn still reported.
+    """
 
     retryable: bool
+    code: str
+    detail: str | None
+    usage: TokenUsage | None
 
-    def __init__(self, message: str, *, retryable: bool) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool,
+        code: str = "hermes_request_failed",
+        detail: str | None = None,
+        usage: TokenUsage | None = None,
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.code = code
+        self.detail = detail
+        self.usage = usage
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,7 +208,10 @@ class HermesChatClient:
         )
         if claimed.purpose is ReviewPurpose.DOCUMENTATION:
             if self._documentation_instructions is None:
-                raise HermesRequestError("Documentation review skill is not installed", retryable=False)
+                raise HermesRequestError(
+                    "Documentation review skill is not installed",
+                    retryable=False, code="worker_misconfigured",
+                )
             instructions = self._documentation_instructions
             first_call = f"Call review_agent_docs_begin first with run_id {int(claimed.job.review_run_id)}. "
         request_text = (
@@ -238,7 +268,17 @@ class HermesChatClient:
                     body = response.read(1024 * 1024 + 1)
                 except (OSError, ValueError, HTTPException):
                     return None
-                return parse_usage(body) if len(body) <= 1024 * 1024 else None
+            if len(body) > 1024 * 1024:
+                return None
+            usage = parse_usage(body)
+            unfinished = parse_turn_failure(body)
+            if unfinished is not None:
+                code, detail = unfinished
+                raise HermesRequestError(
+                    "Hermes reported an unfinished review turn",
+                    retryable=True, code=code, detail=detail, usage=usage,
+                )
+            return usage
         except error.HTTPError as exc:
             retryable = (
                 exc.code
@@ -249,13 +289,36 @@ class HermesChatClient:
                 }
                 or exc.code >= 500
             )
-            exc.close()
+            try:
+                error_body = exc.read(64 * 1024)
+            except (OSError, ValueError, HTTPException):
+                error_body = b""
+            finally:
+                exc.close()
+            error_code, error_message = parse_error_body(error_body)
+            agent_incomplete = error_code == "agent_incomplete"
             raise HermesRequestError(
-                f"Hermes returned HTTP {exc.code}", retryable=retryable
+                f"Hermes returned HTTP {exc.code}",
+                retryable=retryable,
+                code="hermes_agent_error" if agent_incomplete else f"hermes_http_{exc.code}",
+                # Hermes redacts its agent failure text; other bodies keep
+                # only their machine-readable code.
+                detail=(
+                    error_message
+                    if agent_incomplete
+                    else error_code
+                    if error_code is not None and _ERROR_CODE.fullmatch(error_code)
+                    else None
+                ),
             ) from exc
         except (error.URLError, TimeoutError, OSError) as exc:
+            timed_out = isinstance(exc, TimeoutError) or (
+                isinstance(exc, error.URLError) and isinstance(exc.reason, TimeoutError)
+            )
             raise HermesRequestError(
-                "Hermes request did not complete", retryable=True
+                "Hermes request did not complete",
+                retryable=True,
+                code="hermes_timeout" if timed_out else "hermes_unreachable",
             ) from exc
 
 
@@ -514,7 +577,10 @@ class ReviewWorker:
             terminal_documentation = False
             if claimed.purpose is ReviewPurpose.DOCUMENTATION:
                 if self._source_client is None:
-                    raise HermesRequestError("Documentation source client is not configured", retryable=False)
+                    raise HermesRequestError(
+                        "Documentation source client is not configured",
+                        retryable=False, code="worker_misconfigured",
+                    )
                 result = documentation_preflight.run_preflight(
                     self._runtime,
                     GatewaySourceSession(
@@ -543,10 +609,18 @@ class ReviewWorker:
                 usage = self._client.review(claimed, timeout=self._policy.request_timeout)
         except HermesRequestError as exc:
             failure = exc
+            usage = exc.usage
         except GitHubGatewayRetryable as exc:
-            failure = HermesRequestError(f"Review source unavailable: {exc.reason}", retryable=True)
+            failure = HermesRequestError(
+                f"Review source unavailable: {exc.reason}",
+                retryable=True, code="source_unavailable", detail=exc.reason,
+            )
         except (GitHubGatewayRejected, ToolInputError, review_run_application.ReviewRunError) as exc:
-            failure = HermesRequestError(f"Review preflight rejected: {exc}", retryable=False)
+            failure = HermesRequestError(
+                f"Review preflight rejected: {exc}",
+                retryable=False, code="preflight_rejected",
+                detail=type(exc).__name__,
+            )
         except (jobs.ReviewJobLeaseLost, review_run_application.ReviewRunTerminal):
             lease_lost.set()
         finally:
@@ -583,6 +657,7 @@ class ReviewWorker:
             failure = HermesRequestError(
                 "Hermes finished before the review reached a terminal state",
                 retryable=True,
+                code="review_not_terminal",
             )
         try:
             with self._runtime.transaction() as connection:
@@ -600,12 +675,18 @@ class ReviewWorker:
                     retry_delay=(
                         self._policy.retry_delay if failure.retryable else None
                     ),
+                    attempt_failure_code=failure.code,
+                    attempt_failure_detail=failure.detail,
                 )
             logger.warning(
-                "Review job %s ended in status %s after Hermes failure: %s",
+                "Review job %s for review run %s ended in status %s after "
+                "attempt %s failed: %s (%s)",
                 claimed.job.id,
+                claimed.job.review_run_id,
                 outcome.job.status,
+                claimed.job.lease_generation,
                 failure,
+                failure.code,
             )
         except jobs.ReviewJobLeaseLost:
             logger.info("Review job %s lost its lease", claimed.job.id)

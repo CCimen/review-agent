@@ -24,6 +24,7 @@ from .review_tool_runtime import (
     error_output,
     gateway_source_session,
     mark_run_failed,
+    tool_failure_detail,
     output_json,
     postgres_runtime,
     pull_request_identity,
@@ -69,7 +70,8 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                 run_id=run_id,
             ),
         )
-        pull = review_run_snapshot(
+        # Validates the live pull: a push supersedes the run and a close ends it.
+        review_run_snapshot(
             source=source,
             repository=repository,
             pr_number=number,
@@ -81,8 +83,6 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
             # A push after the review started supersedes the run.
             observed_pull=initial_pull,
         )
-        if pull.get("state") != "open":
-            raise ToolInputError("the pull request is no longer open")
         if persisted.parts:
             unread = review_parts_application.unread_reports(
                 postgres_runtime(), run_id=ReviewRunId(run_id), lease=source.lease
@@ -154,7 +154,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
             }
         )
     except ReviewRunTerminal as terminal:
-        return output_json(run_terminal_payload(terminal.run_id))
+        return output_json(run_terminal_payload(terminal.run_id, terminal.failure_code))
     except review_publication_planner.PublicationPlanningError as exc:
         if repository and number and run_id:
             if source is None:
@@ -167,7 +167,7 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                     phase="rendering",
                 )
             except ReviewRunTerminal as terminal:
-                return output_json(run_terminal_payload(terminal.run_id))
+                return output_json(run_terminal_payload(terminal.run_id, terminal.failure_code))
             except (
                 ToolInputError,
                 review_run_application.ReviewRunError,
@@ -203,14 +203,16 @@ def review_deliver(args: dict[str, Any], **context: Any) -> str:
                 pr_number=number,
                 run_id=run_id,
                 failure_code=failure_codes.REVIEW_DELIVER_ERROR,
+                failure_detail=tool_failure_detail(exc),
             )
         return error_output(exc)
-    except Exception:
+    except Exception as exc:
         if repository and number and run_id:
             mark_run_failed(
                 repository=repository,
                 pr_number=number,
                 run_id=run_id,
                 failure_code=failure_codes.UNEXPECTED_REVIEW_DELIVER_FAILURE,
+                failure_detail=tool_failure_detail(exc),
             )
         return error_output("unexpected review-deliver failure")

@@ -63,7 +63,10 @@ class _ChatHandler(BaseHTTPRequestHandler):
 
 class WorkerBoundaryTests(unittest.TestCase):
     def test_documentation_preflight_routes_terminal_and_semantic_work(self) -> None:
-        from review_agent_tools import documentation_preflight, review_publication_application
+        from review_agent_tools.documentation import (
+            preflight as documentation_preflight,
+        )
+        from review_agent_tools import review_publication_application
         from review_agent_tools.domain.review import ReviewPurpose
 
         for frozen in (True, False):

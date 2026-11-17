@@ -11,7 +11,10 @@ from unittest.mock import Mock
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import capacity, repository_decision_context  # noqa: E402
+from review_agent_tools import capacity  # noqa: E402
+from review_agent_tools.repository_context import (  # noqa: E402
+    decision_context as repository_decision_context,
+)
 from review_agent_tools.github.gateway import GitHubGatewayRetryable  # noqa: E402
 from review_agent_tools.github.source import ReviewFilePage  # noqa: E402
 from review_agent_tools.domain import repository_decisions  # noqa: E402

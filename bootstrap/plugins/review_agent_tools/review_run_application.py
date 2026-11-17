@@ -45,7 +45,10 @@ from .postgres import review_runs as postgres_review_runs
 from .postgres.runtime import PostgreSQLRuntime
 
 if TYPE_CHECKING:
-    from . import repository_decision_context, repository_guidance_context
+    from .repository_context import (
+        decision_context as repository_decision_context,
+        guidance_context as repository_guidance_context,
+    )
 
 
 PullPayload = TypeVar("PullPayload")

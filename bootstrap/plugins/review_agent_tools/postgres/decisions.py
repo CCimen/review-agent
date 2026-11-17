@@ -20,7 +20,7 @@ from ..domain.finding import (
     IntentionalDesignEvidence,
 )
 from ..domain.review import ReviewRunId
-from .. import repository_decision_context
+from ..repository_context import decision_context as repository_decision_context
 from . import repository_decisions as decision_snapshots
 
 

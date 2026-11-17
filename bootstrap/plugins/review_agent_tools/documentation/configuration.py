@@ -8,11 +8,14 @@ import re
 from typing import Literal, cast
 from urllib.parse import quote
 
-from .domain.documentation_policy import (
-    CONFIG_PATH, DocumentationPolicy, DocumentationPolicyError, parse_policy,
+from ..domain.documentation_policy import (
+    CONFIG_PATH,
+    DocumentationPolicy,
+    DocumentationPolicyError,
+    parse_policy,
 )
-from .github.source import read_documentation_policy_at_revision
-from .source_control import GitHubReadClient, GitHubReadError
+from ..github.source import read_documentation_policy_at_revision
+from ..source_control import GitHubReadClient, GitHubReadError
 
 
 @dataclass(frozen=True, slots=True)

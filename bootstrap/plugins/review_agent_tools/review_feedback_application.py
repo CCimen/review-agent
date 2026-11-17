@@ -24,7 +24,7 @@ from .feedback_commands import (
 from .postgres import decisions as postgres_decisions
 from .postgres import feedback as postgres_feedback
 from .postgres import repository_decisions as postgres_repository_decisions
-from . import repository_decision_context
+from .repository_context import decision_context as repository_decision_context
 from .postgres.runtime import PostgreSQLRuntime
 
 

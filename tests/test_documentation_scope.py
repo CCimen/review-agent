@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import documentation_scope  # noqa: E402
+from review_agent_tools.documentation import scope as documentation_scope  # noqa: E402
 from review_agent_tools.domain import documentation_policy  # noqa: E402
 
 

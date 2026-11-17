@@ -19,19 +19,21 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 import review_agent_tools  # noqa: E402
 from review_agent_tools import (  # noqa: E402
     capacity,
-    documentation_tools,
     model_window,
     review_contract,
     review_code_graph_tool,
     review_delivery_tool,
     review_memory_tools,
-    repository_decision_context,
-    repository_guidance_context,
     review_run_application,
     review_source_tools,
     review_source_initialization,
     review_tool_runtime,
     schemas,
+)
+from review_agent_tools.documentation import tools as documentation_tools  # noqa: E402
+from review_agent_tools.repository_context import (  # noqa: E402
+    decision_context as repository_decision_context,
+    guidance_context as repository_guidance_context,
 )
 from review_agent_tools.domain.repository_decisions import RepositoryDecision  # noqa: E402
 from review_agent_tools.domain.documentation_review import PreviousDocumentationFinding  # noqa: E402

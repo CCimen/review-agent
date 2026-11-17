@@ -9,12 +9,12 @@ import json
 import re
 from typing import Literal, cast
 
-from . import capacity
-from .domain import repository_decisions
-from .domain.finding import IntentionalDesignEvidence
-from .domain.review import ReviewRunId
-from .github.gateway import GitHubGatewayError
-from .repository_base_files import BaseFileSource, read_base_file
+from .. import capacity
+from ..domain import repository_decisions
+from ..domain.finding import IntentionalDesignEvidence
+from ..domain.review import ReviewRunId
+from ..github.gateway import GitHubGatewayError
+from .base_files import BaseFileSource, read_base_file
 
 
 INDEX_PATH = ".review-agent/decisions.toml"

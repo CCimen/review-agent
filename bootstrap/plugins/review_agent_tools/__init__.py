@@ -56,8 +56,8 @@ def register(ctx: ToolRegistry) -> None:
     part_tools = import_module(f"{__name__}.review_part_tools")
     graph_tool = import_module(f"{__name__}.review_code_graph_tool")
     runtime_api = import_module(f"{__name__}.hermes_runtime_api")
-    docs_tools = import_module(f"{__name__}.documentation_tools")
-    docs_findings = import_module(f"{__name__}.documentation_findings")
+    docs_tools = import_module(f"{__name__}.documentation.tools")
+    docs_findings = import_module(f"{__name__}.documentation.findings")
     ctx.register_platform_handler("api_server", getattr(runtime_api, "wire_api"))
 
     ctx.register_tool(name="review_agent_docs_begin", toolset="review_agent",

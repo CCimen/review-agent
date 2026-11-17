@@ -10,7 +10,7 @@ import selectors
 import subprocess
 import time
 
-from .domain import documentation_policy, repository_paths
+from ..domain import documentation_policy, repository_paths
 
 
 MAX_CHANGED_FILES = 3_000

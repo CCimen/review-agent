@@ -40,7 +40,7 @@ from ..domain.review import (
     ReviewStatus,
     group_diff_coverage,
 )
-from ..repository_decision_context import RepositoryDecisionContext
+from ..repository_context.decision_context import RepositoryDecisionContext
 from . import repository_decisions as postgres_repository_decisions
 from . import decisions as postgres_decisions
 from . import findings as postgres_findings

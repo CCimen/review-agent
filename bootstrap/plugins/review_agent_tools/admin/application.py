@@ -1224,7 +1224,7 @@ def refresh_repository_documentation_configuration(
     access: AccessRequest,
     repository_id: int,
 ) -> docs_policy.RepositoryDocumentationPolicy:
-    from ..documentation_configuration import read_configuration
+    from ..documentation.configuration import read_configuration
     from ..source_control import GitHubReadClient
     from ..postgres import documentation_configuration
 

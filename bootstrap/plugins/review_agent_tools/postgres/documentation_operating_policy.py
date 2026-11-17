@@ -20,7 +20,7 @@ from ..domain.documentation_operating_policy import (
 )
 from . import audit, deployment_settings, team_access
 from . import documentation_configuration
-from ..documentation_configuration import DocumentationConfiguration
+from ..documentation.configuration import DocumentationConfiguration
 from .team_access import AccessScope, ResourceNotFound
 from .teams import TeamConflict
 

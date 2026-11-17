@@ -4,23 +4,28 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from . import (
-    capacity,
-    documentation_scope,
-    repository_decision_context,
-    repository_guidance_context,
-    review_contract,
-    review_run_application,
+from .. import capacity, review_contract, review_run_application
+from . import scope as documentation_scope
+from ..repository_context import (
+    decision_context as repository_decision_context,
+    guidance_context as repository_guidance_context,
 )
-from .domain.documentation_policy import DocumentationPolicyError, parse_policy
-from .domain.documentation_review import DocumentationOutcome, DocumentationResult
-from .domain.review import ReviewPurpose, ReviewRunId
-from .github.gateway import GitHubGatewayRejected
-from .github.source import ReviewPolicySource
-from .postgres import coverage, documentation_admissions, documentation_reviews, github_app, jobs, review_runs
-from .postgres.runtime import PostgreSQLRuntime
-from .review_source_initialization import initialize_review
-from .review_tool_runtime import GatewaySourceSession, ToolInputError, output_json
+from ..domain.documentation_policy import DocumentationPolicyError, parse_policy
+from ..domain.documentation_review import DocumentationOutcome, DocumentationResult
+from ..domain.review import ReviewPurpose, ReviewRunId
+from ..github.gateway import GitHubGatewayRejected
+from ..github.source import ReviewPolicySource
+from ..postgres import (
+    coverage,
+    documentation_admissions,
+    documentation_reviews,
+    github_app,
+    jobs,
+    review_runs,
+)
+from ..postgres.runtime import PostgreSQLRuntime
+from ..review_source_initialization import initialize_review
+from ..review_tool_runtime import GatewaySourceSession, ToolInputError, output_json
 
 
 def policy_scope(

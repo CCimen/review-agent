@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import re
 from typing import Literal, Protocol
 
-from . import capacity, schemas
+from .. import capacity, schemas
 
 
 _NUMBERED_LINE_RE = re.compile(r"^[0-9]+: ?(.*)$")

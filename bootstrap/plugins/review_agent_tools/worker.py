@@ -21,8 +21,8 @@ from urllib import error, parse, request
 from typing import cast
 
 
+from .documentation import preflight as documentation_preflight
 from . import (
-    documentation_preflight,
     failure_codes,
     review_contract,
     review_part_instructions,

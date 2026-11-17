@@ -5,17 +5,34 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from . import capacity, repository_decision_context, repository_guidance_context, settings
-from .domain.documentation_review import DocumentationResult, DocumentationReviewError
-from .domain.review import ReviewPurpose, ReviewRunId
-from .github.gateway import GitHubGatewayError
-from .postgres import documentation_reviews, repository_decisions, repository_guidance, review_runs
-from .postgres.runtime import PostgreSQLRuntimeError
-from .review_source_tools import page_output
-from .review_tool_runtime import (
-    GatewaySourceSession, ReviewRunTerminal, ToolInputError, error_output,
-    gateway_source_session, output_json, postgres_runtime, review_run_snapshot,
-    run_terminal_payload, source_error, worker_lease_fence,
+from .. import capacity, settings
+from ..repository_context import (
+    decision_context as repository_decision_context,
+    guidance_context as repository_guidance_context,
+)
+from ..domain.documentation_review import DocumentationResult, DocumentationReviewError
+from ..domain.review import ReviewPurpose, ReviewRunId
+from ..github.gateway import GitHubGatewayError
+from ..postgres import (
+    documentation_reviews,
+    repository_decisions,
+    repository_guidance,
+    review_runs,
+)
+from ..postgres.runtime import PostgreSQLRuntimeError
+from ..review_source_tools import page_output
+from ..review_tool_runtime import (
+    GatewaySourceSession,
+    ReviewRunTerminal,
+    ToolInputError,
+    error_output,
+    gateway_source_session,
+    output_json,
+    postgres_runtime,
+    review_run_snapshot,
+    run_terminal_payload,
+    source_error,
+    worker_lease_fence,
 )
 
 
@@ -140,8 +157,10 @@ def docs_file(args: dict[str, Any], **context: Any) -> str:
 
 @worker_lease_fence()
 def docs_deliver(args: dict[str, Any], **context: Any) -> str:
-    from .documentation_findings import finalize_documentation_assessment
-    from .review_publication_application import prepare_postgres_documentation_publication
+    from .findings import finalize_documentation_assessment
+    from ..review_publication_application import (
+        prepare_postgres_documentation_publication,
+    )
 
     try:
         source = gateway_source_session(args, context)

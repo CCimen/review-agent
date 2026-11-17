@@ -12,13 +12,15 @@ from . import (
     diff_render,
     failure_codes,
     memory_validation,
-    repository_decision_context,
-    repository_guidance_context,
     review_contract,
     review_part_tools,
     review_parts_application,
     review_run_application,
     schemas,
+)
+from .repository_context import (
+    decision_context as repository_decision_context,
+    guidance_context as repository_guidance_context,
 )
 from .domain.review import DiffState, ReviewRunId
 from .github.source import GIT_BLOB_SHA_RE

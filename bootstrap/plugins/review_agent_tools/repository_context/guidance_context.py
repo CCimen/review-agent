@@ -9,9 +9,9 @@ import json
 import re
 from typing import Literal, cast
 
-from .domain import repository_guidance
-from .github.gateway import GitHubGatewayError
-from .repository_base_files import BaseFileSource, read_base_file
+from ..domain import repository_guidance
+from ..github.gateway import GitHubGatewayError
+from .base_files import BaseFileSource, read_base_file
 
 
 SNAPSHOT_SCHEMA_VERSION = 1

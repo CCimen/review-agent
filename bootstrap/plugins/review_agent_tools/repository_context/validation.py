@@ -6,8 +6,12 @@ from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 
-from . import capacity, repository_decision_context, repository_guidance_context
-from .domain import documentation_policy, repository_decisions, repository_guidance
+from .. import capacity
+from . import (
+    decision_context as repository_decision_context,
+    guidance_context as repository_guidance_context,
+)
+from ..domain import documentation_policy, repository_decisions, repository_guidance
 
 
 class RepositoryContextValidationError(ValueError):

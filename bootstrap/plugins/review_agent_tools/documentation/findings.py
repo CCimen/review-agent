@@ -8,7 +8,7 @@ import hashlib
 import json
 from typing import cast
 
-from .domain.documentation_review import (
+from ..domain.documentation_review import (
     DocumentationAssessment,
     DocumentationOutcome,
     DocumentationResult,
@@ -25,7 +25,7 @@ from .domain.documentation_review import (
     decode_path_assessment,
     validate_incomplete_reasons,
 )
-from .domain.finding import (
+from ..domain.finding import (
     MAX_FINDINGS_PER_REVIEW,
     MIN_CONFIDENCE,
     FindingContent,
@@ -34,8 +34,8 @@ from .domain.finding import (
     require_unique_finding_identities,
     resolve_finding_content,
 )
-from .domain.review import ReviewPurpose, ReviewRunId
-from .postgres import (
+from ..domain.review import ReviewPurpose, ReviewRunId
+from ..postgres import (
     documentation_reviews,
     findings,
     github_app,
@@ -43,8 +43,8 @@ from .postgres import (
     repository_decisions,
     review_runs,
 )
-from .postgres.runtime import PostgreSQLRuntime
-from .repository_decision_context import RepositoryDecisionContext
+from ..postgres.runtime import PostgreSQLRuntime
+from ..repository_context.decision_context import RepositoryDecisionContext
 
 _CITATION_SCHEMA: dict[str, object] = {
     "type": "object",

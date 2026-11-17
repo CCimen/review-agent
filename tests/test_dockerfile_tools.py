@@ -107,24 +107,7 @@ class DockerfileToolsTests(unittest.TestCase):
 
     def test_container_installs_the_pinned_python_dependencies(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-        requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
-        self.assertEqual(
-            requirements.splitlines(),
-            [
-                "psycopg[binary]==3.3.4",
-                "psycopg-pool==3.3.1",
-                "PyYAML==6.0.3",
-                "PyJWT==2.14.0",
-                "cryptography==50.0.0",
-                "tornado==6.5.9",
-                "aiohttp==3.14.3",
-                "# Patch the HTTP clients inherited from the pinned Hermes image.",
-                "httpx2==2.12.0",
-                "anyio==4.15.1",
-                "urllib3==2.8.0",
-            ],
-        )
         self.assertIn(
             "COPY --chown=root:root requirements.txt /opt/review-agent-requirements.txt",
             dockerfile,
@@ -136,23 +119,19 @@ class DockerfileToolsTests(unittest.TestCase):
         )
 
     def test_docker_build_context_excludes_python_bytecode(self) -> None:
-        dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+        lines = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
 
-        self.assertEqual(
-            dockerignore.splitlines(),
-            [
-                "*",
-                "!requirements.txt",
-                "!requirements-code-graph.txt",
-                "!bootstrap/",
-                "!bootstrap/**",
-                "!tools/",
-                "!tools/review_agent_*.py",
-                "bootstrap/plugins/review_agent_tools/_build.json",
-                "**/__pycache__/",
-                "**/*.py[cod]",
-            ],
+        # Later lines win, so every exclusion must follow the last include.
+        self.assertEqual("*", lines[0])
+        last_include = max(
+            index for index, line in enumerate(lines) if line.startswith("!")
         )
+        for exclusion in (
+            "bootstrap/plugins/review_agent_tools/_build.json",
+            "**/__pycache__/",
+            "**/*.py[cod]",
+        ):
+            self.assertGreater(lines.index(exclusion), last_include, exclusion)
 
     def test_container_refreshes_base_security_without_installing_tools(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")

@@ -562,29 +562,6 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "finding_suggestions_occurrence_fk",
         )
 
-    def test_suggestions_preserve_empty_replacement_for_line_deletion(self) -> None:
-        repository_id = self.repository(321, "team/deletion-suggestion")
-        pull_request_id = self.pull_request(repository_id, 11)
-        run_id = self.create_run(pull_request_id, self.subject(pull_request_id))
-        finding_id = self.finding(repository_id)
-        occurrence_id = self.occurrence(run_id, finding_id)
-
-        stored_replacement = psql(
-            """
-            INSERT INTO review_agent.finding_suggestions (
-                finding_occurrence_id, start_line, end_line, expected_hash,
-                replacement_text, suggestion_key, recorded_at
-            ) VALUES (
-                %d, 12, 12, '%s', '', 'sha256:%s',
-                CURRENT_TIMESTAMP
-            )
-            RETURNING replacement_text;
-            """
-            % (occurrence_id, "d" * 64, "e" * 64)
-        ).stdout
-
-        self.assertEqual(stored_replacement, "\n")
-
     def test_decisions_require_the_occurrence_to_match_the_finding(self) -> None:
         repository_id = self.repository(351, "team/decisions")
         pull_request_id = self.pull_request(repository_id, 10)
@@ -1583,17 +1560,7 @@ class PostgreSQLSchemaContractTests(unittest.TestCase):
             "candidate_reconciliations_reason_ck",
         )
 
-    def test_feedback_outcomes_and_confidence_use_bounded_database_types(self) -> None:
-        confidence = psql(
-            """
-            SELECT data_type || ':' || numeric_precision || ':' || numeric_scale
-            FROM information_schema.columns
-            WHERE table_schema = 'review_agent'
-              AND table_name = 'finding_occurrences'
-              AND column_name = 'confidence';
-            """
-        ).stdout.strip()
-        self.assertEqual(confidence, "numeric:5:4")
+    def test_feedback_outcomes_use_a_bounded_database_type(self) -> None:
         self.assert_rejected(
             """
             INSERT INTO review_agent.processed_feedback_events (

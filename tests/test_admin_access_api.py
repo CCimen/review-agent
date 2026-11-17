@@ -39,9 +39,9 @@ class FakeAuth:
 def installation() -> github_app.GitHubAppInstallation:
     return github_app.GitHubAppInstallation(
         id=github_app.GitHubAppInstallationId(1),
-        provider_installation_id=48219944,
+        provider_installation_id=12345678,
         account_id=81,
-        account_login="sundsvall-labs",
+        account_login="example-labs",
         account_type=github_app.AccountType.ORGANIZATION,
         repository_selection=github_app.RepositorySelection.SELECTED,
         repository_activation_policy=github_app.RepositoryActivationPolicy.EXPLICIT,
@@ -64,7 +64,7 @@ def repository(*, enabled: bool = False) -> github_app.RepositoryAccessState:
         repository_id=RepositoryId(3),
         installation_id=github_app.GitHubAppInstallationId(1),
         provider_repository_id=76122,
-        full_name="sundsvall-labs/service-api",
+        full_name="example-labs/service-api",
         access_state=github_app.RepositoryAccess.AVAILABLE,
         enabled=enabled,
         automatic_activation_blocked=True,
@@ -91,7 +91,7 @@ class AdminAccessAPITests(unittest.TestCase):
         authenticator.app_identity.return_value = app_auth.GitHubAppIdentity(
             123,
             "review-agent",
-            "sundsvall-labs",
+            "example-labs",
             (("contents", "read"), ("issues", "write"), ("pull_requests", "read")),
             (),
             "Organization",
@@ -107,7 +107,7 @@ class AdminAccessAPITests(unittest.TestCase):
             self.assertEqual(body["status"], "needs_update")
             self.assertEqual(
                 body["edit_url"],
-                "https://github.com/organizations/sundsvall-labs/settings/apps/review-agent",
+                "https://github.com/organizations/example-labs/settings/apps/review-agent",
             )
             self.assertEqual(len(body["issues"]), 2)
             authenticator.app_identity.side_effect = app_auth.GitHubAppTokenPermanent(
@@ -141,7 +141,7 @@ class AdminAccessAPITests(unittest.TestCase):
 
         self.assertEqual(installations.status_code, 200, installations.text)
         self.assertFalse(installations.json()["capability"]["configured"])
-        self.assertEqual(installations.json()["next_after_id"], 48219944)
+        self.assertEqual(installations.json()["next_after_id"], 12345678)
         self.assertNotIn("private_key", installations.text)
         self.assertEqual(repositories.status_code, 200, repositories.text)
         self.assertEqual(repositories.json()["items"][0]["repository_id"], 76122)
@@ -193,11 +193,11 @@ class AdminAccessAPITests(unittest.TestCase):
             client = TestClient(self.app())
             responses = (
                 client.post(
-                    "/api/access/installations/48219944/approve",
+                    "/api/access/installations/12345678/approve",
                     json={"policy": "explicit", "reason": "  approved   by owner "},
                 ),
                 client.post(
-                    "/api/access/installations/48219944/sync",
+                    "/api/access/installations/12345678/sync",
                     json={"reason": "refresh inventory"},
                 ),
                 client.post(
@@ -224,9 +224,9 @@ class AdminAccessAPITests(unittest.TestCase):
     ) -> None:
         metadata = app_inventory.InstallationMetadata(
             github_app.InstallationDefinition(
-                provider_installation_id=48219944,
+                provider_installation_id=12345678,
                 account_id=81,
-                account_login="sundsvall-labs",
+                account_login="example-labs",
                 account_type=github_app.AccountType.ORGANIZATION,
                 repository_selection=github_app.RepositorySelection.ALL,
                 contents_permission=github_app.PermissionLevel.READ,
@@ -234,7 +234,7 @@ class AdminAccessAPITests(unittest.TestCase):
                 pull_requests_permission=github_app.PermissionLevel.WRITE,
             ),
             github_app.InstallationStatus.ACTIVE,
-            "https://github.com/organizations/sundsvall-labs/settings/installations/48219944",
+            "https://github.com/organizations/example-labs/settings/installations/12345678",
         )
         with (
             patch(
@@ -250,7 +250,7 @@ class AdminAccessAPITests(unittest.TestCase):
             ) as onboard,
         ):
             client = TestClient(self.app())
-            status = client.get("/api/access/installations/48219944/status")
+            status = client.get("/api/access/installations/12345678/status")
             self.assertEqual(status.status_code, 200)
             self.assertEqual(status.json()["repository_selection"], "all")
             self.assertEqual(status.json()["settings_url"], metadata.settings_url)
@@ -258,7 +258,7 @@ class AdminAccessAPITests(unittest.TestCase):
                 status.json()["issues"], ["Requires Issues: write permission."]
             )
             payload = {
-                "repository": "sundsvall-labs/service-api",
+                "repository": "example-labs/service-api",
                 "profile": " default-standard ",
                 "reason": "  enable   project ",
             }
@@ -275,7 +275,7 @@ class AdminAccessAPITests(unittest.TestCase):
                 403,
             )
             self.assertEqual(
-                denied.get("/api/access/installations/48219944/status").status_code, 403
+                denied.get("/api/access/installations/12345678/status").status_code, 403
             )
 
     def test_invalid_input_and_provider_failure_are_safe(self) -> None:
@@ -298,7 +298,7 @@ class AdminAccessAPITests(unittest.TestCase):
                 "/api/access/repositories/76122/disable", json={"reason": ""}
             )
             failed = client.post(
-                "/api/access/installations/48219944/sync",
+                "/api/access/installations/12345678/sync",
                 json={"reason": "sync"},
             )
 

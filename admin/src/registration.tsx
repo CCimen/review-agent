@@ -146,7 +146,7 @@ function RegistrationForm({
           value={domains}
           onChange={(value) => setDomains(value.slice(0, 26000))}
           description="One domain per line, up to 100. Subdomains must be listed separately."
-          placeholder="sundsvall.se"
+          placeholder="example.org"
           rows={3}
           maxLength={26000}
           hasSpellCheck={false}

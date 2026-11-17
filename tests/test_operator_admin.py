@@ -1108,7 +1108,7 @@ class OperatorAdminCliTests(unittest.TestCase):
         admin = _load_admin_cli()
         runtime = Mock()
         installation = Mock(
-            account_login="eneo-ai",
+            account_login="example-org",
             account_type=github_app.AccountType.ORGANIZATION,
             contents_permission=github_app.PermissionLevel.READ,
             issues_permission=github_app.PermissionLevel.WRITE,
@@ -1143,7 +1143,7 @@ class OperatorAdminCliTests(unittest.TestCase):
                     "--actor",
                     "github:CCimen",
                     "--reason",
-                    "approved Eneo organization",
+                    "approved example organization",
                 ]
             )
 
@@ -1154,13 +1154,13 @@ class OperatorAdminCliTests(unittest.TestCase):
             provider_installation_id=7001,
             policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
             actor="github:CCimen",
-            reason="approved Eneo organization",
+            reason="approved example organization",
         )
         runtime.close.assert_called_once()
         self.assertEqual(
             json.loads(stdout.getvalue()),
             {
-                "account": "eneo-ai",
+                "account": "example-org",
                 "account_type": "organization",
                 "contents_permission": "read",
                 "installation_id": 7001,

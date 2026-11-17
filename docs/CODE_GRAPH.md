@@ -1,34 +1,47 @@
 ---
 sidebar_label: Optional code graph
 slug: /code-graph
-title: Optional code graph pilot
+title: Optional code graph
 description: Help the reviewer locate callers, shared definitions, and tests at the exact review commit.
 status: current
-last_verified: 2026-09-07
+last_verified: 2026-11-17
 ---
 
-# Optional code graph pilot
+# Optional code graph
 
-The code graph helps a reviewer find relevant code beyond the changed files.
-It returns candidate paths, symbols, and line ranges for source inspection.
-It is off by default. The deployment switch described here is available from
-v0.4.0-rc.2. Install the
-matching image and review profile when enabling the pilot.
-Use v0.4.0-rc.4 or newer for queued preparation and recovery of interrupted
-embeddings.
+The code graph helps the reviewer find relevant code beyond the changed files.
+It is off by default. It is built with the upstream
+[code-review-graph](https://github.com/tirth8205/code-review-graph) library
+(CRG) and runs as a separate Compose service.
 
-Structural queries find known symbols, callers, callees, references, and possible
-tests without an embedding model. Optional OpenAI `text-embedding-3-small`
-embeddings support description searches when the symbol name is unknown.
-The reviewer must read the candidate source before using it in a finding.
-Unresolved name matches do not prove calls, and test links do not prove coverage.
-Ambiguous names return candidate symbols that the reviewer can use to narrow a query.
+## What a query returns
 
-## Enable a small pilot
+The reviewer's `review_agent_related_code` tool accepts one of six patterns:
 
-The supplied deployment overlay supports Compose. It has not been qualified for
-OpenShift or multi-instance graph service operation. Keep one graph service per
-cache volume. Normal review services do not depend on its health or startup.
+| Pattern | Finds |
+| --- | --- |
+| `symbol` | Symbols whose names match the target (keyword search) |
+| `semantic` | Symbols matching a description, when the name is unknown |
+| `callers_of`, `callees_of`, `references_to` | Structural relationships of a symbol |
+| `tests_for` | Possible tests for a symbol |
+
+Each query returns at most ten locations (path, line range, symbol, kind), in
+the order the upstream library returns them. Review Agent adds no reranking
+stage. Semantic queries use the library's hybrid keyword-and-embedding search
+with OpenAI `text-embedding-3-small`, and are available only when embeddings
+are enabled and ready; otherwise the tool reports `embeddings_unavailable`. The
+other patterns need no embedding model.
+
+Results are hints. The reviewer must read the candidate source at the review
+head before using it as evidence. Unresolved name matches do not prove calls,
+and test links do not prove coverage. An ambiguous name returns candidate
+symbols that the reviewer can query to narrow the target.
+
+## Enable the graph
+
+The supplied overlay supports Compose. It has not been qualified for OpenShift
+or multi-instance graph service operation. Keep one graph service per cache
+volume. Normal review services do not depend on its health or startup.
 
 1. Enable the deployment capability in Dokploy's Environment settings (or the
    deployment's private `.env` file). It defaults to `false`, including when the
@@ -40,17 +53,16 @@ cache volume. Normal review services do not depend on its health or startup.
    REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES=10737418240
    ```
 
-   This applies to every repository already authorized by the GitHub App and
-   enabled for Review Agent. Newly enabled repositories are included automatically;
-   no repository IDs or second repository list are needed. Existing repository
+   This applies to every repository authorized by the GitHub App and enabled
+   for Review Agent, including repositories enabled later. Repository
    disablement, installation revocation, profile, and worker-lease checks still
    apply to graph access.
 
-2. For description searches, set `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai`
+2. For semantic queries, set `REVIEW_AGENT_CODE_GRAPH_EMBEDDINGS=openai`
    and add `REVIEW_AGENT_OPENAI_API_KEY` in Dokploy's Environment settings (or
    the deployment's private `.env` file). The overlay passes the key only to the
-   GitHub gateway. Keep the actual value out of tracked files, chat, and logs.
-   Leave it empty in structural mode.
+   GitHub gateway. Keep the value out of tracked files, chat, and logs. Leave it
+   empty with `none`.
 
 3. Include the overlay when applying your normal deployment procedure:
 
@@ -74,107 +86,88 @@ cache volume. Normal review services do not depend on its health or startup.
 
    Save that template in the raw Compose editor, preserving the deployment's
    existing ingress, mounts, networks, and volumes. Environment references remain
-   references; supply their values through Dokploy Environment. Subsequent on/off
-   changes only require the environment switch and normal service recreation.
+   references; supply their values through Dokploy Environment. Later on/off
+   changes need only the environment switch and normal service recreation.
 
 4. Request an authorized `/review` on an enabled repository. Its begin response
    starts preparation in the background. The first review can finish before the
-   graph is ready; subsequent reviews can reuse it. Inspect graph service logs
-   and the returned `code_graph` status during the pilot.
+   graph is ready; later reviews can reuse it. Inspect graph service logs and the
+   returned `code_graph` status.
 
 Repository content cannot enable graphs, choose a provider, or grant permission
-to upload metadata. These are operator settings. There is no embedding API key
-in the reviewer prompt, graph service, parser environment, or graph volume.
-
-When upgrading from v0.4.0-rc.1, remove `REVIEW_AGENT_CODE_GRAPH_REPOSITORY_IDS`
-and set `REVIEW_AGENT_CODE_GRAPH_ENABLED=true` to enable the feature. The old
-ID list is no longer used. Leaving the new switch unset keeps graphs disabled.
+to upload metadata. These are operator settings. The embedding API key is not in
+the reviewer prompt, graph service, parser environment, or graph volume.
 
 ## Freshness and reuse
 
-Preparation follows review requests, rather than a timer. Each retained graph
-belongs to a GitHub repository ID, exact head SHA, and indexer configuration.
-With OpenAI enabled, individual code symbols receive embeddings; a repository
-does not receive one shared vector. Enabling the feature does not immediately
-index every repository: preparation starts when each repository is reviewed.
-Branches at the same commit share a snapshot. Different commits retain separate
-graphs while cache space permits, so simultaneous PRs cannot select each other's
-code. Every query rechecks the live worker lease and repository authorization.
+Preparation follows review requests, not a timer, so enabling the feature does
+not index every repository at once. Each retained graph belongs to a GitHub
+repository ID, exact head SHA, and indexer configuration. Branches at the same
+commit share a snapshot. Different commits retain separate graphs while cache
+space permits, so simultaneous pull requests cannot select each other's code.
+Every query rechecks the live worker lease and repository authorization.
 
-A new commit starts from a compatible graph of the same repository. File hashes
-identify changed and deleted paths for incremental parsing. CRG retains vectors
-whose symbol metadata and provider identity are unchanged and removes orphaned
-vectors. Changing the embedding model/configuration or losing the cache requires
-fresh vectors. A body-only edit may need graph updates without new embeddings:
-the embedding text contains symbol names, signatures, parent context, and short
-docstrings, not function bodies. The gateway bounds each text to 2,048 characters.
+A new commit starts from a compatible graph of the same repository; file hashes
+select the changed and deleted paths to parse again.
 
-The complete structural graph is saved before embeddings start. Each successful
-embedding batch is committed to that cache. If the review finishes, authorization
-is revoked, or the embedding process stops, the completed graph and committed
-batches remain available for a later authorized review. That review retries only
-missing or changed vectors; the same commit needs no new archive or parsing.
-Incremental builds for a new commit also retain committed vectors after a restart.
-Repeated preparation calls within one review do not retry a failed embedding
-attempt. There is no background retry loop, and retaining cache data does not
-authorize further source reads, embedding requests, or graph queries.
+With OpenAI enabled, each code symbol receives its own 1,536-dimension vector.
+The embedding text holds the symbol name, signature, parent context, and short
+docstring (not the body), cut to 2,048 characters, so a body-only edit needs no
+new embedding. CRG keeps unchanged vectors and removes orphaned ones; changing
+the embedding configuration or losing the cache requires fresh vectors. Only
+semantic queries call the embedding API; vectors are stored and searched
+locally.
 
-OpenAI uses 1,536-dimensional vectors. Known-symbol and relationship queries stay
-local; only description searches call the embedding API. All vectors are stored
-and searched locally. Cloud embeddings reduce local model memory, but do not
-remove the cost of scanning vectors during semantic search.
+The structural graph is saved before embeddings start, and each embedding batch
+is committed as it completes. If the review ends, authorization is revoked, or
+embedding stops, a later authorized review retries only missing or changed
+vectors. A failed embedding attempt is not retried within the same review, and
+there is no background retry loop. Retained cache data does not authorize
+further source reads, embedding requests, or graph queries.
 
-## Resource and failure behavior
+## Data flow and resources
 
-The graph service has its own cache volume, a 4 GiB memory limit, two CPU cores,
-and no external network. The existing gateway downloads exact GitHub archives
-with installation tokens and proxies the fixed OpenAI embedding operation when
-enabled. It retains ownership of credentials and authorization. PostgreSQL
-remains the application database; CRG's local graph database is a disposable
-derived artifact.
+The graph service has its own cache volume, a 4 GiB memory limit, two CPU
+cores, and no external network. The existing GitHub gateway downloads exact
+GitHub archives with installation tokens and proxies the fixed OpenAI embedding
+operation when enabled; it keeps ownership of credentials and authorization.
+PostgreSQL remains the application database; CRG's local graph database is a
+disposable derived artifact.
 
-The service runs one index build or query at a time and can queue four preparation
-requests, coalescing requests for the same repository and commit. Queued work is
-authorized again when its turn starts. If its review has already ended, it is
-discarded before downloading source or requesting embeddings. A full queue
-returns `busy`; pending preparations return `queued`. The queue is disposable
-and clears on shutdown; saved graphs and committed vectors survive a restart.
+The service runs one index build or query at a time and can queue four
+preparation requests, coalescing requests for the same repository and commit.
+Queued work is authorized again when its turn starts; if its review has already
+ended, it is discarded before downloading source or requesting embeddings. A
+full queue returns `busy`; pending preparations return `queued`. The queue
+clears on shutdown; saved graphs and committed vectors survive a restart.
 
-A short review can finish before its first graph is ready. Busy, queued, cold,
-failed, revoked, or incompatible indexes do not supply graph context. Normal
-source tools and review publication continue through their existing checks. The
-model must not poll or shorten its review because a graph is unavailable.
+Busy, queued, cold, failed, revoked, or incompatible indexes, and semantic
+queries without ready embeddings, supply no graph context. Normal source tools
+and publication continue. The model must not poll or shorten its review because
+a graph is unavailable.
 
-Bounds include a 64 MiB compressed archive, 256 MiB expanded files, 10,000 files
-and 20,000 archive entries, 100,000 graph nodes, a 2 GiB graph database, and a
-five-minute maximum for the indexer process. Files above the existing 2 MB source-read
-bound, binary files, symlinks, and repository-supplied CRG parser configuration
-are skipped and counted. Unsafe paths, duplicate source entries, special files,
-or exceeded bounds reject the snapshot. Parser errors are counted in graph
-context; a graph is never evidence of complete repository coverage.
+| Bound | Value |
+| --- | --- |
+| Compressed archive | 64 MiB |
+| Expanded files | 256 MiB |
+| Files / archive entries | 10,000 / 20,000 |
+| Graph nodes | 100,000 |
+| Graph database | 2 GiB |
+| Indexer process | 5 minutes |
+| Cache (`REVIEW_AGENT_CODE_GRAPH_CACHE_BYTES`) | 10 GiB default; older snapshots are evicted first |
+| Free working space beyond the cache | 4.25 GiB |
 
-The cache defaults to 10 GiB and evicts older snapshots before building a new one.
-Allow at least another 4.25 GiB of free working space for bounded staging and
-journal files. The cache limit is configurable; the parser and response limits
-are resource guards. They do not limit which PRs the normal reviewer can review.
+Files above the 2 MB source-read bound, binary files, symlinks, and
+repository-supplied CRG parser configuration are skipped and counted. Unsafe
+paths, duplicate source entries, special files, or exceeded bounds reject the
+snapshot. Parser errors are counted in graph context; a graph is never evidence
+of complete repository coverage. These bounds apply to the graph only, not to
+the pull requests the reviewer can review.
 
-To disable the pilot, set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate
-the affected services through the normal deployment procedure. Removing the
-overlay also stops the graph service. Keep the
-cache volume if reuse is useful. It contains derived repository metadata and
-vectors; removing it does not remove reviews, findings, or feedback.
+## Disable the graph
 
-## What the evidence supports
-
-On one real Django PR, structural queries found a relevant validation call chain
-and references to both affected implementation owners. MiniLM on CPU and full-size
-OpenAI embeddings each found four of six description targets in the first five
-results. OpenAI used less process memory but took longer per query. At the
-published $0.02 per million input tokens, Django's 1.22 million metadata tokens
-cost approximately $0.0244 per initial embedding pass, excluding later queries
-and retries. See the [evaluation and method](https://github.com/CCimen/review-agent/blob/main/docs/assessments/2026-09-07/code-graph-evaluation.md).
-
-This demonstrates code discovery, not improved review accuracy. Before enabling
-the graph broadly, compare actual reviews with and without it on several PRs,
-including safe changes. Measure missed defects, false positives, review time,
-token use, and resource use on the deployment hardware.
+Set `REVIEW_AGENT_CODE_GRAPH_ENABLED=false` and recreate the affected services
+through the normal deployment procedure. Removing the overlay also stops the
+graph service. Keep the cache volume if reuse is useful. It contains derived
+repository metadata and vectors; removing it does not remove reviews, findings,
+or feedback.

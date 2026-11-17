@@ -27,6 +27,7 @@ from .domain.documentation_review import (
 )
 from .domain.finding import (
     MAX_FINDINGS_PER_REVIEW,
+    MIN_CONFIDENCE,
     FindingContent,
     FindingDefinition,
     finding_definition_hash,
@@ -78,7 +79,7 @@ _CONTENT_PROPERTIES.update(
         },
         "line": {"type": "integer", "minimum": 1},
         "publication_score": {"type": "integer", "minimum": 7, "maximum": 10},
-        "confidence": {"type": "number", "minimum": 0.85, "maximum": 1},
+        "confidence": {"type": "number", "minimum": MIN_CONFIDENCE, "maximum": 1},
     }
 )
 _FINDING_PROPERTIES: dict[str, object] = {

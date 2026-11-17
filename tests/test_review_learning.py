@@ -20,11 +20,11 @@ from review_agent_learning import (
     build_learning_report,
     render_markdown,
 )
-from review_agent_tools.memory_validation import (
-    DECISIONS,
-    REVIEW_FEEDBACK_CATEGORIES,
-    SUPPRESSIVE_DECISIONS,
+from review_agent_tools.domain.finding import (
+    SUPPRESSIVE_DECISION_KINDS,
+    DecisionKind,
 )
+from review_agent_tools.memory_validation import REVIEW_FEEDBACK_CATEGORIES
 
 
 def state_with(
@@ -386,9 +386,12 @@ class ReviewLearningReportTests(unittest.TestCase):
         handled_decisions = set(DECISION_POLICIES) | set(POSITIVE_DECISIONS)
         handled_feedback = set(QUALITY_POLICIES) | set(POSITIVE_FEEDBACK)
 
-        self.assertEqual(handled_decisions, set(DECISIONS))
+        self.assertEqual(handled_decisions, {kind.value for kind in DecisionKind})
         self.assertEqual(handled_feedback, set(REVIEW_FEEDBACK_CATEGORIES))
-        self.assertEqual(CONTRADICTORY_DECISIONS, set(SUPPRESSIVE_DECISIONS))
+        self.assertEqual(
+            CONTRADICTORY_DECISIONS,
+            {kind.value for kind in SUPPRESSIVE_DECISION_KINDS},
+        )
 
     def test_decision_chain_uses_latest_effective_state_once(self) -> None:
         report = build_learning_report(

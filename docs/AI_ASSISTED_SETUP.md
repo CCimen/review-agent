@@ -2,62 +2,50 @@
 sidebar_label: AI-assisted setup
 slug: /ai-assisted-setup
 title: Set up with a coding agent
-description: Give Codex, Claude Code, or another coding agent a safe, verifiable Review Agent installation contract.
+description: What to give Codex, Claude Code, or another coding agent to install Review Agent, what it may do, and which steps stay with you.
 status: current
-last_verified: 2026-09-02
+last_verified: 2026-11-17
 ---
-
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
 
 # Set up with a coding agent
 
-> **TL;DR:** A coding agent can prepare, deploy, and verify Review Agent when it
-> has this page and access to your source and deployment tools. If no checkout
-> exists, the assignment below tells it how to fetch the exact release and use
-> the versioned installation skill. You still approve the GitHub App installation
-> scope, Review Agent activation policy, secrets, model login, DNS, deployment,
-> and first real `/review`.
-
-Send the agent **this page** and the assignment below. This page is the human
-handoff: the agent follows the machine-readable index, checks out the declared
-release, and uses the repository-local installation skill. You do not need to
-install the skill globally or collect the linked guides yourself.
+A coding agent with access to your source and deployment tools can prepare,
+deploy, and verify Review Agent. It follows the versioned installation skill,
+`skills/install-review-agent/SKILL.md`, from the exact release it checks out.
+The Codex and Claude Code copies are included in the repository, so you do not
+install the skill yourself. You keep the approvals and secrets listed below.
 
 ## Give this assignment to your agent
 
 ```text
-Set up Review Agent by following this page. If an exact source checkout was not
-provided, read https://ccimen.github.io/review-agent/llms.txt, clone the source
-repository, and check out the exact release declared there before doing any
-setup work. Use the repository-local skills/install-review-agent/SKILL.md; its
-Codex and Claude Code mirrors are already included in the checkout, so do not
-install a floating global copy. Read only the documentation needed for my
-deployment platform. Prepare and validate the non-secret installation plan,
-then show one concise mutation and rollback plan before external changes.
-Resolve facts you can inspect and group missing owner decisions into one
-request. Never ask me to paste secrets into chat. Pause only when I must approve
-the GitHub App, repository access, secret placement, DNS, model login,
-deployment, or the first live /review. Finish with doctor, inventory, dry-run,
-and one approved live-review result. Report exact versions and stable IDs. On
-Dokploy, use Deploy when the source revision changes and verify the completed
-deployment commit. If a team wants repository-specific review guidance, use
-the versioned examples/repository-context/.review-agent starter and validate it
-with review-agent-admin repository-context validate; never invent or
-auto-discover policy files. Mark unknowns as incomplete instead of guessing.
+Set up Review Agent. If an exact source checkout was not provided, read
+https://ccimen.github.io/review-agent/llms.txt, clone the source repository,
+and check out the exact release declared there before doing any setup work.
+Follow the repository-local skills/install-review-agent/SKILL.md; its Codex and
+Claude Code mirrors are already included in the checkout, so do not install a
+floating global copy. Read only the documentation needed for my deployment
+platform. Prepare and validate the non-secret installation plan, then show one
+concise mutation and rollback plan before external changes. Resolve facts you
+can inspect and group missing owner decisions into one request. Never ask me to
+paste secrets into chat. Pause only when I must approve the GitHub App,
+repository access, secret placement, DNS, model login, deployment, or the first
+live /review. Finish with doctor, inventory, dry-run, and one approved
+live-review result. Report exact versions and stable IDs. On Dokploy, use Deploy
+when the source revision changes and verify the completed deployment commit. If
+a team wants repository-specific review guidance, use the versioned
+examples/repository-context/.review-agent starter and validate it with
+review-agent-admin repository-context validate; never invent or auto-discover
+policy files. Mark unknowns as incomplete instead of guessing.
 ```
 
 Add the target platform, public hostname, GitHub owner, installation scope,
-optional explicit repositories, and the deployment tools the agent may use.
-The validated installation plan records the remaining non-secret choices. This
-keeps the conversation focused on real owner decisions instead of asking you to
-translate the deployment guide.
+any explicit repositories, and the deployment tools the agent may use. The agent
+records the remaining non-secret choices in a validated installation plan.
 
-For an optional operator UI, also request the [admin panel](ADMIN_PANEL.md).
-Use a qualified release containing both runtime and admin images. The agent can prepare the optional
-Compose service and hostname; the owner enters the first platform-owner password in
-the container terminal. New users receive team membership, and repository
-requests require platform approval. Do not add account passwords to the non-secret plan.
+For the optional [admin panel](ADMIN_PANEL.md), ask for it in the assignment.
+The agent can prepare the Compose service and hostname from the same release as
+the runtime image. You enter the first platform-owner password in the container
+terminal; it never goes into the plan.
 
 ## Configure only one repository
 
@@ -83,10 +71,9 @@ receipt for normal review. The new guidance becomes active only after it is
 merged and a later pull request reads it from the base commit.
 ```
 
-When the repository is already covered by an approved installation, this path
-needs no Dokploy access, model login, database connection, or GitHub App
-administration. The repository owner reviews and merges the package like other
-project policy.
+This path needs no Dokploy access, model login, database connection, or GitHub
+App administration. The repository owner reviews and merges the package like
+other project policy. See [Repository context](./REPOSITORY_CONTEXT.md).
 
 ## What the agent may do
 
@@ -99,240 +86,46 @@ project policy.
 | Approve one installation or onboard an explicit repository | The first real `/review` and feedback test |
 | Validate a proposed `.review-agent/` package offline | Approve and merge repository-owned guidance or decisions |
 
+The agent must not classify feedback, promote a coach proposal, or change the
+reviewer profile without your decision.
+
 > [!IMPORTANT]
 > Do not paste a private key, webhook secret, database credential, internal API
 > key, model credential, or backup credential into chat. Put secrets directly
 > in the deployment platform's protected configuration.
 
-## 1. Lock the source release
+## Where you act
 
-The public LLM index declares the current release. The following commands read
-that value, check out its tag, and prove that the checkout resolves to the same
-commit:
+1. **Approve the mutation plan.** Before it changes GitHub or your deployment,
+   the agent shows one short plan naming the exact image digest or commit, the
+   deployment project, services and public route, the App owner, permissions,
+   events, installation scope and activation policy, secret names (never
+   values), migration, backup, verification and rollback steps, and every
+   remaining human action. Approve only the named scope.
+2. **Register and install the App.** Open the prefilled registration URL the
+   agent generates and submit it, then install the App. GitHub installation
+   scope and Review Agent activation are separate decisions:
 
-```bash
-REVIEW_AGENT_RELEASE="$(
-  curl -fsSL https://ccimen.github.io/review-agent/llms.txt |
-    sed -n 's/^Release state: //p'
-)"
-test -n "$REVIEW_AGENT_RELEASE"
-git clone --branch "$REVIEW_AGENT_RELEASE" --depth 1 \
-  https://github.com/CCimen/review-agent.git review-agent
-test "$(git -C review-agent rev-parse HEAD)" = \
-  "$(git -C review-agent rev-parse "${REVIEW_AGENT_RELEASE}^{commit}")"
-cd review-agent
-```
+   | Owner action | Result |
+   | --- | --- |
+   | Install the App with **All repositories** or **Only select repositories** | GitHub defines where the App may request a token. Reviews remain locked for a new installation. |
+   | Run `github-app approve <installation-id>` | The trusted installation may activate an exact repository on its first signed `/review` delivery. Requester authorization still gates the review. |
+   | Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named repository is verified and enabled, with either GitHub installation scope. |
 
-Record the release and resolved commit in the installation report. Do not mix
-plans, schemas, Compose files, or skills from `main` into this checkout.
+   [Set up and share the GitHub App](./GITHUB_APP_PILOT.md) owns the details.
+3. **Place the secrets** in the platform's protected configuration and mount
+   the App private key as [Deploy Review Agent](./DEPLOYMENT.md) describes.
+4. **Log in to the model provider.** For a browser or device login, the agent
+   gives you the exact container command and waits until you confirm.
+5. **Approve DNS and the production deployment.**
+6. **Post the first `/review`** as a new top-level comment on a test pull
+   request after the agent's dry run passes. Test feedback commands only if you
+   want to validate that path.
 
-## 2. Record the non-secret decisions
+## What you receive
 
-Copy `install/review-agent.example.yaml` from the checked-out release to a file
-outside version control. Replace the example URL, immutable image digest,
-GitHub owner and activation mode, capacity settings, and backup owner.
-
-Validate it with the schema and validator from that same checkout:
-
-```bash
-npm --prefix install ci
-node install/validate.mjs <installation-plan.yaml>
-```
-
-The plan contains no secrets. Capacity values are deployment choices rather
-than product ceilings; start with the example and increase workers only when
-queue wait time or measured throughput requires it.
-
-The plan maps to shipped deployment controls:
-
-| Plan field | Deployment control |
-| --- | --- |
-| `deployment.image` | `REVIEW_AGENT_IMAGE=<repository>@<digest>` |
-| `deployment.profile` | `REVIEW_AGENT_PROFILE` |
-| `deployment.model_provider` | `REVIEW_AGENT_MODEL_PROVIDER` |
-| `deployment.model` | `REVIEW_AGENT_MODEL` |
-| `deployment.reasoning_effort` | `REVIEW_AGENT_REASONING_EFFORT` |
-| `deployment.timezone` | `TZ` |
-| `deployment.feedback_enabled` | `REVIEW_AGENT_FEEDBACK_ENABLED` |
-| `runtime.worker_concurrency` | `REVIEW_AGENT_WORKER_CONCURRENCY` |
-| `runtime.active_job_limit` | `REVIEW_AGENT_ACTIVE_JOB_LIMIT` |
-| `runtime.worker_replicas` | Compose `--scale review-worker=N` or OpenShift replicas |
-| `runtime.publication_replicas` | Compose `--scale review-publisher=N` or OpenShift replicas |
-
-The public URL, platform, GitHub activation mode, and backup owner drive the
-deployment plan and its approval gates rather than a second runtime config file.
-
-## 3. Confirm the shipped behavior
-
-From the exact release or commit you intend to deploy, run:
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
-.venv/bin/python tools/review_agent_admin.py capabilities
-.venv/bin/python tools/review_agent_admin.py preflight
-```
-
-The last two commands return bounded JSON. Capabilities reports the current App-only
-contract. Preflight checks local configuration and the App key file without a
-network call, database write, or credential output.
-
-Do not use roadmap text as installation authority. For production, use the
-attested release image pinned to the manifest digest in `IMAGE-DIGESTS.txt`.
-Build from source only for local evaluation or when an owner explicitly
-approves that exact commit.
-
-## 4. Review the mutation plan
-
-Before the agent changes GitHub or your deployment, require one short plan that
-names:
-
-- the exact commit or image digest;
-- the deployment project, environment, services, and public route;
-- the GitHub App owner, permissions, event, installation scope, and activation policy;
-- whether repositories activate automatically or from an explicit allowlist;
-- secret names, never values;
-- migration, backup, verification, and rollback steps;
-- every action that still needs a human.
-
-Approve only the named scope. `github-app approve <installation-id>` records one
-organization-managed decision after checking the live installation. It does not
-pre-enumerate repositories; each first `/review` verifies one exact repository.
-Use `github-app onboard <owner/repository>` only for the optional explicit mode.
-
-## 5. Deploy and finish the owner gates
-
-Follow [Deployment](./DEPLOYMENT.md) for Compose platforms, including Dokploy,
-Coolify, and Portainer, or for OpenShift. Follow [GitHub App
-setup](./GITHUB_APP_PILOT.md) for the prefilled registration URL, exact
-permissions, installation approval, and repository verification.
-
-GitHub installation scope and Review Agent activation are deliberately separate:
-
-| Owner action | Result |
-| --- | --- |
-| Install the App with **All repositories** or **Only select repositories** | GitHub defines where the App may request a token. Reviews remain locked for a new installation. |
-| Run `github-app approve <installation-id>` | The trusted installation may activate an exact repository on its first signed `/review` delivery. Requester authorization still gates the review. |
-| Keep explicit mode and run `github-app onboard <owner/repository>` | Only that named repository is verified and enabled, with either GitHub installation scope. |
-
-Keep PostgreSQL, Hermes, workers, publishers, and the GitHub gateway private.
-Only the admission route is public. The App private key belongs only in the
-private gateway.
-
-Repositories need no local configuration. When a team wants its own engineering
-principles, communication preferences, platform context, or typed decisions,
-follow [Repository context](./REPOSITORY_CONTEXT.md). Copy the starter only when
-the repository has no `.review-agent/` directory; otherwise preserve and edit
-the existing package. Run this without network or database access before
-opening the configuration pull request:
-
-```bash
-.venv/bin/python tools/review_agent_admin.py \
-  repository-context validate /path/to/repository
-```
-
-If model authentication uses a browser or device flow, the agent should give
-you the exact container command and pause. Resume after you confirm login.
-
-## 6. Verify the deployment state
-
-Run the live checks from the deployed containers:
-
-<Tabs groupId="operator-platform">
-<TabItem value="compose" label="Compose / Dokploy" default>
-
-```bash
-docker compose exec hermes-review review-agent-admin doctor
-docker compose exec hermes-review review-agent-admin queues inspect
-docker compose exec review-github-gateway review-agent-admin installations list
-docker compose exec review-github-gateway review-agent-admin repositories list
-docker compose exec hermes-review review-agent-admin smoke-test --dry-run \
-  --repository <owner/repository> --pr <number>
-```
-
-</TabItem>
-<TabItem value="openshift" label="OpenShift">
-
-```bash
-oc rsh deployment/hermes-review review-agent-admin doctor
-oc rsh deployment/hermes-review review-agent-admin queues inspect
-oc rsh deployment/review-agent-github-gateway \
-  review-agent-admin installations list
-oc rsh deployment/review-agent-github-gateway \
-  review-agent-admin repositories list
-oc rsh deployment/hermes-review \
-  review-agent-admin smoke-test --dry-run \
-  --repository <owner/repository> --pr <number>
-```
-
-</TabItem>
-</Tabs>
-
-The dry run proves that an already enabled, open, same-repository pull request
-can be read and has publication scope. It does not call the model or write to
-GitHub. For a fresh automatic installation, zero enabled repositories is valid:
-run `doctor`, queue, and installation checks now, then run the dry test after the
-first signed `/review` delivery activates its exact repository.
-
-The deployment is not ready merely because containers are healthy. Doctor,
-activation policy, private-service isolation, backup ownership, and the
-applicable dry or live acceptance evidence must all be known.
-
-## 7. Run the owner-controlled acceptance check
-
-After the dry run passes, approve one new top-level comment on the test pull
-request:
-
-```text
-/review
-```
-
-Verify one accepted App delivery, one review run and durable job, and one
-terminal publication or deterministic failure status. Confirm that no duplicate
-publication appeared and that the result belongs to the expected head SHA.
-For automatic mode, confirm `repositories list` now contains only the exact
-repository, then run the dry smoke test from the previous section.
-
-Record a baseline after the live test:
-
-<Tabs groupId="operator-platform">
-<TabItem value="compose" label="Compose / Dokploy" default>
-
-```bash
-docker compose exec hermes-review \
-  review-agent-memory quality --days 30 --repo <owner/repository>
-```
-
-</TabItem>
-<TabItem value="openshift" label="OpenShift">
-
-```bash
-oc rsh deployment/hermes-review \
-  review-agent-memory quality --days 30 --repo <owner/repository>
-```
-
-</TabItem>
-</Tabs>
-
-The agent may explain the denominators and current backlog. It must not classify
-feedback, promote a coach proposal, or change the reviewer profile without an
-operator decision.
-
-Test feedback only when you want to validate the feedback path. The exact
-commands and recovery checks are in [Operations](./OPERATIONS.md).
-
-## Completion evidence
-
-A setup report is complete only when it records, without secrets:
-
-- exact deployed commit or image digest;
-- deployment environment and public URL;
-- database readiness and migration version;
-- App ID, verified identity, permissions, event, and installation ID;
-- installation scope and activation policy, plus any activated repository IDs;
-- profile, doctor, queue, and dry-run results;
-- real review run and publication identifiers;
-- backup and rollback status;
-- any unfinished owner action.
-
-If one of these is unknown, report the setup as incomplete instead of guessing.
+The agent finishes with a report in the skill's completion format: deployed
+release and digest, App and installation IDs, activation policy, doctor, queue,
+dry-run and live-run results, backup and rollback state, and any remaining owner
+action. It contains no secrets. If any of these is unknown, the setup is
+incomplete.

@@ -18,7 +18,9 @@ concurrency:
 jobs:
   python-fast:
     name: Python fast
-    runs-on: ubuntu-latest
+    # Python 3.13.5 matches the pinned Hermes image and is not built for the
+    # Ubuntu 26.04 runner image that ubuntu-latest now selects.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out repository

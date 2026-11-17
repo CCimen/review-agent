@@ -4,47 +4,48 @@ slug: /documentation-review
 title: Keep documentation aligned with pull requests
 description: Configure scoped documentation reviews, understand advisory GitHub checks, and monitor review usage.
 status: current
-last_verified: 2026-09-29
+last_verified: 2026-11-17
 ---
 
 # Keep documentation aligned with pull requests
 
 Documentation review checks whether a pull request changes behavior that its
-maintained documents need to explain. It uses the same Review Agent deployment,
-GitHub App, model connections, and review queue as code review. It has its own
-request history, feedback, and **Documentation review** check.
+maintained documents need to explain. It uses the same deployment, GitHub App,
+model connections, and queue as code review, with its own request history,
+feedback, and **Documentation review** check.
 
-Start with manual reviews in one repository. Add explicit relationships between
-source areas and maintained documents, try representative pull requests, and
-correct scope mistakes before enabling automatic reviews for a team.
+Start with manual reviews in one repository, map source areas to documents,
+try representative pull requests, and correct scope mistakes before turning on
+automatic reviews for a team.
 
 ## Enable a repository
 
-1. Update all Review Agent services and the managed profile together, using the
-   [upgrade procedure](OPERATIONS.md#backup-and-recovery). Documentation review
-   starts disabled at the deployment level. Custom profiles must include the
-   reviewed `review-agent-docs` skill and list it in `profile.json`; installation
-   verifies both managed procedures.
-2. Give the GitHub App **Checks: write**, in addition to its existing repository
-   permissions. Subscribe to **Pull request** and **Check run** as well as
-   **Issue comment**. An existing installation may need its GitHub owner to
-   accept the new permission. Changing a console mode cannot grant GitHub access.
-3. An owner enables documentation review in **Settings**. A team maintainer then
-   sets the team's default in **Teams → Documentation**, or chooses a repository
-   override in **Repositories → Documentation**.
-4. Add `.review-agent/documentation.toml` to the repository through a normal pull
-   request. Adapt the [starter configuration](https://github.com/CCimen/review-agent/blob/main/examples/repository-context/.review-agent/documentation.toml)
-   to actual source areas and exact document paths. Validate the package with
+1. Deploy all services and the managed profile from the same release
+   ([upgrade procedure](DEPLOYMENT.md#upgrade-and-roll-back-production)). A
+   custom profile must list the `review-agent-docs` skill in `profile.json`;
+   see [Behavior ownership](BEHAVIOR_OWNERSHIP.md#create-a-deployment-profile).
+2. Give the GitHub App **Checks: write** and subscribe it to the **Pull
+   request** and **Check run** events, in addition to **Issue comment**
+   ([App permissions](GITHUB_APP_PILOT.md#1-register-the-app)). An existing
+   installation's owner may need to accept the new permission. No console
+   setting can grant GitHub access.
+3. An owner switches documentation review on in the admin console under
+   **Settings**. It is off by default, and the console is the only place to turn
+   it on. A team maintainer then sets the team default in **Teams →
+   Documentation**, or a repository override in **Repositories →
+   Documentation**.
+4. Add `.review-agent/documentation.toml` through a normal pull request. Adapt
+   the [starter configuration](https://github.com/CCimen/review-agent/blob/main/examples/repository-context/.review-agent/documentation.toml)
+   to real source areas and exact document paths, and check it with
    [repository-context validate](REPOSITORY_CONTEXT.md#start-with-the-copyable-package).
-5. Merge the configuration. Post `/review docs` as a new top-level comment on an
-   open pull request. The requester needs current GitHub repository write or
-   admin permission, or an additional-user grant in **Repositories → Who can
-   request reviews**. Fork pull requests remain unsupported.
+5. Merge it, then post `/review docs` as a new top-level comment on an open pull
+   request. The same people who may request a code review may request this one
+   ([who can request a review](GITHUB_APP_PILOT.md#who-can-request-a-review)).
+   Pull requests from forks are not reviewed.
 
-A pull request that first adds the configuration can preview the proposed scope,
-but cannot activate its own rules. Review Agent uses the accepted configuration
-at that pull request's exact target-base commit. Policy changes take effect in
-later reviews whose base contains the merged change.
+Review Agent uses the configuration at the pull request's target-base commit.
+A pull request that adds or edits it can preview the proposed scope, but the
+change applies only to later reviews whose base contains it.
 
 ## Choose when reviews run
 
@@ -52,143 +53,115 @@ later reviews whose base contains the merged change.
 | --- | --- |
 | Off | Documentation review is disabled for the repository. |
 | Manual | A developer requests a review with `/review docs`. |
-| Automatic | Eligible pull-request updates schedule reviews; `/review docs` remains available for an explicit request. |
+| Automatic | Eligible pull-request updates schedule reviews; `/review docs` still works. |
 
-Repositories inherit their team's default unless they have an explicit override.
-An unassigned repository defaults to Manual. The deployment switch overrides all
-team and repository modes. The console displays configured and effective modes
-separately, so a deployment pause does not erase saved choices.
+A repository inherits its team's default unless it has its own override. With
+neither, it uses Manual. The deployment switch in
+**Settings** overrides every team and repository mode; turning it off keeps the
+saved modes, and the console shows configured and effective modes separately.
+A team default of Off does not override a repository set explicitly to
+Automatic. Viewers can see these settings; only maintainers and administrators
+can change them. A stale settings or transfer preview must be refreshed before
+it can be saved.
 
-Changing a team default shows the inherited repositories it affects and the
-repositories with exceptions. A team default of Off affects inherited repositories; explicit Automatic
-overrides remain enabled. Use the deployment switch for a deployment-wide stop.
-Repository transfers show the resulting review
-mode and model-account change before saving. A stale settings or transfer preview
-must be refreshed before it can be applied. Viewers can inspect these settings;
-only authorized maintainers or administrators can change them.
+In Automatic mode, opening, reopening, marking ready, a new head commit, or a
+changed target base schedules a review about two minutes later, so a series of
+pushes settles first. Draft pull requests are skipped. The worker re-checks the
+pull request before it runs. An explicit `/review docs` skips the wait.
+Switching to Automatic does not review existing open pull requests.
 
-Automatic review waits about two minutes after an eligible update so a series of
-pushes can settle. Draft pull requests do not start automatic reviews. Opening,
-reopening, marking ready, changing the head, or changing the target base can
-schedule work. The worker verifies current pull-request state before executing.
-An explicit request bypasses the waiting period and can promote equivalent
-pending work. Turning on Automatic does not scan and review every existing open
-pull request.
-
-These controls limit unnecessary model calls. A deterministic scope check runs
-first. Missing or invalid configuration, unavailable inputs, and complete changes
-covered entirely by explicit exclusions receive their appropriate result without
-a semantic model call. Unmapped changes require assessment; an unknown source
-path is not evidence that documentation is unaffected.
+A deterministic scope check runs before any model call. Missing or invalid
+configuration, unavailable inputs, and changes covered entirely by explicit
+exclusions get their result without a model call. Unmapped changes are
+assessed: an unknown path is not evidence that documentation is unaffected.
 
 ## Understand the result
 
-The GitHub check is advisory. Review Agent does not edit files, commit fixes, or
-open a documentation pull request. Developers apply the suggested corrections
-and request another review when ready. Do not make this check a required branch
-protection rule as part of initial adoption.
+The check is advisory. Review Agent does not edit files, commit fixes, or open
+pull requests. Do not make it a required status check while adopting it.
 
 | Result | GitHub conclusion | Meaning |
 | --- | --- | --- |
-| No documentation review needed | Skipped | Complete scope analysis established that the changes were explicitly excluded; no semantic call was needed. |
-| No documentation mismatch found | Success | The selected scope was assessed with complete evidence and no retained mismatch. |
-| Documentation changes recommended | Neutral | The report contains evidence-backed corrections for a developer to consider. It is also posted as a pull request comment when the open findings change or the report is too large for the check. |
-| Incomplete, unavailable, or configuration needs attention | Neutral | The report explains the gap; it does not claim complete verification. |
+| No documentation review needed | Skipped | Every change is explicitly excluded; no model call was needed. |
+| No documentation mismatch found | Success | The selected scope was assessed with complete evidence and no mismatch remains. |
+| Documentation changes recommended | Neutral | The report lists evidence-backed corrections to consider. |
+| Incomplete, unavailable, or configuration needs attention | Neutral | The report explains the gap and does not claim complete verification. |
 
-A successful check is limited to the selected scope and retained evidence. It
-cannot certify all documentation in a repository. Review Agent can inspect an
-unchanged guide affected by changed behavior, and can report a missing or deleted
-guide using a real source location. It never invents a line in a missing file.
+A success covers only the selected scope. The reviewer can report an unchanged
+guide that changed behavior affects, or a missing or deleted guide, using a real
+source location; it never invents a line in a missing file. The report belongs
+to the reviewed head commit and is not published as current if the head moved.
 
-The report belongs to the exact reviewed head commit. If that subject becomes
-stale during delivery, it cannot publish as the current result. A retained check
-on an older commit remains historical evidence.
-
-Find the result in the pull request's **Checks** tab under **Documentation
-review**. A neutral conclusion keeps the pull request mergeable and shows as
-passing in its header, so the report is also posted as a pull request comment
-when the open findings change: the first time changes are recommended, and when
-a later review resolves a finding, finds a new one, changes its severity, or can
-no longer check it. A review that finds the same open findings again, for
-example after an unrelated push, updates only the check. Comments reach GitHub,
-Slack, and Microsoft Teams notifications. Clean, skipped, incomplete, and
-configuration results without such a change stay in the check. A report too
-large for the check always uses linked comment parts, and console history keeps
-the complete retained report.
+The result is in the pull request's **Checks** tab under **Documentation
+review**. A neutral conclusion still shows as passing, so the report is also
+posted as a pull request comment when the open findings change: the first time
+changes are recommended, and when a later review resolves a finding, finds a new
+one, changes a severity, or can no longer check one. A review that finds the
+same open findings updates only the check. A report too large for the check is
+always posted as linked comments.
 
 When a pull request edits `.review-agent/documentation.toml`, the report says
-that the review used the accepted rules from the target branch and that the
-proposal applies after merge. When unmapped paths leave a review incomplete, it
-suggests mapping or excluding them.
+it used the target branch's rules. When unmapped paths leave a review
+incomplete, it suggests mapping or excluding them. A later review marks a
+finding resolved only when the current documents support the correction;
+findings outside the new scope stay not checked, and removing a mapping does
+not resolve them.
 
-On a later review, a prior finding is marked resolved only when current document
-evidence supports the correction. Findings outside the new scope or without enough
-evidence remain not checked. Removing a mapping does not resolve its findings.
+## Feedback
 
-Code review remains available through `/review`. F references remain unique across the pull request; code and documentation
-reviews accept feedback only for their own current publication. Use the documentation prefix when sending feedback:
+Documentation findings take the `docs` prefix. F references are unique across
+the pull request, and each command applies only to the current publication of
+its own kind, so a code command cannot decide a documentation finding:
 
 ```text
-/review docs false-positive F1 <reason>
-/review docs feedback scope <reason>
-/review docs feedback missed <reason>
+/review docs false-positive F1 because <what disproves it>
+/review docs feedback scope F1 because <why it is outside this PR>
+/review docs feedback missed because <what was missed and where>
 ```
 
-## Keep rules, guidance, and ADRs in their existing places
+`/review docs intentional` is rejected: an accepted ADR can explain a behavior
+change, but it does not make a guide that describes different behavior correct.
+See [Feedback and design decisions](FEEDBACK_AND_DECISIONS.md) for what each
+command changes and who may send it.
+
+## Rules, guidance, and decisions
 
 `.review-agent/documentation.toml` owns source-to-document relationships, their
-intent, and explained exclusions. [`config.toml`, `instructions.md`, and `context/`](REPOSITORY_CONTEXT.md)
-continue to own repository guidance. [Accepted ADRs](FEEDBACK_AND_DECISIONS.md)
-provide evidence of architectural intent from the same exact base snapshot.
-They are not copied into the documentation configuration.
+intent, and explained exclusions. [`config.toml`, `instructions.md`, and
+`context/`](REPOSITORY_CONTEXT.md) own repository guidance, and
+[accepted ADRs](FEEDBACK_AND_DECISIONS.md#repository-decision-contract) supply
+architectural intent from the same base commit. A superseded ADR, or an ADR
+edited only on the pull request head, is not accepted authority, and missing
+ADR context is reported where it affects the assessment.
 
-An accepted ADR can explain a deliberate behavior change. It does not excuse a
-user guide that describes different behavior. Documentation findings therefore
-do not support intentional-by-design suppression. Proposed or superseded ADRs
-cannot supply accepted authority, and an unavailable ADR context is reported as
-a limitation where it affects the assessment.
-
-Protect changes to the repository package through normal review and CODEOWNERS.
-Repository text remains untrusted evidence: it cannot change tool permissions,
-publication behavior, scope completeness requirements, or authorization.
+Protect the package with branch review and CODEOWNERS. Repository text is
+untrusted evidence: it cannot change tools, publication, scope completeness, or
+authorization. When a mapped document is renamed, update its path in the same
+pull request; the base rules still govern that pull request's review. The
+[Review Agent starter](https://github.com/CCimen/review-agent/blob/main/examples/documentation-review/review-agent.toml)
+shows the mappings this project uses for itself.
 
 ## Inspect configuration and usage in the console
 
-**Repositories → Documentation → Refresh** reads the default branch and then
-inspects the configuration at that exact commit. The page shows the read time,
-commit, parsed areas and exclusions, and any syntax problem. This is a saved
-inspection for operators. It does not execute a review, crawl the repository,
-verify every mapped document, or replace a review's base-commit policy.
+**Repositories → Documentation → Refresh** reads the configuration at the
+default branch's current commit and shows the commit, parsed areas and
+exclusions, and any syntax problem. It does not run a review or check that every
+mapped document exists.
 
-Activity, history, and usage can be filtered by Code or Documentation. Quality
-views start with Code and keep documentation results in a separate cohort.
-Opening a documentation request shows its outcome, selected scope, exact refs,
-evidence limitations, and whether a semantic assessment ran.
-
-Each retained request also shows recorded token usage and duration. Token figures
-come from provider usage records; missing usage is shown as unavailable rather
-than zero. The request summary shows recorded input, output, and total tokens.
-History keeps these figures attached to the request that consumed them, including
-retries where usage was recorded. This makes a manual pilot useful for estimating
-cost before automatic review is enabled more widely.
-
-A [Review Agent-specific starter](https://github.com/CCimen/review-agent/blob/main/examples/documentation-review/review-agent.toml)
-shows relationships for this project's real review commands, context owners,
-and deployment files. Renaming a mapped document requires updating its exact
-path in the configuration through the same reviewed change; accepted base rules
-still govern that PR's review.
+Activity, history, and usage filter by Code or Documentation, and quality views
+keep documentation results separate. A documentation request shows its outcome,
+selected scope, commits, evidence limits, whether a model assessment ran, its
+duration, and its recorded input, output, and total tokens (shown as unavailable
+when the provider reported none). Use a manual trial to estimate cost before
+turning on Automatic more widely.
 
 ## Use deterministic checks in CI
 
-Copy the [example workflow](https://github.com/CCimen/review-agent/blob/main/examples/workflows/review-agent-context.yml)
-into the repository. On every pull request it validates `.review-agent/` offline
-and adds the `repository-context docs-scope` preview to the job summary: the
-selected documents and the number of unmapped changed paths. It needs no model
-or GitHub credentials, and an invalid configuration fails the job.
-[Check the package in CI](REPOSITORY_CONTEXT.md#check-the-package-in-ci) explains
-the workflow, and the [configuration reference](REPOSITORY_CONTEXT.md#preview-documentation-scope-from-committed-revisions)
-explains the receipt and the merge-base comparison.
+The [example workflow](REPOSITORY_CONTEXT.md#check-the-package-in-ci) validates
+`.review-agent/` offline on every pull request and adds the
+[documentation scope preview](REPOSITORY_CONTEXT.md#preview-documentation-scope-from-committed-revisions)
+to the job summary, without a model or GitHub credentials.
 
 Keep documentation builds, link checks, generated API checks, tests, and type
-checks in their existing CI owners. Documentation review adds semantic feedback;
-it does not regenerate public contracts or replace those deterministic checks.
+checks in their existing CI jobs. Documentation review adds semantic feedback
+and does not replace them.

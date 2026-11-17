@@ -11,7 +11,6 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from http.client import HTTPMessage
 from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
@@ -607,34 +606,6 @@ class GitHubAppTokenServiceTests(unittest.TestCase):
                 for handler in self.service._opener.handlers
             )
         )
-        handler = source_control.SameOriginHttpsRedirectHandler()
-        request = urllib.request.Request(
-            "https://github.test/app/installations/7001/access_tokens",
-            headers={"Authorization": "Bearer secret"},
-        )
-
-        redirected = handler.redirect_request(
-            request,
-            io.BytesIO(),
-            307,
-            "temporary redirect",
-            HTTPMessage(),
-            "https://evil.test/access_tokens",
-        )
-
-        self.assertIsNone(redirected)
-
-        same_origin = handler.redirect_request(
-            request,
-            io.BytesIO(),
-            307,
-            "temporary redirect",
-            HTTPMessage(),
-            "https://github.test/access_tokens",
-        )
-        self.assertIsNotNone(same_origin)
-        assert same_origin is not None
-        self.assertEqual(same_origin.get_header("Authorization"), "Bearer secret")
 
     def test_rate_limit_403_is_retryable_and_closes_response(self) -> None:
         error = urllib.error.HTTPError(

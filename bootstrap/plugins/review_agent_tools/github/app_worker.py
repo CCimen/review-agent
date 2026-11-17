@@ -11,22 +11,13 @@ import threading
 import time
 import uuid
 
-import psycopg
 
 from ..postgres import webhook_deliveries
-from ..postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
+from ..postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
 from .app_processor import GitHubAppProcessor
 
 
 logger = logging.getLogger(__name__)
-_TRANSIENT_DATABASE_ERRORS = (
-    PostgreSQLUnavailable,
-    psycopg.errors.DeadlockDetected,
-    psycopg.errors.QueryCanceled,
-    psycopg.errors.LockNotAvailable,
-)
-
-
 class GitHubAppWorkerConfigurationError(ValueError):
     """The GitHub App worker cannot start from its supplied configuration."""
 
@@ -86,7 +77,7 @@ class GitHubAppWorker:
             try:
                 self._recover_if_due()
                 result = self._processor.process_next(lease_owner=self._lease_owner)
-            except _TRANSIENT_DATABASE_ERRORS as exc:
+            except TRANSIENT_DATABASE_ERRORS as exc:
                 if once:
                     raise
                 logger.warning(

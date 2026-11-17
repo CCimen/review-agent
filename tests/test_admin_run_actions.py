@@ -25,7 +25,7 @@ from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 
 
-DSN = os.environ.get("REVIEW_AGENT_RUN_ACTIONS_DSN", "")
+DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
 CONTRACT = review_contract.ReviewContract(
     profile="team-standard",
     hermes_image="hermes@test",
@@ -70,7 +70,7 @@ class AdminRunAuthorizationTests(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(DSN, "set REVIEW_AGENT_RUN_ACTIONS_DSN to an isolated database")
+@unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
 class AdminRunActionTests(unittest.TestCase):
     def setUp(self) -> None:
         with psycopg.connect(DSN, autocommit=True) as connection:

@@ -2,206 +2,104 @@
 sidebar_label: Feedback and decisions
 slug: /feedback-and-decisions
 title: Feedback and design decisions
-description: Use review feedback to improve reviewer quality and record repository decisions that later changes must respect.
+description: Answer findings with feedback commands, use feedback to improve the reviewer, and record repository decisions that later changes must respect.
 status: current
-last_verified: 2026-10-07
+last_verified: 2026-11-17
 ---
 
 # Feedback and design decisions
 
-> **Current**: Feedback collection, operator triage, denominator-based quality
-> reporting, private coaching, and typed repository decisions are active.
-> Intentional feedback is accepted only when it matches the finding's exact
-> stored base-commit ADR snapshot and path.
-
-Review feedback has two jobs. It corrects one finding when the code disproves it,
-and it gives operators evidence for later reviewer improvements. Teams should
-record durable design intent in the repository rather than asking PostgreSQL to
-become a second documentation store.
+Feedback does two things: it corrects one finding when the code disproves it,
+and it gives operators evidence for improving the reviewer. Durable design
+intent belongs in the repository as an accepted ADR, not in the database.
 
 ## Read the review result
 
-The summary identifies the reviewed commit, current findings, changes since the
-previous review, and diff coverage. Low/P3 maintainability improvements appear
-in a collapsed **Code quality and readability** section after the expanded
-findings, with the improvement count visible in the summary. When a review also
-has High or Medium findings, its other Low/P3 findings appear in a collapsed
-**Low-priority findings** section, so the findings that need attention come
-first. Security findings at any severity, and every Medium or higher finding,
-stay expanded. Each collapsed section and fix brief names the F references it
-holds. Every finding retains its full explanation, F reference, feedback
-commands, and entry in the copyable fix brief. Large groups split into complete
-numbered sections across comments; a review that needs a second comment starts
-it at the next steps and fix briefs. Coverage details and evidence for closed
-findings are expandable.
+The summary names the reviewed commit, the current findings, what changed since
+the previous review, and diff coverage. Findings that need attention come
+first. Security findings and every Medium or higher finding stay expanded. Low
+(P3) maintainability improvements are collapsed under **Code quality and
+readability**, and when a review also has High or Medium findings, its other
+Low findings are collapsed under **Low-priority findings**. Every finding keeps
+its F reference, explanation, feedback commands, and entry in the copyable fix
+brief. See the [example review](../examples/comments/example-review.md).
 
-The default publication budget is 65,000 UTF-8 bytes per complete comment,
-including framing and metadata. Explicit saved or environment values retain
-their configured budget. A longer
-review uses continuation comments rather than truncating current findings.
-Review Agent also enforces a separate limit of 200 pending findings, including
-prior findings not rechecked. Exceeding that limit rejects publication; it does
-not silently publish the first 200. Evidence-backed grouping can combine
-instances of the same root cause, but sharing a category is not enough to merge
-independent problems. These bounds do not guarantee that the model discovers
-every issue in a large pull request.
+Publication limits:
 
-Coverage counts describe complete diff content available to the reviewer. A
-partial review can contain useful findings, but a result with no confirmed
-findings can still have gaps. Expand **Coverage details** for exact counts of
-unfetched, partially fetched, and unavailable diffs, a table of the directories
-with the most incomplete diffs, and up to 20 example files. The totals include
-files outside the table and the example list. Deleted-file links open the base
-commit.
+- A comment holds at most 65,000 UTF-8 bytes, including framing. A longer review
+  continues in further comments; current findings are never truncated.
+- A review can leave at most 200 pending findings, counting prior findings not
+  re-checked. Above that, publication is rejected rather than cut to the first
+  200.
+- **Coverage details** gives exact counts of unfetched, partially fetched, and
+  unavailable diffs, the directories with the most incomplete diffs, and up to
+  20 example files.
 
-An unavailable diff does not necessarily mean its source file is missing.
-Repeating `/review` can encounter the same unavailable patches. Inspect the
-remaining changes locally, or ask the operator to investigate a persistent
-coverage gap. Previously prepared reviews retain their original content when
-retried.
+A result with no findings can still have coverage gaps. Repeating `/review` can
+meet the same unavailable patches; inspect those changes locally or ask the
+operator to investigate a persistent gap. Coverage itself is described in
+[How reviews work](./HOW_REVIEWS_WORK.md#6-coverage).
 
-See the [example review](../examples/comments/example-review.md) for the comment
-layout and feedback instructions.
+## Feedback commands
 
-## What each feedback command does
+Post the command as a new top-level comment on the pull request, using the F
+reference from the latest review. Do not edit an old comment or reply in an
+inline diff thread.
 
-Post a new top-level pull-request comment. Use the F reference from the latest
-review.
+```text
+/review false-positive F2 because <what code, guard, or invariant disproves it>
+/review intentional F2 ADR-0007 because <why the accepted decision requires it>
+/review feedback scope F2 because <why it is outside this PR's scope>
+/review feedback missed because <what concrete issue was missed and where>
+
+/review docs false-positive F1 because <what disproves it>
+/review docs feedback scope F1 because <why it is outside this PR's scope>
+/review docs feedback missed because <what was missed and where>
+```
+
+Rules the parser applies:
+
+- One command per comment. A reason is required, at most 2,000 characters.
+  The leading word `because` is optional. A command that still contains the
+  placeholder text from the review's copyable commands is rejected.
+- The `docs` prefix sends feedback to the current documentation review, and no
+  prefix to the current code review. F references are unique across the pull
+  request, but a code command cannot decide a documentation finding or the
+  reverse.
+- `/review docs intentional` is rejected: an accepted decision can explain a
+  behavior change, but it does not make contradictory documentation correct.
+- `accepted-risk` is rejected in comments. Record accepted risk with
+  `review-agent-memory decide <fingerprint> accepted_risk` or on the finding's
+  page in the console.
+
+Only people with current GitHub `write` or `admin` permission on the
+repository can send feedback. Console requester grants allow requesting a
+review, not sending feedback.
+
+The App reacts with `+1` when it stores valid feedback. For an invalid, stale,
+or unsupported command it reacts with `confused` and posts one explanation. If
+the code context has changed, request a fresh review and use its F reference.
+
+## What each command changes
 
 | Command | Immediate effect | Later use |
 | --- | --- | --- |
-| `/review false-positive F2 because ...` | Suppresses the same finding while its code-context hash still matches. | Highlights evidence rules or replay cases that may need work. |
-| `/review intentional F2 ADR-0007 because ...` | Suppresses the same finding while both its code context and accepted ADR metadata still match. | Preserves a repository decision and exposes weak ADR path mapping. |
-| `/review feedback scope F2 because ...` | Records scope confusion. It does not suppress the finding. | Shows where PR structure or repository context caused poor review scope. |
-| `/review feedback missed because ...` | Records a concrete issue the review missed. | Shows gaps in source coverage, tools, or review rules. |
+| `false-positive` | Suppresses the finding in later reviews while its code-context hash still matches. | Points at evidence rules or replay cases that need work. |
+| `intentional` | Suppresses the finding while both the code context and the accepted ADR's metadata still match. Accepted only when the ADR was `accepted` in the finding's stored base snapshot and its index entry covers the finding's path. | Keeps a repository decision; exposes weak ADR path mapping. |
+| `feedback scope` | Records scope confusion. The finding is not suppressed. | Shows where pull request structure or repository context misled the review. |
+| `feedback missed` | Records a concrete missed issue. | Shows gaps in coverage, tools, or review rules. |
 
-The App reacts with `+1` after it stores valid feedback. It reacts with
-`confused` and posts one explanation for stale references or invalid commands.
-A changed code context requires a fresh review.
+No command changes prompts, skills, or policy. Changes to the reviewer happen
+only through a normal pull request to the profile or code.
 
-If a later review reconciles duplicate references, feedback on an older duplicate
-reference targets the current canonical finding. Earlier decisions retain their
-original targets and audit records. Confirmed duplicates represent one issue, so
-a matching human suppression covers the group, including a newly recorded alias.
-Conflicting human decisions block a new grouping until adjudicated; separating
-a suppressed group requires a human to reopen it first.
-Changing group membership never creates a human decision or overrides the
-code-context, expiry, or accepted-ADR checks.
+When a later review merges duplicate findings, feedback on an older reference
+applies to the current finding, and a human suppression covers the whole group.
+Conflicting human decisions block the grouping until someone resolves them, and
+splitting a suppressed group needs a human to reopen it first. Grouping never
+creates a human decision or bypasses the code-context, expiry, or ADR checks.
 
-## Measure review quality
-
-Run the quality report each week in the `hermes-review` container:
-
-```console
-review-agent-memory quality --days 30
-review-agent-memory quality --days 30 --repo <org>/<repo>
-```
-
-The default Markdown report keeps each signal beside its denominator:
-
-- false-positive decisions beside published findings;
-- scope-confusion and missed-issue feedback beside completed reviews.
-
-The activity table also shows how many completed reviews had complete coverage.
-
-Use `--json` for an internal reporting job. The report does not infer accuracy
-from missing feedback. A quiet repository may have no feedback or no reviews.
-The current triage backlog includes pending missed issues created before the
-requested activity window, so old unresolved work stays visible.
-
-The cohort table groups completed reviews by repository, profile, review
-contract, provider, model, and policy revision. Compare like-for-like cohorts
-before changing reviewer behavior. Do not rank developers or repositories from
-the counts.
-
-## Triage a missed issue
-
-Only an operator classifies missed-issue feedback. A coding agent may prepare
-the evidence and command, but it must not choose the status or target owner.
-
-An operator exports one repository and locates the missed-issue row under
-`review_quality_feedback`:
-
-```console
-review-agent-memory export \
-  --repo <org>/<repo> \
-  --row-limit <per-table-row-limit> \
-  --output /opt/data/private-review/export.json
-```
-
-Treat this as a private operator artifact. Do not give the export to a coding
-agent or paste it into model context. The operator supplies the selected
-feedback ID and evidence, runs the triage command, and removes the export after
-triage.
-
-Mark a confirmed issue actionable with a stable lowercase key and one owner:
-
-```console
-review-agent-memory triage-feedback <feedback-id> \
-  --status actionable \
-  --stable-key coverage.generated-files \
-  --target-owner coverage \
-  --path src/generated/client.py \
-  --category correctness \
-  --evidence-reference https://github.com/<org>/<repo>/issues/<number> \
-  --actor "github:<operator>" \
-  --reason "The review skipped generated code that changes the public client."
-```
-
-Target owners are `source_tool`, `coverage`, `review_rule`, `profile`,
-`repository_decision`, and `documentation`. Use `pending`, `duplicate`,
-`insufficient`, or `resolved` without `--stable-key` and `--target-owner` when
-the evidence does not call for a coach candidate.
-
-Triage is append-only. The latest triage state controls the current backlog and
-coach eligibility. Only the latest `actionable` state with a stable key and
-target owner can enter a coach proposal. A later `resolved`, `duplicate`, or
-`insufficient` state removes that eligibility without deleting the audit trail.
-
-## Review improvement
-
-Run the private coach for one repository with enough evidence:
-
-```bash
-review-agent-memory coach-run \
-  --repo <org>/<repo> \
-  --output-dir /opt/data/private-review/coach-run
-```
-
-`no_change` means stop. A proposal requires repeated independent episodes for
-the same stable finding identity. Review the proposal, add a focused replay, and
-change the canonical owner through a normal pull request. Do not run Hermes
-`/learn` in the live reviewer profile.
-
-### Send each signal to its owner
-
-| Signal | Inspect first | Possible change after repeated evidence |
-| --- | --- | --- |
-| False positive | Original claim and disproof checks | Review procedure, evidence rule, or replay fixture |
-| Scope confusion | PR structure and repository decision mapping | Contributor guidance or repository context |
-| Missed issue | Coverage record and available tools | Source tool, review rule, or replay fixture |
-| Intentional design | Accepted ADR and affected paths | ADR mapping or a narrow design replay |
-| Accepted risk | Owner, expiry, and remediation plan | Governance record or planned engineering work |
-
-Coach exports omit actor identities. Keep that privacy property in internal
-reports.
-
-## Record an intentional design
-
-The normal developer path is a top-level PR comment using the latest review's F
-reference:
-
-```text
-/review intentional F2 ADR-0007 because the accepted retrieval budget requires these coupled values
-```
-
-The App verifies the maintainer's current write or admin permission and binds
-the decision to the published finding. It accepts the command only when
-`ADR-0007` was accepted in that finding's stored base snapshot and its index
-mapping covers the finding path. The audit stores the exact snapshot, ADR path,
-metadata hash, and base SHA.
-
-An authenticated operator can record the same decision from the CLI:
+An operator can record an intentional decision from the CLI with the same
+snapshot and path checks:
 
 ```bash
 review-agent-memory decide <fingerprint> intentional_by_design \
@@ -214,29 +112,62 @@ review-agent-memory decide <fingerprint> intentional_by_design \
   --expires-days 180
 ```
 
-The CLI applies the same snapshot and path validation. It is an operational
-alternative, not a bypass. Accepted-risk decisions remain CLI-only governance
-actions.
+## Use feedback to improve the reviewer
 
-## Documentation feedback
+Operators run these in the `hermes-review` container.
+[Operations](./OPERATIONS.md) lists the other `review-agent-memory` commands,
+private exports, and their error codes.
 
-Documentation review uses `/review docs false-positive F1 <reason>`,
-`/review docs feedback scope <reason>`, and `/review docs feedback missed <reason>`.
-F references remain unique within a PR, while the prefix selects the current
-Code or Documentation publication. A code command cannot decide a documentation
-finding. The console derives this purpose from the exact selected occurrence.
-Documentation findings do not support intentional-by-design suppression: accepted
-architecture can explain behavior, but does not make contradictory documentation
-correct. See [Documentation review](DOCUMENTATION_REVIEW.md).
+1. **Weekly quality report.** `review-agent-memory quality --days 30`, with
+   `--repo <org>/<repo>` for one repository and `--json` for a reporting job.
+   It shows false positives beside published findings, scope and missed-issue
+   feedback beside completed reviews, coverage, the current triage backlog
+   (including older pending items), and cohorts by repository, profile, review
+   contract, provider, model, and policy revision. Compare like-for-like
+   cohorts, do not read missing feedback as accuracy, and do not rank developers
+   or repositories from the counts.
+2. **Triage missed issues.** Only an operator classifies one; a coding agent may
+   prepare the evidence but must not choose the status or owner. Find the
+   feedback ID with `review-agent-memory export --repo <org>/<repo> --row-limit
+   <per-table-row-limit> --output /opt/data/private-review/export.json` (table
+   `review_quality_feedback`). The export is private: do not give it to a coding
+   agent or paste it into model context, and delete it after triage. Then:
+
+   ```console
+   review-agent-memory triage-feedback <feedback-id> \
+     --status actionable \
+     --stable-key coverage.generated-files \
+     --target-owner coverage \
+     --path src/generated/client.py \
+     --category correctness \
+     --evidence-reference https://github.com/<org>/<repo>/issues/<number> \
+     --actor "github:<operator>" \
+     --reason "The review skipped generated code that changes the public client."
+   ```
+
+   Statuses are `pending`, `actionable`, `duplicate`, `insufficient`, and
+   `resolved`. Only `actionable` takes `--stable-key` (lowercase) and one
+   `--target-owner`: `source_tool`, `coverage`, `review_rule`, `profile`,
+   `repository_decision`, or `documentation`. Triage is append-only; the latest
+   state counts, and a later `resolved`, `duplicate`, or `insufficient` removes
+   the item from coaching without deleting its history.
+3. **Coach.** `review-agent-memory coach-run --repo <org>/<repo> --output-dir
+   /opt/data/private-review/coach-run`. `no_change` means stop. A proposal needs
+   repeated independent episodes for the same finding identity; review it, add a
+   focused replay, and change the owner (profile, rule, tool, or repository
+   context) through a normal pull request. Never run Hermes `/learn` in the live reviewer profile.
 
 ## Repository decision contract
 
-At the start of a review, the reviewer loads matching accepted ADR metadata from
-the exact pull request base SHA. It stores one immutable snapshot with the run
-and shows a short receipt in the published review. Repository content cannot
-change review policy, severity, tools, prompts, or suppression rules.
+At the start of a review, Review Agent loads the accepted ADR metadata that
+matches the changed paths from the pull request's base commit, stores it once
+with the run, and shows a short receipt in the published review. The reviewer
+receives it as untrusted evidence. Repository content cannot change review
+policy, severity, tools, prompts, or suppression rules.
 
-One root index maps changed paths to ADR files:
+One index, `.review-agent/decisions.toml`, maps paths to ADR files. Review Agent
+ignores ADR files the index does not list, and accepts ADRs only under
+`.review-agent/decisions/`.
 
 ```toml title=".review-agent/decisions.toml"
 version = 1
@@ -247,8 +178,8 @@ adr_path = ".review-agent/decisions/ADR-0007-rag-chunking.md"
 applies_to = ["src/rag/**", "tests/rag/**", "docs/rag.md"]
 ```
 
-Each ADR starts with a short TOML block. Keep longer rationale below the block
-for human readers.
+Each ADR starts with a TOML block between `+++` lines. Longer rationale goes
+below it for human readers.
 
 ```md title=".review-agent/decisions/ADR-0007-rag-chunking.md"
 +++
@@ -270,28 +201,31 @@ origin_pr = 418
 Describe the user problem, alternatives, and consequences for maintainers.
 ```
 
-The runtime parses `id`, `title`, `status`, `invariant`, `on_change`, and the
-optional `evidence`, `origin_pr`, and `supersedes` fields. Keep the opening
-marker on line 1 and close the block within 60 lines.
+Required fields are `id`, `title`, `status` (`accepted` or `superseded`),
+`invariant`, and `on_change`; `evidence`, `origin_pr`, and `supersedes` are
+optional. Authorship comes from Git history and the pull request, not the block.
 
-The fixed guards protect this optional metadata path. The index accepts 200
-entries and 1,000 path patterns, and a run loads at most 10 matching typed ADR
-headers. Parsed field lengths keep the begin response within its 160 KiB result
-budget. The 200-entry index still covers path matching against GitHub's
-3,000-file pull-request response ceiling. These guards do not limit pull-request
-size and do not cap changed files, source reads, or review depth. The App ignores
-only ADR evidence for that run when the metadata exceeds a guard. It reports the
-reason and completes the code review.
+| Limit | Value |
+| --- | --- |
+| Index size | 64 KiB, 200 entries |
+| Path patterns | 20 per entry, 1,000 in total |
+| ADR header | starts on line 1, closes within 60 lines, at most 32 KiB |
+| `title` / `invariant` | 300 / 500 characters |
+| `on_change` | 10 items of at most 300 characters |
+| Matching ADRs per review | 10 |
 
-Use CODEOWNERS and branch review for `.review-agent/decisions.toml` and
-`.review-agent/decisions/`. The index owns path relevance. The ADR owns the decision and
-its human rationale. Git history and the pull request remain the source for who
-approved a decision and when; the typed block does not duplicate authorship.
+When the metadata breaks a limit or cannot be read, that review runs without ADR
+evidence, reports the reason, and completes the code review.
 
-## What a pull-request author should see
+Protect `.review-agent/decisions.toml` and `.review-agent/decisions/` with
+CODEOWNERS and branch review. The index owns path relevance; the ADR owns the
+decision.
+
+### What a pull-request author sees
 
 The reviewer must trace a real code path before reporting an ADR conflict. The
-ADR supplies an invariant to check, not proof that the change is wrong.
+ADR supplies an invariant to check, not proof that the change is wrong. A
+conflict is a normal finding with `rule_id = design.adr-conflict`:
 
 ```text
 F2 · Medium (P2): Preserve the retrieval budget recorded in ADR-0007
@@ -306,35 +240,14 @@ Smallest safe fix: keep the coupled values consistent, or merge a superseding
 ADR with updated evaluation evidence before changing the runtime contract.
 ```
 
-The reviewer uses a normal finding with `rule_id = design.adr-conflict`. It does
-not add a separate governance report or name decision authors.
+### Update or retire a decision
 
-## Update or retire a decision
+Create a new ADR when the invariant changes. Set the old one to `superseded`,
+link the replacement in its text, and point the index at the new accepted ADR.
+Merge the decision before the behavior change that depends on it.
 
-Create a new ADR when the invariant changes. Set the old ADR status to
-`superseded`, add the replacement link in its narrative, and point the index at
-the new accepted ADR. Merge that decision before the behavior change when the
-change needs the new contract.
-
-An ADR edit on the current pull-request head remains a proposal. The review uses
-the accepted base snapshot. If a team supersedes an ADR after a review but before
-someone submits feedback, the feedback remains tied to the older review snapshot;
-the next `/review` loads the new decision. An earlier intentional decision stops
-suppressing as soon as the current base snapshot lacks the same accepted ADR
-metadata, even when the code context did not change.
-
-## Runtime boundary
-
-The runtime now:
-
-- loads one bounded snapshot from the exact base SHA;
-- gives the reviewer typed metadata as untrusted evidence;
-- publishes the snapshot status and matching ADR IDs;
-- validates intentional feedback against the finding's immutable source snapshot;
-- reuses an intentional decision only while code context, accepted ADR ID, and
-  ADR metadata hash still match;
-- continues the source review when GitHub or ADR parsing fails.
-
-The runtime has no dashboard, repository instruction injection, directory
-listing, symbol graph, vector database, author inference, or automatic policy
-promotion.
+An ADR edited on the pull request head is a proposal; the review uses the base
+commit. Feedback stays tied to the snapshot of the review it answers, and the
+next `/review` loads the new decision. An earlier `intentional` decision stops
+suppressing as soon as the current base no longer has the same accepted ADR
+metadata, even if the code did not change.

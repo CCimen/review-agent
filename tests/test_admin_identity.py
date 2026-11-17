@@ -142,19 +142,19 @@ class IdentityAPITests(unittest.TestCase):
         settings = {
             "expected_revision": 0,
             "enabled": True,
-            "allowed_domains": ["@Sundsvall.SE", "sundsvall.se"],
+            "allowed_domains": ["@Example.ORG", "example.org"],
             "allowed_emails": ["Partner@example.com"],
             "reason": "Allow verified staff and one partner",
         }
         saved = self.client.put("/api/registration", json=settings)
         self.assertEqual(saved.status_code, 200, saved.text)
-        self.assertEqual(saved.json()["allowed_domains"], ["sundsvall.se"])
+        self.assertEqual(saved.json()["allowed_domains"], ["example.org"])
         self.assertEqual(saved.json()["allowed_emails"], ["partner@example.com"])
         self.assertEqual(
             self.client.put("/api/registration", json=settings).status_code, 409
         )
         settings["expected_revision"] = 1
-        settings["allowed_domains"] = ["*.sundsvall.se"]
+        settings["allowed_domains"] = ["*.example.org"]
         self.assertEqual(
             self.client.put("/api/registration", json=settings).status_code, 422
         )
@@ -181,7 +181,7 @@ class IdentityAPITests(unittest.TestCase):
             json={
                 "expected_revision": 0,
                 "enabled": True,
-                "allowed_domains": ["sundsvall.se"],
+                "allowed_domains": ["example.org"],
                 "allowed_emails": ["partner@example.com", "admin@example.com"],
                 "reason": "Enable approved organization registration",
             },
@@ -193,8 +193,8 @@ class IdentityAPITests(unittest.TestCase):
         self,
     ) -> None:
         self.enable_registration()
-        self.mock_provider("new@sundsvall.se")
-        for index, email in enumerate(("new@sundsvall.se", "partner@example.com")):
+        self.mock_provider("new@example.org")
+        for index, email in enumerate(("new@example.org", "partner@example.com")):
             with self.subTest(email=email):
                 self.claim_changes = {"email": email, "sub": f"new-member-{index}"}
                 response = self.callback(self.start_oidc(register=True))
@@ -230,10 +230,10 @@ class IdentityAPITests(unittest.TestCase):
         for index, (email, verified) in enumerate(
             (
                 ("outside@example.com", True),
-                ("intruder@notsundsvall.se", True),
-                ("intruder@sundsvall.se.example.com", True),
-                ("intruder@sub.sundsvall.se", True),
-                ("intruder@sundsvall.se", False),
+                ("intruder@notexample.org", True),
+                ("intruder@example.org.example.com", True),
+                ("intruder@sub.example.org", True),
+                ("intruder@example.org", False),
                 ("admin@example.com", True),
             )
         ):
@@ -262,7 +262,7 @@ class IdentityAPITests(unittest.TestCase):
 
     def test_registration_rechecks_allowlist_after_provider_redirect(self) -> None:
         self.enable_registration()
-        self.mock_provider("new@sundsvall.se")
+        self.mock_provider("new@example.org")
         state = self.start_oidc(register=True)
         self.fixture.login()
         response = self.client.put(
@@ -270,7 +270,7 @@ class IdentityAPITests(unittest.TestCase):
             json={
                 "expected_revision": 1,
                 "enabled": False,
-                "allowed_domains": ["sundsvall.se"],
+                "allowed_domains": ["example.org"],
                 "allowed_emails": [],
                 "reason": "Pause new registrations",
             },

@@ -11,12 +11,11 @@ import threading
 import uuid
 from typing import Protocol
 
-import psycopg
 
 from . import failure_codes, review_run_application
 from .github.publication import GitHubPublicationError, GitHubPublicationGateway
 from .postgres import publications, review_runs
-from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
+from .postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
 from .review_publication_application import (
     publish_postgres_publication,
     publish_postgres_run_failure_status,
@@ -24,14 +23,6 @@ from .review_publication_application import (
 
 
 logger = logging.getLogger(__name__)
-_TRANSIENT_DATABASE_ERRORS = (
-    PostgreSQLUnavailable,
-    psycopg.errors.DeadlockDetected,
-    psycopg.errors.QueryCanceled,
-    psycopg.errors.LockNotAvailable,
-)
-
-
 class PublisherConfigurationError(ValueError):
     """The publisher cannot start from its supplied configuration."""
 
@@ -115,7 +106,7 @@ class PublicationWorker:
         while not self._stop.is_set():
             try:
                 claim = self._claim()
-            except _TRANSIENT_DATABASE_ERRORS as exc:
+            except TRANSIENT_DATABASE_ERRORS as exc:
                 if once:
                     raise
                 logger.warning("Publication claim deferred: %s", exc)
@@ -131,7 +122,7 @@ class PublicationWorker:
                     self._deliver(claim.publication)
                 elif claim.failure_status is not None:
                     self._deliver_failure_status(claim.failure_status)
-            except _TRANSIENT_DATABASE_ERRORS as exc:
+            except TRANSIENT_DATABASE_ERRORS as exc:
                 if once:
                     raise
                 work_id = (
@@ -244,7 +235,7 @@ class PublicationWorker:
             except review_runs.FailureStatusLeaseLost:
                 lost.set()
                 return
-            except _TRANSIENT_DATABASE_ERRORS as exc:
+            except TRANSIENT_DATABASE_ERRORS as exc:
                 logger.warning("Failure status %s heartbeat deferred: %s", int(target.run_id), exc)
 
     def _deliver(self, publication: publications.StoredPublication) -> None:
@@ -313,7 +304,7 @@ class PublicationWorker:
             except publications.PublicationLeaseLost:
                 lease_lost.set()
                 return
-            except _TRANSIENT_DATABASE_ERRORS as exc:
+            except TRANSIENT_DATABASE_ERRORS as exc:
                 logger.warning(
                     "Publication %s heartbeat deferred: %s",
                     int(publication.id),

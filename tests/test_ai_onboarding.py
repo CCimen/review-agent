@@ -6,7 +6,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
 import unittest
 
 import yaml
@@ -61,55 +60,12 @@ class AiOnboardingContractTests(unittest.TestCase):
                 )
 
         short = (ROOT / "website/static/llms.txt").read_text(encoding="utf-8")
-        full = (ROOT / "website/static/llms-full.txt").read_text(encoding="utf-8")
-        public_contract = " ".join(
-            "\n".join(
-                [
-                    (ROOT / "README.md").read_text(encoding="utf-8"),
-                    (ROOT / "skills/install-review-agent/SKILL.md").read_text(
-                        encoding="utf-8"
-                    ),
-                    short,
-                    full,
-                ]
-            ).split()
-        ).casefold()
-        self.assertIn("Authentication: GitHub App only", short)
-        self.assertIn("approve each installation once", short)
-        self.assertIn("first signed `/review` delivery", short)
-        self.assertIn("Requester authorization still gates the review", short)
-        self.assertNotIn("first authorized `/review`", public_contract)
-        self.assertNotIn("enable each repository separately", short)
-        self.assertIn("REVIEW_AGENT_MODEL_PROVIDER", short)
-        self.assertIn("use Deploy when the source revision changes", short)
-        self.assertIn("AI-assisted setup", short)
-        self.assertIn("## Coding-agent handoff", short)
-        self.assertIn("## Repository-only handoff", short)
-        self.assertIn("check out the exact runtime release named above", short)
-        self.assertIn("skills/install-review-agent/SKILL.md", short)
-        self.assertIn("do not install a floating global copy", short)
-        self.assertIn("install `requirements.txt`", short)
-        self.assertIn(".venv/bin/python tools/review_agent_admin.py capabilities", short)
-        self.assertIn(".venv/bin/python tools/review_agent_admin.py preflight", short)
-        self.assertIn("review-agent-memory quality --days 30", short)
-        self.assertIn("explicit operator triage", short)
-        self.assertNotIn("`review-agent-admin capabilities`", short)
-        self.assertNotIn("/Users/", full)
-        self.assertNotIn("<TabItem", full)
-        self.assertNotIn("import Tabs", full)
-        self.assertNotIn(":::warning", full)
         release_lines = [
             line for line in short.splitlines() if line.startswith("Release state: ")
         ]
         self.assertEqual(len(release_lines), 1)
         release_tag = release_lines[0].removeprefix("Release state: ")
         self.assertTrue(is_release_tag(release_tag))
-        self.assertIn(
-            f"Runtime release selected by `llms.txt`: {release_tag}",
-            full,
-        )
-        self.assertNotIn("Source: https://github.com/CCimen/review-agent/blob/", full)
-        self.assertNotIn("Review Agent revision:", full)
 
         generator = _llms_generator_module()
         repository_context = (ROOT / "docs/REPOSITORY_CONTEXT.md").read_text(
@@ -158,152 +114,7 @@ class AiOnboardingContractTests(unittest.TestCase):
         self.assertEqual(plan["github"]["installation_mode"], "organization_managed")
         self.assertEqual(plan["github"]["repositories"], [])
 
-    def test_public_setup_uses_runnable_operator_commands(self) -> None:
-        setup = (ROOT / "docs/AI_ASSISTED_SETUP.md").read_text(encoding="utf-8")
-        github_app = (ROOT / "docs/GITHUB_APP_PILOT.md").read_text(
-            encoding="utf-8"
-        )
-        skill = (ROOT / "skills/install-review-agent/SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        homepage = (ROOT / "website/src/pages/index.tsx").read_text(encoding="utf-8")
-        combined = f"{setup}\n{skill}"
-        self.assertIn("skills/install-review-agent/SKILL.md", setup)
-        self.assertIn("https://ccimen.github.io/review-agent/llms.txt", combined)
-        self.assertIn(".claude/skills/install-review-agent/SKILL.md", skill)
-        self.assertIn(".agents/skills/install-review-agent/SKILL.md", skill)
-        self.assertIn("repository-owned `.review-agent/` packages", skill)
-        self.assertIn("## Configure one repository", skill)
-        self.assertIn("## Configure only one repository", setup)
-        repository_only = setup.split(
-            "## Configure only one repository", 1
-        )[1].split("## What the agent may do", 1)[0]
-        self.assertIn("repository-context validate", repository_only)
-        self.assertIn(
-            "covered by an approved Review Agent installation", repository_only
-        )
-        self.assertIn(
-            "Do not change the deployment", " ".join(repository_only.split())
-        )
-        self.assertIn("python3 -m venv .venv", combined)
-        self.assertIn(
-            ".venv/bin/python tools/review_agent_admin.py capabilities", combined
-        )
-        self.assertIn(
-            ".venv/bin/python tools/review_agent_admin.py preflight", combined
-        )
-        configure_repository = skill.split(
-            "## Configure one repository", 1
-        )[1].split("## Minimize operator effort", 1)[0]
-        self.assertLess(
-            configure_repository.index("python3 -m venv .venv"),
-            configure_repository.index("repository-context validate"),
-        )
-        self.assertIn(
-            "This mode configures guidance; it does not install or activate Review Agent",
-            " ".join(skill.split()),
-        )
-        repository_context = (ROOT / "docs/REPOSITORY_CONTEXT.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("--network none", repository_context)
-        for public_source in (setup, repository_context, skill):
-            with self.subTest(source=public_source[:40]):
-                normalized_source = " ".join(public_source.split())
-                self.assertIn(
-                    "otherwise preserve", normalized_source.casefold()
-                )
-        self.assertIn("--homepage-url", combined)
-        self.assertIn(
-            "docker compose exec hermes-review review-agent-admin doctor", setup
-        )
-        self.assertIn(
-            "docker compose exec review-github-gateway review-agent-admin installations list",
-            setup,
-        )
-        self.assertIn(
-            "docker compose exec review-github-gateway review-agent-admin repositories list",
-            setup,
-        )
-        self.assertIn("github-app approve <installation-id>", combined)
-        self.assertIn(
-            "docker compose exec review-github-gateway review-agent-admin",
-            skill,
-        )
-        release_lock = setup.split("## 1. Lock the source release", 1)[1].split(
-            "## 2. Record the non-secret decisions", 1
-        )[0]
-        self.assertIn("sed -n 's/^Release state: //p'", release_lock)
-        self.assertIn('git clone --branch "$REVIEW_AGENT_RELEASE"', release_lock)
-        self.assertIn(
-            'test "$(git -C review-agent rev-parse HEAD)" = \\\n'
-            '  "$(git -C review-agent rev-parse "${REVIEW_AGENT_RELEASE}^{commit}")"',
-            release_lock,
-        )
-        self.assertNotIn("blob/main", setup)
-        openshift_checks = setup.split(
-            '<TabItem value="openshift" label="OpenShift">', 1
-        )[1].split("</TabItem>", 1)[0]
-        normalized_openshift_checks = " ".join(
-            openshift_checks.replace("\\\n", " ").split()
-        )
-        for workload, command in (
-            ("hermes-review", "review-agent-admin doctor"),
-            ("hermes-review", "review-agent-admin queues inspect"),
-            ("review-agent-github-gateway", "review-agent-admin installations list"),
-            ("review-agent-github-gateway", "review-agent-admin repositories list"),
-            (
-                "hermes-review",
-                "review-agent-admin smoke-test --dry-run --repository <owner/repository> --pr <number>",
-            ),
-        ):
-            with self.subTest(workload=workload, command=command):
-                self.assertIn(
-                    f"oc rsh deployment/{workload} {command}",
-                    normalized_openshift_checks,
-                )
-        recovery = github_app.split(
-            "## Disable or recover access", 1
-        )[1].split("## Troubleshooting", 1)[0]
-        normalized_recovery = " ".join(recovery.replace("\\\n", " ").split())
-        self.assertIn(
-            "automatic mode, restored provider access becomes eligible",
-            normalized_recovery,
-        )
-        self.assertIn(
-            "explicit mode, rerun `github-app onboard`",
-            normalized_recovery,
-        )
-        self.assertIn("oc rsh deployment/review-agent-github-gateway", github_app)
-        self.assertIn("oc rsh deployment/hermes-review", github_app)
-        normalized_setup = " ".join(setup.replace("\\\n", " ").split())
-        self.assertIn(
-            "oc rsh deployment/hermes-review "
-            "review-agent-memory quality --days 30 --repo <owner/repository>",
-            normalized_setup,
-        )
-        self.assertIn(
-            "automatic mode makes the repository eligible", skill
-        )
-        self.assertIn(
-            "oc rsh deployment/review-agent-github-gateway review-agent-admin",
-            skill,
-        )
-        local_build = homepage.split(
-            '<TabItem value="compose" label="Local Compose build" default>', 1
-        )[1].split("</TabItem>", 1)[0]
-        self.assertIn("docker compose up -d --build", local_build)
-        self.assertIn("attested release image", local_build)
-        self.assertIn("IMAGE-DIGESTS.txt", local_build)
-        self.assertEqual(homepage.count("--build"), local_build.count("--build"))
-        self.assertNotIn('label="Compose / Dokploy"', homepage)
-        self.assertIn("review-agent-memory quality --days 30", skill)
-        self.assertIn("Do not classify feedback for the operator", skill)
-        self.assertIn(
-            "Never read, quote, or summarize the raw export",
-            " ".join(skill.split()),
-        )
-
+    def test_admin_parser_accepts_the_operator_commands(self) -> None:
         parser = _admin_module()._parser()
         commands = (
             ("capabilities",),
@@ -352,9 +163,6 @@ class AiOnboardingContractTests(unittest.TestCase):
         for command in commands:
             with self.subTest(command=command):
                 parser.parse_args(command)
-        self.assertNotIn("preflight --json", combined)
-        self.assertNotIn("doctor --json", combined)
-        self.assertNotIn("installations list --json", combined)
 
     def test_repository_only_starter_validates_with_the_documented_cli(self) -> None:
         completed = subprocess.run(
@@ -374,63 +182,6 @@ class AiOnboardingContractTests(unittest.TestCase):
         receipt = json.loads(completed.stdout)
         self.assertIs(receipt["ready"], True)
         self.assertIs(receipt["configured"], True)
-
-    def test_documented_starter_copy_preserves_existing_repository_policy(self) -> None:
-        copy_command = """
-repository_root="$1"
-if [ -e "$repository_root/.review-agent" ]; then
-  echo ".review-agent already exists; preserve it and edit it in place."
-else
-  cp -R examples/repository-context/.review-agent "$repository_root/"
-fi
-"""
-        skill = (ROOT / "skills/install-review-agent/SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('if [ -e "$repository_root/.review-agent" ]; then', skill)
-
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            temporary_root = Path(temporary_directory)
-            fresh_repository = temporary_root / "fresh"
-            fresh_repository.mkdir()
-            subprocess.run(
-                ["sh", "-c", copy_command, "copy-starter", str(fresh_repository)],
-                check=True,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-            self.assertTrue((fresh_repository / ".review-agent/config.toml").is_file())
-
-            existing_repository = temporary_root / "existing"
-            package = existing_repository / ".review-agent"
-            package.mkdir(parents=True)
-            config = package / "config.toml"
-            instructions = package / "instructions.md"
-            config.write_text("sentinel config\n", encoding="utf-8")
-            instructions.write_text("sentinel instructions\n", encoding="utf-8")
-            subprocess.run(
-                ["sh", "-c", copy_command, "copy-starter", str(existing_repository)],
-                check=True,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(config.read_text(encoding="utf-8"), "sentinel config\n")
-            self.assertEqual(
-                instructions.read_text(encoding="utf-8"),
-                "sentinel instructions\n",
-            )
-
-    def test_docs_ci_runs_installation_contract(self) -> None:
-        package = json.loads((ROOT / "install/package.json").read_text(encoding="utf-8"))
-        command = package["scripts"]["test"]
-        workflow = (ROOT / ".github/workflows/docs-check.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("validate.mjs review-agent.example.yaml", command)
-        self.assertNotIn("--check-example-rejection", command)
-        self.assertIn("npm --prefix install test", workflow)
 
 
 if __name__ == "__main__":

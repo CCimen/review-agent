@@ -266,7 +266,7 @@ def _suggestion_part(
     findings: Sequence[PreparationFinding], publication_key: str
 ) -> PublicationPartInput | None:
     comments: list[JsonValue] = []
-    marker = f"<!-- review-agent:canonical publication={publication_key} -->"
+    marker = f"<!-- {publication_marker(publication_key)} -->"
     for item in findings:
         suggestion = item.suggestion
         if suggestion is None:
@@ -516,7 +516,7 @@ def build_publication(
     key = _publication_key(context, rendered.markdown)
     marker = ReviewBlock(
         kind="metadata",
-        markdown=f"<!-- review-agent:canonical publication={key} -->",
+        markdown=f"<!-- {publication_marker(key)} -->",
     )
     blocks = (*rendered.blocks, marker)
     markdown = review_markdown_from_blocks(blocks)
@@ -693,7 +693,7 @@ def build_documentation_publication(
     blocks.append(ReviewBlock(kind="feedback_help", markdown=(
         "Post `/review docs` as a new top-level PR comment after updating the documents. "
         "To correct a finding, use `/review docs false-positive F1 <reason>`. "
-        "Report scope problems with `/review docs feedback scope <reason>` or missed gaps "
+        "Report scope problems with `/review docs feedback scope F1 <reason>` or missed gaps "
         "with `/review docs feedback missed <reason>`. Replace F1 with the finding reference."
     )))
     markdown = review_markdown_from_blocks(blocks)

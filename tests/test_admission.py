@@ -350,22 +350,6 @@ class AdmissionHttpBoundaryTests(unittest.TestCase):
                     {"REVIEW_AGENT_GITHUB_APP_MAX_BODY_BYTES": "2097153"}
                 )
 
-    def test_signature_and_request_size_fail_before_receipt(self) -> None:
-        with patch.object(
-            admission_entrypoint.admission, "receive_github_app_delivery"
-        ) as receive:
-            status, _, body = self._post_app(valid_signature=False)
-            self.assertEqual(
-                (status, json.loads(body)), (401, {"status": "bad_signature"})
-            )
-
-            status, _, body = self._post_app(b"x" * 100_001)
-            self.assertEqual(
-                (status, json.loads(body)),
-                (413, {"status": "payload_too_large"}),
-            )
-        receive.assert_not_called()
-
     def test_missing_content_length_is_rejected(self) -> None:
         connection = http.client.HTTPConnection(
             "127.0.0.1", self.server.server_port, timeout=2

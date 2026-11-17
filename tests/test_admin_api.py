@@ -151,6 +151,7 @@ class AdminAPITests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/history/0").status_code, 422)
         self.assertEqual(self.client.get("/api/history/1?before_id=0").status_code, 422)
         self.assertEqual(self.client.get("/history/1").status_code, 200)
+        self.assertEqual(self.client.get("/documentation").status_code, 200)
         self.assertEqual(self.client.get("/api/pull-requests").status_code, 200)
         self.assertEqual(self.client.get("/api/overview").status_code, 200)
         self.assertEqual(self.client.get("/api/usage").status_code, 403)

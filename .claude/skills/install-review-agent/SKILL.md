@@ -9,15 +9,30 @@ user-invocable: true
 
 Work from an exact release or commit. Treat the checked-out repository as the
 source of truth; do not infer shipped behavior from a roadmap, proposal, or old
-conversation.
-
-When the operator gives only the public setup page and no checkout, read
-`https://ccimen.github.io/review-agent/llms.txt`, clone its source repository,
-and check out the exact release declared there. Confirm the tag resolves to the
-checked-out commit before continuing. Use this versioned repository-local skill;
-do not install or prefer a floating global copy. Codex and Claude Code mirrors
-are already included at `.agents/skills/install-review-agent/SKILL.md` and
+conversation. Use this versioned repository-local skill; do not install or
+prefer a floating global copy. Codex and Claude Code mirrors are already
+included at `.agents/skills/install-review-agent/SKILL.md` and
 `.claude/skills/install-review-agent/SKILL.md`.
+
+When the operator gives only the public setup page and no checkout, lock the
+release declared by the public index and prove the tag resolves to the
+checked-out commit:
+
+```bash
+REVIEW_AGENT_RELEASE="$(
+  curl -fsSL https://ccimen.github.io/review-agent/llms.txt |
+    sed -n 's/^Release state: //p'
+)"
+test -n "$REVIEW_AGENT_RELEASE"
+git clone --branch "$REVIEW_AGENT_RELEASE" --depth 1 \
+  https://github.com/CCimen/review-agent.git review-agent
+test "$(git -C review-agent rev-parse HEAD)" = \
+  "$(git -C review-agent rev-parse "${REVIEW_AGENT_RELEASE}^{commit}")"
+cd review-agent
+```
+
+Record the release and resolved commit in the report. Do not mix plans,
+schemas, Compose files, or skills from `main` into this checkout.
 
 Choose the smallest mode that matches the request:
 
@@ -89,8 +104,7 @@ a saved mode. Automatic does not sweep every existing open PR.
 
 - Resolve repository, release, platform, and current deployment facts with the
   available read-only tools before asking the operator.
-- Collect missing non-secret owner decisions into one concise request. Do not
-  ask one question at a time when the decisions can be made together.
+- Collect missing non-secret owner decisions into one request.
 - Never ask the operator to paste a secret into chat. Give the exact protected
   field, file mount, or interactive login command and pause for confirmation.
 - Pause once at each unavoidable manual gate, then resume from the recorded
@@ -144,15 +158,17 @@ The last command returns the shipped behavior as bounded JSON.
 - Use **All repositories** only when the owner chose organization-managed
   activation. Use **Only select repositories** for the explicit allowlist. Do
   not broaden App scope or permissions merely to clear an error.
-- Deploy an immutable image digest or build an exact reviewed commit. Never
-  deploy a floating tag.
+- Deploy an immutable image digest pinned from `IMAGE-DIGESTS.txt`, or build an
+  exact commit the owner approved. Never deploy a floating tag.
 - Keep the reviewer advisory. Do not create a merge gate.
 - Never claim completion from container health alone.
 
 ## Prepare without mutation
 
 1. Copy `install/review-agent.example.yaml` outside version control and replace
-   every example decision. Keep secrets out of the file.
+   every example decision. Keep secrets out of the file. Start capacity at the
+   example values; increase workers only when queue wait time or measured
+   throughput requires it.
 2. Validate it against `install/review-agent.schema.json`. In a source checkout
    with the focused validator dependencies installed, run:
 
@@ -161,6 +177,24 @@ The last command returns the shipped behavior as bounded JSON.
    node install/validate.mjs <installation-plan.yaml>
    ```
 
+   The plan maps to deployment controls:
+
+   | Plan field | Deployment control |
+   | --- | --- |
+   | `deployment.image` | `REVIEW_AGENT_IMAGE=<repository>@<digest>` |
+   | `deployment.profile` | `REVIEW_AGENT_PROFILE` |
+   | `deployment.model_provider` | `REVIEW_AGENT_MODEL_PROVIDER` |
+   | `deployment.model` | `REVIEW_AGENT_MODEL` |
+   | `deployment.reasoning_effort` | `REVIEW_AGENT_REASONING_EFFORT` |
+   | `deployment.timezone` | `TZ` |
+   | `deployment.feedback_enabled` | `REVIEW_AGENT_FEEDBACK_ENABLED` |
+   | `runtime.worker_concurrency` | `REVIEW_AGENT_WORKER_CONCURRENCY` |
+   | `runtime.active_job_limit` | `REVIEW_AGENT_ACTIVE_JOB_LIMIT` |
+   | `runtime.worker_replicas` | Compose `--scale review-worker=N` or OpenShift replicas |
+   | `runtime.publication_replicas` | Compose `--scale review-publisher=N` or OpenShift replicas |
+
+   The public URL, platform, GitHub activation mode, and backup owner drive the
+   deployment plan and its approval gates, not a runtime config file.
 3. Generate the prefilled App registration URL with:
 
    ```bash
@@ -175,10 +209,10 @@ The last command returns the shipped behavior as bounded JSON.
    never values, in the plan.
    Ask the owner which model to review with and set `REVIEW_AGENT_MODEL`; it is
    required and has no default. Keep the default `REVIEW_AGENT_MODEL_PROVIDER`
-   and `REVIEW_AGENT_REASONING_EFFORT`, or select a provider supported by Hermes
-   and the owner's account. Prefer the default Codex device-code OAuth
+   and `REVIEW_AGENT_REASONING_EFFORT`, or set the provider to `anthropic`;
+   Review Agent rejects any other provider. Prefer the default Codex device-code OAuth
    route for the first deployment because it needs no model API key. Use
-   `hermes model` for OAuth, API keys, and custom endpoints. Keep provider
+   `hermes model` for OAuth and API keys. Keep provider
    secrets in Hermes' persisted credential store or Hermes-owned `.env`. The
    deployment values, not the interactive wizard, are the source of truth.
    Do not claim live validation for a non-default provider until its deployed
@@ -187,9 +221,10 @@ The last command returns the shipped behavior as bounded JSON.
    environment. It is local and non-mutating.
 
 Before any external write, show the exact image or commit, services, public
-route, GitHub installation scope, activation policy, secret names, migration,
-backup owner, manual gates, verification, and rollback. Ask for approval if the
-user has not already authorized those exact mutations.
+route, GitHub App owner, permissions, events, installation scope, activation
+policy, secret names, migration, backup owner, manual gates, verification, and
+rollback. Ask for approval if the user has not already authorized those exact
+mutations.
 
 ## Apply the approved deployment
 
@@ -208,12 +243,11 @@ installer so the deployment-selected provider/model remains canonical.
 
 Pause for the human when GitHub owner approval, installation scope, Review Agent
 installation approval, secret placement, DNS control, or Hermes model login
-cannot be completed with the authorized tools. State one exact next action and
+cannot be completed with the authorized tools. For a browser or device login,
+give the exact container command and pause. State one exact next action and
 resume after confirmation.
 
 ## Verify in layers
-
-After deployment:
 
 Use `docker compose exec hermes-review review-agent-admin ...` for health,
 queue, and smoke-test commands. Use
@@ -234,12 +268,16 @@ respectively.
      --reason "approved organization-managed reviews"
    ```
 
-   Keep the default explicit policy for a sensitive installation and use
-   `github-app onboard <owner/name> --actor <audited-identity>` for each approved
-   selected repository instead.
+   In automatic mode, `approve` checks Contents read, Issues write, and Pull
+   requests write on the live installation; it does not enumerate
+   repositories. Keep the default explicit policy for a sensitive installation
+   and use `github-app onboard <owner/name> --actor <audited-identity>` for each
+   approved selected repository instead.
 2. Run `review-agent-admin doctor` and `review-agent-admin queues inspect` in
-   `hermes-review`.
-3. List installations and repositories. In automatic mode, confirm the
+   `hermes-review`. `doctor` checks the full App permission and event contract.
+3. Run `review-agent-admin installations list` and
+   `review-agent-admin repositories list` in `review-github-gateway`. In
+   automatic mode, confirm the
    installation is `automatic`; zero repositories before the first signed
    `/review` delivery is valid. Requester authorization still gates the review.
    Repository configuration is optional. If the team approved a local
@@ -288,7 +326,11 @@ one accepted App delivery
 one review run and durable job
 one terminal publication or deterministic failure status
 no duplicate publication
+result for the expected head SHA
 ```
+
+In automatic mode, confirm `repositories list` now contains only the exact
+repository, then run the dry smoke test from step 4.
 
 Read the published GitHub result and deployment state. Test feedback only when
 the user approves a real feedback comment. Do not claim success from webhook
@@ -304,18 +346,22 @@ review-agent-memory quality --days 30 --repo <owner/name>
 
 Explain each signal beside its reported denominator and keep the current triage
 backlog separate from the activity window. Do not calculate an accuracy score
-from missing feedback. Do not classify feedback for the operator. If the
-operator requests triage, the operator must handle the private repository
-export and supply the selected feedback ID and evidence. Never read, quote, or
-summarize the raw export. Present the allowed states, wait for the operator to
-choose the status and target owner, and ask the operator to remove the export
-after triage.
+from missing feedback. Do not classify feedback for the operator. Do not
+promote a coach proposal or change the reviewer profile without an operator
+decision. If the operator
+requests triage, the operator must handle the private repository export and
+supply the selected feedback ID and evidence. Never read, quote, or summarize
+the raw export. Present the allowed states, wait for the operator to choose the
+status and target owner, and ask the operator to remove the export after
+triage.
 
 ## Report and recover
 
-Report stable IDs, exact versions and digests, readiness, dry-run and live-run
-results, backup state, rollback readiness, and unresolved manual gates. Never
-include secret values, full webhook payloads, model prompts, or source excerpts.
+Report stable IDs, exact versions and digests, database readiness and migration
+version, readiness, dry-run and live-run results, backup state, rollback
+readiness, and unresolved manual gates. Never include secret values, full
+webhook payloads, model prompts, or source excerpts. If any field is unknown,
+report the setup as incomplete instead of guessing.
 
 Use this compact completion shape:
 

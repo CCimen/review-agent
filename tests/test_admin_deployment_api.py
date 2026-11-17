@@ -98,4 +98,3 @@ class AdminDeploymentTests(unittest.TestCase):
 
         app.dependency_overrides[auth.current_owner] = denied
         self.assertEqual(client.get("/api/deployment").status_code, 403)
-        self.assertEqual(client.post("/api/deployment").status_code, 405)

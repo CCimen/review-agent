@@ -2,119 +2,78 @@
 sidebar_label: Behavior ownership
 slug: /behavior-ownership
 title: Behavior ownership
-description: Where reviewer identity, policy, procedure, wiring, and repository onboarding belong.
+description: What you can customize about the reviewer, where each change belongs, and what no configuration can change.
 status: current
-last_verified: 2026-09-02
+last_verified: 2026-11-17
 ---
 
 # Behavior ownership
 
-> **TL;DR:** Most organizations do not need their own profile. One deployment
-> normally uses the neutral `default-standard` profile for every approved
-> organization and repository. Each repository may add an optional
-> `.review-agent/` package for team instructions, explicitly selected technical
-> context, and accepted decisions. Create another deployment profile only when
-> an environment needs a different shared identity or fixed review policy.
-> GitHub App installation controls access; it does not select reviewer behavior.
+Most organizations need no profile of their own. One deployment uses the
+neutral `default-standard` profile for every approved installation and
+repository, and each repository can add its own `.review-agent/` package.
 
-The effective review has three layers:
+## What you can change, and where
 
-| Layer | Scope | Owner |
+| To change | Edit | Scope |
 | --- | --- | --- |
-| Review engine | Every review | Deterministic authorization, snapshot, storage, tool, and publication code. Repository content cannot change it. |
-| Deployment profile | Every repository served by one environment | `SOUL.md` defines the neutral identity, `AGENTS.md` defines the fixed review contract, and the managed `review-agent-pr` and `review-agent-docs` skills define each procedure. |
-| Repository package | One repository | `.review-agent/` adds local instructions, ordered platform context, and accepted decisions from the pull request's exact base commit. |
+| The reviewer's identity, tone, and stance when explaining risk | `SOUL.md` in the deployment profile | Every repository served by the deployment |
+| Review rules: scope, severity, coverage, finding and suggestion format, feedback rules | `workspace/AGENTS.md` in the deployment profile | Every repository served by the deployment |
+| The review procedure and tool sequence | `skills/review-agent-pr/SKILL.md` (code) and `skills/review-agent-docs/SKILL.md` (documentation) in the deployment profile | Every repository served by the deployment |
+| Repository instructions, ordered technical context, accepted design decisions, documentation mappings | `.review-agent/` in the repository ([Repository context](./REPOSITORY_CONTEXT.md)) | One repository, from the pull request's base commit |
+| Provider, model, and reasoning effort | `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, `REVIEW_AGENT_REASONING_EFFORT`, or the console **Settings**; teams can use separate model connections ([Admin panel](./ADMIN_PANEL.md)) | The deployment, or one team |
 
-The current deployment has one selected reviewer profile per environment.
-Change the canonical owner of a concern instead of adding repository-name
-conditionals or copying policy into runtime code.
+The console records the model route of each admitted request with that
+request. A saved route change applies to new requests only.
 
-| Concern | Current owner | Change it when |
-| --- | --- | --- |
-| Identity, tone, and evidence posture | `bootstrap/profiles/default-standard/SOUL.md` | The reviewer's deployment-wide voice or stance changes. |
-| Review rules and visible contract | `bootstrap/profiles/default-standard/workspace/AGENTS.md` | Scope, severity, coverage, finding, suggestion, or feedback rules change. |
-| Review procedure and tool sequence | `bootstrap/profiles/default-standard/skills/review-agent-pr/SKILL.md` | The two-pass workflow or tool-call procedure changes. |
-| Instructions for the part and final sessions of a very large review | `bootstrap/plugins/review_agent_tools/review_part_instructions.py` | What a review part hands in, or how the final session reconciles parts, changes. |
-| Provider, model, and reasoning effort | Deployment environment; the console source candidate can save a policy used at admission | The inference route, model, or review depth changes. |
-| Toolset, route, and prompt wiring | `bootstrap/config.yaml` | Hermes runtime wiring changes. |
-| Deterministic reads, state, rendering, and publication | `bootstrap/plugins/review_agent_tools/` | A runtime invariant or external boundary changes. |
-| Durable job execution | `review_agent_tools.worker` and `review_agent_tools.postgres.jobs` | Claim, heartbeat, retry, or exact-run continuation behavior changes. |
-| Deployment and environment wiring | `compose.yaml` and `.env.example` | Container topology or supported configuration changes. |
-| Repository trigger contract | `review_agent_tools.github_webhook` and `review_agent_tools.admission` | Signed GitHub App event or command behavior changes. |
-| Repository instructions and ordered context | `.review-agent/config.toml`, `.review-agent/instructions.md`, and indexed `.review-agent/context/**/*.md` | A team changes repository-specific review focus, technical facts, or communication preferences. |
-| Immutable repository guidance | `review_agent_tools.repository_guidance_context` and `review_guidance_snapshots` | Exact-base loading, bounds, degradation, hashing, or run provenance changes. |
-| Repository decision format and matching | `.review-agent/decisions.toml`, typed ADR headers, and `review_agent_tools.domain.repository_decisions` | A repository maps an accepted invariant to different paths or the shared typed contract changes. |
-| Immutable decision evidence | `review_agent_tools.repository_decision_context` and `review_decision_snapshots` | Loading, degradation, hashing, or run provenance changes. |
-| Documentation relationships and exclusions | `.review-agent/documentation.toml` and `domain/documentation_policy.py` | Maintained document mappings, intent, or the versioned repository contract changes. |
-| Documentation operating modes | `postgres/documentation_operating_policy.py`, deployment Settings, and team/repository controls | Off/Manual/Automatic precedence or scoped administration changes. |
-| Documentation scope and evidence | `documentation_scope.py`, `documentation_preflight.py`, `documentation_findings.py`, and `postgres/documentation_reviews.py` | Exact comparison, bounded reads, validation, or immutable evidence changes. |
-| Documentation procedure | `bootstrap/profiles/default-standard/skills/review-agent-docs/SKILL.md` | Semantic documentation assessment instructions change. |
+## What no configuration can change
 
+Authorization, the model's tool set, the reviewed base and head commits and
+their re-checks, persistence, the finding gates, and GitHub publication are
+fixed in code and in the managed `bootstrap/config.yaml`. A profile manifest
+cannot name a model, provider, tool, or permission, and repository content
+cannot change any of them. Fixed GitHub headings and hidden markers are part of
+the protocol, not profile templates. See [How reviews work](./HOW_REVIEWS_WORK.md).
 
-The [console source candidate](ADMIN_PANEL.md) records each admitted request's
-model route in its immutable review contract. Saved route changes affect new
-requests. The installed receipt still owns the profile, engine, configuration,
-image, and result budget; operational settings load at service startup.
+## Create a deployment profile
 
-## Selecting a deployment profile
+Create another profile only when an environment needs a different shared
+identity or fixed review policy. Profiles are part of the image, so a custom
+profile means building your own image from this repository.
 
-Set `REVIEW_AGENT_PROFILE` to a trusted directory key under
-`bootstrap/profiles`. The default is `default-standard`. The installer records
-the selected profile and its reviewed skill list in `HERMES_HOME`. Outside the
-packaged Compose deployment, it reuses that receipt when no explicit value is
-supplied. Compose always injects `REVIEW_AGENT_PROFILE`, so deployed selection
-remains explicit. Skills recorded as managed by the previous selector are
-removed when the new bundle does not list them.
+1. Copy `bootstrap/profiles/default-standard/` to
+   `bootstrap/profiles/<key>/`. The key uses lower-case words separated by
+   hyphens.
+2. Edit the files. A profile contains:
+   - `SOUL.md`;
+   - `workspace/AGENTS.md`;
+   - `profile.json` with exactly `schema_version` (`1`) and `skills`, a list
+     of skill keys without duplicates;
+   - `skills/<key>/SKILL.md` for each listed skill.
+3. Keep `review-agent-pr` and `review-agent-docs` in `skills`. The installer
+   rejects a profile missing either one.
+4. Build the image and set `REVIEW_AGENT_PROFILE=<key>`. Compose passes it to
+   the services, and the one-shot `review-profile-install` service installs
+   the profile into `HERMES_HOME` before the reviewer starts.
 
-Each profile contains:
+The installer checks the profile's structure and that every listed skill
+exists. It does not interpret their text. It writes a receipt of the installed
+profile and skills, and on the next install it removes skills that the previous
+profile installed and the new one does not list. Outside Compose, the installer
+reuses the receipt's profile when `REVIEW_AGENT_PROFILE` is not set.
 
-- `SOUL.md` for identity, tone, and explanatory language;
-- `workspace/AGENTS.md` for stable review rules and presentation;
-- `profile.json` for the explicit reviewed-skill keys; and
-- one directory under `skills/` for each listed key.
+## Changing `SOUL.md` and `AGENTS.md`
 
-Every profile must include the skills named by the managed webhook review route,
-currently `review-agent-pr` and `review-agent-docs`. Add the reviewed docs procedure
-and its manifest entry when upgrading a custom profile; a missing managed skill
-fails installation. Both procedures are part of the immutable execution receipt.
-Additional skill files are trusted, code-reviewed
-profile content. The installer validates their keys and presence; it does not
-interpret or authorize their prose or front matter.
+A change to `SOUL.md` or `AGENTS.md` affects every repository the deployment
+serves, so review it as a policy change. Put stable review rules and the
+visible comment contract in `AGENTS.md`, and procedure in the skill. A team
+that wants different wording or focus for its own repository uses
+`.review-agent/instructions.md` instead.
 
-The machine-validated manifest deliberately has no model, provider, route,
-tool, authorization, snapshot, persistence, marker, or lifecycle settings.
-The deployment selects the provider, model, and reasoning effort; other runtime
-invariants remain fixed in managed configuration and deterministic code. Fixed
-GitHub headings and hidden markers are not free-form profile templates.
+`SOUL.md` follows Hermes'
+[personality and `SOUL.md`](https://hermes-agent.nousresearch.com/docs/user-guide/features/personality)
+conventions; see also its
+[guide to a custom soul](https://hermes-agent.nousresearch.com/docs/guides/use-soul-with-hermes).
 
-## Changing `SOUL.md`
-
-`SOUL.md` owns the neutral reviewer identity: evidence-first tone, constructive
-language, and the stance taken when explaining risk and remediation. A change
-affects every repository using that deployed profile, so review it as a
-product-policy change. Teams use repository `instructions.md` for local
-communication preferences rather than replacing Hermes' deployment-wide soul.
-
-This follows Hermes' native [personality and `SOUL.md` ownership](https://hermes-agent.nousresearch.com/docs/user-guide/features/personality)
-and its [deployment guide for a custom soul](https://hermes-agent.nousresearch.com/docs/guides/use-soul-with-hermes).
-
-## Changing review rules
-
-Use `AGENTS.md` for stable review invariants and the visible comment contract.
-Use the review skill for procedural sequencing. Keep authorization, snapshot
-validation, persistence, and publication rules in deterministic code rather
-than relying on prose alone.
-
-## Repository-specific context
-
-Repositories share the deployment's neutral profile and deterministic safety
-contract. Each repository may opt into one explicit `.review-agent/` package
-for local engineering principles, ordered platform context, and accepted
-decisions. The runtime reads it from the exact base commit and stores immutable
-run snapshots; current pull-request content cannot rewrite its own review.
-
-[Repository context](./REPOSITORY_CONTEXT.md) owns the copyable package,
-selection order, validation command, capacity boundary, and trust rules.
-[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md) owns typed ADR and
-feedback semantics. Keep repository-specific behavior out of engine branches
-and repository-name conditionals.
+Feedback commands and design decisions are described in
+[Feedback and design decisions](./FEEDBACK_AND_DECISIONS.md).

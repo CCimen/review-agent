@@ -1,98 +1,45 @@
 ---
 sidebar_label: Capabilities
 slug: /roadmap
-title: Capabilities and boundaries
-description: The working Review Agent core and the integrations kept outside it.
+title: Capabilities and limits
+description: What Review Agent does today and what it does not do.
 status: current
-last_verified: 2026-09-29
+last_verified: 2026-11-17
 ---
 
-# Capabilities and boundaries
+# Capabilities and limits
 
-> **Current** — The maintainability-first core described on this page is
-> implemented in the repository. Optional integrations have separate product
-> and security decisions.
+## What it does
 
-## Core platform
+| Capability | Summary | Details |
+| --- | --- | --- |
+| Code review on request | `/review` reviews the pull request's current base and head commits and publishes advisory findings | [How reviews work](./HOW_REVIEWS_WORK.md) |
+| Security review | Every code review traces untrusted input across trust boundaries in the changed code | [How reviews work](./HOW_REVIEWS_WORK.md#4-the-review) |
+| Large pull requests | A diff too large for one session is reviewed in up to twelve parts and merged into one review | [How reviews work](./HOW_REVIEWS_WORK.md#5-large-pull-requests) |
+| Re-review and feedback | Earlier findings are re-checked; maintainers can mark a finding false positive or intentional | [Feedback and decisions](./FEEDBACK_AND_DECISIONS.md) |
+| Repository context | A `.review-agent/` package adds instructions, platform context, and accepted design decisions | [Repository context](./REPOSITORY_CONTEXT.md) |
+| Documentation review | `/review docs`, or an automatic mode, checks whether a pull request leaves mapped documents inaccurate | [Documentation review](./DOCUMENTATION_REVIEW.md) |
+| Code graph (optional) | Structural and semantic lookups of related code | [Code graph](./CODE_GRAPH.md) |
+| Admin console (optional) | Teams, roles, repository access, model connections, usage, audit, OIDC and SCIM | [Admin panel](./ADMIN_PANEL.md) |
+| Many organizations | One deployment serves any number of approved GitHub App installations | [GitHub App setup](./GITHUB_APP_PILOT.md#share-the-app-with-other-organizations) |
+| Deployment | One Compose stack for Docker, Dokploy, Coolify, and Portainer, and an OpenShift template | [Deployment](./DEPLOYMENT.md) |
 
-- **Trusted admission:** the GitHub App validates direct comment events, an
-  operator-approved installation policy, exact repository access, and requester
-  permission before durable work is admitted and the current base and head
-  commits are pinned.
-- **Evidence-backed review:** Hermes receives bounded read tools, records
-  coverage, challenges candidate findings, and keeps incomplete review depth
-  visible.
-- **Durable execution:** PostgreSQL coordinates fair job claims, retry budgets,
-  dead-letter recovery, exact-run continuation, and generation fencing across
-  replicated workers.
-- **Recoverable publication:** the review tool freezes immutable comment parts;
-  a separate publisher writes them to GitHub and recovers ambiguous writes
-  without creating duplicate comments.
-- **Operator control:** scoped commands cover queue inspection, retries,
-  cancellation, run recovery, publication status, backup, restore, feedback,
-  and private verification exports.
-- **Deployment profiles:** a reviewed profile owns voice, stable rules,
-  presentation, and enabled skills. Engine code keeps authorization, tool
-  limits, snapshot checks, state transitions, and GitHub writes fixed.
-- **Repository context:** one explicit `.review-agent/` package can add team
-  instructions and ordered platform or framework facts from the exact base
-  commit. The package is bounded, content-addressed, and cannot override the
-  deployment contract.
-- **Repository decisions:** typed ADR metadata from the exact base commit gives
-  the reviewer repository-specific invariants without granting repository files
-  control over policy, tools, or severity.
-- **Architecture-aware review:** each code review checks ownership, coupling,
-  and duplicated policy introduced by the pull request. A repository can
-  describe its intended structure and invariants through
-  [repository context](./REPOSITORY_CONTEXT.md#get-architecture-aware-reviews).
-- **Security review in every code review:** source-based guidance adapted from
-  Cloudflare's security-audit skill traces untrusted input across trust
-  boundaries in the changed code. It is not a dependency or CVE scanner.
-- **Documentation review:** `/review docs`, or an automatic mode set per team or
-  repository, checks whether a pull request leaves mapped documents inaccurate
-  and reports an advisory GitHub check, plus a comment when it recommends
-  changes. See
-  [Documentation review](./DOCUMENTATION_REVIEW.md).
-- **Admin console:** teams, scoped roles, repository requests, shared or
-  dedicated model connections, usage and quality reports, audit, organization
-  sign-in and SCIM, and read-only application integrations. See
-  [Admin panel](./ADMIN_PANEL.md) and
-  [Team access and model accounts](./TEAM_ACCESS_AND_MODEL_ACCOUNTS.md).
-- **Portable deployment:** the repository ships one Compose stack for Docker,
-  Dokploy, Coolify, and Portainer plus an arbitrary-UID OpenShift template.
+State lives in one PostgreSQL database per environment. Jobs and publication
+are lease-based, so workers and publishers can run in several replicas and an
+interrupted review resumes from stored state.
 
-The deployment uses one PostgreSQL database per environment. Hermes keeps its
-own profile and session files outside application state.
+## What it does not do
 
-## Runtime contract
-
-- **Review and reporting:** Bounded PR reads feed Direct PostgreSQL review
-  state, Durable PostgreSQL job records, and Repository-scoped exports.
-- **Database lifecycle:** Checksum-verified PostgreSQL migrations make schema
-  changes explicit and repeatable.
-- **State ownership:** One PostgreSQL database per environment. PostgreSQL owns
-  application persistence; Hermes `HERMES_HOME` remains separate.
-- **Connection safety:** Network and model calls never hold database
-  connections.
-- **Recovery:** Reviews are activated through signed admission, use exact-run
-  continuation, and publish through a recoverable publisher lease.
-
-## Not available yet
-
-- **Automatic code review.** Code review starts when an authorized developer
-  comments `/review`; only documentation review has an automatic mode.
-- **Chat and notification channels beyond GitHub.** Review Agent publishes to
-  GitHub only. GitHub's own Slack and Microsoft Teams apps can relay those
-  comments and reviews; see the [FAQ](./FAQ.md#can-we-follow-reviews-in-slack-or-microsoft-teams).
-- **A focused `/security` mode and repository-wide security scans.** Security
-  review covers what a pull request introduces or worsens.
-- Repository-specific replacement profiles or remote context-package imports.
-
-Each extension needs a concrete operator need, an owner, and a security review.
-The core platform does not depend on any of them.
-
-## Outside the reviewer
-
-CodeQL, dependency scanning, SARIF aggregation, and other deterministic scanners
-belong in repository CI. Review Agent may discuss risks visible in a pull request,
-but it does not replace those controls or become the default merge owner.
+- **Block merges.** Reviews are advisory.
+- **Start code reviews automatically.** A code review starts when an authorized
+  user comments `/review`. Only documentation review has an automatic mode.
+- **Review pull requests from forks.**
+- **Run code.** Nothing from the pull request is executed, and no tests run.
+- **Scan dependencies or the whole repository.** Keep CodeQL, dependency
+  scanning, tests, and type checks in CI. Security review covers what the pull
+  request changes.
+- **Publish anywhere but GitHub.** GitHub's own Slack and Microsoft Teams apps
+  can relay the comments; see the
+  [FAQ](./FAQ.md#can-we-follow-reviews-in-slack-or-microsoft-teams).
+- **Load a different reviewer profile per repository.** One deployment uses one
+  profile; repositories customize through their `.review-agent/` package.

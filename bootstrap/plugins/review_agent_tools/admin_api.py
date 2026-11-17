@@ -436,6 +436,7 @@ def create_app(
         "/integrations",
         "/model-connections",
         "/model-connections/{connection_id}",
+        "/documentation",
     ):
         app.add_api_route(path, index, methods=["GET"], include_in_schema=False)
     app.add_api_route("/account", index, methods=["GET"], include_in_schema=False)

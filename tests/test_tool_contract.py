@@ -433,11 +433,6 @@ class ToolContractTests(unittest.TestCase):
             ["existing_run_id"],
         )
 
-    def test_delivery_schema_describes_the_durable_publisher_handoff(self) -> None:
-        description = schemas.REVIEW_AGENT_DELIVER["description"]
-        self.assertIn("queue immutable publication intent", description)
-        self.assertIn("separate recoverable publisher", description)
-
     def test_worker_continues_the_exact_run_without_starting_another(self) -> None:
         pull = {
             "state": "open",

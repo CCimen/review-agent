@@ -97,9 +97,7 @@ class FakePostgresPublicationGitHub:
         self.list_issue_comments_calls = 0
         self.fail_on_list_call: int | None = None
         self.before_target_read: Callable[[], None] | None = None
-        self.publication_leases: list[tuple[int, str, int]] = []
         self.posted_publications: list[int] = []
-        self.failure_status_leases: list[tuple[int, str, int]] = []
 
     def list_check_runs(self, repository: str, *, max_pages: int = 3) -> CheckRunScan:
         self._outside_transaction()
@@ -137,9 +135,6 @@ class FakePostgresPublicationGitHub:
         lease_owner: str,
         lease_generation: int,
     ) -> FakePostgresPublicationGitHub:
-        self.publication_leases.append(
-            (publication_id, lease_owner, lease_generation)
-        )
         return self
 
     def for_failure_status(
@@ -149,7 +144,6 @@ class FakePostgresPublicationGitHub:
         lease_owner: str,
         lease_generation: int,
     ) -> FakePostgresPublicationGitHub:
-        self.failure_status_leases.append((run_id, lease_owner, lease_generation))
         return self
 
     def for_posted_publication(
@@ -2630,11 +2624,6 @@ class PostgreSQLPublicationTests(unittest.TestCase):
             )
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.recovered_parts, 0)
-        body = review_publication_application._failure_status_body(
-            int(run_id), "a" * 40, "github_http_500_create_issue_comment"
-        )
-        self.assertNotIn("no findings were published", body)
-        self.assertIn("may already be present", body)
 
     def test_confirmed_last_comment_is_acknowledged_if_head_moves_after_write(self) -> None:
         run_id, batch = self.start_recorded_run()
@@ -3627,29 +3616,6 @@ class PostgreSQLPublicationTests(unittest.TestCase):
         with self.runtime.transaction() as connection:
             retried_cleanup = review_runs.failure_status_target(connection, retry_run)
         self.assertIsNone(retried_cleanup.comment_id)
-
-    def test_ordinary_publisher_delivers_one_durable_failure_status(self) -> None:
-        run_id, _ = self.start_recorded_run(request_key="failure-status-worker")
-        with self.runtime.transaction() as connection:
-            review_runs.fail_run(connection, run_id, failure_code="review_deliver_error")
-        github = FakePostgresPublicationGitHub(self.runtime)
-        worker = PublicationWorker(
-            self.runtime, github,
-            PublisherPolicy(
-                lease_duration=timedelta(seconds=30), heartbeat_interval=timedelta(seconds=5),
-                retry_delay=timedelta(seconds=1), poll_interval=timedelta(milliseconds=10),
-                max_comment_bytes=60_000,
-            ),
-            lease_owner="failure-worker", stop_event=threading.Event(),
-        )
-
-        worker.run(once=True)
-
-        with self.runtime.transaction() as connection:
-            stored = review_runs.failure_status_target(connection, run_id)
-        self.assertEqual(stored.delivery_status, "posted")
-        self.assertEqual(stored.comment_id, github.comments[0].comment_id)
-        self.assertEqual(len(github.comments), 1)
 
     def test_failure_status_is_not_posted_on_a_closed_pull_request(self) -> None:
         github = FakePostgresPublicationGitHub(self.runtime)

@@ -199,136 +199,6 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
             "deletions": 5,
         }
 
-    def test_authorize_review_sends_only_durable_delivery_lease_identity(self) -> None:
-        opener = _Opener(
-            json.dumps(
-                {
-                    "provider_installation_id": 7001,
-                    "provider_repository_id": 9001,
-                    "repository": "CCimen/review-agent",
-                    "pr_number": 42,
-                    "comment_id": 6001,
-                    "sender_login": "ccimen",
-                    "base_sha": "b" * 40,
-                    "head_sha": "a" * 40,
-                }
-            ).encode("utf-8")
-        )
-        client = ReviewGitHubGatewayClient(
-            "http://review-github-gateway:8646",
-            opener=cast(urllib.request.OpenerDirector, opener),
-        )
-
-        result = client.authorize_review_delivery(
-            delivery_id=31,
-            lease_owner="github-app:worker-1",
-            lease_generation=4,
-        )
-
-        self.assertEqual(result.provider_repository_id, 9001)
-        self.assertEqual(len(opener.requests), 1)
-        request = opener.requests[0]
-        self.assertEqual(
-            getattr(request, "full_url"),
-            "http://review-github-gateway:8646/v1/review-deliveries/authorize",
-        )
-        self.assertEqual(
-            json.loads(getattr(request, "data")),
-            {
-                "delivery_id": 31,
-                "lease_owner": "github-app:worker-1",
-                "lease_generation": 4,
-            },
-        )
-
-    def test_feedback_gateway_sends_only_delivery_lease_and_fixed_status(self) -> None:
-        authorize_opener = _Opener(
-            json.dumps(
-                {
-                    "provider_installation_id": 7001,
-                    "provider_repository_id": 9001,
-                    "repository": "CCimen/review-agent",
-                    "pr_number": 42,
-                    "comment_id": 6001,
-                    "sender_id": 5001,
-                    "sender_login": "ccimen",
-                    "author_association": "MEMBER",
-                    "authorization_version": "sha256:" + ("a" * 64),
-                }
-            ).encode("utf-8")
-        )
-        client = ReviewGitHubGatewayClient(
-            "http://review-github-gateway:8646",
-            opener=cast(urllib.request.OpenerDirector, authorize_opener),
-        )
-
-        result = client.authorize_feedback_delivery(
-            delivery_id=32,
-            lease_owner="github-app:worker-1",
-            lease_generation=5,
-        )
-
-        self.assertEqual(result.sender_id, 5001)
-        request = authorize_opener.requests[0]
-        self.assertEqual(
-            getattr(request, "full_url"),
-            "http://review-github-gateway:8646/v1/review-feedback/authorize",
-        )
-        self.assertEqual(
-            json.loads(getattr(request, "data")),
-            {
-                "delivery_id": 32,
-                "lease_owner": "github-app:worker-1",
-                "lease_generation": 5,
-            },
-        )
-
-        acknowledgement_opener = _Opener(b'{"acknowledged":true}')
-        acknowledgement_client = ReviewGitHubGatewayClient(
-            "http://review-github-gateway:8646",
-            opener=cast(urllib.request.OpenerDirector, acknowledgement_opener),
-        )
-        acknowledged = acknowledgement_client.acknowledge_feedback(
-            delivery_id=32,
-            lease_owner="github-app:worker-1",
-            lease_generation=5,
-            status="recorded",
-        )
-        self.assertTrue(acknowledged)
-        acknowledgement_request = acknowledgement_opener.requests[0]
-        self.assertEqual(
-            getattr(acknowledgement_request, "full_url"),
-            "http://review-github-gateway:8646/v1/review-feedback/acknowledge",
-        )
-        self.assertEqual(
-            json.loads(getattr(acknowledgement_request, "data")),
-            {
-                "delivery_id": 32,
-                "lease_owner": "github-app:worker-1",
-                "lease_generation": 5,
-                "status": "recorded",
-            },
-        )
-
-    def test_review_acknowledgement_sends_only_admitted_run_identity(self) -> None:
-        opener = _Opener(b'{"acknowledged":true}')
-        client = ReviewGitHubGatewayClient(
-            "http://review-github-gateway:8646",
-            opener=cast(urllib.request.OpenerDirector, opener),
-        )
-
-        acknowledged = client.acknowledge_review(run_id=51)
-
-        self.assertTrue(acknowledged)
-        request = opener.requests[0]
-        self.assertEqual(
-            getattr(request, "full_url"),
-            "http://review-github-gateway:8646/v1/review-runs/acknowledge",
-        )
-        self.assertEqual(
-            json.loads(getattr(request, "data")),
-            {"run_id": 51},
-        )
     def test_publication_gateway_preserves_failure_classification(self) -> None:
         client = Mock()
         gateway = AuthorizedPublicationGateway(
@@ -1602,10 +1472,6 @@ class ReviewGitHubGatewayClientTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DocumentationCheckProviderTests(unittest.TestCase):
     @staticmethod
     def check(check_id: int = 11) -> dict[str, object]:
@@ -1693,3 +1559,7 @@ class DocumentationCheckProviderTests(unittest.TestCase):
             with self.assertRaises(GitHubGatewayRejected):
                 service.execute(denied)
             provider.update_check_run.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

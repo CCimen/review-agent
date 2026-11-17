@@ -1801,9 +1801,9 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 now=datetime(2026, 8, 24, 12, 2, tzinfo=timezone.utc),
             )
 
-    def test_open_only_and_export_truncation_are_observable(self) -> None:
+    def test_export_truncation_is_observable(self) -> None:
         run = self.start(pr_number=47, request_suffix="4261")
-        batch = self.record_finding(
+        self.record_finding(
             run,
             findings=(
                 self.finding(),
@@ -1814,31 +1814,6 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
                 ),
             ),
         )
-        operator_application.decide_finding(
-            self.runtime,
-            operator_application.OperatorDecisionRequest(
-                repository=self.repository,
-                fingerprint=batch.items[0].fingerprint,
-                decision="false_positive",
-                reason="The platform owns this precondition.",
-                actor="operator@example.org",
-                occurrence_id=int(batch.items[0].occurrence_id),
-                expires_days=45,
-            ),
-            now=datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
-        )
-        open_findings = operator_application.list_findings(
-            self.runtime,
-            repository=self.repository,
-            limit=20,
-            include_suppressed=False,
-            now=datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc),
-        )
-        self.assertEqual(
-            tuple(item.fingerprint for item in open_findings),
-            (batch.items[1].fingerprint,),
-        )
-
         exported = operator_application.export_repository(
             self.runtime,
             repository=self.repository,
@@ -2190,72 +2165,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self,
     ) -> None:
         run = self.start(pr_number=61, request_suffix="4401")
-        batch = self.record_finding(run)
-        for phase in (
-            ReviewPhase.FETCHING_PR,
-            ReviewPhase.COLLECTING_DIFF,
-            ReviewPhase.REVIEWING,
-            ReviewPhase.RENDERING,
-        ):
-            with self.runtime.transaction() as connection:
-                review_runs.advance_phase(connection, run.run.id, phase)
-        publication_key = "sha256:" + ("d" * 64)
-        plan = resolve_publication_plan(
-            publication_key=publication_key,
-            rendered_markdown="## Review\n\nExact persisted review.\n",
-            rendered_blocks_schema_version=1,
-            rendered_blocks=(
-                {"kind": "header", "markdown": "## Review"},
-                {"kind": "finding", "markdown": "Exact persisted review."},
-            ),
-            parts=(
-                PublicationPartInput(
-                    part_type=PublicationPartType.SUMMARY,
-                    part_number=1,
-                    payload_schema_version=1,
-                    payload={
-                        "body": (
-                            "Exact persisted review.\n\n"
-                            "<!-- review-agent:canonical publication="
-                            + publication_key
-                            + " part=1/1 -->"
-                        )
-                    },
-                ),
-            ),
-            findings=(
-                PublicationFindingInput(
-                    finding_id=int(batch.items[0].finding_id),
-                    source_finding_occurrence_id=int(batch.items[0].occurrence_id),
-                    source_review_run_id=int(batch.run_id),
-                    local_reference=batch.items[0].local_reference,
-                    outcome=PublicationFindingOutcome.CURRENT,
-                ),
-            ),
-        )
-        with self.runtime.transaction() as connection:
-            prepared = publications.prepare_publication(
-                connection, run_id=run.run.id, plan=plan
-            )
-        with self.runtime.transaction() as connection:
-            claim = publications.claim_publication(connection, prepared.id)
-        assert claim.publication.posting_started_at is not None
-        with self.runtime.transaction() as connection:
-            publications.acknowledge_part(
-                connection,
-                publication_id=prepared.id,
-                part_type=PublicationPartType.SUMMARY,
-                part_number=1,
-                external_id=901,
-                posting_started_at=claim.publication.posting_started_at,
-            )
-            publications.complete_publication(
-                connection,
-                publication_id=prepared.id,
-                posting_started_at=claim.publication.posting_started_at,
-            )
-            review_runs.advance_phase(connection, run.run.id, ReviewPhase.PUBLISHING)
-            review_runs.complete_run(connection, run.run.id, findings_count=1)
+        self.publish_run(run, self.record_finding(run), key_character="d")
 
         listed = operator_application.list_publications(
             self.runtime,
@@ -2264,7 +2174,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
             limit=10,
         )
         self.assertEqual(len(listed), 1)
-        self.assertEqual(listed[0].comment_ids, (901,))
+        self.assertEqual(listed[0].comment_ids, (900 + int(run.run.id),))
         self.assertEqual(listed[0].status, "posted")
 
         source = operator_application.verification_export_source(

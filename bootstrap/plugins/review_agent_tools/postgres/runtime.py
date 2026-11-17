@@ -40,6 +40,15 @@ class PostgreSQLNotReady(PostgreSQLRuntimeError):
     """PostgreSQL is reachable but not ready for this application image."""
 
 
+# Errors a polling worker waits out and retries instead of failing its work.
+TRANSIENT_DATABASE_ERRORS = (
+    PostgreSQLUnavailable,
+    psycopg.errors.DeadlockDetected,
+    psycopg.errors.QueryCanceled,
+    psycopg.errors.LockNotAvailable,
+)
+
+
 class PostgreSQLRuntimeRole(StrEnum):
     ADMISSION = "admission"
     REVIEWER = "reviewer"

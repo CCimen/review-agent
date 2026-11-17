@@ -182,7 +182,7 @@ export const failureSentence = (code: string) =>
  *  tool. Selecting a wrapped <code> by hand is the friction this removes.
  *
  *  The value stays plain text beside an icon-only button rather than inside
- *  it, so a chip, a pill and an underline no longer stack on one token. The
+ *  it, so a chip, a pill and an underline do not stack on one token. The
  *  icon swaps to a check on success (transitions.dev 09) and the change is
  *  announced for readers who cannot see it. */
 export function Copy({

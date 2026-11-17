@@ -28,9 +28,7 @@ from review_agent_tools.postgres import admin_quality  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
-from tests.test_postgres_reporting_cli import (  # noqa: E402
-    PostgreSQLOperatorReportingTests,
-)
+from tests import test_postgres_reporting_cli  # noqa: E402
 
 
 ADMIN_ID = UUID("11111111-1111-1111-1111-111111111111")
@@ -142,7 +140,7 @@ class AdminQualityPostgreSQLTests(unittest.TestCase):
         self.runtime = PostgreSQLRuntime(PostgresDatabaseUrl(DSN))
         self.runtime.open()
         self.addCleanup(self.runtime.close)
-        helper = PostgreSQLOperatorReportingTests("runTest")
+        helper = test_postgres_reporting_cli.PostgreSQLOperatorReportingTests("runTest")
         helper.runtime = self.runtime
         self.helper = helper
         self.helper.register_repository()

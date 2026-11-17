@@ -7,20 +7,16 @@ with deterministic controls.
 [![Publish documentation](https://github.com/CCimen/review-agent/actions/workflows/docs-pages.yml/badge.svg)](https://github.com/CCimen/review-agent/actions/workflows/docs-pages.yml)
 [![Documentation](https://img.shields.io/badge/docs-ccimen.github.io-blue)](https://ccimen.github.io/review-agent/)
 
-> **TL;DR:** Deploy Review Agent once, approve each trusted GitHub App
-> installation once, and let maintainers request reviews with `/review` across
-> the repositories covered by that installation. Repositories need no local
-> setup. An optional `.review-agent/` package adds team instructions, ordered
-> technical context, and accepted design decisions. Reviews stay advisory: the
-> model has no shell, repository write access, or merge authority.
+Deploy Review Agent once, approve a GitHub App installation, and maintainers
+request reviews by commenting `/review` on a pull request. Repositories need no
+workflow, secret, or local setup. Reviews are advisory: the model has read-only
+tools, no shell, and no way to write to the repository or merge.
 
-For each request, the service pins the exact base and head commits, reviews the
-snapshot in two passes through bounded read tools, and publishes
-evidence-backed findings through deterministic code.
-
-Code reviews include source-based security guidance adapted from Cloudflare's
-security-audit skill. See [how reviews work](docs/HOW_REVIEWS_WORK.md) for the
-checks and the distinction from a full security audit.
+For each request the service records the pull request's base and head commits,
+lets the model read the diff and the files it asks for, checks every recorded
+finding against fixed rules, and publishes the result through a separate
+publisher. [How reviews work](docs/HOW_REVIEWS_WORK.md) describes each step and
+which parts are code and which are the model.
 
 ![Four phases of a review: request and authorize, read and review, verify and publish, then re-review with explicit feedback.](website/static/img/review-lifecycle.webp)
 
@@ -28,9 +24,8 @@ checks and the distinction from a full security audit.
 
 1. **Deploy the service** with Compose, Dokploy, Coolify, Portainer, or
    OpenShift: [deployment guide](docs/DEPLOYMENT.md).
-2. **Approve the GitHub App installation once**. The recommended
-   organization-managed mode covers current and future repositories without a
-   per-repository operator command:
+2. **Register and install the GitHub App, then approve the installation once**:
+   [GitHub App setup](docs/GITHUB_APP_PILOT.md).
 
    ```bash
    docker compose exec review-github-gateway \
@@ -39,39 +34,29 @@ checks and the distinction from a full security audit.
      --reason "approved organization-managed reviews"
    ```
 
-   New installations remain locked until this approval. An explicit
-   per-repository mode is also available; [Getting
-   started](docs/GETTING_STARTED.md) explains both choices.
-3. **Request a review** with a new top-level PR comment:
+3. **Request a review** with a new top-level pull request comment:
 
    ```text
    /review
    ```
 
-The GitHub App receives review commands and gives the private gateway short-lived,
-repository-scoped credentials for source reads and deterministic publication.
-The model and publisher never receive the App private key.
+Users with GitHub `write` or `admin` permission on the repository can request
+reviews. Others can be allowed per repository in the console.
 
-Users with current GitHub `write` or `admin` access can request reviews
-automatically. To allow additional GitHub users, open **Repositories → Who can
-request reviews** in the console and add their usernames. Team maintainers and
-platform administrators manage this list per repository; it does not change
-GitHub permissions. See [console access](docs/ADMIN_PANEL.md).
+## Share it with other organizations
 
-## Add repository guidance when needed
-
-Repositories use the neutral `default-standard` profile without local files.
-Teams can add a reviewed `.review-agent/` package when they need local
-engineering principles, platform context, communication preferences, or ADR
-evidence. Context files are selected explicitly, validated offline, and read
-from the pull request's base commit. See [Repository
-context](docs/REPOSITORY_CONTEXT.md).
+One deployment can serve several GitHub organizations. Make the App public,
+send the install link, and approve each new installation; nothing is reviewed
+before that approval. The other organization deploys nothing. Their code is
+then processed by your deployment and model account, so read
+[what is shared](docs/GITHUB_APP_PILOT.md#share-the-app-with-other-organizations)
+first. An organization that wants its own data boundary runs its own deployment
+with its own App.
 
 ## Use the review result
 
-After fixing findings, push a commit and comment `/review` again; the new
-snapshot starts a fresh round. Collaborators with current write or admin
-permission post structured feedback in a new top-level comment:
+After fixing findings, push a commit and comment `/review` again. Maintainers
+can answer a finding in a new top-level comment:
 
 ```text
 /review false-positive F2 because <what code, guard, or invariant disproves it>
@@ -80,148 +65,70 @@ permission post structured feedback in a new top-level comment:
 /review feedback missed because <what concrete issue was missed and where>
 ```
 
-A [sanitized example review](examples/comments/example-review.md) shows the
-comment shape a pull request receives.
+See [Feedback and design decisions](docs/FEEDBACK_AND_DECISIONS.md) and a
+[sanitized example review](examples/comments/example-review.md).
+
+## What it does not do
+
+- Gate merges. Reviews stay advisory unless your organization decides otherwise.
+- Replace CodeQL, Dependabot, dependency review, tests, or type checks.
+- Execute contributor code, or give the model a shell, browser, or GitHub write
+  access.
+- Review pull requests from forks, or start code reviews without a `/review`
+  comment.
 
 ## Documentation
 
-The [documentation site](https://ccimen.github.io/review-agent/) has local
-search and task-based navigation. Key pages:
+The [documentation site](https://ccimen.github.io/review-agent/) has search and
+task-based navigation.
 
 | You want to | Read |
 | --- | --- |
 | Run your first review | [Getting started](docs/GETTING_STARTED.md) |
-| Deploy the service | [Deployment](docs/DEPLOYMENT.md) |
-| Install and approve the GitHub App | [GitHub App setup](docs/GITHUB_APP_PILOT.md) |
-| Set up with a coding agent | [AI-assisted setup](docs/AI_ASSISTED_SETUP.md) |
-| Understand the lifecycle | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
-| Change voice or review rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
-| Add repository instructions and platform context | [Repository context](docs/REPOSITORY_CONTEXT.md) |
-| Try optional graph context | [Code graph pilot](docs/CODE_GRAPH.md) |
-| Inspect team reviews and manage access, repository requests, audit, and platform policy | [Admin panel](docs/ADMIN_PANEL.md) |
-| Connect an application to scoped reports with an expiring credential | [Application integrations](docs/ADMIN_PANEL.md#application-integrations) |
-| Connect organization sign-in and provision accounts | [OIDC and SCIM](docs/ADMIN_PANEL.md#organization-sign-in-and-scim) |
-| Allow staff to register their own accounts | [Registration allowlist and SMTP](docs/ADMIN_PANEL.md#self-registration) |
-| Follow review usage by team, repository and GitHub user | [Admin and owner usage reports](docs/ADMIN_PANEL.md#usage-by-team-repository-and-github-user) |
-| Operate or recover it | [Operations](docs/OPERATIONS.md) |
+| Understand a review step by step | [How reviews work](docs/HOW_REVIEWS_WORK.md) |
+| Deploy, upgrade, or roll back | [Deployment](docs/DEPLOYMENT.md) |
+| Register, approve, or share the GitHub App | [GitHub App setup](docs/GITHUB_APP_PILOT.md) |
+| Hand the setup to a coding agent | [AI-assisted setup](docs/AI_ASSISTED_SETUP.md) |
+| Add repository instructions, context, and decisions | [Repository context](docs/REPOSITORY_CONTEXT.md) |
+| Check documentation against code changes | [Documentation review](docs/DOCUMENTATION_REVIEW.md) |
+| Change the reviewer's voice or rules | [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) |
+| Add related-code lookups | [Code graph](docs/CODE_GRAPH.md) |
+| Manage teams, access, model connections, sign-in, and usage | [Admin panel](docs/ADMIN_PANEL.md) |
+| Operate or recover the service | [Operations](docs/OPERATIONS.md) |
 | Assess trust boundaries | [Security](docs/SECURITY.md) |
-| See capabilities and boundaries | [Capabilities](docs/ROADMAP.md) |
-
-Successful container release workflows publish attested `linux/amd64` and
-`linux/arm64` images, SBOMs, and per-platform vulnerability reports. Releases
-built from this source pair worker and admin images with the same version and
-source revision, include the frontend dependency inventory, and show the admin
-build version in the console. Compose can build locally or use qualified
-release digests through `REVIEW_AGENT_IMAGE` and `REVIEW_AGENT_ADMIN_IMAGE`; see
-[Deployment](docs/DEPLOYMENT.md#choose-an-image).
-
-The runtime, admin API, and frontend stay in this repository so API and schema
-changes can ship together. `admin/` owns the browser application; its OpenAPI
-and TypeScript types are generated from the Python API. The admin image serves
-the compiled frontend and API on one origin. Completed changes merge into
-`main`; [release qualification](docs/OPERATIONS.md#maintaining-a-release)
-produces the image pair that organizations deploy.
-
-## What it does
-
-- Reviews the exact base/head snapshot of an open PR through bounded plugin
-  tools: metadata, diffs, changed-file lists, and selected files.
-- Publishes every evidence-backed finding that survives a skeptical second
-  pass, and reports incomplete coverage instead of implying a clean review.
-- Re-checks unresolved findings from earlier rounds on each new review.
-- Offers small, independently safe patches through GitHub's native suggestion
-  UI; coordinated changes go into a copyable coding-agent brief.
-- Stores runs, findings, coverage, publication state, and human feedback in
-  PostgreSQL, then freezes exact comment parts for a separate publisher with a
-  recoverable lease. Interrupted delivery resumes from durable state.
-
-## What it does not do
-
-- Gate merges. Reviews stay advisory unless your organization makes a separate
-  merge-policy decision.
-- Replace CodeQL, Dependabot, dependency review, or CVE scanning. Those stay
-  independent CI controls; [docs/SECURITY.md](docs/SECURITY.md) owns the
-  dependency-scanning boundary.
-- Execute contributor code, or give the model a shell, browser, delegation, or
-  arbitrary GitHub write access.
+| See capabilities and limits | [Capabilities](docs/ROADMAP.md) |
 
 ## Configuration
 
-> **Behavior TL;DR:** One deployment normally uses the neutral
-> `default-standard` profile for every approved organization and repository.
-> Teams customize a repository with its optional `.review-agent/` package.
-> Create another deployment profile only when an environment needs a different
-> shared identity or fixed review policy; GitHub App installation controls
-> access, not reviewer behavior.
+A deployment selects one reviewer profile with `REVIEW_AGENT_PROFILE`; the
+shipped `default-standard` profile is neutral and not tied to an organization.
+Repository-specific rules belong in the repository's optional `.review-agent/`
+package. [Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) explains what a
+profile can and cannot change.
 
-The review engine owns webhook admission, bounded GitHub reads, PostgreSQL
-state, deterministic publication, and operator controls. The deployment
-profile owns the shared reviewer identity, fixed review contract, and review
-procedure. Select it with `REVIEW_AGENT_PROFILE=<profile-key>`. The shipped
-`default-standard` profile is neutral and is not tied to an organization.
-Repository-specific principles and technical context belong in the optional,
-explicitly indexed `.review-agent/` package.
-
-The deployment selects the Hermes provider, model, and reasoning effort with
-`REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`, and
-`REVIEW_AGENT_REASONING_EFFORT`. `REVIEW_AGENT_MODEL` is required and has no
-default: the services refuse to start without it rather than review with a model
-nobody chose. The provider defaults to `openai-codex` and the effort to `xhigh`.
-Hermes can authenticate the Codex route with a ChatGPT device-code login, so the
-recommended setup needs no model API key. Anthropic
-Claude, API-key services, and self-hosted OpenAI-compatible endpoints use the
-same deployment settings and Hermes-owned credentials. Check Hermes'
-[provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers),
-[model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog),
-and [environment reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
-before selecting a route.
-
-[Behavior ownership](docs/BEHAVIOR_OWNERSHIP.md) maps every concern to its
-owner and explains how to create a profile. Authorization, snapshot checks,
-persistence, and publication rules are engine configuration; a profile cannot
-change them.
-
-## Operations and security
-
-[docs/OPERATIONS.md](docs/OPERATIONS.md) owns runtime limits, recovery,
-backups, updates, and operator commands. [docs/SECURITY.md](docs/SECURITY.md)
-owns the trust model, prompt-injection posture, token boundaries, and
-dependency-scanning scope.
-
-Review Agent does not replace deterministic scanners, tests, type checks, or
-human ownership. Keep those as separate controls.
+The model route is set with `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`,
+and `REVIEW_AGENT_REASONING_EFFORT`. `REVIEW_AGENT_MODEL` is required and has no
+default. Two providers are supported. The default, `openai-codex`, uses a
+ChatGPT device-code login through Hermes and needs no API key; `anthropic` uses
+Hermes' [Anthropic route](https://hermes-agent.nousresearch.com/docs/integrations/providers). `.env.example` lists the required values, and
+[Operations](docs/OPERATIONS.md#configuration-reference) lists every variable.
 
 ## Development
 
-The [5 September production assessment](docs/assessments/2026-09-05/assessment.md)
-records the evidence behind the current improvement work. Beads epic
-`ra-quality-2026-09-614` owns priorities, phases, dependencies and implementation
-status; use `br show ra-quality-2026-09-614 --json` from this checkout to continue.
-
-[Documentation review](docs/DOCUMENTATION_REVIEW.md) adds scoped, advisory
-checks for maintained documents through `/review docs` and optional automatic
-PR updates. Teams set defaults and repositories can override them. The repository
-owns its source-to-document mappings in `.review-agent/documentation.toml`.
-The [design record](docs/assessments/2026-09-14/documentation-review-design.md)
-and Beads epic `ra-docs-review-ms1` track implementation and rollout evidence.
-
-Run the full validation bundle before shipping changes:
+The runtime, admin API, and console live in this repository so API and schema
+changes ship together. `bootstrap/plugins/review_agent_tools/` is the Hermes
+plugin and services, `admin/` the console, `website/` the documentation site.
 
 ```bash
 ./scripts/check_bundle.sh
 ```
 
-GitHub Actions runs the same bundle for pull requests and pushes to `main`,
-builds the container, and verifies the pinned Hermes contracts used by durable
-execution. It cannot live-test your deployed routes, GitHub token approval,
-ChatGPT OAuth state, or repository rules.
+runs the Python checks and tests that CI runs. See
+[CONTRIBUTING.md](CONTRIBUTING.md), and [RELEASING.md](RELEASING.md) for how
+images are built, scanned, and published.
 
 ## License
 
 Review Agent is licensed under `EUPL-1.2` (Version 1.2 only). Copyright © 2026
 Çağrı Çimen and contributors. Third-party components retain their original
 licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-Maintainers publish versioned images from GitHub releases. Follow
-[RELEASING.md](RELEASING.md) for the release gate, GHCR verification, and
-rollback checks.

@@ -20,7 +20,6 @@ import uuid
 from urllib import error, parse, request
 from typing import cast
 
-import psycopg
 
 from . import (
     documentation_preflight,
@@ -36,7 +35,7 @@ from .github.gateway import GitHubGatewayRejected, GitHubGatewayRetryable
 from .github.gateway_client import ReviewGitHubGatewayClient
 from .review_tool_runtime import GatewaySourceSession, ToolInputError
 from .postgres import jobs, parts as postgres_parts, review_runs
-from .postgres.runtime import PostgreSQLRuntime, PostgreSQLUnavailable
+from .postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
 from .source_control import SameOriginHttpsRedirectHandler
 from .worker_telemetry import (
     TokenUsage,
@@ -49,14 +48,6 @@ from .worker_telemetry import (
 
 logger = logging.getLogger(__name__)
 _ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{0,59}")
-_TRANSIENT_DATABASE_ERRORS = (
-    PostgreSQLUnavailable,
-    psycopg.errors.DeadlockDetected,
-    psycopg.errors.QueryCanceled,
-    psycopg.errors.LockNotAvailable,
-)
-
-
 class WorkerConfigurationError(ValueError):
     """The worker cannot start from its supplied configuration."""
 
@@ -371,7 +362,7 @@ class ReviewWorker:
             while not self._stop.is_set():
                 try:
                     self._recover_if_due()
-                except _TRANSIENT_DATABASE_ERRORS as exc:
+                except TRANSIENT_DATABASE_ERRORS as exc:
                     logger.warning("Review worker recovery deferred: %s", exc)
                     self._wait_for_work_or_completion(active)
                     continue
@@ -385,7 +376,7 @@ class ReviewWorker:
                     continue
                 try:
                     claimed = self._claim()
-                except _TRANSIENT_DATABASE_ERRORS as exc:
+                except TRANSIENT_DATABASE_ERRORS as exc:
                     logger.warning("Review worker claim deferred: %s", exc)
                     self._wait_for_work_or_completion(active)
                     continue
@@ -423,7 +414,7 @@ class ReviewWorker:
             claimed = active.pop(completed)
             try:
                 completed.result()
-            except _TRANSIENT_DATABASE_ERRORS as exc:
+            except TRANSIENT_DATABASE_ERRORS as exc:
                 # The lease will either remain live through its heartbeat or
                 # expire into the bounded recovery path. Never guess a state
                 # transition while PostgreSQL is unavailable.
@@ -512,7 +503,7 @@ class ReviewWorker:
                     "Review job %s lost its lease before Hermes activation",
                     claimed.job.id,
                 )
-            except _TRANSIENT_DATABASE_ERRORS as exc:
+            except TRANSIENT_DATABASE_ERRORS as exc:
                 logger.warning(
                     "Review job %s could not be returned before shutdown; "
                     "its lease will expire into recovery: %s",
@@ -712,7 +703,7 @@ class ReviewWorker:
                 lease_lost.set()
                 logger.info("Review job %s lost its lease", job.id)
                 return
-            except _TRANSIENT_DATABASE_ERRORS as exc:
+            except TRANSIENT_DATABASE_ERRORS as exc:
                 # A single missed heartbeat is safe because policy requires
                 # multiple heartbeat opportunities within one lease.
                 logger.warning("Review job %s heartbeat deferred: %s", job.id, exc)

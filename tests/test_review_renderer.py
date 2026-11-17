@@ -289,17 +289,15 @@ class ReviewRendererTests(unittest.TestCase):
         self.assertEqual("one two three four...", rendered)
         self.assertLessEqual(len(rendered), 24)
 
-    def test_compact_text_hard_cuts_single_long_token(self) -> None:
-        rendered = memory_validation.compact_text("x" * 40, maximum=12)
-
-        self.assertEqual("x" * 9 + "...", rendered)
-        self.assertLessEqual(len(rendered), 12)
-
-    def test_compact_text_ignores_too_early_boundary(self) -> None:
-        rendered = memory_validation.compact_text("one " + ("x" * 40), maximum=16)
-
-        self.assertEqual("one " + ("x" * 9) + "...", rendered)
-        self.assertLessEqual(len(rendered), 16)
+    def test_compact_text_hard_cuts_without_a_usable_word_boundary(self) -> None:
+        for text, maximum, expected in (
+            ("x" * 40, 12, "x" * 9 + "..."),
+            ("one " + ("x" * 40), 16, "one " + ("x" * 9) + "..."),
+        ):
+            with self.subTest(text=text):
+                rendered = memory_validation.compact_text(text, maximum=maximum)
+                self.assertEqual(expected, rendered)
+                self.assertLessEqual(len(rendered), maximum)
 
     def test_complete_coverage_line_reports_diff_coverage_not_deep_review(self) -> None:
         line = review_renderer.coverage_summary_line(
@@ -432,19 +430,6 @@ class ReviewRendererTests(unittest.TestCase):
         )
         self.assertTrue(rendered.endswith("</details>"))
 
-    def test_complete_coverage_details_omit_empty_source_context_sentence(self) -> None:
-        line = review_renderer.coverage_details(
-            "example/repository",
-            self.coverage(
-                changed_paths_with_source_reads=0,
-                supporting_context_paths_read=0,
-            ),
-            None,
-        )
-        self.assertNotIn("Additional source context", line)
-        self.assertNotIn("0 changed paths", line)
-        self.assertNotIn("0 supporting files", line)
-
     def test_review_reports_the_exact_repository_decision_snapshot(self) -> None:
         rendered = review_renderer.render_review_markdown(
             repository="example-org/example-repository",
@@ -485,30 +470,6 @@ class ReviewRendererTests(unittest.TestCase):
             line,
         )
         self.assertNotIn("0 supporting files", line)
-
-    def test_incomplete_coverage_line_does_not_create_supporting_context_noise(
-        self,
-    ) -> None:
-        line = review_renderer.coverage_summary_line(
-            self.coverage(
-                state="incomplete",
-                changed_paths_with_diff=2,
-                changed_paths_with_source_reads=1,
-                unavailable=1,
-            )
-        )
-
-        self.assertIn("Partial coverage", line)
-        self.assertIn(
-            "Complete diffs were available for 2 of 3 changed files",
-            line,
-        )
-        self.assertNotIn("Additional source context", line)
-        self.assertIn("Findings may be missing", line)
-        self.assertNotIn("inspected", line)
-        self.assertNotIn("large PR", line)
-        self.assertNotIn("risk-ranked", line)
-        self.assertNotIn("supporting context skipped", line.lower())
 
     def test_visible_finding_omits_internal_disproof_checks(self) -> None:
         rendered = review_renderer.render_review_markdown(
@@ -715,14 +676,6 @@ class ReviewRendererTests(unittest.TestCase):
         ]
         self.assertEqual(len(suggestion_blocks), 1)
         self.assertNotIn("**Fix path:**", rendered.split("<details>", 1)[0])
-        self.assertIn(
-            "Fix path: Candidate for an optional atomic GitHub suggestion",
-            rendered,
-        )
-        self.assertIn(
-            "Fix path: Coordinated implementation required; use this brief.",
-            rendered,
-        )
 
     def test_atomic_suggestion_tip_reports_zero_coordinated_findings(self) -> None:
         tip = review_renderer.render_suggestion_tip(

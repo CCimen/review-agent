@@ -119,9 +119,8 @@ their first answer is pending so the page does not grow when it lands.
 
 ## Documentation review controls
 
-Implementation and rollout evidence are tracked by Beads epic
-`ra-docs-review-ms1`. The [documentation review design](../docs/assessments/2026-09-14/documentation-review-design.md#team-and-repository-administration)
-owns policy and authority. Reuse this console's components and navigation.
+[Documentation review](../docs/DOCUMENTATION_REVIEW.md) owns policy and
+authority. Reuse this console's components and navigation.
 
 Documentation reviews are a Workspace destination, not a setting to be hunted
 for. The page answers which repositories run them and where each mode comes

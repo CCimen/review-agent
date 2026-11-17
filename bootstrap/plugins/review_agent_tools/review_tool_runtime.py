@@ -351,8 +351,6 @@ def load_application_snapshot(
     """Translate terminal snapshots and application errors for model tools."""
     try:
         return operation()
-    except ReviewRunTerminal:
-        raise
     except review_run_application.ReviewRunError as exc:
         raise ToolInputError(str(exc)) from exc
 

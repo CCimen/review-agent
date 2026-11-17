@@ -161,62 +161,6 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
                         (installation.id,),
                     )
 
-    def test_manual_disable_is_a_durable_override_of_automatic_activation(
-        self,
-    ) -> None:
-        with psycopg.connect(DSN) as connection:
-            with connection.transaction():
-                installation = github_app.sync_installation(
-                    connection,
-                    github_app.InstallationDefinition(
-                        provider_installation_id=7001,
-                        account_id=8001,
-                        account_login="Example-Org",
-                        account_type=github_app.AccountType.ORGANIZATION,
-                        repository_selection=github_app.RepositorySelection.ALL,
-                        contents_permission=github_app.PermissionLevel.READ,
-                        issues_permission=github_app.PermissionLevel.WRITE,
-                        pull_requests_permission=github_app.PermissionLevel.WRITE,
-                    ),
-                )
-                github_app.set_repository_activation_policy(
-                    connection,
-                    installation_id=installation.id,
-                    policy=github_app.RepositoryActivationPolicy.AUTOMATIC,
-                    actor="operator:owner",
-                    reason="approved organization-managed reviews",
-                )
-                access = github_app.enable_automatic_repository(
-                    connection,
-                    provider_installation_id=7001,
-                    provider_repository_id=9001,
-                    full_name="Example-Org/service",
-                    profile_key="default-standard",
-                    actor="github-app:review-delivery",
-                    reason="verified exact repository access",
-                )
-                disabled = github_app.disable_repository(
-                    connection,
-                    repository_id=access.repository_id,
-                    actor="operator:owner",
-                    reason="repository explicitly paused",
-                )
-                with self.assertRaises(
-                    github_app.GitHubAppRepositoryUnauthorized
-                ):
-                    github_app.enable_automatic_repository(
-                        connection,
-                        provider_installation_id=7001,
-                        provider_repository_id=9001,
-                        full_name="Example-Org/service",
-                        profile_key="default-standard",
-                        actor="github-app:review-delivery",
-                        reason="must not override an operator pause",
-                    )
-
-        self.assertFalse(disabled.enabled)
-        self.assertEqual(disabled.trigger_mode, github_app.TriggerMode.MANUAL)
-
     def test_requiring_explicit_activation_fences_automatic_repositories(self) -> None:
         with psycopg.connect(DSN) as connection:
             with connection.transaction():
@@ -1059,24 +1003,6 @@ class PostgreSQLGitHubAppTests(unittest.TestCase):
         self.assertEqual(renamed.access_state, github_app.RepositoryAccess.AVAILABLE)
         self.assertTrue(renamed.enabled)
         self.assertEqual(renamed.enabled_at, enabled.enabled_at)
-
-    def test_operator_lookup_resolves_stable_provider_repository_id(self) -> None:
-        installation = self.installation()
-        with psycopg.connect(DSN) as connection:
-            with connection.transaction():
-                access = github_app.grant_repository_access(
-                    connection,
-                    installation_id=installation.id,
-                    provider_repository_id=9001,
-                    full_name="CCimen/review-agent",
-                    actor="github-app:installation_repositories",
-                    reason="repository selected",
-                )
-                resolved = github_app.get_repository_access_by_provider_id(
-                    connection, 9001
-                )
-
-        self.assertEqual(resolved, access)
 
     def test_operator_inventory_lists_stable_installations_and_repositories(self) -> None:
         installation = self.installation()

@@ -73,8 +73,10 @@ the live reviewer's `HERMES_HOME`, skills directory or gateway.
 
 ## GitHub credential boundaries
 
-The GitHub App key exists only in the private gateway. The gateway mints
-short-lived installation tokens restricted to one repository and one purpose.
+The GitHub App key is mounted into the private gateway and, when the optional
+[admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
+it to read App and installation status for access administration. No other
+service receives it. The gateway mints short-lived installation tokens restricted to one repository and one purpose.
 Callers supply a durable lease identity, never a repository, URL, HTTP method or
 credential. The gateway derives authority from PostgreSQL and checks the lease
 before and after provider I/O.

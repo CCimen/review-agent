@@ -164,7 +164,7 @@ function Home(): ReactNode {
                   </TabItem>
                   <TabItem value="openshift" label="OpenShift">
                     <CodeBlock language="bash">
-                      {'oc process -f examples/openshift/review-agent-template.yaml \\\n  -p IMAGE="$REVIEW_AGENT_IMAGE" | oc apply -f -'}
+                      {'oc process -f examples/openshift/review-agent-template.yaml \\\n  -p IMAGE="$REVIEW_AGENT_IMAGE" \\\n  -p MODEL="$REVIEW_AGENT_MODEL" | oc apply -f -'}
                     </CodeBlock>
                   </TabItem>
                 </Tabs>

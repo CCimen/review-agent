@@ -209,10 +209,10 @@ The last command returns the shipped behavior as bounded JSON.
    never values, in the plan.
    Ask the owner which model to review with and set `REVIEW_AGENT_MODEL`; it is
    required and has no default. Keep the default `REVIEW_AGENT_MODEL_PROVIDER`
-   and `REVIEW_AGENT_REASONING_EFFORT`, or select a provider supported by Hermes
-   and the owner's account. Prefer the default Codex device-code OAuth
+   and `REVIEW_AGENT_REASONING_EFFORT`, or set the provider to `anthropic`;
+   Review Agent rejects any other provider. Prefer the default Codex device-code OAuth
    route for the first deployment because it needs no model API key. Use
-   `hermes model` for OAuth, API keys, and custom endpoints. Keep provider
+   `hermes model` for OAuth and API keys. Keep provider
    secrets in Hermes' persisted credential store or Hermes-owned `.env`. The
    deployment values, not the interactive wizard, are the source of truth.
    Do not claim live validation for a non-default provider until its deployed

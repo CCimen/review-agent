@@ -398,6 +398,66 @@ class DeploymentConfigTests(unittest.TestCase):
             frozenset(sequence(effort_schema["enum"])),
         )
 
+    def test_upgrade_procedures_stop_writers_before_migrating(self):
+        upgrade = read("docs/DEPLOYMENT.md").split(
+            "## Upgrade and roll back production", 1
+        )[1]
+
+        def tab(value: str, label: str) -> str:
+            opening = f'<TabItem value="{value}" label="{label}">'
+            return upgrade.split(opening, 1)[1].split("</TabItem>", 1)[0]
+
+        procedures = {
+            "bash -euo pipefail <<'COMPOSE_UPGRADE'": (
+                tab("compose-upgrade", "Compose"),
+                (
+                    "docker compose stop $APP_SERVICES",
+                    'running="$(docker compose ps --status running --services)"',
+                    "docker compose run --rm --no-deps --no-build review-profile-install",
+                    "docker compose run --rm --no-deps --no-build review-db-migrate",
+                    "docker compose up -d --no-deps --no-build --force-recreate",
+                ),
+            ),
+            "bash -euo pipefail <<'OPENSHIFT_UPGRADE'": (
+                tab("openshift-upgrade", "OpenShift"),
+                (
+                    "oc process -f examples/openshift/review-agent-template.yaml",
+                    'oc scale deployment "${DEPLOYMENTS[@]}" --replicas=0',
+                    "oc wait --for=delete $pods",
+                    "oc delete job review-agent-profile-install",
+                    'oc apply -f "$RENDERED"',
+                    "oc wait --for=condition=complete job/review-agent-profile-install",
+                    "oc scale deployment/hermes-review",
+                    "oc scale deployment/review-agent-admission",
+                ),
+            ),
+        }
+        for fail_fast_shell, (procedure, steps) in procedures.items():
+            with self.subTest(shell=fail_fast_shell):
+                self.assertIn(fail_fast_shell, procedure)
+                positions = [procedure.index(step) for step in steps]
+                self.assertEqual(positions, sorted(positions))
+
+    def test_documented_openshift_commands_supply_required_parameters(self):
+        template = mapping(
+            yaml.safe_load(read("examples/openshift/review-agent-template.yaml"))
+        )
+        required = [
+            str(parameter["name"])
+            for parameter in map(mapping, sequence(template["parameters"]))
+            if parameter.get("required") and "value" not in parameter
+        ]
+        self.assertIn("MODEL", required)
+        render = "oc process -f examples/openshift/review-agent-template.yaml"
+        for document in ("docs/DEPLOYMENT.md", "website/src/pages/index.tsx"):
+            commands = read(document).split(render)[1:]
+            self.assertTrue(commands, document)
+            for command in commands:
+                arguments = command.split("oc apply", 1)[0].split('"$RENDERED"', 1)[0]
+                for name in required:
+                    with self.subTest(document=document, parameter=name):
+                        self.assertIn(f"-p {name}=", arguments)
+
 
 if __name__ == "__main__":
     unittest.main()

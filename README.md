@@ -108,10 +108,9 @@ profile can and cannot change.
 
 The model route is set with `REVIEW_AGENT_MODEL_PROVIDER`, `REVIEW_AGENT_MODEL`,
 and `REVIEW_AGENT_REASONING_EFFORT`. `REVIEW_AGENT_MODEL` is required and has no
-default. The default provider, `openai-codex`, uses a ChatGPT device-code login
-through Hermes and needs no API key; other
-[Hermes providers](https://hermes-agent.nousresearch.com/docs/integrations/providers)
-use the same settings. `.env.example` lists the required values, and
+default. Two providers are supported. The default, `openai-codex`, uses a
+ChatGPT device-code login through Hermes and needs no API key; `anthropic` uses
+Hermes' [Anthropic route](https://hermes-agent.nousresearch.com/docs/integrations/providers). `.env.example` lists the required values, and
 [Operations](docs/OPERATIONS.md#configuration-reference) lists every variable.
 
 ## Development

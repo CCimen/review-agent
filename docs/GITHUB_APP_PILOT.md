@@ -86,8 +86,9 @@ the complete PEM including its `BEGIN` and `END` lines, and set:
 REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
 ```
 
-Compose mounts the key read-only into the private GitHub gateway. The workers,
-Hermes, and the public admission service never receive it. Anyone who can read
+Compose mounts the key read-only into the private GitHub gateway and, if you
+deploy the optional admin panel, into the admin service. The workers, Hermes,
+and the public admission service never receive it. Anyone who can read
 the Dokploy Compose service may be able to read file-mount content, so limit
 project access and rotate the key if it is exposed.
 

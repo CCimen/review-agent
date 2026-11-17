@@ -138,16 +138,16 @@ upgrade.
    key is needed. Hermes does not document how this traffic counts against each
    ChatGPT plan's Codex allowance.
 
-   You can use any provider/model pair supported by the installed Hermes
-   release. For Claude, set provider `anthropic` and choose a Claude model from
-   Hermes. Hermes documents that Claude OAuth requires Claude Max plus
+   Review Agent supports two providers: `openai-codex` and `anthropic`. Any
+   other value is rejected. For Claude, set provider `anthropic` and choose a
+   Claude model from Hermes. Hermes documents that Claude OAuth requires Claude Max plus
    extra-usage credits; use an Anthropic API key when that route does not fit.
    Hermes maps reasoning effort to the selected provider.
 
    Use Hermes' current [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers)
    and [model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)
    to choose the three values. The [environment reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
-   lists API-key and custom-endpoint settings. Keep those provider secrets in
+   lists the API-key settings. Keep those provider secrets in
    Hermes' persisted credential store or Hermes-owned `.env`; do not add them
    to the shared Review Agent `.env`.
 
@@ -232,8 +232,8 @@ upgrade.
    curl -fsS https://review.example.org/ready
    ```
 
-   `hermes model` is Hermes' provider setup wizard for OAuth, API-key, and
-   custom routes. The installer command restores the deployment-selected
+   `hermes model` is Hermes' provider setup wizard for OAuth and API-key
+   logins. The installer command restores the deployment-selected
    provider, model, and effort after the wizard stores credentials. Credentials
    live in `hermes_review_data`; normal redeploys retain them. Repeat setup only
    after replacing that volume or when Hermes reports an authorization failure.
@@ -293,6 +293,7 @@ oc delete job review-agent-profile-install review-agent-db-migrate \
   --ignore-not-found
 oc process -f examples/openshift/review-agent-template.yaml \
   -p IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>' \
+  -p MODEL='<review-model>' \
   -p WORKER_CONCURRENCY=4 | oc apply -f -
 oc wait --for=condition=complete job/review-agent-profile-install \
   job/review-agent-db-migrate --timeout=10m
@@ -422,13 +423,20 @@ delete the Compose service or either named volume during an upgrade.
 </TabItem>
 <TabItem value="openshift-upgrade" label="OpenShift">
 
-Set `IMAGE` to the release manifest digest. Confirm that the separately managed
-PostgreSQL workload also uses a recorded digest, then drain the old application
-pods before applying the template:
+Set `IMAGE` to the release manifest digest and `MODEL` to the review model.
+Confirm that the separately managed PostgreSQL workload also uses a recorded
+digest. The script renders the template first, so a missing parameter stops it
+before any pod is drained, then drains the old application pods and applies
+the rendered template:
 
 ```bash
 bash -euo pipefail <<'OPENSHIFT_UPGRADE'
 export IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
+export MODEL='<review-model>'
+RENDERED="$(mktemp)"
+oc process -f examples/openshift/review-agent-template.yaml \
+  -p IMAGE="$IMAGE" -p MODEL="$MODEL" -p WORKER_CONCURRENCY=4 > "$RENDERED"
+
 DEPLOYMENTS=(
   hermes-review
   review-agent-admission
@@ -448,8 +456,7 @@ done
 
 oc delete job review-agent-profile-install review-agent-db-migrate \
   --ignore-not-found
-oc process -f examples/openshift/review-agent-template.yaml \
-  -p IMAGE="$IMAGE" -p WORKER_CONCURRENCY=4 | oc apply -f -
+oc apply -f "$RENDERED"
 oc wait --for=condition=complete job/review-agent-profile-install \
   job/review-agent-db-migrate --timeout=10m
 

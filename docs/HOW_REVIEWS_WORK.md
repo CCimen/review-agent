@@ -129,8 +129,9 @@ whole diff is too large for one session, code splits the review:
    code, removes duplicates, and delivers one review. It cannot deliver before
    it has read all reports.
 
-A split review costs one session per part plus the final one, and takes
-correspondingly longer. A file whose own diff exceeds one part, and files beyond
+A split review costs the first session that registers the files and splits the
+review, one session per part, and the final one, and takes correspondingly
+longer. A file whose own diff exceeds one part, and files beyond
 the twelfth part, are not read and are listed under **Coverage details**.
 
 ## 6. Coverage

@@ -241,16 +241,16 @@ upgrade.
    key is needed. Hermes does not document how this traffic counts against each
    ChatGPT plan's Codex allowance.
 
-   You can use any provider/model pair supported by the installed Hermes
-   release. For Claude, set provider `anthropic` and choose a Claude model from
-   Hermes. Hermes documents that Claude OAuth requires Claude Max plus
+   Review Agent supports two providers: `openai-codex` and `anthropic`. Any
+   other value is rejected. For Claude, set provider `anthropic` and choose a
+   Claude model from Hermes. Hermes documents that Claude OAuth requires Claude Max plus
    extra-usage credits; use an Anthropic API key when that route does not fit.
    Hermes maps reasoning effort to the selected provider.
 
    Use Hermes' current [provider guide](https://hermes-agent.nousresearch.com/docs/integrations/providers)
    and [model catalog](https://hermes-agent.nousresearch.com/docs/reference/model-catalog)
    to choose the three values. The [environment reference](https://hermes-agent.nousresearch.com/docs/reference/environment-variables)
-   lists API-key and custom-endpoint settings. Keep those provider secrets in
+   lists the API-key settings. Keep those provider secrets in
    Hermes' persisted credential store or Hermes-owned `.env`; do not add them
    to the shared Review Agent `.env`.
 
@@ -334,8 +334,8 @@ upgrade.
    curl -fsS https://review.example.org/ready
    ```
 
-   `hermes model` is Hermes' provider setup wizard for OAuth, API-key, and
-   custom routes. The installer command restores the deployment-selected
+   `hermes model` is Hermes' provider setup wizard for OAuth and API-key
+   logins. The installer command restores the deployment-selected
    provider, model, and effort after the wizard stores credentials. Credentials
    live in `hermes_review_data`; normal redeploys retain them. Repeat setup only
    after replacing that volume or when Hermes reports an authorization failure.
@@ -393,6 +393,7 @@ oc delete job review-agent-profile-install review-agent-db-migrate \
   --ignore-not-found
 oc process -f examples/openshift/review-agent-template.yaml \
   -p IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>' \
+  -p MODEL='<review-model>' \
   -p WORKER_CONCURRENCY=4 | oc apply -f -
 oc wait --for=condition=complete job/review-agent-profile-install \
   job/review-agent-db-migrate --timeout=10m
@@ -517,13 +518,20 @@ delete the Compose service or either named volume during an upgrade.
 
 ### OpenShift
 
-Set `IMAGE` to the release manifest digest. Confirm that the separately managed
-PostgreSQL workload also uses a recorded digest, then drain the old application
-pods before applying the template:
+Set `IMAGE` to the release manifest digest and `MODEL` to the review model.
+Confirm that the separately managed PostgreSQL workload also uses a recorded
+digest. The script renders the template first, so a missing parameter stops it
+before any pod is drained, then drains the old application pods and applies
+the rendered template:
 
 ```bash
 bash -euo pipefail <<'OPENSHIFT_UPGRADE'
 export IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
+export MODEL='<review-model>'
+RENDERED="$(mktemp)"
+oc process -f examples/openshift/review-agent-template.yaml \
+  -p IMAGE="$IMAGE" -p MODEL="$MODEL" -p WORKER_CONCURRENCY=4 > "$RENDERED"
+
 DEPLOYMENTS=(
   hermes-review
   review-agent-admission
@@ -543,8 +551,7 @@ done
 
 oc delete job review-agent-profile-install review-agent-db-migrate \
   --ignore-not-found
-oc process -f examples/openshift/review-agent-template.yaml \
-  -p IMAGE="$IMAGE" -p WORKER_CONCURRENCY=4 | oc apply -f -
+oc apply -f "$RENDERED"
 oc wait --for=condition=complete job/review-agent-profile-install \
   job/review-agent-db-migrate --timeout=10m
 
@@ -728,8 +735,9 @@ the complete PEM including its `BEGIN` and `END` lines, and set:
 REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_PATH=../files/github-app-private-key.pem
 ```
 
-Compose mounts the key read-only into the private GitHub gateway. The workers,
-Hermes, and the public admission service never receive it. Anyone who can read
+Compose mounts the key read-only into the private GitHub gateway and, if you
+deploy the optional admin panel, into the admin service. The workers, Hermes,
+and the public admission service never receive it. Anyone who can read
 the Dokploy Compose service may be able to read file-mount content, so limit
 project access and rotate the key if it is exposed.
 
@@ -1183,8 +1191,9 @@ whole diff is too large for one session, code splits the review:
    code, removes duplicates, and delivers one review. It cannot deliver before
    it has read all reports.
 
-A split review costs one session per part plus the final one, and takes
-correspondingly longer. A file whose own diff exceeds one part, and files beyond
+A split review costs the first session that registers the files and splits the
+review, one session per part, and the final one, and takes correspondingly
+longer. A file whose own diff exceeds one part, and files beyond
 the twelfth part, are not read and are listed under **Coverage details**.
 
 ## 6. Coverage
@@ -3163,18 +3172,17 @@ hermes model
 
 Use Hermes' wizard to authenticate the provider selected by
 `REVIEW_AGENT_MODEL_PROVIDER`. The default `openai-codex` route uses ChatGPT
-device-code OAuth and needs no model API key. Hermes also supports Anthropic,
-API-key providers and custom endpoints; Hermes documents that Anthropic OAuth
-requires Claude Max plus extra-usage credits, while its API-key route is
-independent. Rerunning the installer restores `REVIEW_AGENT_MODEL_PROVIDER`,
+device-code OAuth and needs no model API key. The only other supported
+provider is `anthropic`; Hermes documents that Anthropic OAuth requires Claude
+Max plus extra-usage credits, while its API-key route is independent. Rerunning the installer restores `REVIEW_AGENT_MODEL_PROVIDER`,
 `REVIEW_AGENT_MODEL` and `REVIEW_AGENT_REASONING_EFFORT` after the wizard stores
 credentials. `REVIEW_AGENT_MODEL` has no default; a deployment without it does
 not start.
 
 Once the console has saved settings, their model governs new reviews instead of
 `REVIEW_AGENT_MODEL`; change it in **Settings**. An environment change applies
-after the installer and services restart. Already queued reviews fail closed and
-must be requested again. Verify:
+after the installer and services restart. Already queued reviews keep the
+provider, model and effort they were admitted with. Verify:
 
 ```bash
 curl -fsS http://127.0.0.1:8642/health
@@ -3393,7 +3401,7 @@ Run and publication states:
 | `running` with an old heartbeat, or `stalled` | Execution stopped before a terminal state. Mark stale runs failed before retrying. |
 | `publish_failed` | GitHub publication was attempted and failed; inspect `failure=`. |
 | `body_too_large` | The review could not fit within the per-comment byte budget. |
-| `review_contract_changed` | The queued provider, model or effort differs from the installed reviewer. Confirm the three model variables match across services, rerun the profile installer, restart the services, and request a fresh review. |
+| `review_contract_changed` | The installed reviewer (profile, skill or plugin bundle) changed after the review was queued, for example during an upgrade. The queued provider, model and effort are frozen with the request and do not cause this. Finish the upgrade so every service runs the same release, then request a fresh review. |
 | `stale` | The pull request base or head changed before posting. |
 | `pr_not_open` | The pull request was closed or merged during the review. The run stops at its next tool call without a retry or failure comment. |
 | `finding_decisions_changed` | A human decision on one of the findings changed while the publication waited. Feedback on the same finding identity in another pull request also counts. Request a fresh `/review`. |
@@ -4247,8 +4255,10 @@ the live reviewer's `HERMES_HOME`, skills directory or gateway.
 
 ## GitHub credential boundaries
 
-The GitHub App key exists only in the private gateway. The gateway mints
-short-lived installation tokens restricted to one repository and one purpose.
+The GitHub App key is mounted into the private gateway and, when the optional
+[admin panel](./ADMIN_PANEL.md) is deployed, into the admin service, which uses
+it to read App and installation status for access administration. No other
+service receives it. The gateway mints short-lived installation tokens restricted to one repository and one purpose.
 Callers supply a durable lease identity, never a repository, URL, HTTP method or
 credential. The gateway derives authority from PostgreSQL and checks the lease
 before and after provider I/O.

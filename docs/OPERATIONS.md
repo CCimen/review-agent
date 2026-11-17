@@ -89,18 +89,17 @@ hermes model
 
 Use Hermes' wizard to authenticate the provider selected by
 `REVIEW_AGENT_MODEL_PROVIDER`. The default `openai-codex` route uses ChatGPT
-device-code OAuth and needs no model API key. Hermes also supports Anthropic,
-API-key providers and custom endpoints; Hermes documents that Anthropic OAuth
-requires Claude Max plus extra-usage credits, while its API-key route is
-independent. Rerunning the installer restores `REVIEW_AGENT_MODEL_PROVIDER`,
+device-code OAuth and needs no model API key. The only other supported
+provider is `anthropic`; Hermes documents that Anthropic OAuth requires Claude
+Max plus extra-usage credits, while its API-key route is independent. Rerunning the installer restores `REVIEW_AGENT_MODEL_PROVIDER`,
 `REVIEW_AGENT_MODEL` and `REVIEW_AGENT_REASONING_EFFORT` after the wizard stores
 credentials. `REVIEW_AGENT_MODEL` has no default; a deployment without it does
 not start.
 
 Once the console has saved settings, their model governs new reviews instead of
 `REVIEW_AGENT_MODEL`; change it in **Settings**. An environment change applies
-after the installer and services restart. Already queued reviews fail closed and
-must be requested again. Verify:
+after the installer and services restart. Already queued reviews keep the
+provider, model and effort they were admitted with. Verify:
 
 ```bash
 curl -fsS http://127.0.0.1:8642/health
@@ -319,7 +318,7 @@ Run and publication states:
 | `running` with an old heartbeat, or `stalled` | Execution stopped before a terminal state. Mark stale runs failed before retrying. |
 | `publish_failed` | GitHub publication was attempted and failed; inspect `failure=`. |
 | `body_too_large` | The review could not fit within the per-comment byte budget. |
-| `review_contract_changed` | The queued provider, model or effort differs from the installed reviewer. Confirm the three model variables match across services, rerun the profile installer, restart the services, and request a fresh review. |
+| `review_contract_changed` | The installed reviewer (profile, skill or plugin bundle) changed after the review was queued, for example during an upgrade. The queued provider, model and effort are frozen with the request and do not cause this. Finish the upgrade so every service runs the same release, then request a fresh review. |
 | `stale` | The pull request base or head changed before posting. |
 | `pr_not_open` | The pull request was closed or merged during the review. The run stops at its next tool call without a retry or failure comment. |
 | `finding_decisions_changed` | A human decision on one of the findings changed while the publication waited. Feedback on the same finding identity in another pull request also counts. Request a fresh `/review`. |

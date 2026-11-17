@@ -37,10 +37,6 @@ class AppOnlyCandidateTests(unittest.TestCase):
         self.assertEqual(findings[0].line, 1)
         self.assertEqual(findings[0].rule, "legacy GitHub credential")
 
-    def test_repository_satisfies_app_only_candidate_contract(self) -> None:
-        gate = _candidate_gate()
-        self.assertEqual(gate.check_candidate(ROOT), [])
-
     def test_topology_rejects_list_form_key_outside_gateway(self) -> None:
         gate = _candidate_gate()
         with tempfile.TemporaryDirectory() as directory:

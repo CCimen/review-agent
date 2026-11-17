@@ -166,16 +166,21 @@ class DeploymentSettingsTests(unittest.TestCase):
         self.assertEqual(client.put("/api/settings", json=body).status_code, 403)
 
 
-@unittest.skipUnless(
-    os.environ.get("REVIEW_AGENT_SETTINGS_DSN"), "isolated settings database required"
-)
+DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")
+
+
+@unittest.skipUnless(DSN, "run through scripts/check_postgres_schema.sh")
 class SettingsPersistenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        with psycopg.connect(DSN, autocommit=True) as connection:
+            connection.execute("DROP SCHEMA IF EXISTS review_agent CASCADE")
+        with psycopg.connect(DSN) as connection:
+            runner.apply_migrations(connection)
+
     def test_publisher_and_webhook_load_extended_policy_and_record_the_revision(
         self,
     ) -> None:
-        dsn = os.environ["REVIEW_AGENT_SETTINGS_DSN"]
-        with psycopg.connect(dsn) as connection:
-            runner.apply_migrations(connection)
+        with psycopg.connect(DSN) as connection:
             current = store.latest(connection)
             saved = store.save(
                 connection,
@@ -188,7 +193,7 @@ class SettingsPersistenceTests(unittest.TestCase):
                 actor="admin:test",
                 reason="adjust delivery and admission",
             )
-        runtime = PostgreSQLRuntime(PostgresDatabaseUrl(dsn))
+        runtime = PostgreSQLRuntime(PostgresDatabaseUrl(DSN))
         runtime.open()
         self.addCleanup(runtime.close)
         with patch.dict(os.environ, {"REVIEW_AGENT_MODEL": "installed-model"}):
@@ -205,8 +210,7 @@ class SettingsPersistenceTests(unittest.TestCase):
         self.assertTrue(all(row.revision == saved.id for row in loads))
 
     def test_revisions_cas_rollback_and_startup_policy(self) -> None:
-        with psycopg.connect(os.environ["REVIEW_AGENT_SETTINGS_DSN"]) as connection:
-            runner.apply_migrations(connection)
+        with psycopg.connect(DSN) as connection:
             initial = store.latest(connection)
             revision = initial.id if initial else 0
             first = store.save(

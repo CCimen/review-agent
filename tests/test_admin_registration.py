@@ -38,7 +38,7 @@ class SMTPSettingsTests(unittest.TestCase):
             )
             with patch(transport) as smtp:
                 settings.send_registration(
-                    "staff@sundsvall.se",
+                    "staff@example.org",
                     "https://admin.example.test/#register_token=local-test-token",
                 )
             self.assertEqual(smtp.call_args.args, ("mail.example.test", port))
@@ -91,7 +91,7 @@ class RegistrationAPITests(unittest.TestCase):
             json={
                 "expected_revision": 0,
                 "enabled": True,
-                "allowed_domains": ["sundsvall.se"],
+                "allowed_domains": ["example.org"],
                 "allowed_emails": ["partner@example.com", "admin@example.com"],
                 "reason": "Open staff registration",
             },
@@ -203,7 +203,7 @@ class RegistrationAPITests(unittest.TestCase):
             )
         self.assertEqual(
             self.client.post(
-                "/api/auth/register", json={"email": "staff@sundsvall.se"}
+                "/api/auth/register", json={"email": "staff@example.org"}
             ).status_code,
             503,
         )
@@ -228,7 +228,7 @@ class RegistrationAPITests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=1) as executor:
             for path, body, expected_status in (
                 ("/api/auth/register", {"email": "outside@example.com"}, 202),
-                ("/api/auth/register", {"email": "staff@sundsvall.se"}, 202),
+                ("/api/auth/register", {"email": "staff@example.org"}, 202),
                 (
                     "/api/auth/register/complete",
                     {"token": "x" * 43, "password": test_admin_api.PASSWORD},
@@ -254,7 +254,7 @@ class RegistrationAPITests(unittest.TestCase):
             self.client.get("/api/auth/registration").json(),
             {"enabled": True, "email_configured": True},
         )
-        for email in ("Staff@Sundsvall.SE", "Partner@example.com"):
+        for email in ("Staff@Example.ORG", "Partner@example.com"):
             response = self.client.post("/api/auth/register", json={"email": email})
             self.assertEqual(response.status_code, 202, response.text)
             token = self.token()
@@ -319,15 +319,15 @@ class RegistrationAPITests(unittest.TestCase):
         self.assertFalse(self.client.get("/api/auth/registration").json()["enabled"])
         self.assertEqual(
             self.client.post(
-                "/api/auth/register", json={"email": "staff@sundsvall.se"}
+                "/api/auth/register", json={"email": "staff@example.org"}
             ).status_code,
             503,
         )
         self.enable_registration()
         for email in (
             "outside@example.com",
-            "name@sub.sundsvall.se",
-            "name@sundsvall.se.evil.com",
+            "name@sub.example.org",
+            "name@example.org.evil.com",
             "ADMIN@example.com",
         ):
             response = self.client.post("/api/auth/register", json={"email": email})
@@ -372,12 +372,12 @@ class RegistrationAPITests(unittest.TestCase):
             json={
                 "expected_revision": 2,
                 "enabled": True,
-                "allowed_domains": ["sundsvall.se"],
+                "allowed_domains": ["example.org"],
                 "reason": "Open staff registration again",
             },
         )
         self.client.post("/api/auth/logout")
-        self.client.post("/api/auth/register", json={"email": "staff@sundsvall.se"})
+        self.client.post("/api/auth/register", json={"email": "staff@example.org"})
         token = self.token()
         self.assertEqual(
             self.client.post(
@@ -405,7 +405,7 @@ class RegistrationAPITests(unittest.TestCase):
             self.client.post(
                 "/api/users",
                 json={
-                    "email": "staff@sundsvall.se",
+                    "email": "staff@example.org",
                     "password": test_admin_api.PASSWORD,
                 },
             ).status_code,
@@ -422,7 +422,7 @@ class RegistrationAPITests(unittest.TestCase):
             ).status_code,
             400,
         )
-        self.fixture.login("staff@sundsvall.se")
+        self.fixture.login("staff@example.org")
 
     def test_delivery_failure_and_resends_preserve_limits_and_replace_old_links(
         self,
@@ -430,7 +430,7 @@ class RegistrationAPITests(unittest.TestCase):
         self.enable_registration()
         sender = self.smtp.return_value.__enter__.return_value.send_message
         sender.side_effect = smtplib.SMTPException("private mail relay details")
-        payload = {"email": "staff@sundsvall.se"}
+        payload = {"email": "staff@example.org"}
         failed = self.client.post("/api/auth/register", json=payload)
         self.assertEqual(failed.status_code, 503, failed.text)
         self.assertNotIn("private mail relay details", failed.text)
@@ -473,11 +473,11 @@ class RegistrationAPITests(unittest.TestCase):
             connection.execute("""
                 INSERT INTO review_agent.admin_registration_requests
                     (email, token_digest, requested_at, expires_at)
-                SELECT 'staff' || value || '@sundsvall.se', lpad(value::text, 64, '0'), now(), now() + interval '30 minutes'
+                SELECT 'staff' || value || '@example.org', lpad(value::text, 64, '0'), now(), now() + interval '30 minutes'
                 FROM generate_series(1, 30) AS value
             """)
         busy = self.client.post(
-            "/api/auth/register", json={"email": "next@sundsvall.se"}
+            "/api/auth/register", json={"email": "next@example.org"}
         )
         self.assertEqual(busy.status_code, 429, busy.text)
         self.assertEqual(busy.headers["retry-after"], "60")
@@ -489,13 +489,13 @@ class RegistrationAPITests(unittest.TestCase):
             connection.execute("""
                 INSERT INTO review_agent.admin_registration_requests
                     (email, token_digest, requested_at, expires_at)
-                SELECT 'pending-' || value || '@sundsvall.se',
+                SELECT 'pending-' || value || '@example.org',
                     lpad(value::text, 64, '0'),
                     now() - interval '2 minutes', now() + interval '28 minutes'
                 FROM generate_series(1, 1000) AS value
             """)
         response = self.client.post(
-            "/api/auth/register", json={"email": "new@sundsvall.se"}
+            "/api/auth/register", json={"email": "new@example.org"}
         )
         self.assertEqual(response.status_code, 429, response.text)
         self.assertEqual(response.headers["Retry-After"], "60")

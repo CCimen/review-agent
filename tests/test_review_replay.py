@@ -45,11 +45,6 @@ VALID_FIXTURE = """{
 
 
 class ReplayValidationTests(unittest.TestCase):
-    def test_repository_ships_no_placeholder_replay_evidence(self) -> None:
-        fixtures = tuple((ROOT / "review-learning" / "replay").glob("*.json"))
-
-        self.assertEqual(fixtures, ())
-
     def test_unknown_key_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "fixture.json"

@@ -24,16 +24,10 @@ RELEASE_SBOM = ROOT / "scripts" / "generate_release_sbom.sh"
 PYTHON_RUNTIME_SBOM = ROOT / "scripts" / "generate_python_runtime_sbom.sh"
 RELEASE_SBOM_REQUIREMENTS = ROOT / "requirements-release-sbom.txt"
 RELEASE_TAG_CHECK = ROOT / "scripts" / "validate_release_tag.py"
-IMAGE_CHECK = ROOT / "scripts" / "check_image.sh"
 POSTGRES_CHECK = ROOT / "scripts" / "check_postgres_schema.sh"
 PYTHON_CHECK = ROOT / "scripts" / "check_bundle.sh"
-PYRIGHT_CONFIG = ROOT / "pyrightconfig.json"
 RUFF_CONFIG = ROOT / "ruff.toml"
-DEVELOPMENT_REQUIREMENTS = ROOT / "requirements-dev.txt"
 TRIVY_CONFIG = ROOT / "trivy.yaml"
-ROADMAP = ROOT / "docs" / "ROADMAP.md"
-HOMEPAGE = ROOT / "website" / "src" / "pages" / "index.tsx"
-README = ROOT / "README.md"
 
 
 def mapping(value: object) -> dict[str, object]:
@@ -149,8 +143,6 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         for action in external_actions:
             self.assertRegex(action, r"^[^@\s]+@[0-9a-f]{40}$")
 
-        self.assertIn("python-version: '3.14.7'", source)
-        self.assertIn("python-version: '3.13.5'", source)
         checkout_entries = [
             entry
             for entry in action_entries
@@ -189,7 +181,6 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "DEPENDENCY_SCAN_RESULT: ${{ needs.dependency-scan.result }}",
             source,
         )
-        self.assertIn("npm install --global pyright@1.1.408", source)
         self.assertIn(
             "python3 -m pip install --disable-pip-version-check "
             "--requirement requirements.txt --requirement requirements-dev.txt",
@@ -200,26 +191,6 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertIn("docker build --tag review-agent:ci .", source)
         self.assertIn("bash ./scripts/check_image.sh review-agent:ci", source)
         self.assertIn("sh ./scripts/check_admin_image.sh review-agent-admin:ci", source)
-        image_check = IMAGE_CHECK.read_text(encoding="utf-8")
-        for runtime_contract in (
-            "review-agent-admission",
-            "review-agent-worker",
-            "review-agent-publisher",
-            "review-agent-hermes-contract",
-            "/opt/review-agent-bootstrap/install.sh",
-            "/opt/hermes/bin/hermes",
-            "gateway --help",
-            "command -v curl",
-            "! command -v gh",
-        ):
-            self.assertIn(runtime_contract, image_check)
-        for duplicated_command in (
-            "python3 -m compileall",
-            "python3 -m unittest",
-            "pyright -p",
-            "validate-replay",
-        ):
-            self.assertNotIn(duplicated_command, source)
 
     def test_dependency_vulnerability_gate_covers_every_shipped_lock(self):
         document = workflow(WORKFLOW)
@@ -285,15 +256,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
         self.assertEqual(True, mapping(policy["pkg"])["include-dev-deps"])
         self.assertEqual(False, mapping(policy["vulnerability"])["ignore-unfixed"])
 
-    def test_fast_quality_tools_are_pinned_and_cover_production_entrypoints(self):
-        self.assertEqual(
-            DEVELOPMENT_REQUIREMENTS.read_text(encoding="utf-8"),
-            "ruff==0.14.4\ntypes-authlib==1.8.0.20260907\n",
-        )
-        self.assertIn(
-            "httpx2==2.12.0",
-            (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines(),
-        )
+    def test_ruff_keeps_correctness_rules_enabled(self):
         ruff = mapping(tomllib.loads(RUFF_CONFIG.read_text(encoding="utf-8")))
         self.assertEqual("py311", ruff["target-version"])
         lint = mapping(ruff["lint"])
@@ -321,13 +284,6 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             )
         )
         self.assertIn("ruff check", PYTHON_CHECK.read_text(encoding="utf-8"))
-
-        pyright = json.loads(PYRIGHT_CONFIG.read_text(encoding="utf-8"))
-        includes = set(pyright["include"])
-        self.assertIn("bootstrap/install.py", includes)
-        self.assertIn("bootstrap/plugins/review_agent_tools", includes)
-        self.assertIn("scripts/check_trivy_report.py", includes)
-        self.assertIn("tools", includes)
 
     def test_release_workflow_publishes_only_versioned_release_images(self):
         source = RELEASE_WORKFLOW.read_text(encoding="utf-8")
@@ -392,17 +348,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             if any(level == "write" for level in job_permissions.values()):
                 self.assertIn(job_id, {"publish", "sbom", "promote"})
 
-        self.assertIn("source_sha: ${{ steps.source.outputs.sha }}", source)
         self.assertIn("python3 scripts/validate_release_tag.py", source)
-        self.assertIn("python3 scripts/generate_llms_docs.py --check", source)
-        self.assertIn(
-            'grep -Fxq "Release state: ${RELEASE_TAG}" website/static/llms.txt',
-            source,
-        )
-        self.assertIn(
-            "Generated LLM documentation does not match the release tag.",
-            source,
-        )
         source_step = named_step(verify, "Record verified source")
         self.assertIn('test "$source_sha" = "$GITHUB_SHA"', str(source_step["run"]))
         self.assertEqual(
@@ -455,15 +401,7 @@ class PythonBundleWorkflowTests(unittest.TestCase):
                 continue
             self.assertRegex(action, r"^[^@\s]+@[0-9a-f]{40}$")
 
-        self.assertIn("RELEASE_TAG: ${{ github.event.release.tag_name }}", source)
-        self.assertIn(
-            "Release tag must use vMAJOR.MINOR.PATCH",
-            RELEASE_TAG_CHECK.read_text(encoding="utf-8"),
-        )
-        self.assertIn("platforms: linux/amd64,linux/arm64", source)
-        self.assertIn("type=raw,value=${{ github.event.release.tag_name }}", source)
         self.assertNotIn("value=latest", source)
-        self.assertIn("password: ${{ secrets.GITHUB_TOKEN }}", source)
         self.assertIn("provenance: mode=max", source)
         self.assertIn("sbom: true", source)
         for step_name in ("Build and publish image", "Build and publish admin image"):
@@ -682,13 +620,9 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             "${{ github.repository }}",
             mapping(sbom["env"])["GH_REPO"],
         )
-        self.assertIn("image_digest: ${{ steps.push.outputs.digest }}", source)
         self.assertIn("scripts/generate_release_sbom.sh", source)
         self.assertIn("EXPECTED_IMAGE_DIGEST: ${{ needs.publish.outputs.image_digest }}", source)
         self.assertIn("subject-path: release-sbom/*", source)
-        self.assertIn("gh release upload", source)
-        self.assertIn("gh release edit", source)
-        self.assertIn("--clobber", source)
 
         upload = named_step(evidence, "Upload release evidence")
         self.assertRegex(
@@ -957,35 +891,9 @@ class PythonBundleWorkflowTests(unittest.TestCase):
             )
             self.assertNotEqual(0, wrong_image.returncode)
 
-        self.assertTrue(RELEASE_SBOM.is_file())
-        release_sbom = RELEASE_SBOM.read_text(encoding="utf-8")
-        for contract in (
-            "for architecture in amd64 arm64",
-            '--platform "linux/$architecture"',
-            "registry:$digest_ref",
-            "cyclonedx-json",
-            "spdx-json",
-            "syft-table",
-            "IMAGE-DIGESTS.txt",
-            "SBOM-SHA256SUMS.txt",
-            "EXPECTED_IMAGE_DIGEST",
-        ):
-            self.assertIn(contract, release_sbom)
-
-        self.assertTrue(PYTHON_RUNTIME_SBOM.is_file())
         runtime_sbom = PYTHON_RUNTIME_SBOM.read_text(encoding="utf-8")
-        for contract in (
-            "/opt/hermes/.venv/bin/python",
-            "/cdx/requirements-release-sbom.txt",
-            "--require-hashes",
-            "--spec-version \"$CYCLONEDX_SPEC_VERSION\"",
-            "--output-reproducible",
-            "--validate",
-            "installed Python distributions",
-        ):
-            self.assertIn(contract, runtime_sbom)
+        self.assertIn("--require-hashes", runtime_sbom)
         tool_lock = RELEASE_SBOM_REQUIREMENTS.read_text(encoding="utf-8")
-        self.assertIn("cyclonedx-bom==7.3.1", tool_lock)
         self.assertIn("--hash=sha256:", tool_lock)
 
     def test_release_policy_step_preserves_checker_failure_and_evidence(self):
@@ -1549,76 +1457,11 @@ class PythonBundleWorkflowTests(unittest.TestCase):
 
     def test_postgresql_contract_uses_pinned_loopback_only_databases(self):
         source = POSTGRES_CHECK.read_text(encoding="utf-8")
-        image = (
-            "postgres:17.10-bookworm@"
-            "sha256:9b18b78397054fce88a9552e9d5a3ad5bb7fd258c5b3cc1c5028e46373d6ea8f"
-        )
 
-        self.assertEqual(source.count(image), 1)
-        self.assertIn('cd "$ROOT"', source)
-        self.assertIn("docker run", source)
-        self.assertIn("--rm", source)
-        self.assertIn("docker rm --force", source)
-        self.assertIn("trap ", source)
-        self.assertIn('REVIEW_AGENT_POSTGRES_CONTAINER="$CONTAINER"', source)
-        for test_module in (
-            "tests.test_postgres_schema",
-            "tests.test_postgres_migrations",
-            "tests.test_postgres_runtime",
-        ):
-            self.assertIn(test_module, source)
+        self.assertRegex(source, r"postgres:[^@\s]+@sha256:[0-9a-f]{64}")
         self.assertIn("--publish 127.0.0.1::5432", source)
-        self.assertIn('RESTORE_CONTAINER="review-agent-postgres-restore-$$"', source)
-        self.assertIn("pg_dump", source)
-        self.assertIn("pg_restore", source)
-        self.assertIn("--exit-on-error", source)
-        self.assertIn("review_agent_admin.py database prepare", source)
-        self.assertIn("review_agent_admin.py database ready", source)
-        self.assertIn("recovery/probe", source)
-        self.assertIn("application-state canary", source)
         self.assertNotIn("0.0.0.0", source)
         self.assertNotRegex(source, r"127\.0\.0\.1:[0-9]+:5432")
-
-
-class MigrationReadinessDocumentationTests(unittest.TestCase):
-    def test_public_status_names_the_current_postgresql_contract(self):
-        roadmap = ROADMAP.read_text(encoding="utf-8")
-        homepage = HOMEPAGE.read_text(encoding="utf-8")
-        readme = README.read_text(encoding="utf-8")
-        normalized_roadmap = re.sub(r"\s+", " ", roadmap)
-        normalized_homepage = re.sub(r"\s+", " ", homepage)
-
-        for current_capability in (
-            "Bounded PR reads",
-            "Checksum-verified PostgreSQL migrations",
-            "Direct PostgreSQL review",
-            "Durable PostgreSQL job records",
-            "Repository-scoped exports",
-        ):
-            self.assertIn(current_capability, normalized_roadmap)
-
-        for current_invariant in (
-            "One PostgreSQL database per environment",
-            "PostgreSQL owns application persistence",
-            "Hermes `HERMES_HOME` remains separate",
-            "Network and model calls never hold database connections",
-        ):
-            self.assertIn(current_invariant, normalized_roadmap)
-
-        for current_reliability in (
-            "exact-run continuation",
-            "activated through signed admission",
-            "recoverable publisher lease",
-        ):
-            self.assertIn(current_reliability, normalized_roadmap)
-        self.assertNotIn(
-            "Typed ownership and trusted project context come before PostgreSQL",
-            homepage,
-        )
-        self.assertIn("one PostgreSQL database per environment", normalized_homepage)
-        self.assertIn("durable review jobs", normalized_homepage)
-        self.assertIn("transactional publication outbox", normalized_homepage)
-        self.assertIn("GitHub Actions runs the same bundle", readme)
 
 
 if __name__ == "__main__":

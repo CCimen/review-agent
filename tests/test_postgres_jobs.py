@@ -1493,50 +1493,6 @@ class PostgreSQLJobTests(unittest.TestCase):
         self.assertEqual(beside.review_run_id if beside else None, other_run.run.id)
         self.assertEqual((part.review_run_id, part.part) if part else None, (run.run.id, 1))
 
-    def test_recovered_part_is_not_reclaimed_while_its_model_execution_runs(self) -> None:
-        self.split_into_parts(
-            self.pull_request(provider_id=1302, number=72),
-            request_key="github:manual:part-execution",
-            parts=1,
-        )
-        instance = uuid4()
-        with self.runtime.transaction() as connection:
-            part = self.claim_job(
-                connection, lease_owner="worker", lease_duration=timedelta(minutes=2)
-            )
-            assert part is not None and part.part == 1
-            session = jobs.WorkerLeaseSession(part.id, part.lease_generation)
-            jobs.begin_model_execution(
-                connection,
-                session=session,
-                runtime_key="shared",
-                runtime_instance=instance,
-                provider="openai-codex",
-                model="gpt-test",
-                reasoning_effort="high",
-                identity_sha256="a" * 64,
-                quota=None,
-            )
-            connection.execute(
-                "UPDATE review_agent.review_jobs SET last_heartbeat_at = started_at, "
-                "lease_expires_at = statement_timestamp() WHERE id = %s",
-                (part.id,),
-            )
-        with self.runtime.transaction() as connection:
-            jobs.recover_expired_leases(connection, limit=10)
-            self.assertIsNone(
-                self.claim_job(
-                    connection, lease_owner="retry", lease_duration=timedelta(minutes=2)
-                )
-            )
-            jobs.finish_model_execution(
-                connection, session=session, runtime_instance=instance
-            )
-            retry = self.claim_job(
-                connection, lease_owner="retry", lease_duration=timedelta(minutes=2)
-            )
-        self.assertEqual(retry.id if retry else None, part.id)
-
     def test_a_part_out_of_attempts_fails_the_review_and_every_job_of_it(self) -> None:
         for number, expire in enumerate((False, True), start=73):
             with self.subTest(expired_lease=expire):

@@ -19,12 +19,10 @@ sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
 from review_agent_tools.admin_provider_api import create_router  # noqa: E402
 from review_agent_tools.hermes_control import (  # noqa: E402
-    Cancellation,
     HermesControlClient,
     HermesRuntimeClient,
     HermesControlConfigurationError,
     HermesControlError,
-    LoginSession,
     ProviderModel,
     ProviderStatus,
 )
@@ -258,7 +256,6 @@ class AdminProviderAPITests(unittest.TestCase):
             providers = client.get("/api/providers")
             models = client.get("/api/providers/models")
             runtime = client.get("/api/providers/runtime")
-            start = client.post("/api/providers/openai-codex/login")
             self.assertEqual(providers.status_code, 200)
             self.assertEqual(runtime.status_code, 200)
             self.assertIsNone(runtime.json()["runtime"])
@@ -280,11 +277,10 @@ class AdminProviderAPITests(unittest.TestCase):
             )
             self.assertEqual(models.status_code, 200)
             self.assertEqual(models.json()["items"], [])
-            self.assertEqual(start.status_code, 404)
             denied = TestClient(self.app(admin=False))
             self.assertEqual(denied.get("/api/providers").status_code, 403)
 
-    def test_api_returns_only_typed_safe_fields_and_validates_session_id(self) -> None:
+    def test_configured_api_returns_only_typed_safe_fields(self) -> None:
         control = Mock()
         control.provider_statuses.return_value = (
             ProviderStatus(
@@ -305,35 +301,13 @@ class AdminProviderAPITests(unittest.TestCase):
             ),
         )
         control.models.return_value = (ProviderModel("openai-codex", "gpt-6"),)
-        control.start_codex_login.return_value = LoginSession(
-            SESSION_ID,
-            "pending",
-            "ABCD-EFGH",
-            "https://auth.openai.com/codex/device",
-            900,
-            5,
-        )
-        control.poll_codex_login.return_value = LoginSession(
-            SESSION_ID, "approved", None, None, None, 5
-        )
-        control.cancel_codex_login.return_value = Cancellation(True, SESSION_ID)
         client = TestClient(self.app(control=control))
         responses = (
             client.get("/api/providers"),
             client.get("/api/providers/models"),
-            client.post("/api/providers/openai-codex/login"),
-            client.get(f"/api/providers/openai-codex/login/{SESSION_ID}"),
-            client.post(f"/api/providers/openai-codex/login/{SESSION_ID}/cancel"),
         )
-        invalid = client.get("/api/providers/openai-codex/login/not-safe")
 
-        self.assertEqual(
-            [response.status_code for response in responses], [200, 200, 404, 404, 404]
-        )
-        self.assertEqual(invalid.status_code, 404)
-        control.start_codex_login.assert_not_called()
-        control.poll_codex_login.assert_not_called()
-        control.cancel_codex_login.assert_not_called()
+        self.assertEqual([response.status_code for response in responses], [200, 200])
         combined = " ".join(response.text for response in responses)
         self.assertNotIn(TOKEN, combined)
         self.assertNotIn("token_preview", combined)

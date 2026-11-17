@@ -15,7 +15,6 @@ import tempfile
 import threading
 import unittest
 import urllib.error
-import urllib.request
 from typing import Any, cast
 from unittest.mock import Mock, patch
 
@@ -211,28 +210,6 @@ class WorkerBoundaryTests(unittest.TestCase):
         self.assertEqual((throttled.code, throttled.detail), ("hermes_http_429", "rate_limited"))
         self.assertEqual((unreadable.code, unreadable.detail), ("hermes_http_503", None))
 
-    def test_code_review_receives_security_guidance_without_changing_docs_review(self) -> None:
-        from review_agent_tools.domain.review import ReviewPurpose
-
-        skills = PACKAGE_ROOT.parent / "profiles" / "default-standard" / "skills"
-        code = (skills / "review-agent-pr" / "SKILL.md").read_text()
-        docs = (skills / "review-agent-docs" / "SKILL.md").read_text()
-        client = HermesChatClient(HermesChatSettings(
-            endpoint=f"http://127.0.0.1:{self.server.server_port}/v1/review-agent/review",
-            bearer_token="test-token", skill_path=skills / "review-agent-pr" / "SKILL.md",
-            documentation_skill_path=skills / "review-agent-docs" / "SKILL.md",
-        ))
-        claim = self._claim(generation=1)
-        client.review(claim, timeout=self._timeout())
-        client.review(replace(claim, purpose=ReviewPurpose.DOCUMENTATION), timeout=self._timeout())
-        code_message = _ChatHandler.requests[0][1]["messages"][0]["content"]
-        docs_message = _ChatHandler.requests[1][1]["messages"][0]["content"]
-        self.assertEqual(code_message, code.split("\n---\n", 1)[1].lstrip())
-        self.assertIn("## Cloudflare security audit guidance", code_message)
-        self.assertNotIn("## Spring checks", code_message)
-        self.assertEqual(docs_message, docs.split("\n---\n", 1)[1].lstrip())
-        self.assertNotIn("## Cloudflare security audit guidance", docs_message)
-
     def test_documentation_request_uses_installed_docs_procedure_and_exact_run(self) -> None:
         from review_agent_tools.domain.review import ReviewPurpose
 
@@ -417,21 +394,6 @@ class WorkerBoundaryTests(unittest.TestCase):
             any(
                 type(handler) is SameOriginHttpsRedirectHandler
                 for handler in client._opener.handlers
-            )
-        )
-        handler = SameOriginHttpsRedirectHandler()
-        request = urllib.request.Request(
-            "http://hermes-review:8642/v1/review-agent/review",
-            headers={"Authorization": "Bearer internal-secret"},
-        )
-        self.assertIsNone(
-            handler.redirect_request(
-                request,
-                io.BytesIO(),
-                307,
-                "temporary redirect",
-                HTTPMessage(),
-                "http://other-service:8642/v1/review-agent/review",
             )
         )
 

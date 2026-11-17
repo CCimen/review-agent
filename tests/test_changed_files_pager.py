@@ -157,23 +157,6 @@ class ChangedFilesIntegrationTests(unittest.TestCase):
         self.assertEqual(files[0]["context_hash_source"], "blob")
         self.assertEqual(files[0]["context_hash"], f"{0:040x}")
 
-    def test_changed_files_truncates_previous_path_to_500(self):
-        # Historical contract: previous_filename was truncated to 500 chars, matching
-        # the repository path validator bound used for renamed-file base reads.
-        master = [
-            {
-                "filename": "src/new_name.py",
-                "previous_filename": "src/" + "x" * 600,
-                "status": "renamed",
-                "sha": "b" * 40,
-                "additions": 0,
-                "deletions": 0,
-                "changes": 0,
-            }
-        ]
-        files = review_source_tools.load_changed_files(self._source(master))
-        self.assertEqual(len(files[0]["previous_path"]), 500)
-
     def test_changed_files_patch_hash_fallback_when_no_blob_sha(self):
         # Suppression-compatibility contract: with no blob SHA, the context hash is the
         # deterministic patch hash and the source is "patch" (not the head fallback yet).

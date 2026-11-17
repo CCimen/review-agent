@@ -13,8 +13,12 @@ import sqlite3
 import sys
 from typing import Protocol, cast
 
-from .code_graph_contract import (
-    EMBEDDING_MODEL, GRAPH_MAX_BYTES, GRAPH_MAX_NODES, GRAPH_RESULT_MAX_BYTES, GraphError,
+from .contract import (
+    EMBEDDING_MODEL,
+    GRAPH_MAX_BYTES,
+    GRAPH_MAX_NODES,
+    GRAPH_RESULT_MAX_BYTES,
+    GraphError,
 )
 
 

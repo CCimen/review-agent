@@ -8,7 +8,7 @@ import io
 from pathlib import Path, PurePosixPath
 import tarfile
 
-from .code_graph_contract import (
+from .contract import (
     ARCHIVE_MAX_BYTES,
     GraphError,
     SNAPSHOT_MAX_BYTES,

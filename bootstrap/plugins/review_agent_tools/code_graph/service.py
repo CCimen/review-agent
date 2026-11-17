@@ -20,12 +20,19 @@ import threading
 import time
 from typing import cast
 
-from .code_graph_cache import extract_snapshot
-from .code_graph_contract import (
-    EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, GRAPH_MAX_BYTES, GRAPH_RESULT_MAX_BYTES,
-    GraphError, GraphIdentity, GraphSubject, QUERY_PATTERNS, SNAPSHOT_MAX_BYTES,
+from .cache import extract_snapshot
+from .contract import (
+    EMBEDDING_DIMENSIONS,
+    EMBEDDING_MODEL,
+    GRAPH_MAX_BYTES,
+    GRAPH_RESULT_MAX_BYTES,
+    GraphError,
+    GraphIdentity,
+    GraphSubject,
+    QUERY_PATTERNS,
+    SNAPSHOT_MAX_BYTES,
 )
-from .github.gateway_client import ReviewGitHubGatewayClient
+from ..github.gateway_client import ReviewGitHubGatewayClient
 
 _MANIFEST_MAX_BYTES = 16_000_000
 _PREPARATION_QUEUE_LIMIT = 4

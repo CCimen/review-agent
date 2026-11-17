@@ -6,8 +6,8 @@ import logging
 from typing import Any
 
 from . import capacity
-from .code_graph_client import request_graph
-from .code_graph_contract import GraphError, GraphIdentity, QUERY_PATTERNS
+from .code_graph.client import request_graph
+from .code_graph.contract import GraphError, GraphIdentity, QUERY_PATTERNS
 from .github.gateway import GitHubGatewayError
 from .review_tool_runtime import (
     GatewaySourceSession, ReviewRunTerminal, ToolInputError, error_output,

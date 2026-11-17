@@ -9,7 +9,7 @@ from typing import cast
 import urllib.error
 import urllib.request
 
-from .code_graph_contract import (
+from .contract import (
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MAX_RESPONSE_BYTES,
     EMBEDDING_MAX_TEXT_CHARS,
@@ -17,7 +17,7 @@ from .code_graph_contract import (
     EMBEDDING_MODEL,
     GraphError,
 )
-from .source_control import SameOriginHttpsRedirectHandler
+from ..source_control import SameOriginHttpsRedirectHandler
 
 
 def embedding_inputs(value: Mapping[str, object]) -> list[str]:

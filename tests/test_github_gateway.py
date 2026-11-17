@@ -60,7 +60,10 @@ from review_agent_tools.github.source import (  # noqa: E402
     read_review_pull,
 )
 from review_agent_tools.postgres.review_runs import ReviewRunScope  # noqa: E402
-from review_agent_tools.code_graph_contract import GraphIdentity, GraphPolicy  # noqa: E402
+from review_agent_tools.code_graph.contract import (  # noqa: E402
+    GraphIdentity,
+    GraphPolicy,
+)
 from review_agent_tools.source_control import (  # noqa: E402
     GitHubReadError,
     PullSnapshot,

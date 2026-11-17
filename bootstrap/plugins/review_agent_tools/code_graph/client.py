@@ -8,8 +8,13 @@ from typing import Literal, cast
 import urllib.error
 import urllib.request
 
-from .code_graph_contract import GRAPH_QUERY_PATH, GRAPH_RESULT_MAX_BYTES, GraphError, GraphIdentity
-from .source_control import SameOriginHttpsRedirectHandler
+from .contract import (
+    GRAPH_QUERY_PATH,
+    GRAPH_RESULT_MAX_BYTES,
+    GraphError,
+    GraphIdentity,
+)
+from ..source_control import SameOriginHttpsRedirectHandler
 
 
 def request_graph(

@@ -45,7 +45,7 @@ from review_agent_tools.github.publication import (  # noqa: E402
     PullRequestState,
 )
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
-from review_agent_tools.code_graph_contract import GraphIdentity  # noqa: E402
+from review_agent_tools.code_graph.contract import GraphIdentity  # noqa: E402
 
 
 def _entrypoint_module():

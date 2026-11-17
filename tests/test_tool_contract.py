@@ -52,7 +52,7 @@ from review_agent_tools.postgres.coverage import (  # noqa: E402
     RunFilePage,
 )
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
-from review_agent_tools.code_graph_contract import GraphError  # noqa: E402
+from review_agent_tools.code_graph.contract import GraphError  # noqa: E402
 
 TEST_REVIEW_CONTRACT = review_contract.ReviewContract(
     profile="default-standard",
@@ -510,7 +510,7 @@ class ToolContractTests(unittest.TestCase):
             )
             with (
                 patch.dict(os.environ, {"REVIEW_AGENT_CODE_GRAPH_URL": "http://graph:8647"}),
-                patch("review_agent_tools.code_graph_client.urllib.request.build_opener") as opener,
+                patch("review_agent_tools.code_graph.client.urllib.request.build_opener") as opener,
             ):
                 opener.return_value.open.side_effect = BadStatusLine("invalid graph response")
                 result = json.loads(review_source_tools.review_begin(

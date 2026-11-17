@@ -13,6 +13,15 @@ spec:
         app: review-agent-worker
     spec:
       terminationGracePeriodSeconds: {{ .Values.workerTerminationGraceSeconds }}
+      {{- if eq .Values.persistence.accessMode "ReadWriteOnce" }}
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: hermes-review
+            topologyKey: kubernetes.io/hostname
+      {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:

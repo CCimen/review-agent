@@ -1,3 +1,7 @@
+{{- if .Values.initialize }}
+{{- if not .Values.drained }}
+{{- fail "initialize=true requires drained=true: the Jobs must not run beside the workloads" }}
+{{- end }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -5,6 +9,9 @@ metadata:
 spec:
   backoffLimit: 3
   template:
+    metadata:
+      labels:
+        app: review-agent-init
     spec:
       restartPolicy: OnFailure
       securityContext:
@@ -51,6 +58,9 @@ metadata:
 spec:
   backoffLimit: 6
   template:
+    metadata:
+      labels:
+        app: review-agent-init
     spec:
       restartPolicy: OnFailure
       securityContext:
@@ -81,3 +91,4 @@ spec:
       volumes:
       - name: tmp
         emptyDir: {}
+{{- end }}

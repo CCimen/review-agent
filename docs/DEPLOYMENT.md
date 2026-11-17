@@ -330,8 +330,9 @@ can assign an arbitrary UID under `restricted-v2`.
 
 The chart in `examples/helm/review-agent` deploys the same workloads as the
 OpenShift template on any Kubernetes cluster. It expects an existing PostgreSQL
-database and three secrets, and it uses fixed resource names, so install one
-release per namespace.
+database, three secrets, an ingress controller, and a TLS certificate for the
+webhook host. It uses fixed resource names, so install one release per
+namespace.
 
 Create the secrets in the target namespace. Set the webhook variable to the
 exact value registered in the GitHub App:
@@ -349,18 +350,53 @@ kubectl create secret generic review-agent-github-app \
   --from-file=github-app-private-key.pem=./github-app-private-key.pem
 ```
 
-Install with every workload scaled to zero, which waits for the profile and
-migration Jobs, then start the workloads:
+Write the values to `review-agent-values.yaml`. `tlsSecretName` names a
+`kubernetes.io/tls` secret for the host, for example one issued by
+cert-manager; leave it out only when the ingress controller already serves a
+trusted certificate for that host.
+
+```yaml
+image: ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>
+model: <review-model>
+ingress:
+  enabled: true
+  className: <ingress-class>
+  host: review.example.org
+  tlsSecretName: review-agent-tls
+```
+
+Deploy in three phases. The script stops at the first failure and leaves the
+workloads at zero; fix the cause and run it again from the top:
 
 ```bash
-helm install review-agent examples/helm/review-agent \
-  --set image='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>' \
-  --set model='<review-model>' \
-  --set ingress.enabled=true --set ingress.host=review.example.org \
-  --set drained=true --wait --wait-for-jobs --timeout 10m
-helm upgrade review-agent examples/helm/review-agent --reuse-values \
-  --set drained=false --wait --timeout 10m
+bash -euo pipefail <<'HELM_DEPLOY'
+CHART=examples/helm/review-agent
+VALUES=review-agent-values.yaml
+APPS="hermes-review review-agent-admission review-agent-github-gateway
+  review-agent-github-app-worker review-agent-worker review-agent-publisher
+  review-agent-init"
+
+# 1. Drain: scale every workload to zero and remove earlier initialization Jobs.
+helm upgrade --install review-agent "$CHART" -f "$VALUES" \
+  --set drained=true --set initialize=false --wait --timeout 10m
+for app in $APPS; do
+  pods="$(kubectl get pods -l "app=$app" -o name)"
+  if [ -n "$pods" ]; then
+    kubectl wait --for=delete $pods --timeout=5m
+  fi
+done
+
+# 2. Initialize: install the profile and migrate the database.
+helm upgrade review-agent "$CHART" -f "$VALUES" \
+  --set drained=true --set initialize=true --wait --wait-for-jobs --timeout 10m
+
+# 3. Start the workloads.
+helm upgrade review-agent "$CHART" -f "$VALUES" --wait --timeout 10m
+HELM_DEPLOY
 ```
+
+The profile and migration Jobs exist only in phase 2, so they never run beside
+the workloads or beside an earlier attempt.
 
 Use `https://review.example.org/webhooks/github-app` as the App webhook URL.
 Connect the configured model provider inside Hermes once, then restart that
@@ -372,13 +408,16 @@ kubectl exec deployment/hermes-review -- /opt/review-agent-bootstrap/install.sh
 kubectl rollout restart deployment/hermes-review
 ```
 
-Only admission has an Ingress; without `ingress.enabled`, route the
-`review-agent-admission` Service on port `8644` yourself. Network policies
-allow traffic to Hermes only from the review worker, and to the gateway only
-from Hermes, the review worker, the App delivery worker, and the publisher.
-Pods run as user `10000`, like the Compose services; change
-`podSecurityContext` on clusters that assign users themselves. The volume that
-holds the model login is kept when the release is uninstalled.
+Only admission has an Ingress. Network policies allow traffic to Hermes only
+from the review worker, and to the gateway only from Hermes, the review worker,
+the App delivery worker, and the publisher. Pods run as user `10000`, like the
+Compose services; change `podSecurityContext` on clusters that assign users
+themselves.
+
+Hermes and the review workers share one volume. With the default
+`ReadWriteOnce` access mode the chart schedules the workers on the Hermes node;
+set `persistence.accessMode: ReadWriteMany` when the storage class supports it.
+The volume holds the model login and is kept when the release is uninstalled.
 `examples/helm/review-agent/values.yaml` lists every value.
 
 </TabItem>
@@ -542,37 +581,45 @@ the new template until every old application pod is gone.
 </TabItem>
 <TabItem value="kubernetes-upgrade" label="Kubernetes (Helm)">
 
-Check out the release so the chart matches the image, and set `IMAGE` to the
-release manifest digest. The script scales every workload to zero, waits for the
-old pods to disappear, runs the new image's profile and migration Jobs, and only
-then starts the workloads:
+Check out the release so the chart matches the image, and set `image` in
+`review-agent-values.yaml` to the release manifest digest. Then run the same
+three phases as for the installation:
 
 ```bash
-bash -euo pipefail <<'HELM_UPGRADE'
+bash -euo pipefail <<'HELM_DEPLOY'
 CHART=examples/helm/review-agent
-IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
+VALUES=review-agent-values.yaml
+APPS="hermes-review review-agent-admission review-agent-github-gateway
+  review-agent-github-app-worker review-agent-worker review-agent-publisher
+  review-agent-init"
 
-helm upgrade review-agent "$CHART" --reuse-values \
-  --set drained=true --wait --timeout 10m
-for app in hermes-review review-agent-admission review-agent-github-gateway \
-  review-agent-github-app-worker review-agent-worker review-agent-publisher; do
+# 1. Drain: scale every workload to zero and remove earlier initialization Jobs.
+helm upgrade --install review-agent "$CHART" -f "$VALUES" \
+  --set drained=true --set initialize=false --wait --timeout 10m
+for app in $APPS; do
   pods="$(kubectl get pods -l "app=$app" -o name)"
   if [ -n "$pods" ]; then
     kubectl wait --for=delete $pods --timeout=5m
   fi
 done
 
-helm upgrade review-agent "$CHART" --reuse-values --set image="$IMAGE" \
-  --set drained=true --wait --wait-for-jobs --timeout 10m
-helm upgrade review-agent "$CHART" --reuse-values \
-  --set drained=false --wait --timeout 10m
+# 2. Initialize: install the profile and migrate the database.
+helm upgrade review-agent "$CHART" -f "$VALUES" \
+  --set drained=true --set initialize=true --wait --wait-for-jobs --timeout 10m
 
-kubectl exec deployment/hermes-review -- review-agent-admin doctor
-HELM_UPGRADE
+# 3. Start the workloads.
+helm upgrade review-agent "$CHART" -f "$VALUES" --wait --timeout 10m
+HELM_DEPLOY
 ```
 
-The wait loop is the migration fence. Do not run the upgrade with the new image
-until every old application pod is gone.
+The wait loop is the migration fence: phase 2 does not start until every old
+application pod and every earlier initialization pod is gone. If a phase fails,
+the workloads stay at zero; fix the cause and run the script again from the
+top. Afterwards, verify:
+
+```bash
+kubectl exec deployment/hermes-review -- review-agent-admin doctor
+```
 
 </TabItem>
 </Tabs>

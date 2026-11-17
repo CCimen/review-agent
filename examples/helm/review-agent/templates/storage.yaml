@@ -5,7 +5,7 @@ metadata:
   annotations:
     helm.sh/resource-policy: keep
 spec:
-  accessModes: [ReadWriteOnce]
+  accessModes: [{{ .Values.persistence.accessMode }}]
   {{- with .Values.persistence.storageClassName }}
   storageClassName: {{ . | quote }}
   {{- end }}

@@ -10,22 +10,28 @@ profile: default-standard
 # Accept /review false-positive, intentional and feedback commands.
 feedbackEnabled: false
 
-# Concurrent reviews per worker pod. Worker pods mount the Hermes volume
-# read-only, so with a ReadWriteOnce volume they run on the same node as Hermes.
+# Concurrent reviews per worker pod.
 workerConcurrency: 4
 workerReplicas: 1
 publisherReplicas: 1
 # Must exceed the longest drain a worker needs before it is force-terminated.
 workerTerminationGraceSeconds: 150
 
-# true scales every workload to zero. Use it to stop the old pods before an
-# upgrade and to run the initialization Jobs before the first start.
+# Deployment runs in three phases; docs/DEPLOYMENT.md has the script.
+# drained scales every workload to zero. initialize runs the profile and
+# migration Jobs and is only allowed while drained, so they never run beside
+# the workloads.
 drained: false
+initialize: false
 
 # Hermes configuration, model credentials and the installed review profile.
 # The claim is kept when the release is uninstalled.
 persistence:
   size: 5Gi
+  # Hermes and the review workers share this volume. With ReadWriteOnce the
+  # chart schedules the workers on the Hermes node; set ReadWriteMany when the
+  # storage class supports it and the pods should spread across nodes.
+  accessMode: ReadWriteOnce
   # Empty uses the cluster's default storage class.
   storageClassName: ""
 

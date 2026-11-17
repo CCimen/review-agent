@@ -441,6 +441,8 @@ class DeploymentConfigTests(unittest.TestCase):
                 tab("kubernetes-upgrade", "Kubernetes (Helm)"),
                 (
                     "--set drained=true --set initialize=false",
+                    'kubectl rollout status "deployment/$deployment"',
+                    "kubectl delete job -l app=review-agent-init --ignore-not-found",
                     "kubectl wait --for=delete $pods",
                     "--set drained=true --set initialize=true --wait --wait-for-jobs",
                     'helm upgrade review-agent "$CHART" -f "$VALUES" --wait',
@@ -547,7 +549,9 @@ class DeploymentConfigTests(unittest.TestCase):
             "podAffinity": {
                 "requiredDuringSchedulingIgnoredDuringExecution": [
                     {
-                        "labelSelector": {"matchLabels": {"app": "hermes-review"}},
+                        "labelSelector": {
+                            "matchLabels": {"review-agent/volume": "hermes-data"}
+                        },
                         "topologyKey": "kubernetes.io/hostname",
                     }
                 ]
@@ -569,12 +573,17 @@ class DeploymentConfigTests(unittest.TestCase):
                 )
                 pod["securityContext"] = {"seccompProfile": {"type": "RuntimeDefault"}}
             if kind == "Job":
+                # The deploy script finds earlier attempts by this label.
+                initialization = {"app": "review-agent-init"}
+                self.assertEqual(initialization, mapping(item["metadata"]).pop("labels"))
                 self.assertEqual(
-                    {"labels": {"app": "review-agent-init"}},
-                    pod_template(item).pop("metadata"),
+                    {"labels": initialization}, pod_template(item).pop("metadata")
                 )
-            if name == "review-agent-worker":
-                # The worker shares the ReadWriteOnce Hermes volume.
+            if name in {"hermes-review", "review-agent-worker"} and kind == "Deployment":
+                # Both mount the ReadWriteOnce Hermes volume, so each must
+                # land on the node of the other, whichever is replaced.
+                labels = mapping(mapping(pod_template(item)["metadata"])["labels"])
+                self.assertEqual("hermes-data", labels.pop("review-agent/volume"))
                 self.assertEqual(
                     colocated, mapping(pod_template(item)["spec"]).pop("affinity")
                 )
@@ -608,10 +617,11 @@ class DeploymentConfigTests(unittest.TestCase):
         self.assertIn("initialize=true requires drained=true", refused.stderr)
 
         shared = self._chart_objects("--set", "persistence.accessMode=ReadWriteMany")
-        worker = mapping(
-            mapping(mapping(shared[("Deployment", "review-agent-worker")]["spec"])["template"])["spec"]
-        )
-        self.assertNotIn("affinity", worker)
+        for name in ("hermes-review", "review-agent-worker"):
+            consumer = mapping(
+                mapping(mapping(shared[("Deployment", name)]["spec"])["template"])["spec"]
+            )
+            self.assertNotIn("affinity", consumer)
         exposed = self._chart_objects(
             "--set", "ingress.enabled=true", "--set", "ingress.host=review.example.org"
         )
@@ -638,39 +648,66 @@ class DeploymentConfigTests(unittest.TestCase):
 
         def run(failing: str) -> tuple[int, list[str]]:
             with tempfile.TemporaryDirectory() as directory:
-                calls = Path(directory) / "helm-calls"
-                helm = Path(directory) / "helm"
-                helm.write_text(
-                    "#!/bin/sh\n"
-                    f'echo "$*" >> "{calls}"\n'
-                    f'case "$*" in *"{failing}"*) exit 1;; esac\n',
-                    encoding="utf-8",
-                )
-                kubectl = Path(directory) / "kubectl"
-                kubectl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-                helm.chmod(0o755)
-                kubectl.chmod(0o755)
+                calls = Path(directory) / "calls"
+                for tool in ("helm", "kubectl"):
+                    stub = Path(directory) / tool
+                    stub.write_text(
+                        "#!/bin/sh\n"
+                        f'echo "{tool} $*" >> "{calls}"\n'
+                        f'case "{tool} $*" in *"{failing}"*) exit 1;; esac\n',
+                        encoding="utf-8",
+                    )
+                    stub.chmod(0o755)
                 result = subprocess.run(
                     ["bash", "-c", scripts[0]],
                     env={**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"},
                     capture_output=True, text=True, check=False,
                 )
-                logged = calls.read_text(encoding="utf-8").splitlines()
-                return result.returncode, logged
+                return result.returncode, calls.read_text(encoding="utf-8").splitlines()
 
+        cleanup = "kubectl delete job -l app=review-agent-init --ignore-not-found"
         code, calls = run("no phase fails")
         self.assertEqual(0, code)
-        self.assertEqual(3, len(calls))
-        self.assertIn("drained=true --set initialize=false", calls[0])
-        self.assertIn("drained=true --set initialize=true", calls[1])
-        self.assertNotIn("drained=true", calls[2])
+        helm = [call for call in calls if call.startswith("helm ")]
+        self.assertEqual(3, len(helm))
+        drain, initialize, start = helm
+        self.assertIn("drained=true --set initialize=false", drain)
+        # Waiting here would wait for a volume that binds on first use.
+        self.assertNotIn("--wait", drain)
+        self.assertIn("drained=true --set initialize=true", initialize)
+        self.assertIn("--wait-for-jobs", initialize)
+        self.assertNotIn("drained=true", start)
+        # Every Deployment has scaled down, Jobs of an earlier attempt are
+        # deleted, and every application and initialization label is checked
+        # for pods, before initialization.
+        scaled_down = [
+            index for index, call in enumerate(calls)
+            if call.startswith("kubectl rollout status deployment/")
+        ]
+        self.assertEqual(6, len(scaled_down))
+        self.assertLess(calls.index(drain), scaled_down[0])
+        self.assertLess(scaled_down[-1], calls.index(cleanup))
+        self.assertLess(calls.index(cleanup), calls.index(initialize))
+        checked = [
+            call for call in calls[calls.index(cleanup): calls.index(initialize)]
+            if call.startswith("kubectl get pods -l app=")
+        ]
+        self.assertEqual(7, len(checked))
+        self.assertIn("kubectl get pods -l app=review-agent-init -o name", checked)
 
-        for failing, reached in (("initialize=false", 1), ("initialize=true", 2)):
+        for failing, reached in (
+            ("initialize=false", 1),
+            ("kubectl rollout status", 1),
+            ("kubectl delete job", 1),
+            ("kubectl get pods", 1),
+            ("initialize=true", 2),
+        ):
             with self.subTest(failing=failing):
                 code, calls = run(failing)
                 self.assertNotEqual(0, code)
-                self.assertEqual(reached, len(calls))
-                self.assertTrue(all("drained=true" in call for call in calls))
+                helm = [call for call in calls if call.startswith("helm ")]
+                self.assertEqual(reached, len(helm))
+                self.assertTrue(all("drained=true" in call for call in helm))
 
 
 if __name__ == "__main__":

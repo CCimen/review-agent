@@ -13,7 +13,11 @@ spec:
     metadata:
       labels:
         app: hermes-review
+        review-agent/volume: hermes-data
     spec:
+      {{- with include "review-agent.sharedVolumeAffinity" . | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:

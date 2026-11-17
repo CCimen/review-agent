@@ -11,16 +11,11 @@ spec:
     metadata:
       labels:
         app: review-agent-worker
+        review-agent/volume: hermes-data
     spec:
       terminationGracePeriodSeconds: {{ .Values.workerTerminationGraceSeconds }}
-      {{- if eq .Values.persistence.accessMode "ReadWriteOnce" }}
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchLabels:
-                app: hermes-review
-            topologyKey: kubernetes.io/hostname
+      {{- with include "review-agent.sharedVolumeAffinity" . | trim }}
+      {{- . | nindent 6 }}
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}

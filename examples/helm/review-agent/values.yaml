@@ -29,8 +29,8 @@ initialize: false
 persistence:
   size: 5Gi
   # Hermes and the review workers share this volume. With ReadWriteOnce the
-  # chart schedules the workers on the Hermes node; set ReadWriteMany when the
-  # storage class supports it and the pods should spread across nodes.
+  # chart keeps them on one node; set ReadWriteMany when the storage class
+  # supports it and the pods should spread across nodes.
   accessMode: ReadWriteOnce
   # Empty uses the cluster's default storage class.
   storageClassName: ""

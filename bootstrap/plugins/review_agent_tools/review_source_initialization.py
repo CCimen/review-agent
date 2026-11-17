@@ -20,7 +20,7 @@ from .domain.review import (
     part_sizes,
     plan_review_parts,
 )
-from .model_window import ModelWindow
+from .model_runtime.window import ModelWindow
 from .github.gateway import GitHubGatewayError
 from .postgres.coverage import FileIndexSummary
 from .postgres.runtime import PostgreSQLRuntime

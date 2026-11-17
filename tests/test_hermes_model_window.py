@@ -13,7 +13,7 @@ CONFIG = {"compression": {"threshold": 0.8}}
 @unittest.skipUnless(importlib.util.find_spec("hermes_cli"), "requires Hermes")
 class HermesModelWindowTests(unittest.TestCase):
     def resolve(self, provider: str, model: str, context_tokens: int):
-        from review_agent_tools import model_window
+        from review_agent_tools.model_runtime import window as model_window
 
         runtime = {
             "provider": provider,
@@ -46,7 +46,7 @@ class HermesModelWindowTests(unittest.TestCase):
         return window
 
     def test_resolves_through_the_functions_hermes_uses_for_its_sessions(self) -> None:
-        from review_agent_tools import model_window
+        from review_agent_tools.model_runtime import window as model_window
 
         window = self.resolve("openai-codex", "selected-model", 500_000)
         self.assertEqual(

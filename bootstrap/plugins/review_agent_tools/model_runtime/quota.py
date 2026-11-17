@@ -9,7 +9,7 @@ from time import monotonic, time
 from typing import Literal, Protocol, cast
 from uuid import UUID
 
-from .model_accounts import (
+from .accounts import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,

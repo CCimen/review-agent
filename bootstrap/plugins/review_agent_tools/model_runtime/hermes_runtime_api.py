@@ -13,12 +13,13 @@ from uuid import uuid4
 from aiohttp import web
 import psycopg
 
-from . import model_window, review_contract, review_tool_runtime
+from . import window as model_window
+from .. import review_contract, review_tool_runtime
 from .hermes_control import MANAGED_REVIEW_PATH
-from .model_accounts import AccountAvailability, ModelProvider, read_accounts
-from .model_quota import ObservedQuota, QuotaCache, execution_quota
-from .postgres import jobs
-from .postgres.runtime import PostgreSQLRuntimeError
+from .accounts import AccountAvailability, ModelProvider, read_accounts
+from .quota import ObservedQuota, QuotaCache, execution_quota
+from ..postgres import jobs
+from ..postgres.runtime import PostgreSQLRuntimeError
 
 
 logger = logging.getLogger(__name__)

@@ -14,7 +14,11 @@ from psycopg.types.json import Jsonb
 from .. import review_contract
 from ..review_contract import SHARED_CONNECTION_ID
 from ..deployment_settings import DeploymentSettings
-from ..model_accounts import AccountAvailability, ManagedRuntimeStatus, ModelProvider
+from ..model_runtime.accounts import (
+    AccountAvailability,
+    ManagedRuntimeStatus,
+    ModelProvider,
+)
 from . import audit, deployment_settings, team_access
 from .team_access import AccessScope
 

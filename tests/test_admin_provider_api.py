@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
 from review_agent_tools.admin.provider_api import create_router  # noqa: E402
-from review_agent_tools.hermes_control import (  # noqa: E402
+from review_agent_tools.model_runtime.hermes_control import (  # noqa: E402
     HermesControlClient,
     HermesRuntimeClient,
     HermesControlConfigurationError,

@@ -5,15 +5,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
-from ..hermes_control import (
+from ..model_runtime.hermes_control import (
     HermesControlClient,
     HermesControlError,
     LoginSession,
     ProviderModel,
 )
-from ..model_connection_config import ManagedControl
-from ..model_accounts import AccountAvailability, ModelProvider
-from ..model_quota import AccountQuota
+from ..model_runtime.connection_config import ManagedControl
+from ..model_runtime.accounts import AccountAvailability, ModelProvider
+from ..model_runtime.quota import AccountQuota
 from ..postgres import model_connections as models, model_logins, team_access
 from ..postgres.runtime import PostgreSQLRuntime
 from ..postgres.team_access import AccessRequest, authorized_transaction

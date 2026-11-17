@@ -16,7 +16,7 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import TupleRow, class_row
 
 from .. import failure_codes
-from ..model_quota import MANUAL_REFRESH_SECONDS, QuotaCheck
+from ..model_runtime.quota import MANUAL_REFRESH_SECONDS, QuotaCheck
 from ..review_contract import SHARED_CONNECTION_ID
 from ..domain.review import PullRequestId, ReviewRunId, ReviewStatus
 

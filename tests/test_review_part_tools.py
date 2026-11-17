@@ -15,7 +15,6 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from review_agent_tools import (  # noqa: E402
     capacity,
-    model_window,
     review_contract,
     review_delivery_tool,
     review_memory_tools,
@@ -26,6 +25,7 @@ from review_agent_tools import (  # noqa: E402
     review_source_tools,
     review_tool_runtime,
 )
+from review_agent_tools.model_runtime import window as model_window  # noqa: E402
 from review_agent_tools.domain.review import resolve_review_subject  # noqa: E402
 from review_agent_tools.github.source import ReviewSourceBytes  # noqa: E402
 from review_agent_tools.postgres.coverage import FileIndexSummary  # noqa: E402

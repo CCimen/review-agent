@@ -30,7 +30,7 @@ from . import (
     settings,
 )
 from .domain.review import JsonObject, ReviewPurpose
-from .hermes_control import MANAGED_REVIEW_PATH
+from .model_runtime.hermes_control import MANAGED_REVIEW_PATH
 from .github.gateway import GitHubGatewayRejected, GitHubGatewayRetryable
 from .github.gateway_client import ReviewGitHubGatewayClient
 from .review_tool_runtime import GatewaySourceSession, ToolInputError

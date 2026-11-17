@@ -13,9 +13,14 @@ from aiohttp.test_utils import TestClient, TestServer
 import jwt
 
 from tests import test_postgres_jobs
-from review_agent_tools import hermes_runtime_api, model_quota, model_window, review_contract
-from review_agent_tools.hermes_control import MANAGED_REVIEW_PATH
-from review_agent_tools.model_accounts import (
+from review_agent_tools.model_runtime import (
+    hermes_runtime_api,
+    quota as model_quota,
+    window as model_window,
+)
+from review_agent_tools import review_contract
+from review_agent_tools.model_runtime.hermes_control import MANAGED_REVIEW_PATH
+from review_agent_tools.model_runtime.accounts import (
     AccountAvailability,
     ModelProvider,
     RuntimeAccount,

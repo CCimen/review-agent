@@ -42,7 +42,7 @@ def register(ctx: ToolRegistry) -> None:
     # Import concrete owners after package initialization so submodules can import
     # package-owned contracts without creating a static package import cycle.
     capacity = import_module(f"{__name__}.capacity")
-    result_chars, turn_chars = import_module(f"{__name__}.model_window").default_budget()
+    result_chars, turn_chars = import_module(f"{__name__}.model_runtime.window").default_budget()
     limits = capacity.configure(
         result_max_chars=_installed_result_max_chars(),
         result_chars=result_chars,
@@ -55,7 +55,7 @@ def register(ctx: ToolRegistry) -> None:
     delivery_tool = import_module(f"{__name__}.review_delivery_tool")
     part_tools = import_module(f"{__name__}.review_part_tools")
     graph_tool = import_module(f"{__name__}.review_code_graph_tool")
-    runtime_api = import_module(f"{__name__}.hermes_runtime_api")
+    runtime_api = import_module(f"{__name__}.model_runtime.hermes_runtime_api")
     docs_tools = import_module(f"{__name__}.documentation.tools")
     docs_findings = import_module(f"{__name__}.documentation.findings")
     ctx.register_platform_handler("api_server", getattr(runtime_api, "wire_api"))

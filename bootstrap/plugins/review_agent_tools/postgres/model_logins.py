@@ -10,7 +10,11 @@ from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
 from ..domain.access import Role
-from ..model_accounts import AccountAvailability, ManagedRuntimeStatus, ModelProvider
+from ..model_runtime.accounts import (
+    AccountAvailability,
+    ManagedRuntimeStatus,
+    ModelProvider,
+)
 from . import audit, model_connections as models, team_access
 from .team_access import AccessScope
 

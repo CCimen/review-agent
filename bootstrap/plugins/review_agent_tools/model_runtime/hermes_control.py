@@ -12,14 +12,14 @@ from typing import Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from . import review_contract
-from .model_accounts import (
+from .. import review_contract
+from .accounts import (
     AccountAvailability,
     ManagedRuntimeStatus,
     ModelProvider,
     RuntimeAccount,
 )
-from .model_quota import (
+from .quota import (
     AccountQuota,
     ManagedQuota,
     ObservedQuota,

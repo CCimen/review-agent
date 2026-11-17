@@ -19,7 +19,6 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 import review_agent_tools  # noqa: E402
 from review_agent_tools import (  # noqa: E402
     capacity,
-    model_window,
     review_contract,
     review_code_graph_tool,
     review_delivery_tool,
@@ -30,6 +29,7 @@ from review_agent_tools import (  # noqa: E402
     review_tool_runtime,
     schemas,
 )
+from review_agent_tools.model_runtime import window as model_window  # noqa: E402
 from review_agent_tools.documentation import tools as documentation_tools  # noqa: E402
 from review_agent_tools.repository_context import (  # noqa: E402
     decision_context as repository_decision_context,

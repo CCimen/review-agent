@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Path, Query
 from pydantic import Field, BaseModel, ConfigDict, model_validator
 
-from .. import model_connection_config
+from ..model_runtime import connection_config as model_connection_config
 from ..admin_auth import AdminAuth
 from .model_application import (
     ConnectionRuntime,
@@ -15,9 +15,9 @@ from .model_application import (
     ModelLogin,
 )
 from .teams_api import ChangeReason
-from ..hermes_control import ProviderModel
-from ..model_accounts import ModelProvider
-from ..model_quota import AccountQuota
+from ..model_runtime.hermes_control import ProviderModel
+from ..model_runtime.accounts import ModelProvider
+from ..model_runtime.quota import AccountQuota
 from ..postgres import model_connections as models
 from ..postgres.runtime import PostgreSQLRuntime
 from ..postgres.team_access import AccessRequest, authorized_transaction

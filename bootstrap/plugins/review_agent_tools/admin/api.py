@@ -44,7 +44,7 @@ from . import (
     scim as admin_scim,
     oidc as admin_oidc,
 )
-from .. import model_connection_config
+from ..model_runtime import connection_config as model_connection_config
 from ..admin_auth import AdminAuth
 from .email import email_cipher
 from .identity_config import IdentitySettings
@@ -54,7 +54,7 @@ from ..postgres import admin_operations, admin_reporting, admin_usage
 from ..postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
 from ..postgres.teams import TeamConflict
 from ..postgres.model_connections import ConnectionConflict
-from ..hermes_control import HermesControlError
+from ..model_runtime.hermes_control import HermesControlError
 from ..postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,

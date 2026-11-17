@@ -16,11 +16,11 @@ from . import (
     capacity,
     failure_codes,
     memory_validation,
-    model_window,
     review_contract,
     review_run_application,
     settings,
 )
+from .model_runtime import window as model_window
 from .domain.review import ReviewRunId
 from .github.gateway import GitHubGatewayError, GitHubGatewayRejected, GitHubGatewayRetryable
 from .github.gateway_client import ReviewGitHubGatewayClient

@@ -2,7 +2,7 @@
 sidebar_label: Deploy
 slug: /deployment
 title: Deploy Review Agent
-description: Choose an image, set secrets, and deploy with Compose, Dokploy, Coolify, Portainer, or OpenShift; upgrade and roll back.
+description: Choose an image, set secrets, and deploy with Compose, Dokploy, Coolify, Portainer, OpenShift, or Kubernetes; upgrade and roll back.
 status: current
 last_verified: 2026-11-17
 ---
@@ -326,6 +326,62 @@ capabilities, and uses PVC or `emptyDir` mounts for writable paths so OpenShift
 can assign an arbitrary UID under `restricted-v2`.
 
 </TabItem>
+<TabItem value="kubernetes" label="Kubernetes (Helm)">
+
+The chart in `examples/helm/review-agent` deploys the same workloads as the
+OpenShift template on any Kubernetes cluster. It expects an existing PostgreSQL
+database and three secrets, and it uses fixed resource names, so install one
+release per namespace.
+
+Create the secrets in the target namespace. Set the webhook variable to the
+exact value registered in the GitHub App:
+
+```bash
+export REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET='paste-the-registered-value'
+kubectl create secret generic review-agent-database \
+  --from-literal=REVIEW_AGENT_DATABASE_URL='postgresql://migration-owner:...@host:5432/review_agent' \
+  --from-literal=REVIEW_AGENT_RUNTIME_DATABASE_URL='postgresql://review_agent_runtime:...@host:5432/review_agent'
+kubectl create secret generic review-agent-hermes \
+  --from-literal=API_SERVER_KEY="$(openssl rand -hex 32)"
+kubectl create secret generic review-agent-github-app \
+  --from-literal=REVIEW_AGENT_GITHUB_APP_ID='123456' \
+  --from-literal=REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET="$REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET" \
+  --from-file=github-app-private-key.pem=./github-app-private-key.pem
+```
+
+Install with every workload scaled to zero, which waits for the profile and
+migration Jobs, then start the workloads:
+
+```bash
+helm install review-agent examples/helm/review-agent \
+  --set image='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>' \
+  --set model='<review-model>' \
+  --set ingress.enabled=true --set ingress.host=review.example.org \
+  --set drained=true --wait --wait-for-jobs --timeout 10m
+helm upgrade review-agent examples/helm/review-agent --reuse-values \
+  --set drained=false --wait --timeout 10m
+```
+
+Use `https://review.example.org/webhooks/github-app` as the App webhook URL.
+Connect the configured model provider inside Hermes once, then restart that
+deployment:
+
+```bash
+kubectl exec -it deployment/hermes-review -- hermes model
+kubectl exec deployment/hermes-review -- /opt/review-agent-bootstrap/install.sh
+kubectl rollout restart deployment/hermes-review
+```
+
+Only admission has an Ingress; without `ingress.enabled`, route the
+`review-agent-admission` Service on port `8644` yourself. Network policies
+allow traffic to Hermes only from the review worker, and to the gateway only
+from Hermes, the review worker, the App delivery worker, and the publisher.
+Pods run as user `10000`, like the Compose services; change
+`podSecurityContext` on clusters that assign users themselves. The volume that
+holds the model login is kept when the release is uninstalled.
+`examples/helm/review-agent/values.yaml` lists every value.
+
+</TabItem>
 </Tabs>
 
 After the services are running, install and approve the App as described in
@@ -482,6 +538,41 @@ OPENSHIFT_UPGRADE
 
 The first wait loop is the migration fence. Do not delete the old Jobs or apply
 the new template until every old application pod is gone.
+
+</TabItem>
+<TabItem value="kubernetes-upgrade" label="Kubernetes (Helm)">
+
+Check out the release so the chart matches the image, and set `IMAGE` to the
+release manifest digest. The script scales every workload to zero, waits for the
+old pods to disappear, runs the new image's profile and migration Jobs, and only
+then starts the workloads:
+
+```bash
+bash -euo pipefail <<'HELM_UPGRADE'
+CHART=examples/helm/review-agent
+IMAGE='ghcr.io/ccimen/review-agent@sha256:<release-manifest-digest>'
+
+helm upgrade review-agent "$CHART" --reuse-values \
+  --set drained=true --wait --timeout 10m
+for app in hermes-review review-agent-admission review-agent-github-gateway \
+  review-agent-github-app-worker review-agent-worker review-agent-publisher; do
+  pods="$(kubectl get pods -l "app=$app" -o name)"
+  if [ -n "$pods" ]; then
+    kubectl wait --for=delete $pods --timeout=5m
+  fi
+done
+
+helm upgrade review-agent "$CHART" --reuse-values --set image="$IMAGE" \
+  --set drained=true --wait --wait-for-jobs --timeout 10m
+helm upgrade review-agent "$CHART" --reuse-values \
+  --set drained=false --wait --timeout 10m
+
+kubectl exec deployment/hermes-review -- review-agent-admin doctor
+HELM_UPGRADE
+```
+
+The wait loop is the migration fence. Do not run the upgrade with the new image
+until every old application pod is gone.
 
 </TabItem>
 </Tabs>

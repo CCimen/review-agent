@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-agent-worker
+spec:
+  replicas: {{ ternary 0 .Values.workerReplicas .Values.drained }}
+  selector:
+    matchLabels:
+      app: review-agent-worker
+  template:
+    metadata:
+      labels:
+        app: review-agent-worker
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.workerTerminationGraceSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: worker
+        image: {{ required "Set image to an immutable Review Agent image reference" .Values.image | quote }}
+        command: [/usr/local/bin/review-agent-worker]
+        envFrom:
+        - configMapRef:
+            name: review-agent-config
+        env:
+        - name: REVIEW_AGENT_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-database
+              key: REVIEW_AGENT_RUNTIME_DATABASE_URL
+        - name: REVIEW_AGENT_HERMES_CHAT_URL
+          value: http://hermes-review:8642/v1/review-agent/review
+        - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
+          value: http://review-agent-github-gateway:8646
+        - name: API_SERVER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-hermes
+              key: API_SERVER_KEY
+        - name: HERMES_HOME
+          value: /opt/data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: data
+          mountPath: /opt/data
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: review-agent-hermes-data
+      - name: tmp
+        emptyDir: {}

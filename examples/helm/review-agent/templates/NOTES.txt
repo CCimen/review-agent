@@ -1,0 +1,19 @@
+Review Agent is installed{{ if .Values.drained }} with every workload scaled to zero{{ end }}.
+
+{{- if .Values.drained }}
+
+Wait for the initialization Jobs, then start the workloads:
+
+  kubectl -n {{ .Release.Namespace }} wait --for=condition=complete --timeout=10m \
+    job/review-agent-profile-install-{{ .Release.Revision }} job/review-agent-db-migrate-{{ .Release.Revision }}
+  helm -n {{ .Release.Namespace }} upgrade {{ .Release.Name }} <chart> --reuse-values --set drained=false
+{{- end }}
+
+Connect the model provider once; the login is stored on the Hermes volume:
+
+  kubectl -n {{ .Release.Namespace }} exec -it deployment/hermes-review -- hermes model
+  kubectl -n {{ .Release.Namespace }} exec deployment/hermes-review -- /opt/review-agent-bootstrap/install.sh
+  kubectl -n {{ .Release.Namespace }} rollout restart deployment/hermes-review
+
+Then register the GitHub App webhook at https://<host>/webhooks/github-app and
+approve the installation: docs/GITHUB_APP_PILOT.md.

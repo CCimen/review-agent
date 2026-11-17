@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -431,6 +434,16 @@ class DeploymentConfigTests(unittest.TestCase):
                     "oc scale deployment/review-agent-admission",
                 ),
             ),
+            "bash -euo pipefail <<'HELM_UPGRADE'": (
+                tab("kubernetes-upgrade", "Kubernetes (Helm)"),
+                (
+                    "--set drained=true --wait --timeout 10m",
+                    "kubectl wait --for=delete $pods",
+                    '--set image="$IMAGE"',
+                    "--set drained=true --wait --wait-for-jobs",
+                    "--set drained=false",
+                ),
+            ),
         }
         for fail_fast_shell, (procedure, steps) in procedures.items():
             with self.subTest(shell=fail_fast_shell):
@@ -457,6 +470,102 @@ class DeploymentConfigTests(unittest.TestCase):
                 for name in required:
                     with self.subTest(document=document, parameter=name):
                         self.assertIn(f"-p {name}=", arguments)
+
+    def test_helm_chart_deploys_the_same_workloads_as_the_openshift_template(self):
+        helm = shutil.which("helm")
+        if helm is None:
+            if os.environ.get("CI"):
+                self.fail("helm is required to check the chart in CI")
+            self.skipTest("helm is not installed")
+        image = "registry.example/review-agent@sha256:" + "0" * 64
+        values = ("--set", f"image={image}", "--set", "model=example-model")
+
+        def render(*extra: str) -> dict[tuple[str, str], dict[str, object]]:
+            rendered = subprocess.run(
+                [helm, "template", "review-agent", "examples/helm/review-agent", *values, *extra],
+                cwd=ROOT, check=True, capture_output=True, text=True,
+            ).stdout
+            return {
+                (str(item["kind"]), str(mapping(item["metadata"])["name"])): item
+                for item in map(mapping, filter(None, yaml.safe_load_all(rendered)))
+            }
+
+        parameters = {
+            "${IMAGE}": image,
+            "${MODEL}": "example-model",
+            "${{WORKER_TERMINATION_GRACE_SECONDS}}": 150,
+        }
+        template = mapping(
+            yaml.safe_load(read("examples/openshift/review-agent-template.yaml"))
+        )
+        for parameter in map(mapping, sequence(template["parameters"])):
+            parameters.setdefault("${" + str(parameter["name"]) + "}", parameter.get("value"))
+
+        def resolved(value: object) -> object:
+            if isinstance(value, dict):
+                return {key: resolved(item) for key, item in mapping(value).items()}
+            if isinstance(value, list):
+                return [resolved(item) for item in sequence(value)]
+            return parameters.get(value, value) if isinstance(value, str) else value
+
+        def pod(item: dict[str, object]) -> dict[str, object]:
+            return mapping(mapping(mapping(item["spec"])["template"])["spec"])
+
+        expected = {
+            (str(item["kind"]), str(mapping(item["metadata"])["name"])): item
+            for item in map(mapping, sequence(resolved(template["objects"])))
+            if item["kind"] != "Route"
+        }
+        chart = render()
+        actual: dict[tuple[str, str], dict[str, object]] = {}
+        for (kind, name), item in chart.items():
+            if kind == "Job":
+                # Jobs are immutable, so every release revision gets its own.
+                self.assertTrue(name.endswith("-1"), name)
+                name = name.removesuffix("-1")
+                mapping(item["metadata"])["name"] = name
+            actual[(kind, name)] = item
+        self.assertEqual(set(expected), set(actual))
+
+        for key, item in actual.items():
+            kind, _ = key
+            if kind in {"Deployment", "Job"}:
+                security = mapping(pod(item)["securityContext"])
+                self.assertIs(security["runAsNonRoot"], True)
+                self.assertEqual({"type": "RuntimeDefault"}, security["seccompProfile"])
+                pod(item)["securityContext"] = pod(expected[key])["securityContext"]
+            if kind == "Deployment":
+                # The template starts scaled to zero; the chart starts running.
+                self.assertEqual(0, mapping(expected[key]["spec"])["replicas"])
+                self.assertEqual(1, mapping(item["spec"]).pop("replicas"))
+                mapping(expected[key]["spec"]).pop("replicas")
+            if kind == "PersistentVolumeClaim":
+                annotations = mapping(mapping(item["metadata"]).pop("annotations"))
+                self.assertEqual({"helm.sh/resource-policy": "keep"}, annotations)
+            with self.subTest(kind=kind, name=key[1]):
+                self.assertEqual(expected[key], item)
+
+        drained = render("--set", "drained=true")
+        self.assertEqual(
+            {0},
+            {
+                mapping(item["spec"])["replicas"]
+                for (kind, _), item in drained.items()
+                if kind == "Deployment"
+            },
+        )
+        exposed = render(
+            "--set", "ingress.enabled=true", "--set", "ingress.host=review.example.org"
+        )
+        ingress = mapping(exposed[("Ingress", "review-agent")]["spec"])
+        backends = [
+            mapping(mapping(path)["backend"])["service"]
+            for rule in map(mapping, sequence(ingress["rules"]))
+            for path in sequence(mapping(rule["http"])["paths"])
+        ]
+        self.assertEqual(
+            [{"name": "review-agent-admission", "port": {"name": "http"}}], backends
+        )
 
 
 if __name__ == "__main__":

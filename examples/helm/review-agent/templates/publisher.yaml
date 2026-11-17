@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-agent-publisher
+spec:
+  replicas: {{ ternary 0 .Values.publisherReplicas .Values.drained }}
+  selector:
+    matchLabels:
+      app: review-agent-publisher
+  template:
+    metadata:
+      labels:
+        app: review-agent-publisher
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: publisher
+        image: {{ required "Set image to an immutable Review Agent image reference" .Values.image | quote }}
+        command: [/usr/local/bin/review-agent-publisher]
+        envFrom:
+        - configMapRef:
+            name: review-agent-config
+        env:
+        - name: REVIEW_AGENT_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-database
+              key: REVIEW_AGENT_RUNTIME_DATABASE_URL
+        - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
+          value: http://review-agent-github-gateway:8646
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}

@@ -1,0 +1,98 @@
+{{- if .Values.initialize }}
+{{- if not .Values.drained }}
+{{- fail "initialize=true requires drained=true: the Jobs must not run beside the workloads" }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: review-agent-profile-install-{{ .Release.Revision }}
+  labels:
+    app: review-agent-init
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: review-agent-init
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: install
+        image: {{ required "Set image to an immutable Review Agent image reference" .Values.image | quote }}
+        command: [/opt/review-agent-bootstrap/install.sh]
+        envFrom:
+        - configMapRef:
+            name: review-agent-config
+        env:
+        - name: HERMES_HOME
+          value: /opt/data
+        - name: HOME
+          value: /opt/data
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        volumeMounts:
+        - name: data
+          mountPath: /opt/data
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: review-agent-hermes-data
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: review-agent-db-migrate-{{ .Release.Revision }}
+  labels:
+    app: review-agent-init
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: review-agent-init
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: migrate
+        image: {{ required "Set image to an immutable Review Agent image reference" .Values.image | quote }}
+        command: [/usr/local/bin/review-agent-admin]
+        args: [database, prepare]
+        envFrom:
+        - secretRef:
+            name: review-agent-database
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+          readOnlyRootFilesystem: true
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+{{- end }}

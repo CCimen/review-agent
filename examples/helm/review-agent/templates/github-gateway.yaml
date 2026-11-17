@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-agent-github-gateway
+spec:
+  replicas: {{ ternary 0 1 .Values.drained }}
+  selector:
+    matchLabels:
+      app: review-agent-github-gateway
+  template:
+    metadata:
+      labels:
+        app: review-agent-github-gateway
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: gateway
+        image: {{ required "Set image to an immutable Review Agent image reference" .Values.image | quote }}
+        command: [/usr/local/bin/review-agent-github-gateway]
+        args: [serve, --host, 0.0.0.0, --port, '8646']
+        envFrom:
+        - configMapRef:
+            name: review-agent-config
+        env:
+        - name: REVIEW_AGENT_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-database
+              key: REVIEW_AGENT_RUNTIME_DATABASE_URL
+        - name: REVIEW_AGENT_GITHUB_APP_ID
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-github-app
+              key: REVIEW_AGENT_GITHUB_APP_ID
+        - name: REVIEW_AGENT_GITHUB_APP_PRIVATE_KEY_FILE
+          value: /run/secrets/github-app-private-key.pem
+        - name: API_SERVER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-hermes
+              key: API_SERVER_KEY
+        ports:
+        - name: http
+          containerPort: 8646
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: app-key
+          mountPath: /run/secrets
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: app-key
+        secret:
+          secretName: review-agent-github-app
+          defaultMode: 292
+          items:
+          - key: github-app-private-key.pem
+            path: github-app-private-key.pem
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-agent-github-gateway
+spec:
+  selector:
+    app: review-agent-github-gateway
+  ports:
+  - name: http
+    port: 8646
+    targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: review-agent-github-gateway-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: review-agent-github-gateway
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: hermes-review
+    - podSelector:
+        matchLabels:
+          app: review-agent-worker
+    - podSelector:
+        matchLabels:
+          app: review-agent-github-app-worker
+    - podSelector:
+        matchLabels:
+          app: review-agent-publisher
+    ports:
+    - protocol: TCP
+      port: 8646

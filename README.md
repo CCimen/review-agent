@@ -22,8 +22,8 @@ which parts are code and which are the model.
 
 ## Quick start
 
-1. **Deploy the service** with Compose, Dokploy, Coolify, Portainer, or
-   OpenShift: [deployment guide](docs/DEPLOYMENT.md).
+1. **Deploy the service** with Compose, Dokploy, Coolify, Portainer,
+   OpenShift, or Kubernetes (Helm): [deployment guide](docs/DEPLOYMENT.md).
 2. **Register and install the GitHub App, then approve the installation once**:
    [GitHub App setup](docs/GITHUB_APP_PILOT.md).
 

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-agent-admission
+spec:
+  replicas: {{ ternary 0 1 .Values.drained }}
+  selector:
+    matchLabels:
+      app: review-agent-admission
+  template:
+    metadata:
+      labels:
+        app: review-agent-admission
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: admission
+        image: {{ required "Set image to an immutable Review Agent image reference" .Values.image | quote }}
+        command: [/usr/local/bin/review-agent-admission]
+        args: [serve, --host, 0.0.0.0, --port, '8644']
+        envFrom:
+        - configMapRef:
+            name: review-agent-config
+        env:
+        - name: REVIEW_AGENT_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-database
+              key: REVIEW_AGENT_RUNTIME_DATABASE_URL
+        - name: REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-github-app
+              key: REVIEW_AGENT_GITHUB_APP_WEBHOOK_SECRET
+        ports:
+        - name: http
+          containerPort: 8644
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-agent-admission
+spec:
+  selector:
+    app: review-agent-admission
+  ports:
+  - name: http
+    port: 8644
+    targetPort: http

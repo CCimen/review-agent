@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-review
+spec:
+  replicas: {{ ternary 0 1 .Values.drained }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hermes-review
+  template:
+    metadata:
+      labels:
+        app: hermes-review
+        review-agent/volume: hermes-data
+    spec:
+      {{- with include "review-agent.sharedVolumeAffinity" . | trim }}
+      {{- . | nindent 6 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: hermes
+        image: {{ required "Set image to an immutable Review Agent image reference" .Values.image | quote }}
+        command: [/opt/hermes/bin/hermes]
+        args: [gateway, run]
+        envFrom:
+        - configMapRef:
+            name: review-agent-config
+        - secretRef:
+            name: review-agent-hermes
+        env:
+        - name: REVIEW_AGENT_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: review-agent-database
+              key: REVIEW_AGENT_RUNTIME_DATABASE_URL
+        - name: REVIEW_AGENT_GITHUB_GATEWAY_URL
+          value: http://review-agent-github-gateway:8646
+        - name: HERMES_HOME
+          value: /opt/data
+        - name: HOME
+          value: /opt/data
+        - name: WEBHOOK_ENABLED
+          value: 'false'
+        - name: API_SERVER_ENABLED
+          value: 'true'
+        - name: API_SERVER_HOST
+          value: 0.0.0.0
+        - name: API_SERVER_PORT
+          value: '8642'
+        ports:
+        - name: api
+          containerPort: 8642
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: api
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: api
+          initialDelaySeconds: 90
+          periodSeconds: 30
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: '2'
+            memory: 8Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: data
+          mountPath: /opt/data
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: review-agent-hermes-data
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-review
+spec:
+  selector:
+    app: hermes-review
+  ports:
+  - name: api
+    port: 8642
+    targetPort: api
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hermes-review-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: hermes-review
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: review-agent-worker
+    ports:
+    - protocol: TCP
+      port: 8642

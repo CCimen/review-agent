@@ -1,0 +1,16 @@
+{{- if .Values.initialize -}}
+The profile and migration Jobs were created with every workload scaled to zero.
+{{- else if .Values.drained -}}
+Every workload is scaled to zero and no initialization Job is present.
+{{- else -}}
+Review Agent workloads are running.
+{{- end }}
+Follow the Kubernetes (Helm) script in docs/DEPLOYMENT.md: it drains,
+initializes and starts the workloads in order and stops at the first failure.
+
+After the first start, connect the model provider once; the login is stored on
+the Hermes volume:
+
+  kubectl -n {{ .Release.Namespace }} exec -it deployment/hermes-review -- hermes model
+  kubectl -n {{ .Release.Namespace }} exec deployment/hermes-review -- /opt/review-agent-bootstrap/install.sh
+  kubectl -n {{ .Release.Namespace }} rollout restart deployment/hermes-review

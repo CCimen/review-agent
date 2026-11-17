@@ -1,0 +1,5 @@
+apiVersion: v2
+name: review-agent
+description: Review Agent on plain Kubernetes, with the same workloads as the OpenShift template.
+type: application
+version: 0.1.0

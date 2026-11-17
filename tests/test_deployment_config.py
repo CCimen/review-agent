@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
@@ -12,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
 from review_agent_tools import review_contract  # noqa: E402
+
+HELM_IMAGE = "registry.example/review-agent@sha256:" + "0" * 64
 
 
 def read(relative: str) -> str:
@@ -431,6 +437,17 @@ class DeploymentConfigTests(unittest.TestCase):
                     "oc scale deployment/review-agent-admission",
                 ),
             ),
+            "bash -euo pipefail <<'HELM_DEPLOY'": (
+                tab("kubernetes-upgrade", "Kubernetes (Helm)"),
+                (
+                    "--set drained=true --set initialize=false",
+                    "--for=jsonpath='{.status.observedGeneration}'=\"$generation\"",
+                    "kubectl delete job -l app=review-agent-init --ignore-not-found",
+                    "kubectl wait --for=delete $pods",
+                    "--set drained=true --set initialize=true --wait --wait-for-jobs",
+                    'helm upgrade review-agent "$CHART" -f "$VALUES" --wait',
+                ),
+            ),
         }
         for fail_fast_shell, (procedure, steps) in procedures.items():
             with self.subTest(shell=fail_fast_shell):
@@ -457,6 +474,246 @@ class DeploymentConfigTests(unittest.TestCase):
                 for name in required:
                     with self.subTest(document=document, parameter=name):
                         self.assertIn(f"-p {name}=", arguments)
+
+    def _helm(self) -> str:
+        helm = shutil.which("helm")
+        if helm is None:
+            if os.environ.get("CI"):
+                self.fail("helm is required to check the chart in CI")
+            self.skipTest("helm is not installed")
+        return helm
+
+    def _render_chart(
+        self, *extra: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                self._helm(), "template", "review-agent", "examples/helm/review-agent",
+                "--set", f"image={HELM_IMAGE}", "--set", "model=example-model", *extra,
+            ],
+            cwd=ROOT, check=check, capture_output=True, text=True,
+        )
+
+    def _chart_objects(self, *extra: str) -> dict[tuple[str, str], dict[str, object]]:
+        return {
+            (str(item["kind"]), str(mapping(item["metadata"])["name"])): item
+            for item in map(
+                mapping, filter(None, yaml.safe_load_all(self._render_chart(*extra).stdout))
+            )
+        }
+
+    def test_helm_chart_deploys_the_same_workloads_as_the_openshift_template(self):
+        parameters: dict[str, object] = {
+            "${IMAGE}": HELM_IMAGE,
+            "${MODEL}": "example-model",
+            "${{WORKER_TERMINATION_GRACE_SECONDS}}": 150,
+        }
+        template = mapping(
+            yaml.safe_load(read("examples/openshift/review-agent-template.yaml"))
+        )
+        for parameter in map(mapping, sequence(template["parameters"])):
+            parameters.setdefault("${" + str(parameter["name"]) + "}", parameter.get("value"))
+
+        def resolved(value: object) -> object:
+            if isinstance(value, dict):
+                return {key: resolved(item) for key, item in mapping(value).items()}
+            if isinstance(value, list):
+                return [resolved(item) for item in sequence(value)]
+            return parameters.get(value, value) if isinstance(value, str) else value
+
+        def pod_template(item: dict[str, object]) -> dict[str, object]:
+            return mapping(mapping(item["spec"])["template"])
+
+        expected = {
+            (str(item["kind"]), str(mapping(item["metadata"])["name"])): item
+            for item in map(mapping, sequence(resolved(template["objects"])))
+            if item["kind"] != "Route"
+        }
+        # The initialization phase is the template's own starting state: every
+        # workload at zero replicas and both Jobs present.
+        actual: dict[tuple[str, str], dict[str, object]] = {}
+        for (kind, name), item in self._chart_objects(
+            "--set", "drained=true", "--set", "initialize=true"
+        ).items():
+            if kind == "Job":
+                # Jobs are immutable, so every release revision gets its own.
+                self.assertTrue(name.endswith("-1"), name)
+                name = name.removesuffix("-1")
+                mapping(item["metadata"])["name"] = name
+            actual[(kind, name)] = item
+        self.assertEqual(set(expected), set(actual))
+
+        # Everything the chart adds to the template is asserted here and then
+        # removed, so the comparison below covers the rest exactly.
+        colocated = {
+            "podAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": [
+                    {
+                        "labelSelector": {
+                            "matchLabels": {"review-agent/volume": "hermes-data"}
+                        },
+                        "topologyKey": "kubernetes.io/hostname",
+                    }
+                ]
+            }
+        }
+        for key, item in actual.items():
+            kind, name = key
+            if kind in {"Deployment", "Job"}:
+                pod = mapping(pod_template(item)["spec"])
+                self.assertEqual(
+                    {
+                        "runAsNonRoot": True,
+                        "runAsUser": 10000,
+                        "runAsGroup": 10000,
+                        "fsGroup": 10000,
+                        "seccompProfile": {"type": "RuntimeDefault"},
+                    },
+                    pod["securityContext"],
+                )
+                pod["securityContext"] = {"seccompProfile": {"type": "RuntimeDefault"}}
+            if kind == "Job":
+                # The deploy script finds earlier attempts by this label.
+                initialization = {"app": "review-agent-init"}
+                self.assertEqual(initialization, mapping(item["metadata"]).pop("labels"))
+                self.assertEqual(
+                    {"labels": initialization}, pod_template(item).pop("metadata")
+                )
+            if name in {"hermes-review", "review-agent-worker"} and kind == "Deployment":
+                # Both mount the ReadWriteOnce Hermes volume, so each must
+                # land on the node of the other, whichever is replaced.
+                labels = mapping(mapping(pod_template(item)["metadata"])["labels"])
+                self.assertEqual("hermes-data", labels.pop("review-agent/volume"))
+                self.assertEqual(
+                    colocated, mapping(pod_template(item)["spec"]).pop("affinity")
+                )
+            if kind == "PersistentVolumeClaim":
+                self.assertEqual(
+                    {"helm.sh/resource-policy": "keep"},
+                    mapping(item["metadata"]).pop("annotations"),
+                )
+            with self.subTest(kind=kind, name=name):
+                self.assertEqual(expected[key], item)
+
+    def test_helm_chart_runs_initialization_only_while_drained(self):
+        def phase(*extra: str) -> tuple[int, set[object]]:
+            objects = self._chart_objects(*extra)
+            return (
+                sum(kind == "Job" for kind, _ in objects),
+                {
+                    mapping(item["spec"])["replicas"]
+                    for (kind, _), item in objects.items()
+                    if kind == "Deployment"
+                },
+            )
+
+        self.assertEqual((0, {1}), phase())
+        self.assertEqual((0, {0}), phase("--set", "drained=true"))
+        self.assertEqual(
+            (2, {0}), phase("--set", "drained=true", "--set", "initialize=true")
+        )
+        refused = self._render_chart("--set", "initialize=true", check=False)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("initialize=true requires drained=true", refused.stderr)
+
+        shared = self._chart_objects("--set", "persistence.accessMode=ReadWriteMany")
+        for name in ("hermes-review", "review-agent-worker"):
+            consumer = mapping(
+                mapping(mapping(shared[("Deployment", name)]["spec"])["template"])["spec"]
+            )
+            self.assertNotIn("affinity", consumer)
+        exposed = self._chart_objects(
+            "--set", "ingress.enabled=true", "--set", "ingress.host=review.example.org"
+        )
+        ingress = mapping(exposed[("Ingress", "review-agent")]["spec"])
+        self.assertEqual(
+            [{"name": "review-agent-admission", "port": {"name": "http"}}],
+            [
+                mapping(mapping(path)["backend"])["service"]
+                for rule in map(mapping, sequence(ingress["rules"]))
+                for path in sequence(mapping(rule["http"])["paths"])
+            ],
+        )
+
+    def test_documented_helm_script_never_starts_workloads_after_a_failed_phase(self):
+        deployment = read("docs/DEPLOYMENT.md")
+        scripts = re.findall(
+            r"```bash\n(bash -euo pipefail <<'HELM_DEPLOY'\n.*?\nHELM_DEPLOY)\n```",
+            deployment,
+            flags=re.S,
+        )
+        # The installation and the upgrade follow one and the same script.
+        self.assertEqual(2, len(scripts))
+        self.assertEqual(scripts[0], scripts[1])
+
+        def run(failing: str) -> tuple[int, list[str]]:
+            with tempfile.TemporaryDirectory() as directory:
+                calls = Path(directory) / "calls"
+                for tool in ("helm", "kubectl"):
+                    stub = Path(directory) / tool
+                    stub.write_text(
+                        "#!/bin/sh\n"
+                        f'echo "{tool} $*" >> "{calls}"\n'
+                        f'case "{tool} $*" in *"{failing}"*) exit 1;; esac\n',
+                        encoding="utf-8",
+                    )
+                    stub.chmod(0o755)
+                result = subprocess.run(
+                    ["bash", "-c", scripts[0]],
+                    env={**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"},
+                    capture_output=True, text=True, check=False,
+                )
+                return result.returncode, calls.read_text(encoding="utf-8").splitlines()
+
+        cleanup = "kubectl delete job -l app=review-agent-init --ignore-not-found"
+        code, calls = run("no phase fails")
+        self.assertEqual(0, code)
+        helm = [call for call in calls if call.startswith("helm ")]
+        self.assertEqual(3, len(helm))
+        drain, initialize, start = helm
+        self.assertIn("drained=true --set initialize=false", drain)
+        # Waiting here would wait for a volume that binds on first use.
+        self.assertNotIn("--wait", drain)
+        self.assertIn("drained=true --set initialize=true", initialize)
+        self.assertIn("--wait-for-jobs", initialize)
+        self.assertNotIn("drained=true", start)
+        # Every Deployment has scaled down, Jobs of an earlier attempt are
+        # deleted, and every application and initialization label is checked
+        # for pods, before initialization.
+        # The check is that the controller has seen the scale-down, not that
+        # an earlier rollout was healthy: rollout status fails after a
+        # rollout that exceeded its deadline, which is when a rerun is needed.
+        self.assertFalse([call for call in calls if "rollout status" in call])
+        scaled_down = [
+            index for index, call in enumerate(calls)
+            if call.startswith("kubectl wait deployment/")
+            and "--for=jsonpath={.status.observedGeneration}=" in call
+        ]
+        self.assertEqual(6, len(scaled_down))
+        self.assertLess(calls.index(drain), scaled_down[0])
+        self.assertLess(scaled_down[-1], calls.index(cleanup))
+        self.assertLess(calls.index(cleanup), calls.index(initialize))
+        checked = [
+            call for call in calls[calls.index(cleanup): calls.index(initialize)]
+            if call.startswith("kubectl get pods -l app=")
+        ]
+        self.assertEqual(7, len(checked))
+        self.assertIn("kubectl get pods -l app=review-agent-init -o name", checked)
+
+        for failing, reached in (
+            ("initialize=false", 1),
+            ("kubectl get deployment/", 1),
+            ("kubectl wait deployment/", 1),
+            ("kubectl delete job", 1),
+            ("kubectl get pods", 1),
+            ("initialize=true", 2),
+        ):
+            with self.subTest(failing=failing):
+                code, calls = run(failing)
+                self.assertNotEqual(0, code)
+                helm = [call for call in calls if call.startswith("helm ")]
+                self.assertEqual(reached, len(helm))
+                self.assertTrue(all("drained=true" in call for call in helm))
 
 
 if __name__ == "__main__":

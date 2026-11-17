@@ -16,7 +16,7 @@ local configuration.
 ## 1. Deploy
 
 Follow the [deployment guide](./DEPLOYMENT.md) for Compose, Dokploy, Coolify,
-Portainer, or OpenShift.
+Portainer, OpenShift, or Kubernetes (Helm).
 
 ## 2. Install and approve the GitHub App
 

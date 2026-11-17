@@ -22,7 +22,10 @@ from unittest.mock import Mock, patch
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import review_contract, review_run_application  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    contract as review_contract,
+    run_application as review_run_application,
+)
 from review_agent_tools.source_control import SameOriginHttpsRedirectHandler  # noqa: E402
 from review_agent_tools.domain.review import ReviewRunId  # noqa: E402
 from review_agent_tools.postgres import jobs  # noqa: E402
@@ -66,7 +69,9 @@ class WorkerBoundaryTests(unittest.TestCase):
         from review_agent_tools.documentation import (
             preflight as documentation_preflight,
         )
-        from review_agent_tools import review_publication_application
+        from review_agent_tools.review import (
+            publication_application as review_publication_application,
+        )
         from review_agent_tools.domain.review import ReviewPurpose
 
         for frozen in (True, False):

@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Literal, cast
 
-from .domain.publication import (
+from ..domain.publication import (
     CHECK_OUTPUT_MAX_BYTES,
     DOCUMENTATION_CHECK_NAME,
     JsonValue,
@@ -21,9 +21,9 @@ from .domain.publication import (
     PublicationPlan,
     resolve_publication_plan,
 )
-from .domain.documentation_policy import CONFIG_PATH
-from .domain.documentation_review import MAX_TEXT_CHARS, DocumentationResult
-from .memory_validation import (
+from ..domain.documentation_policy import CONFIG_PATH
+from ..domain.documentation_review import MAX_TEXT_CHARS, DocumentationResult
+from ..memory_validation import (
     MAX_FINDINGS_PER_REVIEW,
     PRIOR_FINDING_VERDICTS,
     PRIOR_VERDICT_EVIDENCE_MAX,
@@ -31,13 +31,13 @@ from .memory_validation import (
     compact_text,
     local_reference_number,
 )
-from .postgres.publications import (
+from ..postgres.publications import (
     PreparationFinding,
     PreviousPublicationFinding,
     PublicationPreparationContext,
 )
-from .publication_partition import publication_content_budget, split_publication_body
-from .review_renderer import (
+from ..publication_partition import publication_content_budget, split_publication_body
+from .renderer import (
     ClosedFinding,
     PublishedFinding,
     ReviewBlock,
@@ -570,7 +570,7 @@ def build_documentation_publication(
     max_comment_bytes: int,
 ) -> PlannedPublication:
     """Freeze the complete docs report and its deterministic check/overflow plan."""
-    from .domain.documentation_review import DocumentationOutcome
+    from ..domain.documentation_review import DocumentationOutcome
     if not result.frozen or result.outcome is None:
         raise PublicationPlanningError("documentation result must be finalized before publication")
     if (int(result.run_id), result.base_sha, result.head_sha) != (context.run_id, context.base_sha, context.head_sha):

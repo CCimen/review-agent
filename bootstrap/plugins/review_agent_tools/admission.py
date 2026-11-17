@@ -13,7 +13,7 @@ from .github_webhook import (
     UnsupportedGitHubEvent,
     normalize_event,
 )
-from . import review_contract
+from .review import contract as review_contract
 from .postgres import webhook_deliveries
 from .postgres.runtime import PostgreSQLRuntime
 from .settings import PostgresDatabaseUrl, ReviewAgentSettings, SettingsError

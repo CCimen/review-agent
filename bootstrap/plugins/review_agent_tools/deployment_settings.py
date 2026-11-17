@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from .review_contract import REASONING_EFFORTS
+from .review.contract import REASONING_EFFORTS
 from .settings import (
     DEFAULT_PUBLISH_MAX_BYTES,
     MAX_PUBLISH_MAX_BYTES,

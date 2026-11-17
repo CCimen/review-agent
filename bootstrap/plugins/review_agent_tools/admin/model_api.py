@@ -21,7 +21,7 @@ from ..model_runtime.quota import AccountQuota
 from ..postgres import model_connections as models
 from ..postgres.runtime import PostgreSQLRuntime
 from ..postgres.team_access import AccessRequest, authorized_transaction
-from ..review_contract import REASONING_EFFORTS
+from ..review.contract import REASONING_EFFORTS
 
 
 ConnectionId = Annotated[int, Path(ge=1, le=9223372036854775807)]

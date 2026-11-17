@@ -11,7 +11,7 @@ from uuid import UUID
 
 import jwt
 
-from ..review_contract import ReviewContract
+from ..review.contract import ReviewContract
 
 
 class ModelProvider(StrEnum):

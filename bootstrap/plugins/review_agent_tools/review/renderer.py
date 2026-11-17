@@ -8,14 +8,14 @@ import re
 from typing import Any, Literal, NotRequired, Sequence, TypedDict, cast
 import urllib.parse
 
-from .domain.publication import (
+from ..domain.publication import (
     PUBLICATION_RENDERED_BLOCK_KINDS,
     PublicationDomainError,
     PublicationRenderedBlockKind,
 )
-from .domain.review import DiffCoverageExample, DiffCoverageGroup, DiffState
-from .feedback_contract import feedback_templates
-from .memory_validation import (
+from ..domain.review import DiffCoverageExample, DiffCoverageGroup, DiffState
+from ..feedback_contract import feedback_templates
+from ..memory_validation import (
     FINDING_TEXT_LIMITS,
     PRIOR_VERDICT_EVIDENCE_MAX,
     SEVERITY_ORDER,
@@ -23,11 +23,7 @@ from .memory_validation import (
     compact_text,
     local_reference_number,
 )
-from .review_identity import (
-    FIX_BRIEF_PROJECT_CONSTRAINT,
-    FIX_BRIEF_TASK,
-    REVIEW_COMMENT_TITLE,
-)
+from .identity import FIX_BRIEF_PROJECT_CONSTRAINT, FIX_BRIEF_TASK, REVIEW_COMMENT_TITLE
 
 
 class PublishedFinding(TypedDict):

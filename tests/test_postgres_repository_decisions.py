@@ -20,7 +20,9 @@ from review_agent_tools.postgres import repository_decisions  # noqa: E402
 from review_agent_tools.postgres.review_runs import ReviewRunId  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools import review_run_application  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    run_application as review_run_application,
+)
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")

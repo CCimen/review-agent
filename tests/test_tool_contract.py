@@ -17,17 +17,16 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 import review_agent_tools  # noqa: E402
-from review_agent_tools import (  # noqa: E402
-    capacity,
-    review_contract,
-    review_code_graph_tool,
-    review_delivery_tool,
-    review_memory_tools,
-    review_run_application,
-    review_source_tools,
-    review_source_initialization,
-    review_tool_runtime,
-    schemas,
+from review_agent_tools import capacity, schemas  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    contract as review_contract,
+    code_graph_tool as review_code_graph_tool,
+    delivery_tool as review_delivery_tool,
+    memory_tools as review_memory_tools,
+    run_application as review_run_application,
+    source_tools as review_source_tools,
+    source_initialization as review_source_initialization,
+    tool_runtime as review_tool_runtime,
 )
 from review_agent_tools.model_runtime import window as model_window  # noqa: E402
 from review_agent_tools.documentation import tools as documentation_tools  # noqa: E402
@@ -217,7 +216,7 @@ class ToolContractTests(unittest.TestCase):
             with self.subTest(changed=changed):
                 files = {java: self._guidance_file(java, changed=changed == java),
                          changed: self._guidance_file(changed, changed=True)}
-                with self.assertLogs("review_agent_tools.review_source_tools", level="INFO") as logs:
+                with self.assertLogs("review_agent_tools.review.source_tools", level="INFO") as logs:
                     result, read = self._java_guidance_result(changed_path=changed, java_path=java, files=files)
                 self.assertEqual(result["instructions"], "Java guidance body.")
                 self.assertEqual(result["changed_path"], changed)
@@ -268,7 +267,7 @@ class ToolContractTests(unittest.TestCase):
 
     def test_java_guidance_returns_bounded_failure_without_truncating_instructions(self) -> None:
         java = "src/main/java/example/Service.java"
-        with self.assertNoLogs("review_agent_tools.review_source_tools", level="INFO"):
+        with self.assertNoLogs("review_agent_tools.review.source_tools", level="INFO"):
             result, _ = self._java_guidance_result(
                 changed_path=java, java_path=java,
                 files={java: self._guidance_file(java, changed=True)},
@@ -1518,7 +1517,7 @@ class ToolContractTests(unittest.TestCase):
         with (
             patch.object(review_tool_runtime, "postgres_runtime", return_value=runtime),
             patch.object(review_source_tools, "gateway_source_session") as source,
-            self.assertLogs("review_agent_tools.review_tool_runtime", level="ERROR"),
+            self.assertLogs("review_agent_tools.review.tool_runtime", level="ERROR"),
         ):
             result = json.loads(
                 review_source_tools.review_begin(
@@ -1582,7 +1581,7 @@ class ToolContractTests(unittest.TestCase):
                 side_effect=RuntimeError(secret_detail),
             ),
             self.assertLogs(
-                "review_agent_tools.review_tool_runtime",
+                "review_agent_tools.review.tool_runtime",
                 level="ERROR",
             ) as logged,
         ):

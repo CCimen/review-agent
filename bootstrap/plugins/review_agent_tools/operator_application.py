@@ -31,7 +31,8 @@ from .domain.finding import (
     resolve_fingerprint_query,
 )
 from .domain.review import JsonObject, ReviewPurpose, ReviewRunId, ReviewStatus
-from . import failure_codes, review_run_application
+from . import failure_codes
+from .review import run_application as review_run_application
 from .repository_context import decision_context as repository_decision_context
 from .github import app_auth, app_inventory
 from .postgres import coaching as postgres_coaching

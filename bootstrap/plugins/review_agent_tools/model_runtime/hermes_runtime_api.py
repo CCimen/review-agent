@@ -14,7 +14,7 @@ from aiohttp import web
 import psycopg
 
 from . import window as model_window
-from .. import review_contract, review_tool_runtime
+from ..review import contract as review_contract, tool_runtime as review_tool_runtime
 from .hermes_control import MANAGED_REVIEW_PATH
 from .accounts import AccountAvailability, ModelProvider, read_accounts
 from .quota import ObservedQuota, QuotaCache, execution_quota

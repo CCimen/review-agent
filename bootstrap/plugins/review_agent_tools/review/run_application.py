@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast
 import psycopg
 from psycopg.rows import TupleRow
 
-from . import changed_files, failure_codes
-from .domain.review import (
+from .. import changed_files, failure_codes
+from ..domain.review import (
     ChangedFileDefinition,
     DiffPage,
     DiffState,
@@ -35,17 +35,17 @@ from .domain.review import (
     resolve_file_read,
     resolve_review_subject,
 )
-from .postgres import registry as postgres_registry
-from .postgres import coverage as postgres_coverage
-from .postgres import jobs as postgres_jobs
-from .postgres import parts as postgres_parts
-from .postgres import repository_guidance as postgres_repository_guidance
-from .postgres import repository_decisions as postgres_repository_decisions
-from .postgres import review_runs as postgres_review_runs
-from .postgres.runtime import PostgreSQLRuntime
+from ..postgres import registry as postgres_registry
+from ..postgres import coverage as postgres_coverage
+from ..postgres import jobs as postgres_jobs
+from ..postgres import parts as postgres_parts
+from ..postgres import repository_guidance as postgres_repository_guidance
+from ..postgres import repository_decisions as postgres_repository_decisions
+from ..postgres import review_runs as postgres_review_runs
+from ..postgres.runtime import PostgreSQLRuntime
 
 if TYPE_CHECKING:
-    from .repository_context import (
+    from ..repository_context import (
         decision_context as repository_decision_context,
         guidance_context as repository_guidance_context,
     )

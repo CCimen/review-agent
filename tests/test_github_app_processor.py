@@ -16,10 +16,10 @@ import psycopg
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
-from review_agent_tools import (  # noqa: E402
-    github_webhook,
-    review_contract,
-    review_run_application,
+from review_agent_tools import github_webhook  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    contract as review_contract,
+    run_application as review_run_application,
 )
 from review_agent_tools.github import app_auth, app_processor  # noqa: E402
 from review_agent_tools.github.app_auth import (  # noqa: E402
@@ -487,7 +487,10 @@ class GitHubAppProcessorTests(unittest.TestCase):
         from dataclasses import replace
         from review_agent_tools.domain.documentation_review import DocumentationOutcome
         from review_agent_tools.postgres import documentation_reviews
-        from review_agent_tools.review_publication_application import prepare_postgres_documentation_publication, publish_postgres_publication
+        from review_agent_tools.review.publication_application import (
+            prepare_postgres_documentation_publication,
+            publish_postgres_publication,
+        )
         from tests.test_postgres_documentation_reviews import scope
         from tests.test_postgres_publications import FakePostgresPublicationGitHub
         payload = self.review_payload()

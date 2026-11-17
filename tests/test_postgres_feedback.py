@@ -19,10 +19,12 @@ from review_agent_tools import operator_application  # noqa: E402
 from review_agent_tools.repository_context import (  # noqa: E402
     decision_context as repository_decision_context,
 )
-from review_agent_tools import review_feedback_application  # noqa: E402
-from review_agent_tools import (  # noqa: E402
-    review_finding_application,
-    review_run_application,
+from review_agent_tools.review import (  # noqa: E402
+    feedback_application as review_feedback_application,
+)
+from review_agent_tools.review import (  # noqa: E402
+    finding_application as review_finding_application,
+    run_application as review_run_application,
 )
 from review_agent_tools.domain.finding import (  # noqa: E402
     FindingId,

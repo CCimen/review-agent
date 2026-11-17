@@ -12,20 +12,18 @@ import re
 import threading
 from typing import Any, Callable, TypeVar, cast
 
-from . import (
-    capacity,
-    failure_codes,
-    memory_validation,
-    review_contract,
-    review_run_application,
-    settings,
+from .. import capacity, failure_codes, memory_validation, settings
+from . import contract as review_contract, run_application as review_run_application
+from ..model_runtime import window as model_window
+from ..domain.review import ReviewRunId
+from ..github.gateway import (
+    GitHubGatewayError,
+    GitHubGatewayRejected,
+    GitHubGatewayRetryable,
 )
-from .model_runtime import window as model_window
-from .domain.review import ReviewRunId
-from .github.gateway import GitHubGatewayError, GitHubGatewayRejected, GitHubGatewayRetryable
-from .github.gateway_client import ReviewGitHubGatewayClient
-from .postgres import jobs as postgres_jobs
-from .postgres.runtime import (
+from ..github.gateway_client import ReviewGitHubGatewayClient
+from ..postgres import jobs as postgres_jobs
+from ..postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
     PostgreSQLRuntimeRole,
@@ -224,7 +222,7 @@ def postgres_runtime() -> PostgreSQLRuntime:
             role=PostgreSQLRuntimeRole.REVIEWER,
         )
         candidate.open()
-        from .postgres.deployment_settings import apply_at_startup
+        from ..postgres.deployment_settings import apply_at_startup
         try:
             apply_at_startup(candidate, "reviewer")
         except Exception:

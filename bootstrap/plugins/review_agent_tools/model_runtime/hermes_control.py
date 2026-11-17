@@ -12,7 +12,7 @@ from typing import Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from .. import review_contract
+from ..review import contract as review_contract
 from .accounts import (
     AccountAvailability,
     ManagedRuntimeStatus,

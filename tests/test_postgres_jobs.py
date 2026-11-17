@@ -20,17 +20,16 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import (  # noqa: E402
-    failure_codes,
-    operator_application,
-    review_contract,
-    review_parts_application,
-    review_run_application,
-    review_source_initialization,
+from review_agent_tools import failure_codes, operator_application  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    contract as review_contract,
+    parts_application as review_parts_application,
+    run_application as review_run_application,
+    source_initialization as review_source_initialization,
 )
 from review_agent_tools.github.source import ReviewSourceBytes  # noqa: E402
 from review_agent_tools.model_runtime.window import ModelWindow  # noqa: E402
-from review_agent_tools.review_tool_runtime import GatewaySourceSession  # noqa: E402
+from review_agent_tools.review.tool_runtime import GatewaySourceSession  # noqa: E402
 from review_agent_tools.domain.review import (  # noqa: E402
     ReviewPartPlan,
     ReviewPhase,

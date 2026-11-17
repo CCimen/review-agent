@@ -7,13 +7,13 @@ from dataclasses import dataclass
 import psycopg
 from psycopg.rows import TupleRow
 
-from .domain.review import JsonObject, ReviewPartPlan, ReviewPhase, ReviewRunId
-from .postgres import (
+from ..domain.review import JsonObject, ReviewPartPlan, ReviewPhase, ReviewRunId
+from ..postgres import (
     jobs as postgres_jobs,
     parts as postgres_parts,
     review_runs as postgres_review_runs,
 )
-from .postgres.runtime import PostgreSQLRuntime
+from ..postgres.runtime import PostgreSQLRuntime
 
 PART_MAX_NOTES = 10
 PART_NOTE_MAX_CHARS = 300

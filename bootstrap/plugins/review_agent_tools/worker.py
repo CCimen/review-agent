@@ -22,18 +22,17 @@ from typing import cast
 
 
 from .documentation import preflight as documentation_preflight
-from . import (
-    failure_codes,
-    review_contract,
-    review_part_instructions,
-    review_run_application,
-    settings,
+from . import failure_codes, settings
+from .review import (
+    contract as review_contract,
+    part_instructions as review_part_instructions,
+    run_application as review_run_application,
 )
 from .domain.review import JsonObject, ReviewPurpose
 from .model_runtime.hermes_control import MANAGED_REVIEW_PATH
 from .github.gateway import GitHubGatewayRejected, GitHubGatewayRetryable
 from .github.gateway_client import ReviewGitHubGatewayClient
-from .review_tool_runtime import GatewaySourceSession, ToolInputError
+from .review.tool_runtime import GatewaySourceSession, ToolInputError
 from .postgres import jobs, parts as postgres_parts, review_runs
 from .postgres.runtime import TRANSIENT_DATABASE_ERRORS, PostgreSQLRuntime
 from .source_control import SameOriginHttpsRedirectHandler
@@ -585,7 +584,9 @@ class ReviewWorker:
                 )
                 terminal_documentation = result.frozen
                 if terminal_documentation:
-                    from .review_publication_application import prepare_postgres_documentation_publication
+                    from .review.publication_application import (
+                        prepare_postgres_documentation_publication,
+                    )
 
                     configured = settings.ReviewAgentSettings.from_environment()
                     prepare_postgres_documentation_publication(

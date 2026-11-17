@@ -18,10 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import (  # noqa: E402
-    operator_application,
-    review_finding_application,
-    review_run_application,
+from review_agent_tools import operator_application  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    finding_application as review_finding_application,
+    run_application as review_run_application,
 )
 from review_agent_tools.domain.finding import FindingInput  # noqa: E402
 from review_agent_tools.domain.publication import (  # noqa: E402
@@ -141,7 +141,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_queue_report_preserves_cooldowns_and_includes_failure_notice_delivery(self) -> None:
         from unittest.mock import Mock
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
-        from review_agent_tools import operator_setup, review_contract
+        from review_agent_tools import operator_setup
+        from review_agent_tools.review import contract as review_contract
         from review_agent_tools.postgres import jobs
 
         self.register_webhook()
@@ -222,7 +223,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
 
     def test_review_history_distinguishes_review_retry_and_expired_worker(self) -> None:
         from review_agent_tools.admin import application as admin_application
-        from review_agent_tools import review_contract
+        from review_agent_tools.review import contract as review_contract
         from review_agent_tools.postgres import jobs
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
 
@@ -278,7 +279,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self,
     ) -> None:
         from review_agent_tools.admin import application as admin_application
-        from review_agent_tools import review_contract
+        from review_agent_tools.review import contract as review_contract
         from review_agent_tools.postgres import jobs
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
 

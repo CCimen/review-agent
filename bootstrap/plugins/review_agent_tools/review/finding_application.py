@@ -10,8 +10,8 @@ from typing import TypeAlias, TypedDict
 
 import psycopg
 
-from . import memory_validation, suggestion_validation
-from .domain.finding import (
+from .. import memory_validation, suggestion_validation
+from ..domain.finding import (
     MAX_FINDINGS_PER_REVIEW,
     FindingDefinition,
     FindingDecision,
@@ -28,17 +28,14 @@ from .domain.finding import (
     require_unique_finding_identities,
     suppression_is_active,
 )
-from .domain.review import RepositoryId, ReviewRunId
-from .postgres import (
+from ..domain.review import RepositoryId, ReviewRunId
+from ..postgres import (
     decisions as postgres_decisions,
     findings as postgres_findings,
     reporting as postgres_reporting,
     suggestions as postgres_suggestions,
 )
-from .postgres.runtime import (
-    PostgreSQLRuntime,
-    PostgreSQLRuntimeError,
-)
+from ..postgres.runtime import PostgreSQLRuntime, PostgreSQLRuntimeError
 
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40,64}$")

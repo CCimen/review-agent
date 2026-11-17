@@ -16,7 +16,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap" / "plugins"))
 
-from review_agent_tools import review_contract  # noqa: E402
+from review_agent_tools.review import contract as review_contract  # noqa: E402
 
 HELM_IMAGE = "registry.example/review-agent@sha256:" + "0" * 64
 

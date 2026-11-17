@@ -8,23 +8,23 @@ import logging
 from dataclasses import dataclass
 from typing import cast
 
+from .. import changed_files
 from . import (
-    changed_files,
-    review_contract,
-    review_parts_application,
-    review_run_application,
+    contract as review_contract,
+    parts_application as review_parts_application,
+    run_application as review_run_application,
 )
-from .domain.review import (
+from ..domain.review import (
     ReviewRunId,
     changed_file_diff_size,
     part_sizes,
     plan_review_parts,
 )
-from .model_runtime.window import ModelWindow
-from .github.gateway import GitHubGatewayError
-from .postgres.coverage import FileIndexSummary
-from .postgres.runtime import PostgreSQLRuntime
-from .review_tool_runtime import (
+from ..model_runtime.window import ModelWindow
+from ..github.gateway import GitHubGatewayError
+from ..postgres.coverage import FileIndexSummary
+from ..postgres.runtime import PostgreSQLRuntime
+from .tool_runtime import (
     GatewaySourceSession,
     JsonObject,
     SHA_RE,

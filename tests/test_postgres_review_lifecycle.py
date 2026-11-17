@@ -27,7 +27,9 @@ from review_agent_tools.postgres import registry  # noqa: E402
 from review_agent_tools.postgres import review_runs as postgres_review_runs  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.postgres_migrations import runner  # noqa: E402
-from review_agent_tools import review_run_application  # noqa: E402
+from review_agent_tools.review import (  # noqa: E402
+    run_application as review_run_application,
+)
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 
 

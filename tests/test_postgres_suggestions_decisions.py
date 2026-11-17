@@ -15,9 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "bootstrap" / "plugins"
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from review_agent_tools import (  # noqa: E402
-    review_finding_application,
-    review_run_application,
+from review_agent_tools.review import (  # noqa: E402
+    finding_application as review_finding_application,
+    run_application as review_run_application,
 )
 from review_agent_tools.domain.finding import (  # noqa: E402
     DecisionKind,
@@ -221,7 +221,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
     def test_suggestion_storage_failure_does_not_rollback_findings(self) -> None:
         run_id = self.start()
         with mock.patch(
-            "review_agent_tools.review_finding_application."
+            "review_agent_tools.review.finding_application."
             "postgres_suggestions.replace_suggestions",
             side_effect=psycopg.OperationalError("storage unavailable"),
         ):
@@ -336,7 +336,7 @@ class PostgreSQLSuggestionDecisionTests(unittest.TestCase):
             "postgres_decisions.latest_suppression_decisions",
         ):
             with self.subTest(target=target), mock.patch(
-                "review_agent_tools.review_finding_application." + target,
+                "review_agent_tools.review.finding_application." + target,
                 side_effect=psycopg.OperationalError("context unavailable"),
             ):
                 second = (

@@ -21,9 +21,9 @@ from review_agent_tools.domain.finding import (  # noqa: E402
     compute_fingerprint,
 )
 from review_agent_tools.domain.review import RepositoryId  # noqa: E402
-from review_agent_tools import (  # noqa: E402
-    review_finding_application,
-    review_run_application,
+from review_agent_tools.review import (  # noqa: E402
+    finding_application as review_finding_application,
+    run_application as review_run_application,
 )
 from review_agent_tools.postgres import (  # noqa: E402
     findings as postgres_findings,

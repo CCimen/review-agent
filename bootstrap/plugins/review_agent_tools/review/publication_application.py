@@ -10,13 +10,14 @@ import threading
 from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
-    from .domain.review import ReviewRunId
-    from .postgres.runtime import PostgreSQLRuntime
+    from ..domain.review import ReviewRunId
+    from ..postgres.runtime import PostgreSQLRuntime
 
-from . import failure_codes, review_run_application
-from .domain.publication import PublicationPartType
-from .domain.review import ReviewPurpose
-from .github.publication import (
+from .. import failure_codes
+from . import run_application as review_run_application
+from ..domain.publication import PublicationPartType
+from ..domain.review import ReviewPurpose
+from ..github.publication import (
     GitHubPublicationAuthorityLost,
     GitHubPublicationError,
     GitHubPublicationGateway,
@@ -26,13 +27,13 @@ from .github.publication import (
     PullRequestState,
     PUBLICATION_REQUEST_MAX_PAGES,
 )
-from .publication_partition import (
+from ..publication_partition import (
     HistoricalPublication,
     extra_superseded_body,
     historical_bodies,
 )
-from .review_identity import REVIEW_COMMENT_TITLE
-from .review_renderer import ReviewBlock
+from .identity import REVIEW_COMMENT_TITLE
+from .renderer import ReviewBlock
 
 _COMMENT_RECOVERY_SCAN_PAGES = PUBLICATION_REQUEST_MAX_PAGES
 
@@ -110,16 +111,16 @@ def prepare_postgres_publication(
     review_lease_generation: int | None = None,
 ) -> PreparedPostgresPublication:
     """Build and freeze one exact plan in a single bounded transaction."""
-    from .domain.publication import (
+    from ..domain.publication import (
         PublicationFindingOutcome,
         PublicationId,
         SuggestionReviewDelivery,
     )
-    from .domain.review import ReviewRunId
-    from .postgres import publications as postgres_publications
-    from .postgres import findings as postgres_findings
-    from .domain.finding import FindingDomainError, resolve_finding_relationships
-    from .review_publication_planner import PublicationPlanningError, build_publication
+    from ..domain.review import ReviewRunId
+    from ..postgres import publications as postgres_publications
+    from ..postgres import findings as postgres_findings
+    from ..domain.finding import FindingDomainError, resolve_finding_relationships
+    from .publication_planner import PublicationPlanningError, build_publication
 
     resolved_run_id = ReviewRunId(run_id)
     with runtime.transaction() as connection:
@@ -191,9 +192,12 @@ def prepare_postgres_documentation_publication(
     review_job_id: int | None = None,
     review_lease_generation: int | None = None,
 ) -> PreparedPostgresPublication:
-    from .domain.review import ReviewPhase, ReviewRunId
-    from .postgres import documentation_reviews, jobs, publications, review_runs
-    from .review_publication_planner import build_documentation_publication, PublicationPlanningError
+    from ..domain.review import ReviewPhase, ReviewRunId
+    from ..postgres import documentation_reviews, jobs, publications, review_runs
+    from .publication_planner import (
+        build_documentation_publication,
+        PublicationPlanningError,
+    )
 
     resolved_id = ReviewRunId(run_id)
     with runtime.transaction() as connection:
@@ -248,8 +252,8 @@ def _render_postgres_supersession(
     max_comment_bytes: int,
 ) -> PostgresSupersessionResult | None:
     """Rewrite one prior PostgreSQL publication without holding a checkout."""
-    from .domain.publication import PublicationDomainError, PublicationId
-    from .postgres import publications as postgres_publications
+    from ..domain.publication import PublicationDomainError, PublicationId
+    from ..postgres import publications as postgres_publications
 
     with runtime.transaction() as connection:
         historical = postgres_publications.publication_for_supersession(
@@ -346,8 +350,8 @@ def publish_postgres_run_failure_status(
     lease_lost: threading.Event | None = None,
 ) -> PostgresFailureStatusResult:
     """Deliver one leased deterministic terminal status with exact recovery."""
-    from .domain.review import FailureStatusDelivery, ReviewRunId
-    from .postgres import review_runs as postgres_review_runs
+    from ..domain.review import FailureStatusDelivery, ReviewRunId
+    from ..postgres import review_runs as postgres_review_runs
 
     resolved_id = ReviewRunId(run_id)
     owner = lease_owner
@@ -477,7 +481,7 @@ def _cleanup_postgres_failure_status(
     purpose: ReviewPurpose = ReviewPurpose.CODE,
 ) -> tuple[IssueComment, ...]:
     """Remove stored and marker-recovered failure statuses after a real review."""
-    from .postgres import review_runs as postgres_review_runs
+    from ..postgres import review_runs as postgres_review_runs
 
     with runtime.transaction() as connection:
         postgres_review_runs.suppress_unposted_failure_statuses_for_pull_request(
@@ -552,7 +556,7 @@ def publish_postgres_publication(
     ``recover_posting`` requires the caller to establish that the prior poster
     is no longer running.
     """
-    from .domain.publication import (
+    from ..domain.publication import (
         CheckRunDelivery,
         IssueCommentDelivery,
         PublicationFindingOutcome,
@@ -564,9 +568,9 @@ def publish_postgres_publication(
         extract_publication_key,
         publication_marker,
     )
-    from .postgres import publications as postgres_publications
-    from .postgres import review_runs as postgres_review_runs
-    from .postgres import findings as postgres_findings
+    from ..postgres import publications as postgres_publications
+    from ..postgres import review_runs as postgres_review_runs
+    from ..postgres import findings as postgres_findings
 
     if lease_owner is not None and posted_github is None:
         raise postgres_publications.PublicationStoreError(
@@ -1044,7 +1048,7 @@ def publish_postgres_publication(
 def _comments_by_id(
     comments: Sequence[IssueComment], comment_ids: Sequence[int]
 ) -> list[IssueComment]:
-    from .domain.publication import extract_publication_key
+    from ..domain.publication import extract_publication_key
 
     indexed = {comment.comment_id: comment for comment in comments}
     return [

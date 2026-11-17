@@ -11,8 +11,8 @@ from typing import Literal, cast
 import psycopg
 from psycopg.rows import TupleRow
 
-from .. import review_contract
-from .. import review_feedback_application
+from ..review import contract as review_contract
+from ..review import feedback_application as review_feedback_application
 from ..domain.feedback import FeedbackStatus
 from ..domain.review import JsonObject, JsonValue, ReviewPurpose
 from ..feedback_commands import restore_review_feedback_command
@@ -28,7 +28,7 @@ from ..postgres import (
     webhook_deliveries,
 )
 from ..postgres.runtime import PostgreSQLRuntime
-from ..review_run_application import (
+from ..review.run_application import (
     PostgresRunRequest,
     admit_postgres_review_in_transaction,
 )

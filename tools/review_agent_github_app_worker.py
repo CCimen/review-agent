@@ -45,7 +45,7 @@ from review_agent_tools.github.gateway import (  # noqa: E402
 from review_agent_tools.github.gateway_client import (  # noqa: E402
     ReviewGitHubGatewayClient,
 )
-from review_agent_tools import review_contract  # noqa: E402
+from review_agent_tools.review import contract as review_contract  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
     PostgreSQLRuntimeRole,

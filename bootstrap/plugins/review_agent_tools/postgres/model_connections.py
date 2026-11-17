@@ -11,8 +11,8 @@ import psycopg
 from psycopg.rows import TupleRow, class_row
 from psycopg.types.json import Jsonb
 
-from .. import review_contract
-from ..review_contract import SHARED_CONNECTION_ID
+from ..review import contract as review_contract
+from ..review.contract import SHARED_CONNECTION_ID
 from ..deployment_settings import DeploymentSettings
 from ..model_runtime.accounts import (
     AccountAvailability,

@@ -20,8 +20,8 @@ from ..postgres import (
     review_runs,
 )
 from ..postgres.runtime import PostgreSQLRuntimeError
-from ..review_source_tools import page_output
-from ..review_tool_runtime import (
+from ..review.source_tools import page_output
+from ..review.tool_runtime import (
     GatewaySourceSession,
     ReviewRunTerminal,
     ToolInputError,
@@ -158,7 +158,7 @@ def docs_file(args: dict[str, Any], **context: Any) -> str:
 @worker_lease_fence()
 def docs_deliver(args: dict[str, Any], **context: Any) -> str:
     from .findings import finalize_documentation_assessment
-    from ..review_publication_application import (
+    from ..review.publication_application import (
         prepare_postgres_documentation_publication,
     )
 

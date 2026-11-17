@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from .. import capacity, review_contract, review_run_application
+from .. import capacity
+from ..review import (
+    contract as review_contract,
+    run_application as review_run_application,
+)
 from . import scope as documentation_scope
 from ..repository_context import (
     decision_context as repository_decision_context,
@@ -24,8 +28,8 @@ from ..postgres import (
     review_runs,
 )
 from ..postgres.runtime import PostgreSQLRuntime
-from ..review_source_initialization import initialize_review
-from ..review_tool_runtime import GatewaySourceSession, ToolInputError, output_json
+from ..review.source_initialization import initialize_review
+from ..review.tool_runtime import GatewaySourceSession, ToolInputError, output_json
 
 
 def policy_scope(

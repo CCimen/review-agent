@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from dataclasses import replace
 import re
 
-from .domain.feedback import (
+from ..domain.feedback import (
     FeedbackResult,
     FeedbackStatus,
     resolve_event_id,
@@ -14,18 +14,18 @@ from .domain.feedback import (
     resolve_repository,
     resolve_text,
 )
-from .domain.finding import resolve_decision
-from .domain.review import ReviewPurpose
-from .feedback_commands import (
+from ..domain.finding import resolve_decision
+from ..domain.review import ReviewPurpose
+from ..feedback_commands import (
     FeedbackCommand,
     FindingFeedbackCommand,
     ReviewQualityFeedbackCommand,
 )
-from .postgres import decisions as postgres_decisions
-from .postgres import feedback as postgres_feedback
-from .postgres import repository_decisions as postgres_repository_decisions
-from .repository_context import decision_context as repository_decision_context
-from .postgres.runtime import PostgreSQLRuntime
+from ..postgres import decisions as postgres_decisions
+from ..postgres import feedback as postgres_feedback
+from ..postgres import repository_decisions as postgres_repository_decisions
+from ..repository_context import decision_context as repository_decision_context
+from ..postgres.runtime import PostgreSQLRuntime
 
 
 class ReviewFeedbackError(ValueError):

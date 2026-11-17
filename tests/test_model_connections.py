@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import psycopg
 
 from tests import test_admin_api
-from review_agent_tools import review_contract
+from review_agent_tools.review import contract as review_contract
 from review_agent_tools.model_runtime.hermes_control import (
     Cancellation,
     HermesControlError,

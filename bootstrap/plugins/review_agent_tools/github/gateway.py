@@ -32,7 +32,7 @@ from ..source_control import (
     read_pull_snapshot,
 )
 from ..feedback_contract import usage_lines
-from ..review_identity import (
+from ..review.identity import (
     FEEDBACK_COMMAND_NOT_RECOGNIZED,
     FEEDBACK_NO_CURRENT_REVIEW,
     FEEDBACK_NOT_CURRENT_REVIEW,

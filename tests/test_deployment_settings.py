@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bootstrap/plugins"))
-from review_agent_tools import review_contract  # noqa: E402
+from review_agent_tools.review import contract as review_contract  # noqa: E402
 from review_agent_tools.admin.settings_api import create_router  # noqa: E402
 from review_agent_tools.deployment_settings import DeploymentSettings  # noqa: E402
 from review_agent_tools.postgres import deployment_settings as store  # noqa: E402

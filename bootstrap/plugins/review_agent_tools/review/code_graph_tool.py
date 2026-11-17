@@ -5,16 +5,26 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from . import capacity
-from .code_graph.client import request_graph
-from .code_graph.contract import GraphError, GraphIdentity, QUERY_PATTERNS
-from .github.gateway import GitHubGatewayError
-from .review_tool_runtime import (
-    GatewaySourceSession, ReviewRunTerminal, ToolInputError, error_output,
-    gateway_source_session, output_json, pull_head_sha, pull_request_identity,
-    json_object_or_empty, review_run_snapshot, run_terminal_payload, source_error, worker_lease_fence,
+from .. import capacity
+from ..code_graph.client import request_graph
+from ..code_graph.contract import GraphError, GraphIdentity, QUERY_PATTERNS
+from ..github.gateway import GitHubGatewayError
+from .tool_runtime import (
+    GatewaySourceSession,
+    ReviewRunTerminal,
+    ToolInputError,
+    error_output,
+    gateway_source_session,
+    output_json,
+    pull_head_sha,
+    pull_request_identity,
+    json_object_or_empty,
+    review_run_snapshot,
+    run_terminal_payload,
+    source_error,
+    worker_lease_fence,
 )
-from .settings import ReviewAgentSettings, SettingsError
+from ..settings import ReviewAgentSettings, SettingsError
 
 logger = logging.getLogger(__name__)
 

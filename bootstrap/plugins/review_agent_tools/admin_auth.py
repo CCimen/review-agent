@@ -53,7 +53,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, aliased, mapped_column
 
 from .domain.access import Role
-from .admin_email import (
+from .admin.email import (
     EmailSettings,
     EmailUpdate,
     EmailTest,

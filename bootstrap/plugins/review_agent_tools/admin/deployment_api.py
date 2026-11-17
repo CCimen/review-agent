@@ -10,7 +10,7 @@ from urllib import error, parse, request
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .admin_auth import AdminAuth
+from ..admin_auth import AdminAuth
 
 
 class DeploymentContainer(BaseModel):

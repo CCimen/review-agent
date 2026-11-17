@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .admin_auth import (
+from ..admin_auth import (
     AdminAuth,
     ProvisioningConflict,
     ProvisionedAccountUpdate,
@@ -31,7 +31,7 @@ from .admin_auth import (
     provision_account,
     update_provisioned_account,
 )
-from .admin_identity_config import IdentitySettings
+from .identity_config import IdentitySettings
 
 
 USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"

@@ -10,15 +10,17 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from . import admin_application
-from .admin_auth import AdminAuth
-from .admin_teams_api import ChangeReason
-from .postgres import admin_operations, admin_reporting, integrations, quality_reporting
-from .postgres.runtime import PostgreSQLRuntime
-from .postgres.team_access import (
-    AccessRequest,
-    IntegrationAccessRequest,
+from . import application as admin_application
+from ..admin_auth import AdminAuth
+from .teams_api import ChangeReason
+from ..postgres import (
+    admin_operations,
+    admin_reporting,
+    integrations,
+    quality_reporting,
 )
+from ..postgres.runtime import PostgreSQLRuntime
+from ..postgres.team_access import AccessRequest, IntegrationAccessRequest
 
 
 T = TypeVar("T")

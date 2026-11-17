@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
-from review_agent_tools.admin_api import create_app  # noqa: E402
+from review_agent_tools.admin.api import create_app  # noqa: E402
 from review_agent_tools.admin_auth import bootstrap_admin  # noqa: E402
 from review_agent_tools.postgres.runtime import (  # noqa: E402
     PostgreSQLRuntime,
@@ -111,7 +111,7 @@ class AdminAPITests(unittest.TestCase):
         self.assertTrue(cookie)
         self.assertEqual(self.client.get("/api/repositories").json()["items"], [])
         with patch(
-            "review_agent_tools.admin_application.repositories",
+            "review_agent_tools.admin.application.repositories",
             side_effect=PostgreSQLUnavailable("private database details"),
         ):
             unavailable = self.client.get("/api/repositories")

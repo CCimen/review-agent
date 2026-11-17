@@ -13,16 +13,16 @@ from typing import Literal
 import psycopg
 from psycopg.rows import TupleRow
 
-from . import operator_application
-from .deployment_settings import DeploymentSettings
-from .domain.documentation_operating_policy import DocumentationMode
-from .postgres import documentation_operating_policy as docs_policy
-from .postgres import deployment_settings as settings_store
-from .domain.feedback import resolve_github_repository, resolve_repository
-from .github import app_auth, app_inventory
-from .postgres import github_app, repository_requests, review_requesters
-from .domain.review import RepositoryId, ReviewPurpose, ReviewRunId
-from .postgres import (
+from .. import operator_application
+from ..deployment_settings import DeploymentSettings
+from ..domain.documentation_operating_policy import DocumentationMode
+from ..postgres import documentation_operating_policy as docs_policy
+from ..postgres import deployment_settings as settings_store
+from ..domain.feedback import resolve_github_repository, resolve_repository
+from ..github import app_auth, app_inventory
+from ..postgres import github_app, repository_requests, review_requesters
+from ..domain.review import RepositoryId, ReviewPurpose, ReviewRunId
+from ..postgres import (
     admin_operations,
     admin_reporting,
     admin_usage,
@@ -35,7 +35,7 @@ from .postgres import (
     teams,
     integrations,
 )
-from .postgres.team_access import (
+from ..postgres.team_access import (
     AccessDenied,
     AccessRequest,
     AccessScope,
@@ -46,8 +46,8 @@ from .postgres.team_access import (
     ReadScope,
     TeamRole,
 )
-from .postgres.team_access import authorized_transaction as _transaction
-from .postgres.runtime import PostgreSQLRuntime
+from ..postgres.team_access import authorized_transaction as _transaction
+from ..postgres.runtime import PostgreSQLRuntime
 
 
 @contextmanager
@@ -1224,9 +1224,9 @@ def refresh_repository_documentation_configuration(
     access: AccessRequest,
     repository_id: int,
 ) -> docs_policy.RepositoryDocumentationPolicy:
-    from .documentation_configuration import read_configuration
-    from .source_control import GitHubReadClient
-    from .postgres import documentation_configuration
+    from ..documentation_configuration import read_configuration
+    from ..source_control import GitHubReadClient
+    from ..postgres import documentation_configuration
 
     started = datetime.now(timezone.utc)
     with _transaction(runtime, access, write=True) as (connection, scope):

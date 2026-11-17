@@ -6,17 +6,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import admin_application, operator_setup
-from .admin_auth import AdminAuth
-from .admin_teams_api import ChangeReason, TeamId
-from .domain.feedback import resolve_github_repository
-from .domain.documentation_operating_policy import DocumentationMode
-from .postgres import documentation_operating_policy as docs_policy
-from .github import app_auth, app_inventory
-from .postgres import github_app, repository_requests, review_requesters
-from .postgres.runtime import PostgreSQLRuntime
-from .postgres.team_access import AccessRequest
-from .settings import ReviewAgentSettings
+from . import application as admin_application
+from .. import operator_setup
+from ..admin_auth import AdminAuth
+from .teams_api import ChangeReason, TeamId
+from ..domain.feedback import resolve_github_repository
+from ..domain.documentation_operating_policy import DocumentationMode
+from ..postgres import documentation_operating_policy as docs_policy
+from ..github import app_auth, app_inventory
+from ..postgres import github_app, repository_requests, review_requesters
+from ..postgres.runtime import PostgreSQLRuntime
+from ..postgres.team_access import AccessRequest
+from ..settings import ReviewAgentSettings
 
 
 ObjectId = Annotated[int, Path(ge=1, le=9223372036854775807)]

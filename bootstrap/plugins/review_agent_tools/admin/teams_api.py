@@ -6,13 +6,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Path, Query
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from . import admin_application
-from .admin_auth import AdminAuth
-from .domain.documentation_operating_policy import DocumentationMode
-from .postgres import documentation_operating_policy as docs_policy
-from .postgres import audit, teams
-from .postgres.runtime import PostgreSQLRuntime
-from .postgres.team_access import AccessRequest, TeamRole
+from . import application as admin_application
+from ..admin_auth import AdminAuth
+from ..domain.documentation_operating_policy import DocumentationMode
+from ..postgres import documentation_operating_policy as docs_policy
+from ..postgres import audit, teams
+from ..postgres.runtime import PostgreSQLRuntime
+from ..postgres.team_access import AccessRequest, TeamRole
 
 
 TeamId = Annotated[int, Path(ge=1, le=9223372036854775807)]

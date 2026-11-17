@@ -221,7 +221,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual(next(check for check in report.checks if check.name == "queues").status, "ready")
 
     def test_review_history_distinguishes_review_retry_and_expired_worker(self) -> None:
-        from review_agent_tools import admin_application, review_contract
+        from review_agent_tools.admin import application as admin_application
+        from review_agent_tools import review_contract
         from review_agent_tools.postgres import jobs
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
 
@@ -276,7 +277,8 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_a_review_split_into_parts_stays_one_request_with_its_activity_and_usage(
         self,
     ) -> None:
-        from review_agent_tools import admin_application, review_contract
+        from review_agent_tools.admin import application as admin_application
+        from review_agent_tools import review_contract
         from review_agent_tools.postgres import jobs
         from tests.test_postgres_jobs import TEST_REVIEW_CONTRACT
 
@@ -342,7 +344,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual((review_queue.waiting, review_queue.leased), (1, 1))
 
     def test_review_history_keeps_publication_retry_and_recovery_in_delivery(self) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
 
         run = self.start(pr_number=94, request_suffix="progress-publication")
         publication = self.prepare_publication(
@@ -563,7 +565,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_purpose_filters_keep_counts_and_selected_evidence_separate(
         self,
     ) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
         from review_agent_tools.documentation_scope import (
             ChangedPath,
             DocumentationScope,
@@ -678,7 +680,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_counts_requests_separately_and_keeps_recovered_failures(
         self,
     ) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
 
         failed = self.start(pr_number=17, request_suffix="admin-failed")
         with self.runtime.transaction() as connection:
@@ -736,7 +738,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertEqual([item.id for item in active_page.items], [active.run.id])
 
     def test_admin_totals_cover_matching_rows_beyond_the_page(self) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
 
         self.start(pr_number=81, request_suffix="totals-one")
         self.start(pr_number=82, request_suffix="totals-two")
@@ -781,7 +783,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_groups_requests_before_pagination_and_preserves_commit_context(
         self,
     ) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
 
         first = None
         last = None
@@ -842,7 +844,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_and_publication_time_are_independent_of_request_time(
         self,
     ) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
         from review_agent_tools.postgres import admin_operations, jobs
         from review_agent_tools.worker_telemetry import TokenUsage, record_usage
 
@@ -942,7 +944,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_attributes_requests_and_all_reported_attempts_without_fanout(
         self,
     ) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
         from review_agent_tools.postgres import jobs
         from review_agent_tools.postgres.team_access import AccessRequest
 
@@ -1161,7 +1163,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_usage_bounds_request_time_and_rechecks_application_authorization(
         self,
     ) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
         from review_agent_tools.postgres.team_access import AccessDenied
 
         run = self.start(pr_number=183, request_suffix="usage-date-boundary")
@@ -1202,7 +1204,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
     def test_admin_reader_returns_exact_published_snapshot_and_excludes_drafts(
         self,
     ) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
 
         first = self.start(pr_number=94, request_suffix="reader-published")
         published = self.publish_run(
@@ -1287,7 +1289,7 @@ class PostgreSQLOperatorReportingTests(unittest.TestCase):
         self.assertTrue(bounded.content_truncated)
 
     def test_admin_reader_pages_pr_history_without_losing_selected_review(self) -> None:
-        from review_agent_tools import admin_application
+        from review_agent_tools.admin import application as admin_application
 
         runs: list[review_runs.StartedRun] = []
         for index in range(22):

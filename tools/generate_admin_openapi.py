@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "bootstrap/plugins"))
 
-from review_agent_tools.admin_api import create_app  # noqa: E402
+from review_agent_tools.admin.api import create_app  # noqa: E402
 from review_agent_tools.postgres.runtime import PostgreSQLRuntime  # noqa: E402
 from review_agent_tools.settings import PostgresDatabaseUrl  # noqa: E402
 

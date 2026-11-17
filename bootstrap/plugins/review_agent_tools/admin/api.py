@@ -29,38 +29,38 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from . import (
-    admin_audit_api,
-    admin_model_api,
-    admin_repository_requests_api,
-    admin_access_api,
-    admin_application,
-    admin_quality_api,
-    admin_run_api,
-    admin_provider_api,
-    admin_settings_api,
-    admin_deployment_api,
-    admin_teams_api,
-    model_connection_config,
+    audit_api as admin_audit_api,
+    model_api as admin_model_api,
+    repository_requests_api as admin_repository_requests_api,
+    access_api as admin_access_api,
+    application as admin_application,
+    quality_api as admin_quality_api,
+    run_api as admin_run_api,
+    provider_api as admin_provider_api,
+    settings_api as admin_settings_api,
+    deployment_api as admin_deployment_api,
+    teams_api as admin_teams_api,
     integration_api,
-    admin_scim,
-    admin_oidc,
+    scim as admin_scim,
+    oidc as admin_oidc,
 )
-from .admin_auth import AdminAuth
-from .admin_email import email_cipher
-from .admin_identity_config import IdentitySettings
-from .build_info import BuildInfo, read_build_info
-from .domain.review import ReviewPurpose
-from .postgres import admin_operations, admin_reporting, admin_usage
-from .postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
-from .postgres.teams import TeamConflict
-from .postgres.model_connections import ConnectionConflict
-from .hermes_control import HermesControlError
-from .postgres.runtime import (
+from .. import model_connection_config
+from ..admin_auth import AdminAuth
+from .email import email_cipher
+from .identity_config import IdentitySettings
+from ..build_info import BuildInfo, read_build_info
+from ..domain.review import ReviewPurpose
+from ..postgres import admin_operations, admin_reporting, admin_usage
+from ..postgres.team_access import AccessDenied, AccessRequest, ResourceNotFound
+from ..postgres.teams import TeamConflict
+from ..postgres.model_connections import ConnectionConflict
+from ..hermes_control import HermesControlError
+from ..postgres.runtime import (
     PostgreSQLRuntime,
     PostgreSQLRuntimeError,
     PostgreSQLRuntimeRole,
 )
-from .settings import ReviewAgentSettings
+from ..settings import ReviewAgentSettings
 
 
 Days = Annotated[int, Query(ge=1, le=90)]
@@ -483,5 +483,5 @@ def app_from_environment() -> FastAPI:
     return create_app(
         runtime,
         public_url=os.environ.get("REVIEW_AGENT_ADMIN_PUBLIC_URL", ""),
-        static_dir=Path(__file__).resolve().parents[3] / "admin" / "dist",
+        static_dir=Path(__file__).resolve().parents[4] / "admin" / "dist",
     )

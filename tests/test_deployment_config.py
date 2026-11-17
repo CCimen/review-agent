@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 import yaml
 
@@ -335,6 +336,25 @@ class DeploymentConfigTests(unittest.TestCase):
         self.assertNotIn("ports:", compose)
         self.assertIn("review-database:\n    internal: true", compose)
         self.assertNotIn("/opt/review-agent-bootstrap/install.sh", reviewer_section)
+
+    def test_admin_service_serves_the_frontend_the_image_installs(self):
+        from review_agent_tools.admin import api
+
+        environment = {
+            "REVIEW_AGENT_DATABASE_URL": "postgresql://localhost/not_connected",
+            "REVIEW_AGENT_ADMIN_PUBLIC_URL": "https://admin.example.test",
+        }
+        with patch.dict(os.environ, environment), patch.object(api, "create_app") as create:
+            api.app_from_environment()
+        # The image copies the package and the built frontend to the same
+        # relative places as this checkout.
+        dockerfile = read("admin/Dockerfile")
+        self.assertIn(
+            "COPY bootstrap/plugins/review_agent_tools /app/bootstrap/plugins/review_agent_tools",
+            dockerfile,
+        )
+        self.assertIn("COPY --from=frontend /build/dist /app/admin/dist", dockerfile)
+        self.assertEqual(ROOT / "admin" / "dist", create.call_args.kwargs["static_dir"])
 
     def test_live_reviewer_keeps_unsafe_toolsets_disabled(self):
         config = read("bootstrap/config.yaml")

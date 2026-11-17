@@ -11,7 +11,7 @@ import psycopg
 from cryptography.fernet import Fernet
 
 from tests import test_admin_api
-from review_agent_tools.admin_email import SMTPSettings
+from review_agent_tools.admin.email import SMTPSettings
 
 
 DSN = os.environ.get("REVIEW_AGENT_POSTGRES_DSN", "")

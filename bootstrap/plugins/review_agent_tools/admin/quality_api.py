@@ -5,14 +5,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import admin_application, operator_application
-from .admin_auth import AdminAuth
-from .postgres.team_access import AccessRequest
-from .domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
-from .domain.finding import DecisionKind
-from .domain.review import ReviewPurpose
-from .postgres import admin_quality, quality_reporting, quality_triage, reporting
-from .postgres.runtime import PostgreSQLRuntime
+from . import application as admin_application
+from .. import operator_application
+from ..admin_auth import AdminAuth
+from ..postgres.team_access import AccessRequest
+from ..domain.feedback import FeedbackTargetOwner, FeedbackTriageStatus
+from ..domain.finding import DecisionKind
+from ..domain.review import ReviewPurpose
+from ..postgres import admin_quality, quality_reporting, quality_triage, reporting
+from ..postgres.runtime import PostgreSQLRuntime
 
 
 Repository = Annotated[

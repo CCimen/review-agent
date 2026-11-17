@@ -6,12 +6,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field, field_validator
 
-from . import admin_application
-from .admin_auth import AdminAuth
-from .postgres.team_access import AccessRequest
-from .domain.review import ReviewStatus
-from .postgres import admin_run_actions, jobs, review_runs
-from .postgres.runtime import PostgreSQLRuntime
+from . import application as admin_application
+from ..admin_auth import AdminAuth
+from ..postgres.team_access import AccessRequest
+from ..domain.review import ReviewStatus
+from ..postgres import admin_run_actions, jobs, review_runs
+from ..postgres.runtime import PostgreSQLRuntime
 
 
 class ActionAvailability(BaseModel):

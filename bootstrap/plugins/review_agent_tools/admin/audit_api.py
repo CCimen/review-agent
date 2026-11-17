@@ -12,11 +12,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter
 
-from . import admin_application
-from .admin_auth import AdminAuth
-from .postgres import audit
-from .postgres.runtime import PostgreSQLRuntime
-from .postgres.team_access import AccessRequest
+from . import application as admin_application
+from ..admin_auth import AdminAuth
+from ..postgres import audit
+from ..postgres.runtime import PostgreSQLRuntime
+from ..postgres.team_access import AccessRequest
 
 
 class AuditFormat(StrEnum):

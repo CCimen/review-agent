@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 
 from pydantic import SecretStr
 
-from .settings import SettingsError
+from ..settings import SettingsError
 
 
 def identity_https_url(value: str, *, allow_query: bool = False) -> str:

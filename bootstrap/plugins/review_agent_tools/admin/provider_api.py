@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .admin_auth import AdminAuth
-from .hermes_control import (
+from ..admin_auth import AdminAuth
+from ..hermes_control import (
     HermesControlClient,
     HermesControlError,
     ProviderModel,

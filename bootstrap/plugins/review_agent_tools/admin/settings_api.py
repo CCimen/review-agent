@@ -5,12 +5,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import admin_application
-from .admin_auth import AdminAuth
-from .postgres.team_access import AccessRequest
-from .deployment_settings import DeploymentSettings
-from .postgres import deployment_settings as store
-from .postgres.runtime import PostgreSQLRuntime
+from . import application as admin_application
+from ..admin_auth import AdminAuth
+from ..postgres.team_access import AccessRequest
+from ..deployment_settings import DeploymentSettings
+from ..postgres import deployment_settings as store
+from ..postgres.runtime import PostgreSQLRuntime
 
 
 class SaveSettings(BaseModel):

@@ -7,21 +7,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Path, Query
 from pydantic import Field, BaseModel, ConfigDict, model_validator
 
-from . import model_connection_config
-from .admin_auth import AdminAuth
-from .admin_model_application import (
+from .. import model_connection_config
+from ..admin_auth import AdminAuth
+from .model_application import (
     ConnectionRuntime,
     ModelConnectionsApplication,
     ModelLogin,
 )
-from .admin_teams_api import ChangeReason
-from .hermes_control import ProviderModel
-from .model_accounts import ModelProvider
-from .model_quota import AccountQuota
-from .postgres import model_connections as models
-from .postgres.runtime import PostgreSQLRuntime
-from .postgres.team_access import AccessRequest, authorized_transaction
-from .review_contract import REASONING_EFFORTS
+from .teams_api import ChangeReason
+from ..hermes_control import ProviderModel
+from ..model_accounts import ModelProvider
+from ..model_quota import AccountQuota
+from ..postgres import model_connections as models
+from ..postgres.runtime import PostgreSQLRuntime
+from ..postgres.team_access import AccessRequest, authorized_transaction
+from ..review_contract import REASONING_EFFORTS
 
 
 ConnectionId = Annotated[int, Path(ge=1, le=9223372036854775807)]

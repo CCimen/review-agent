@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, model_va
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .settings import SettingsError
+from ..settings import SettingsError
 
 
 class SMTPConfiguration(BaseModel):
